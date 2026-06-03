@@ -53,7 +53,7 @@ export default function GuruSoalPage() {
   }, [])
 
   function openAdd() {
-    setEditData({ jumlah_opsi: 4, tingkat: 'Sedang', acak: 'YA', kunci: 'A' })
+    setEditData({ jumlah_opsi: 4, tingkat: 'Sedang', kunci: 'A' })
     setJumlahOpsi(4)
     setModalOpen(true)
   }
@@ -249,13 +249,6 @@ export default function GuruSoalPage() {
                 <option>Mudah</option>
                 <option>Sedang</option>
                 <option>Sulit</option>
-              </select>
-            </div>
-            <div>
-              <label className="label">Acak Opsi</label>
-              <select name="acak" className="select" defaultValue={editData?.acak ?? 'YA'}>
-                <option value="YA">Ya</option>
-                <option value="TIDAK">Tidak</option>
               </select>
             </div>
           </div>
