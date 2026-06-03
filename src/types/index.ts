@@ -76,6 +76,7 @@ export interface PaketSoal {
   tanggal: string
   catatan?: string
   jumlah_soal: number
+  acak: 'YA' | 'TIDAK'
   // joined
   nama_mapel?: string
   nama_guru?: string
@@ -101,7 +102,6 @@ export interface Soal {
   tanggal?: string
   gambar_url?: string
   paket_id?: string
-  acak: 'YA' | 'TIDAK'
 }
 
 export interface SesiUjian {
