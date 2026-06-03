@@ -44,3 +44,16 @@ export async function PUT(req: NextRequest) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ message: 'Kelas berhasil diperbarui' })
 }
+
+export async function DELETE(req: NextRequest) {
+  const auth = requireRole(req, ['ADMIN'])
+  if ('error' in auth) return auth.error
+
+  const db = createAdminClient()
+  const { id } = await req.json()
+  if (!id) return NextResponse.json({ error: 'ID kelas diperlukan' }, { status: 400 })
+
+  const { error } = await db.from('kelas').delete().eq('id', id)
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ message: 'Kelas berhasil dihapus' })
+}
