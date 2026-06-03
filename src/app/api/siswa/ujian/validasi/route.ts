@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
   // Get soal for this sesi (randomized per kelas/mapel)
   const { data: paketData } = await db
     .from('paket_soal')
-    .select('id')
+    .select('id, acak')
     .eq('mapel_id', sesi.mapel_id)
     .eq('kelas_id', user.kelas ?? sesi.kelas)
     .eq('status', 'DISETUJUI')
@@ -81,11 +81,23 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ valid: false, message: 'Tidak ada soal tersedia untuk ujian ini.' })
   }
 
-  // Shuffle soal if acak = YA
-  const shuffled = soalList
-    .map(s => ({ ...s, sort_key: s.acak === 'YA' ? Math.random() : 0 }))
-    .sort((a, b) => b.sort_key - a.sort_key)
-    .map((s, i) => ({ ...s, nomor: i + 1 }))
+  // Shuffle berdasarkan pengaturan acak di level paket
+  const shouldAcak = paketData
+    ? (paketData as { id: string; acak?: string }).acak === 'YA'
+    : false
+
+  let finalSoal
+  if (shouldAcak) {
+    // Fisher-Yates shuffle
+    const arr = [...soalList]
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1))
+      ;[arr[i], arr[j]] = [arr[j], arr[i]]
+    }
+    finalSoal = arr.map((s, i) => ({ ...s, nomor: i + 1 }))
+  } else {
+    finalSoal = soalList.map((s, i) => ({ ...s, nomor: i + 1 }))
+  }
 
   // Get mapel name
   const { data: mapel } = await db.from('mapel').select('nama').eq('id', sesi.mapel_id).single()
@@ -97,6 +109,6 @@ export async function POST(req: NextRequest) {
     namaMapel: mapel?.nama ?? sesi.mapel_id,
     kelas: sesi.kelas,
     durasi: sesi.durasi,
-    soalList: shuffled,
+    soalList: finalSoal,
   })
 }
