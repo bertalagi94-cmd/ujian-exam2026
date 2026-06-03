@@ -117,7 +117,7 @@ export default function GuruPaketPage() {
                     <StatusBadge status={p.status} />
                   </div>
                   <div className="text-xs text-slate-400 mt-1">
-                    {p.jumlah_soal} soal · Dibuat {formatDateTime(p.tanggal)}
+                    {p.jumlah_soal} soal · {p.acak === 'YA' ? 'Soal diacak' : 'Urutan tetap'} · Dibuat {formatDateTime(p.tanggal)}
                   </div>
                   {p.catatan && (
                     <div className="mt-2 text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2 border border-amber-100">
@@ -186,6 +186,13 @@ export default function GuruPaketPage() {
             <select name="kelas_id" className="select" required>
               <option value="">Pilih Kelas</option>
               {kelasList.map(k => <option key={k.id} value={k.id}>{k.nama}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="label">Acak Urutan Soal</label>
+            <select name="acak" className="select" defaultValue="YA">
+              <option value="YA">Ya — urutan soal diacak untuk setiap siswa</option>
+              <option value="TIDAK">Tidak — urutan soal tetap sesuai input</option>
             </select>
           </div>
           <div className="alert-info text-xs">
