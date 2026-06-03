@@ -98,8 +98,10 @@ export default function AdminPengaturanPage() {
       // Upload via API
       const formData = new FormData()
       formData.append('file', file)
+      const uploadToken = typeof window !== 'undefined' ? localStorage.getItem('token') : null
       const res = await fetch('/api/admin/pengaturan/logo', {
         method: 'POST',
+        headers: uploadToken ? { Authorization: `Bearer ${uploadToken}` } : {},
         body: formData,
       })
       const json = await res.json()
@@ -118,7 +120,11 @@ export default function AdminPengaturanPage() {
   async function handleHapusLogo() {
     setSaving(true)
     try {
-      await fetch('/api/admin/pengaturan/logo', { method: 'DELETE' })
+      const deleteToken = typeof window !== 'undefined' ? localStorage.getItem('token') : null
+      await fetch('/api/admin/pengaturan/logo', {
+        method: 'DELETE',
+        headers: deleteToken ? { Authorization: `Bearer ${deleteToken}` } : {},
+      })
       set('logoUrl', '')
       setLogoPreview('')
       showToast('Logo berhasil dihapus')
