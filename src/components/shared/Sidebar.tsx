@@ -6,7 +6,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import {
   LayoutDashboard, Users, BookOpen, Calendar, ClipboardList,
   BarChart3, Settings, LogOut, Menu, X, ChevronRight,
-  GraduationCap, School, Bell, User
+  GraduationCap, School, Bell, User, FileUp
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { AuthUser } from '@/types'
@@ -156,6 +156,7 @@ export function AdminSidebar() {
         { label: 'Jadwal Ujian', href: '/admin/jadwal', icon: Calendar },
         { label: 'Validasi Soal', href: '/admin/soal', icon: ClipboardList },
         { label: 'Rekap Nilai', href: '/admin/nilai', icon: BarChart3 },
+        { label: 'Import Data', href: '/admin/import', icon: FileUp },
         { label: 'Pengaturan', href: '/admin/pengaturan', icon: Settings },
       ]}
     />
