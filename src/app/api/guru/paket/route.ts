@@ -52,6 +52,7 @@ export async function POST(req: NextRequest) {
     guru_id: user.username,
     status: 'DRAFT',
     jumlah_soal: 0,
+    acak: body.acak ?? 'YA',
   })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
