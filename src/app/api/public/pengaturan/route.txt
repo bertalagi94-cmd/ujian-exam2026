@@ -1,0 +1,15 @@
+import { NextResponse } from 'next/server'
+import { createAdminClient } from '@/lib/supabase'
+
+export async function GET() {
+  const db = createAdminClient()
+  const { data } = await db
+    .from('pengaturan')
+    .select('key, value')
+    .in('key', ['namaSekolah', 'kota', 'logoUrl'])
+
+  const result: Record<string, string> = {}
+  data?.forEach(({ key, value }) => { result[key] = value ?? '' })
+
+  return NextResponse.json({ data: result })
+}
