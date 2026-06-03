@@ -1,8 +1,14 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Eye, EyeOff, BookOpen, Lock, User, AlertCircle } from 'lucide-react'
+
+interface SiteInfo {
+  namaSekolah: string
+  kota: string
+  logoUrl: string
+}
 
 export default function LoginPage() {
   const router = useRouter()
@@ -10,6 +16,20 @@ export default function LoginPage() {
   const [showPw, setShowPw] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [siteInfo, setSiteInfo] = useState<SiteInfo>({ namaSekolah: '', kota: '', logoUrl: '' })
+
+  useEffect(() => {
+    fetch('/api/public/pengaturan')
+      .then(r => r.json())
+      .then(json => {
+        if (json?.data) setSiteInfo({
+          namaSekolah: json.data.namaSekolah ?? '',
+          kota: json.data.kota ?? '',
+          logoUrl: json.data.logoUrl ?? '',
+        })
+      })
+      .catch(() => {})
+  }, [])
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault()
@@ -53,6 +73,31 @@ export default function LoginPage() {
     }
   }
 
+  const displayName = siteInfo.namaSekolah || 'SmartExam'
+  const displayKota = siteInfo.kota || ''
+  const year = new Date().getFullYear()
+
+  // Logo component — reused on both desktop & mobile
+  function SchoolLogo({ size }: { size: 'sm' | 'lg' }) {
+    const dim = size === 'lg' ? 'w-14 h-14' : 'w-10 h-10'
+    const iconDim = size === 'lg' ? 'w-7 h-7' : 'w-5 h-5'
+    if (siteInfo.logoUrl) {
+      return (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={siteInfo.logoUrl}
+          alt={displayName}
+          className={`${dim} object-contain rounded-xl bg-white/10 p-1 backdrop-blur flex-shrink-0`}
+        />
+      )
+    }
+    return (
+      <div className={`${dim} bg-white/20 rounded-xl flex items-center justify-center backdrop-blur flex-shrink-0`}>
+        <BookOpen className={`${iconDim} text-white`} />
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen flex bg-gradient-to-br from-brand-950 via-brand-900 to-brand-800">
       {/* Left — branding */}
@@ -62,14 +107,22 @@ export default function LoginPage() {
         <div className="absolute top-1/3 -right-20 w-64 h-64 rounded-full bg-white/5" />
         <div className="absolute -bottom-20 left-1/4 w-96 h-96 rounded-full bg-white/5" />
 
+        {/* Logo + Nama Sekolah */}
         <div className="relative z-10">
           <div className="flex items-center gap-3 mb-2">
-            <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center backdrop-blur">
-              <BookOpen className="w-5 h-5 text-white" />
+            <SchoolLogo size="lg" />
+            <div className="min-w-0">
+              <p className="font-bold text-xl leading-tight line-clamp-2">
+                {siteInfo.namaSekolah || 'SmartExam'}
+              </p>
+              {!siteInfo.namaSekolah && (
+                <p className="text-brand-300 text-sm">Computer Based Test System</p>
+              )}
+              {siteInfo.namaSekolah && (
+                <p className="text-brand-300 text-sm">Computer Based Test System</p>
+              )}
             </div>
-            <span className="font-bold text-xl">SmartExam</span>
           </div>
-          <p className="text-brand-300 text-sm">Computer Based Test System</p>
         </div>
 
         <div className="relative z-10 space-y-6">
@@ -78,8 +131,9 @@ export default function LoginPage() {
               Ujian Digital<br />Lebih Mudah & Adil
             </h1>
             <p className="text-brand-300 text-sm leading-relaxed max-w-xs">
-              Sistem CBT modern untuk MTS Alkhairaat Tatakalai dengan fitur anti-nyontek,
-              penilaian otomatis, dan monitoring real-time.
+              Sistem CBT modern
+              {siteInfo.namaSekolah ? ` untuk ${siteInfo.namaSekolah}` : ''}
+              {' '}dengan fitur anti-nyontek, penilaian otomatis, dan monitoring real-time.
             </p>
           </div>
           <div className="grid grid-cols-3 gap-4">
@@ -97,19 +151,27 @@ export default function LoginPage() {
         </div>
 
         <div className="relative z-10 text-brand-400 text-xs">
-          MTS Alkhairaat Tatakalai &copy; {new Date().getFullYear()}
+          {siteInfo.namaSekolah
+            ? <>{siteInfo.namaSekolah} &copy; {year}</>
+            : <>SmartExam &copy; {year}</>
+          }
         </div>
       </div>
 
       {/* Right — login form */}
       <div className="flex-1 flex items-center justify-center p-6">
         <div className="w-full max-w-sm">
-          {/* mobile logo */}
-          <div className="lg:hidden flex items-center gap-2 mb-8 justify-center">
-            <div className="w-8 h-8 bg-white/20 rounded-xl flex items-center justify-center">
-              <BookOpen className="w-4 h-4 text-white" />
+          {/* Mobile: logo + nama sekolah */}
+          <div className="lg:hidden flex items-center gap-3 mb-8 justify-center">
+            <SchoolLogo size="sm" />
+            <div className="min-w-0 text-left">
+              <p className="font-bold text-white text-base leading-tight line-clamp-2">
+                {siteInfo.namaSekolah || 'SmartExam'}
+              </p>
+              {!siteInfo.namaSekolah && (
+                <p className="text-brand-300 text-xs">Computer Based Test System</p>
+              )}
             </div>
-            <span className="font-bold text-white text-lg">SmartExam</span>
           </div>
 
           <div className="bg-white rounded-3xl shadow-card-lg p-8">
@@ -185,9 +247,11 @@ export default function LoginPage() {
             </div>
           </div>
 
-          <p className="text-center text-brand-300/60 text-xs mt-6">
-            MTS Alkhairaat Tatakalai · Banggai Kepulauan
-          </p>
+          {(siteInfo.namaSekolah || siteInfo.kota) && (
+            <p className="text-center text-brand-300/60 text-xs mt-6">
+              {[siteInfo.namaSekolah, siteInfo.kota].filter(Boolean).join(' · ')}
+            </p>
+          )}
         </div>
       </div>
     </div>
