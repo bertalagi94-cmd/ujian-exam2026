@@ -164,18 +164,38 @@ export function AdminSidebar() {
 }
 
 export function GuruSidebar() {
+  const [isWaliKelas, setIsWaliKelas] = useState(false)
+
+  useEffect(() => {
+    // Cek apakah guru ini wali kelas via API
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
+    if (!token) return
+    fetch('/api/guru/wali-kelas', {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(r => r.json())
+      .then(d => { if (d.isWaliKelas) setIsWaliKelas(true) })
+      .catch(() => {})
+  }, [])
+
+  const navItems: NavItem[] = [
+    { label: 'Dashboard', href: '/guru', icon: LayoutDashboard },
+    { label: 'Bank Soal', href: '/guru/soal', icon: BookOpen },
+    { label: 'Paket Soal', href: '/guru/paket', icon: ClipboardList },
+    { label: 'Rekap Nilai', href: '/guru/nilai', icon: BarChart3 },
+    { label: 'Analisis Soal', href: '/guru/analisis', icon: BarChart3 },
+  ]
+
+  if (isWaliKelas) {
+    navItems.splice(1, 0, { label: 'Wali Kelas', href: '/guru/wali-kelas', icon: School })
+  }
+
   return (
     <Sidebar
       role="GURU"
       roleColor="bg-emerald-600"
       roleLabel="Guru"
-      navItems={[
-        { label: 'Dashboard', href: '/guru', icon: LayoutDashboard },
-        { label: 'Bank Soal', href: '/guru/soal', icon: BookOpen },
-        { label: 'Paket Soal', href: '/guru/paket', icon: ClipboardList },
-        { label: 'Rekap Nilai', href: '/guru/nilai', icon: BarChart3 },
-        { label: 'Analisis Soal', href: '/guru/analisis', icon: BarChart3 },
-      ]}
+      navItems={navItems}
     />
   )
 }
