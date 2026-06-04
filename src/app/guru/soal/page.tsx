@@ -81,10 +81,10 @@ export default function GuruSoalPage() {
   function openEdit(s: SoalWithMapel) {
     setEditData(s)
     setJumlahOpsi(s.jumlah_opsi || 4)
-    setImgPertanyaan((s as Record<string, unknown>).gambar_pertanyaan as string || '')
+    setImgPertanyaan(s.gambar_pertanyaan || '')
     const opsiImgs: Record<string, string> = {}
     for (const l of ['a','b','c','d','e']) {
-      const v = (s as Record<string, unknown>)[`gambar_opsi_${l}`] as string
+      const v = s[`gambar_opsi_${l}` as keyof SoalWithMapel] as string
       if (v) opsiImgs[l] = v
     }
     setImgOpsi(opsiImgs)
@@ -230,7 +230,7 @@ export default function GuruSoalPage() {
                     <td className="text-slate-400 text-xs">{(page - 1) * PER_PAGE + i + 1}</td>
                     <td className="max-w-[360px]">
                       <p className="text-sm text-slate-800 line-clamp-2">{s.teks}</p>
-                      {(s as Record<string, unknown>).gambar_pertanyaan && <span className="text-xs text-brand-500 mt-1 block">📷 Ada gambar</span>}
+                      {s.gambar_pertanyaan && <span className="text-xs text-brand-500 mt-1 block">📷 Ada gambar</span>}
                     </td>
                     <td className="text-sm text-slate-600 whitespace-nowrap">{s.nama_mapel ?? s.mapel_id}</td>
                     <td>
@@ -289,15 +289,15 @@ export default function GuruSoalPage() {
             <div>
               <p className="label mb-1">Pertanyaan</p>
               <p className="text-sm text-slate-800 leading-relaxed">{viewData.teks}</p>
-              {(viewData as Record<string, unknown>).gambar_pertanyaan && (
-                <img src={(viewData as Record<string, unknown>).gambar_pertanyaan as string} alt="Gambar pertanyaan" className="mt-2 max-h-48 rounded-lg border border-slate-200" />
+              {viewData.gambar_pertanyaan && (
+                <img src={viewData.gambar_pertanyaan} alt="Gambar pertanyaan" className="mt-2 max-h-48 rounded-lg border border-slate-200" />
               )}
             </div>
             <div className="space-y-1.5">
               <p className="label mb-1">Pilihan Jawaban</p>
               {opsiLabels.slice(0, viewData.jumlah_opsi).map(l => {
-                const opsiText = (viewData as Record<string, unknown>)[`opsi_${l.toLowerCase()}`] as string
-                const opsiImg = (viewData as Record<string, unknown>)[`gambar_opsi_${l.toLowerCase()}`] as string
+                const opsiText = viewData[`opsi_${l.toLowerCase()}` as keyof SoalWithMapel] as string
+                const opsiImg = viewData[`gambar_opsi_${l.toLowerCase()}` as keyof SoalWithMapel] as string
                 const isKunci = viewData.kunci === l
                 return (
                   <div key={l} className={`flex items-start gap-2 text-sm px-3 py-2 rounded-lg ${isKunci ? 'bg-emerald-50 text-emerald-800 font-medium' : 'text-slate-600'}`}>
