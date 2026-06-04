@@ -109,9 +109,10 @@ export async function POST(req: NextRequest) {
     else if (tabel === 'siswa') {
       for (const r of rows) {
         const nis = toNIS(r['NIS'])
-        const password = clean(r['Password'])
         const nama = clean(r['Nama'])
-        if (!nis || !password || !nama) { skipped++; continue }
+        // Jika kolom Password kosong, gunakan NIS sebagai password default
+        const password = clean(r['Password']) || nis
+        if (!nis || !nama) { skipped++; continue }
         const password_hash = await bcrypt.hash(password, 10)
         const tanggalLahir = r['TanggalLahir']
           ? excelDateToISO(Number(r['TanggalLahir']))
