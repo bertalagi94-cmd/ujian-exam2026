@@ -212,13 +212,17 @@ function CetakContent() {
   }
 
   return (
-    <div>
-      <div ref={containerRef} style={{ background: '#fff' }}>
+    <>
+      <style>{`
+        body > *:not(#cetak-root) { display: none !important; }
+        #cetak-root { display: block !important; }
+      `}</style>
+      <div id="cetak-root" ref={containerRef} style={{ background: '#fff' }}>
         <div style={{ padding: '40px', textAlign: 'center', fontFamily: 'sans-serif', color: '#666' }}>
           Memuat dokumen...
         </div>
       </div>
-    </div>
+    </>
   )
 }
 
