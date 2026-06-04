@@ -40,7 +40,7 @@ export default function AdminSiswaPage() {
       setSiswa(res.data)
       setTotal(res.total)
     } catch (e) {
-      showToast(e instanceof Error ? e.message : \'Gagal memuat data\', \'error\')
+      showToast(e instanceof Error ? e.message : 'Gagal memuat data', 'error')
       console.error(e)
     } finally {
       setLoading(false)
