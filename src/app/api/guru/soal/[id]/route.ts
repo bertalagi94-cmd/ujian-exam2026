@@ -12,28 +12,35 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
   const db = createAdminClient()
   const body = await req.json()
 
-  // Verify ownership
   const { data: existing } = await db.from('soal').select('guru_id, status').eq('id', params.id).single()
   if (!existing || existing.guru_id !== user.username) {
     return NextResponse.json({ error: 'Tidak memiliki izin' }, { status: 403 })
+  }
+  if (['DISETUJUI', 'MENUNGGU'].includes(existing.status)) {
+    return NextResponse.json({ error: 'Soal yang sudah dikirim/disetujui tidak bisa diedit' }, { status: 400 })
   }
 
   const { error } = await db.from('soal').update({
     mapel_id: body.mapel_id,
     kelas_id: body.kelas_id,
     teks: body.teks,
+    gambar_pertanyaan: body.gambar_pertanyaan || null,
     opsi_a: body.opsi_a,
     opsi_b: body.opsi_b,
     opsi_c: body.opsi_c,
     opsi_d: body.opsi_d || null,
     opsi_e: body.opsi_e || null,
+    gambar_opsi_a: body.gambar_opsi_a || null,
+    gambar_opsi_b: body.gambar_opsi_b || null,
+    gambar_opsi_c: body.gambar_opsi_c || null,
+    gambar_opsi_d: body.gambar_opsi_d || null,
+    gambar_opsi_e: body.gambar_opsi_e || null,
     kunci: body.kunci,
     pembahasan: body.pembahasan || null,
     tingkat: body.tingkat,
     jumlah_opsi: parseInt(body.jumlah_opsi) || 4,
     acak: body.acak,
-    // Reset to draft if edited
-    status: existing.status === 'DISETUJUI' ? 'DRAFT' : existing.status,
+    status: existing.status === 'DITOLAK' ? 'DRAFT' : existing.status,
   }).eq('id', params.id)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
@@ -51,8 +58,8 @@ export async function DELETE(req: NextRequest, { params }: Ctx) {
   if (!existing || existing.guru_id !== user.username) {
     return NextResponse.json({ error: 'Tidak memiliki izin' }, { status: 403 })
   }
-  if (existing.status !== 'DRAFT') {
-    return NextResponse.json({ error: 'Hanya soal berstatus DRAFT yang bisa dihapus' }, { status: 400 })
+  if (!['DRAFT', 'DITOLAK'].includes(existing.status)) {
+    return NextResponse.json({ error: 'Soal yang sudah dikirim atau disetujui tidak bisa dihapus' }, { status: 400 })
   }
 
   const { error } = await db.from('soal').delete().eq('id', params.id)
