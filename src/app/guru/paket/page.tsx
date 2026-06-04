@@ -472,6 +472,18 @@ export default function GuruBuatSoalPage() {
                   )}
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
+                  {p.status === 'DRAFT' && (
+                    <button
+                      onClick={() => {
+                        setActivePaket(p)
+                        setSoalDibuat([])
+                        setStep('buat')
+                      }}
+                      className="btn-secondary btn-sm"
+                    >
+                      <Plus className="w-3.5 h-3.5" /> Lanjutkan
+                    </button>
+                  )}
                   {(p.status === 'DRAFT' || p.status === 'DITOLAK') && (
                     <button onClick={() => setKirimId(p.id)} className="btn-primary btn-sm">
                       <Send className="w-3.5 h-3.5" /> {p.status === 'DITOLAK' ? 'Kirim Ulang' : 'Kirim'}
