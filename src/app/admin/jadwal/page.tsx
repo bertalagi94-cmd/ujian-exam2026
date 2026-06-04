@@ -26,7 +26,7 @@ export default function AdminJadwalPage() {
 
   // State untuk modal cetak massal
   const [cetakMassalOpen, setCetakMassalOpen] = useState(false)
-  const [cetakMode, setCetakMode] = useState<'daftar-hadir' | 'berita-acara'>('daftar-hadir')
+  const [cetakMode, setCetakMode] = useState<{ daftarHadir: boolean; beritaAcara: boolean }>({ daftarHadir: true, beritaAcara: true })
   const [cetakTanggal, setCetakTanggal] = useState('')
   const [tanggalList, setTanggalList] = useState<string[]>([])
 
@@ -107,8 +107,8 @@ export default function AdminJadwalPage() {
   // Buka tab cetak massal
   function cetakMassal() {
     if (!cetakTanggal) return
-    const url = `/admin/cetak?tanggal=${cetakTanggal}&mode=${cetakMode}`
-    window.open(url, '_blank')
+    if (cetakMode.daftarHadir) window.open(`/admin/cetak?tanggal=${cetakTanggal}&mode=daftar-hadir`, '_blank')
+    if (cetakMode.beritaAcara) window.open(`/admin/cetak?tanggal=${cetakTanggal}&mode=berita-acara`, '_blank')
     setCetakMassalOpen(false)
   }
 
@@ -229,7 +229,7 @@ export default function AdminJadwalPage() {
         footer={
           <>
             <button onClick={() => setCetakMassalOpen(false)} className="btn-secondary">Batal</button>
-            <button onClick={cetakMassal} className="btn-primary" disabled={!cetakTanggal}>
+            <button onClick={cetakMassal} className="btn-primary" disabled={!cetakTanggal || (!cetakMode.daftarHadir && !cetakMode.beritaAcara)}>
               <Printer className="w-4 h-4" /> Cetak Semua
             </button>
           </>
@@ -254,30 +254,29 @@ export default function AdminJadwalPage() {
           </div>
           <div>
             <label className="label">Jenis Dokumen</label>
-            <div className="flex gap-3">
+            <div className="flex gap-4">
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
-                  type="radio"
-                  name="cetakMode"
-                  value="daftar-hadir"
-                  checked={cetakMode === 'daftar-hadir'}
-                  onChange={() => setCetakMode('daftar-hadir')}
-                  className="accent-brand-600"
+                  type="checkbox"
+                  checked={cetakMode.daftarHadir}
+                  onChange={e => setCetakMode(prev => ({ ...prev, daftarHadir: e.target.checked }))}
+                  className="accent-brand-600 w-4 h-4"
                 />
                 <span className="text-sm text-slate-700">Daftar Hadir</span>
               </label>
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
-                  type="radio"
-                  name="cetakMode"
-                  value="berita-acara"
-                  checked={cetakMode === 'berita-acara'}
-                  onChange={() => setCetakMode('berita-acara')}
-                  className="accent-brand-600"
+                  type="checkbox"
+                  checked={cetakMode.beritaAcara}
+                  onChange={e => setCetakMode(prev => ({ ...prev, beritaAcara: e.target.checked }))}
+                  className="accent-brand-600 w-4 h-4"
                 />
                 <span className="text-sm text-slate-700">Berita Acara</span>
               </label>
             </div>
+            {!cetakMode.daftarHadir && !cetakMode.beritaAcara && (
+              <p className="mt-1.5 text-xs text-red-500">Pilih minimal satu jenis dokumen.</p>
+            )}
           </div>
           {cetakTanggal && (
             <div className="bg-slate-50 rounded-xl px-4 py-3 text-sm text-slate-600">
