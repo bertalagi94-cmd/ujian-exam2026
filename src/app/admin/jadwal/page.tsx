@@ -243,14 +243,21 @@ export default function AdminJadwalPage() {
 
       doc.setFont('helvetica', 'normal'); doc.setFontSize(10)
       // Baris "Pada hari ini ..."
-      const introPrefix = 'Pada hari ini, '
+      const introPrefix = 'Pada hari ini,  '
       const introDate = fmtTanggal(j.tanggal)
       const introSuffix = ' telah dilaksanakan Ujian dengan ketentuan sebagai berikut:'
+      // Ukur lebar masing-masing bagian dengan font yang sesuai
+      doc.setFont('helvetica', 'normal')
+      const prefixW = doc.getTextWidth(introPrefix)
+      doc.setFont('helvetica', 'bold')
+      const dateW = doc.getTextWidth(introDate)
+      doc.setFont('helvetica', 'normal')
+      // Render
       doc.text(introPrefix, lm, my)
       doc.setFont('helvetica', 'bold')
-      doc.text(introDate, lm + doc.getTextWidth(introPrefix), my)
+      doc.text(introDate, lm + prefixW, my)
       doc.setFont('helvetica', 'normal')
-      doc.text(introSuffix, lm + doc.getTextWidth(introPrefix) + doc.getTextWidth(introDate), my)
+      doc.text(introSuffix, lm + prefixW + dateW, my)
       my += 9
 
       const baRows = [
@@ -276,7 +283,7 @@ export default function AdminJadwalPage() {
     }
 
     // TTD area — mengikuti posisi konten, minimal 30mm dari bawah halaman
-    const ttdY = Math.max(my + 6, 245)
+    const ttdY = my + 12
     doc.setFontSize(10)
     doc.setFont('helvetica', 'normal')
     doc.text('Pengawas Ujian,', lm, ttdY)
