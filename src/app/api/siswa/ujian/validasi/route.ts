@@ -71,6 +71,7 @@ export async function POST(req: NextRequest) {
   await db.from('siswa_ujian').upsert({
     sesi_id: sesi.id,
     nis,
+    waktu_daftar: new Date().toISOString(), // FIX 5: pastikan waktu_daftar selalu terisi
     waktu_mulai: new Date().toISOString(),
     status: 'AKTIF',
   }, { onConflict: 'sesi_id,nis' })
