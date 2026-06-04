@@ -1,7 +1,7 @@
 'use client'
 import * as XLSX from 'xlsx'
-import { useState, useEffect, useCallback } from 'react'
-import { Plus, Upload, Download, Pencil, Trash2, RotateCcw, Search } from 'lucide-react'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { Plus, Upload, Download, Pencil, Trash2, RotateCcw, Search, FileDown } from 'lucide-react'
 import { Modal, Confirm, StatusBadge, SearchInput, Pagination, EmptyState, Spinner, Toast } from '@/components/ui'
 import { apiRequest, formatDate } from '@/lib/utils'
 import { Siswa, Kelas } from '@/types'
@@ -110,22 +110,195 @@ export default function AdminSiswaPage() {
     }
   }
 
+  // ── EXPORT ──────────────────────────────────────────────────────────────
+  async function handleExport() {
+    try {
+      showToast('Mengekspor data siswa...')
+      // Fetch all data (no pagination)
+      const params = new URLSearchParams({
+        page: '1',
+        per_page: '99999',
+        ...(search && { search }),
+        ...(filterKelas && { kelas: filterKelas }),
+      })
+      const res = await apiRequest<{ data: Siswa[]; total: number }>(`/api/admin/siswa?${params}`)
+
+      const rows = res.data.map((s, i) => ({
+        No: i + 1,
+        NIS: s.nis,
+        'Nama Siswa': s.nama,
+        Kelas: s.kelas,
+        'Jenis Kelamin': s.jenis_kelamin ?? '',
+        'Tempat Lahir': s.tempat_lahir ?? '',
+        'Tanggal Lahir': s.tanggal_lahir ? s.tanggal_lahir.slice(0, 10) : '',
+        Status: s.status,
+        'Last Login': s.last_login ? formatDate(s.last_login) : 'Belum pernah',
+      }))
+
+      const ws = XLSX.utils.json_to_sheet(rows)
+      // Set column widths
+      ws['!cols'] = [
+        { wch: 5 }, { wch: 15 }, { wch: 30 }, { wch: 12 },
+        { wch: 15 }, { wch: 20 }, { wch: 15 }, { wch: 10 }, { wch: 20 },
+      ]
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, 'Data Siswa')
+      XLSX.writeFile(wb, `data-siswa-${new Date().toISOString().slice(0, 10)}.xlsx`)
+      showToast(`${res.data.length} data siswa berhasil diekspor`)
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Gagal ekspor', 'error')
+    }
+  }
+
+  // ── DOWNLOAD TEMPLATE ───────────────────────────────────────────────────
+  function handleDownloadTemplate() {
+    const templateRows = [
+      {
+        NIS: '12345',
+        'Nama Siswa': 'Contoh Nama Siswa',
+        Kelas: 'X-A',
+        'Jenis Kelamin': 'LAKI-LAKI',
+        'Tempat Lahir': 'Manado',
+        'Tanggal Lahir': '2008-01-15',
+        Status: 'AKTIF',
+      },
+      {
+        NIS: '12346',
+        'Nama Siswa': 'Contoh Nama Siswi',
+        Kelas: 'X-B',
+        'Jenis Kelamin': 'PEREMPUAN',
+        'Tempat Lahir': 'Bitung',
+        'Tanggal Lahir': '2008-03-20',
+        Status: 'AKTIF',
+      },
+    ]
+
+    const ws = XLSX.utils.json_to_sheet(templateRows)
+    ws['!cols'] = [
+      { wch: 15 }, { wch: 30 }, { wch: 12 },
+      { wch: 15 }, { wch: 20 }, { wch: 15 }, { wch: 10 },
+    ]
+
+    // Add note row with instructions
+    XLSX.utils.sheet_add_aoa(ws, [
+      [''],
+      ['PETUNJUK PENGISIAN:'],
+      ['- NIS: wajib diisi, unik'],
+      ['- Nama Siswa: wajib diisi'],
+      ['- Kelas: wajib diisi (sesuai nama kelas yang ada)'],
+      ['- Jenis Kelamin: LAKI-LAKI atau PEREMPUAN'],
+      ['- Tanggal Lahir: format YYYY-MM-DD'],
+      ['- Status: AKTIF atau NONAKTIF (default: AKTIF)'],
+      ['- Hapus baris contoh sebelum mengimpor'],
+    ], { origin: `A${templateRows.length + 3}` })
+
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Template Import')
+    XLSX.writeFile(wb, 'template-import-siswa.xlsx')
+    showToast('Template berhasil diunduh')
+  }
+
+  // ── IMPORT: read file ───────────────────────────────────────────────────
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      try {
+        const data = new Uint8Array(ev.target?.result as ArrayBuffer)
+        const wb = XLSX.read(data, { type: 'array' })
+        const ws = wb.Sheets[wb.SheetNames[0]]
+        const rows = XLSX.utils.sheet_to_json<Record<string, string>>(ws)
+
+        const parsed: Partial<Siswa>[] = rows
+          .filter(r => r['NIS'] && r['Nama Siswa'])
+          .map(r => ({
+            nis: String(r['NIS']).trim(),
+            nama: String(r['Nama Siswa']).trim(),
+            kelas: String(r['Kelas'] ?? '').trim(),
+            jenis_kelamin: r['Jenis Kelamin']
+              ? String(r['Jenis Kelamin']).trim().toUpperCase()
+              : undefined,
+            tempat_lahir: r['Tempat Lahir'] ? String(r['Tempat Lahir']).trim() : undefined,
+            tanggal_lahir: r['Tanggal Lahir'] ? String(r['Tanggal Lahir']).trim() : undefined,
+            status: r['Status'] ? String(r['Status']).trim().toUpperCase() : 'AKTIF',
+          }))
+
+        if (parsed.length === 0) {
+          showToast('Tidak ada data valid ditemukan. Pastikan kolom NIS dan Nama Siswa terisi.', 'error')
+          return
+        }
+
+        setImportData(parsed)
+        setImportOpen(true)
+      } catch {
+        showToast('Gagal membaca file. Pastikan format file Excel (.xlsx) sudah benar.', 'error')
+      }
+    }
+    reader.readAsArrayBuffer(file)
+    // Reset so same file can be re-selected
+    e.target.value = ''
+  }
+
+  // ── IMPORT: submit ──────────────────────────────────────────────────────
+  async function handleImportSubmit() {
+    if (importData.length === 0) return
+    setImporting(true)
+    try {
+      const res = await apiRequest<{ inserted: number; skipped: number }>(
+        '/api/admin/siswa/import',
+        {
+          method: 'POST',
+          body: JSON.stringify({ data: importData }),
+        }
+      )
+      showToast(`Import berhasil: ${res.inserted} ditambahkan, ${res.skipped} dilewati`)
+      setImportOpen(false)
+      setImportData([])
+      load()
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Gagal import', 'error')
+    } finally {
+      setImporting(false)
+    }
+  }
+
   const totalPages = Math.ceil(total / PER_PAGE)
 
   return (
     <div className="space-y-6 animate-fade-in">
       {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
 
+      {/* Hidden file input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".xlsx,.xls"
+        className="hidden"
+        onChange={handleFileChange}
+      />
+
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="page-title">Data Siswa</h1>
           <p className="page-subtitle">{total} siswa terdaftar</p>
         </div>
-        <div className="flex gap-2">
-          <button className="btn-secondary btn-sm">
+        <div className="flex gap-2 flex-wrap">
+          <button
+            onClick={handleDownloadTemplate}
+            className="btn-secondary btn-sm"
+            title="Unduh template Excel untuk import"
+          >
+            <FileDown className="w-4 h-4" /> Template
+          </button>
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="btn-secondary btn-sm"
+          >
             <Upload className="w-4 h-4" /> Import
           </button>
-          <button className="btn-secondary btn-sm">
+          <button onClick={handleExport} className="btn-secondary btn-sm">
             <Download className="w-4 h-4" /> Export
           </button>
           <button onClick={openAdd} className="btn-primary btn-sm">
@@ -230,7 +403,7 @@ export default function AdminSiswaPage() {
         </div>
       </div>
 
-      {/* Modal Form */}
+      {/* Modal Form Tambah/Edit */}
       <Modal
         open={modalOpen}
         onClose={() => setModalOpen(false)}
@@ -297,6 +470,59 @@ export default function AdminSiswaPage() {
             </div>
           )}
         </form>
+      </Modal>
+
+      {/* Modal Preview Import */}
+      <Modal
+        open={importOpen}
+        onClose={() => { setImportOpen(false); setImportData([]) }}
+        title={`Preview Import Siswa (${importData.length} data)`}
+        footer={
+          <>
+            <button
+              onClick={() => { setImportOpen(false); setImportData([]) }}
+              className="btn-secondary"
+              disabled={importing}
+            >
+              Batal
+            </button>
+            <button onClick={handleImportSubmit} className="btn-primary" disabled={importing}>
+              {importing ? <Spinner size="sm" /> : `Import ${importData.length} Siswa`}
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <div className="alert-info text-xs">
+            Periksa data berikut sebelum mengimpor. Siswa dengan NIS yang sudah ada akan dilewati.
+          </div>
+          <div className="max-h-80 overflow-y-auto">
+            <table className="table text-xs w-full">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>NIS</th>
+                  <th>Nama</th>
+                  <th>Kelas</th>
+                  <th>JK</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {importData.map((s, i) => (
+                  <tr key={i}>
+                    <td className="text-slate-400">{i + 1}</td>
+                    <td className="font-mono">{s.nis}</td>
+                    <td>{s.nama}</td>
+                    <td>{s.kelas}</td>
+                    <td>{s.jenis_kelamin === 'LAKI-LAKI' ? 'L' : s.jenis_kelamin === 'PEREMPUAN' ? 'P' : '-'}</td>
+                    <td>{s.status}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </Modal>
 
       {/* Confirm Delete */}
