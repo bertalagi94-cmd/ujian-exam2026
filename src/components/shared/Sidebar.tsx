@@ -165,16 +165,21 @@ export function AdminSidebar() {
 
 export function GuruSidebar() {
   const [isWaliKelas, setIsWaliKelas] = useState(false)
+  const [hasPengawasan, setHasPengawasan] = useState(false)
 
   useEffect(() => {
-    // Cek apakah guru ini wali kelas via API
     const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
     if (!token) return
-    fetch('/api/guru/wali-kelas', {
-      headers: { Authorization: `Bearer ${token}` },
-    })
+    const headers = { Authorization: `Bearer ${token}` }
+
+    fetch('/api/guru/wali-kelas', { headers })
       .then(r => r.json())
       .then(d => { if (d.isWaliKelas) setIsWaliKelas(true) })
+      .catch(() => {})
+
+    fetch('/api/guru/jadwal-pengawasan', { headers })
+      .then(r => r.json())
+      .then(d => { if (d.hasJadwal || (d.data && d.data.length > 0)) setHasPengawasan(true) })
       .catch(() => {})
   }, [])
 
@@ -186,9 +191,13 @@ export function GuruSidebar() {
     { label: 'Analisis Soal', href: '/guru/analisis', icon: BarChart3 },
   ]
 
-  if (isWaliKelas) {
-    navItems.splice(1, 0, { label: 'Wali Kelas', href: '/guru/wali-kelas', icon: School })
+  const extras: NavItem[] = []
+  if (isWaliKelas) extras.push({ label: 'Wali Kelas', href: '/guru/wali-kelas', icon: School })
+  if (hasPengawasan) {
+    extras.push({ label: 'Jadwal Pengawasan', href: '/guru/jadwal-pengawasan', icon: Calendar })
+    extras.push({ label: 'Mode Pengawas', href: '/guru/mode-pengawas', icon: Bell })
   }
+  navItems.splice(1, 0, ...extras)
 
   return (
     <Sidebar
