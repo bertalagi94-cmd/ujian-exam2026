@@ -1,12 +1,39 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, Pencil, Trash2, Calendar, Printer, FileText, Download } from 'lucide-react'
+import { Plus, Pencil, Trash2, Calendar, FileText, Download, PackageOpen } from 'lucide-react'
 import { Modal, Confirm, StatusBadge, SearchInput, EmptyState, Spinner, Toast, Pagination } from '@/components/ui'
 import { apiRequest, formatDate } from '@/lib/utils'
 import { Jadwal, Mapel, Kelas, User } from '@/types'
 
 const PER_PAGE = 20
+
+// Helper tanggal
+function fmtTanggal(d: string) {
+  if (!d) return ''
+  const days = ['Minggu','Senin','Selasa','Rabu','Kamis','Jumat','Sabtu']
+  const months = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember']
+  const dt = new Date(d)
+  return `${days[dt.getDay()]}, ${dt.getDate()} ${months[dt.getMonth()]} ${dt.getFullYear()}`
+}
+function fmtTglPendek(d: string) {
+  if (!d) return ''
+  const months = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember']
+  const dt = new Date(d)
+  return `${dt.getDate()} ${months[dt.getMonth()]} ${dt.getFullYear()}`
+}
+
+interface Siswa { nis: string; nama: string }
+interface JadwalCetak {
+  id: string; tanggal: string; sesi: number
+  jam_mulai: string; jam_selesai: string; durasi: number
+  kelas: string; nama_mapel: string; nama_pengawas: string
+  siswa: Siswa[]
+}
+interface Sekolah {
+  namaSekolah?: string; npsn?: string; alamat?: string
+  kota?: string; tahunAjaran?: string; namaKepsek?: string; logoUrl?: string
+}
 
 export default function AdminJadwalPage() {
   const [jadwal, setJadwal] = useState<Jadwal[]>([])
@@ -29,6 +56,7 @@ export default function AdminJadwalPage() {
   const [cetakMode, setCetakMode] = useState<{ daftarHadir: boolean; beritaAcara: boolean }>({ daftarHadir: true, beritaAcara: true })
   const [cetakTanggal, setCetakTanggal] = useState('')
   const [tanggalList, setTanggalList] = useState<string[]>([])
+  const [downloadingZip, setDownloadingZip] = useState(false)
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => setToast({ msg, type })
 
@@ -104,12 +132,193 @@ export default function AdminJadwalPage() {
     window.open(url, '_blank')
   }
 
-  // Buka tab cetak massal
-  function cetakMassal() {
-    if (!cetakTanggal) return
-    if (cetakMode.daftarHadir) window.open(`/admin/cetak?tanggal=${cetakTanggal}&mode=daftar-hadir`, '_blank')
-    if (cetakMode.beritaAcara) window.open(`/admin/cetak?tanggal=${cetakTanggal}&mode=berita-acara`, '_blank')
-    setCetakMassalOpen(false)
+  // Generate satu PDF (daftar hadir atau berita acara) sebagai Blob menggunakan jsPDF
+  async function generatePDFBlob(j: JadwalCetak, sekolah: Sekolah, mode: 'daftar-hadir' | 'berita-acara'): Promise<Uint8Array> {
+    const { jsPDF } = await import('jspdf')
+    const doc = new jsPDF({ unit: 'mm', format: 'a4' })
+    const s = sekolah
+    const lm = 25, rm = 20, top = 20, w = 210 - lm - rm
+
+    // KOP
+    if (s.logoUrl) {
+      try {
+        // load image as base64
+        const resp = await fetch(s.logoUrl)
+        const blob = await resp.blob()
+        const b64 = await new Promise<string>(res => {
+          const r = new FileReader(); r.onload = () => res((r.result as string).split(',')[1]); r.readAsDataURL(blob)
+        })
+        doc.addImage(b64, 'PNG', lm, top, 18, 18)
+      } catch { /* skip logo jika gagal load */ }
+    }
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(14)
+    doc.text((s.namaSekolah ?? 'NAMA SEKOLAH').toUpperCase(), lm + 21, top + 6, { align: 'left' })
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(9)
+    doc.text(`NPSN: ${s.npsn ?? '-'}`, lm + 21, top + 11)
+    doc.text(s.alamat ?? '', lm + 21, top + 15)
+
+    // Garis ganda
+    const lineY = top + 21
+    doc.setLineWidth(0.8); doc.line(lm, lineY, lm + w, lineY)
+    doc.setLineWidth(0.3); doc.line(lm, lineY + 1.5, lm + w, lineY + 1.5)
+
+    if (mode === 'daftar-hadir') {
+      // Judul
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(12)
+      doc.text('DAFTAR HADIR PESERTA UJIAN', lm + w / 2, lineY + 10, { align: 'center' })
+      doc.setLineWidth(0.3)
+      doc.line(lm + w / 2 - 38, lineY + 11, lm + w / 2 + 38, lineY + 11)
+
+      // Meta info 2 kolom
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(10)
+      const meta = [
+        ['Mata Pelajaran', j.nama_mapel, 'Kelas', j.kelas],
+        ['Hari / Tanggal', fmtTanggal(j.tanggal), 'Sesi', `Sesi ke-${j.sesi}`],
+        ['Pukul', `${j.jam_mulai} - ${j.jam_selesai} WITA`, 'Pengawas', j.nama_pengawas || '-'],
+        ['Tahun Ajaran', s.tahunAjaran ?? '-', 'Durasi', `${j.durasi} menit`],
+      ]
+      let my = lineY + 17
+      for (const row of meta) {
+        doc.text(row[0], lm, my); doc.text(':', lm + 32, my)
+        doc.setFont('helvetica', 'bold'); doc.text(row[1], lm + 35, my); doc.setFont('helvetica', 'normal')
+        doc.text(row[2], lm + w / 2 + 2, my); doc.text(':', lm + w / 2 + 28, my)
+        doc.setFont('helvetica', 'bold'); doc.text(row[3], lm + w / 2 + 31, my); doc.setFont('helvetica', 'normal')
+        my += 6
+      }
+
+      // Tabel siswa
+      my += 2
+      const colW = [12, 35, w - 12 - 35 - 38, 38]
+      const headers = ['No', 'NIS', 'Nama Siswa', 'Tanda Tangan']
+      doc.setFillColor(220, 220, 220); doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5)
+      let cx = lm
+      for (let i = 0; i < headers.length; i++) {
+        doc.rect(cx, my, colW[i], 7, 'FD')
+        doc.text(headers[i], cx + colW[i] / 2, my + 4.8, { align: 'center' })
+        cx += colW[i]
+      }
+      my += 7
+      doc.setFont('helvetica', 'normal')
+      for (let i = 0; i < j.siswa.length; i++) {
+        const siswa = j.siswa[i]
+        if (my > 265) { doc.addPage(); my = 20 }
+        cx = lm
+        doc.rect(cx, my, colW[0], 7); doc.text(String(i + 1), cx + colW[0] / 2, my + 4.8, { align: 'center' }); cx += colW[0]
+        doc.rect(cx, my, colW[1], 7); doc.text(siswa.nis, cx + 2, my + 4.8); cx += colW[1]
+        doc.rect(cx, my, colW[2], 7); doc.text(siswa.nama, cx + 2, my + 4.8); cx += colW[2]
+        doc.rect(cx, my, colW[3], 7); cx += colW[3]
+        my += 7
+      }
+      my += 4
+      doc.setFontSize(10); doc.text(`Jumlah peserta: `, lm, my)
+      doc.setFont('helvetica', 'bold'); doc.text(`${j.siswa.length} siswa`, lm + 32, my)
+      doc.setFont('helvetica', 'normal')
+
+    } else {
+      // BERITA ACARA
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(12)
+      doc.text('BERITA ACARA PELAKSANAAN UJIAN', lm + w / 2, lineY + 10, { align: 'center' })
+      doc.setLineWidth(0.3)
+      doc.line(lm + w / 2 - 44, lineY + 11, lm + w / 2 + 44, lineY + 11)
+
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(10)
+      let my = lineY + 20
+      doc.text(`Pada hari ini, `, lm, my, { charSpace: 0 })
+      doc.setFont('helvetica', 'bold'); doc.text(fmtTanggal(j.tanggal), lm + 25, my)
+      doc.setFont('helvetica', 'normal'); doc.text(' telah dilaksanakan Ujian dengan ketentuan sebagai berikut:', lm + 25 + doc.getTextWidth(fmtTanggal(j.tanggal)), my)
+      my += 8
+
+      const baRows = [
+        ['Mata Pelajaran', j.nama_mapel],
+        ['Kelas', j.kelas],
+        ['Pukul', `${j.jam_mulai} s.d. ${j.jam_selesai} WITA (${j.durasi} menit)`],
+        ['Sesi ke-', String(j.sesi)],
+        ['Nama Pengawas', j.nama_pengawas || '-'],
+        ['Jumlah Peserta Terdaftar', `${j.siswa.length} siswa`],
+        ['Jumlah Hadir', '______ siswa'],
+        ['Jumlah Tidak Hadir', '______ siswa (sakit: ___, izin: ___, alpha: ___)'],
+        ['Kejadian Khusus', '_'.repeat(50)],
+      ]
+      for (const [label, val] of baRows) {
+        doc.text(label, lm, my); doc.text(':', lm + 56, my); doc.text(val, lm + 60, my)
+        my += 7
+      }
+      my += 4
+      doc.setFontSize(10)
+      const closing = 'Demikian berita acara ini dibuat dengan sesungguhnya untuk dapat dipergunakan sebagaimana mestinya.'
+      const lines = doc.splitTextToSize(closing, w)
+      doc.text(lines, lm, my); my += lines.length * 6 + 6
+    }
+
+    // TTD area
+    const ttdY = Math.max(240, 290 - 40)
+    doc.setFontSize(10)
+    doc.text('Pengawas Ujian,', lm, ttdY)
+    doc.setFont('helvetica', 'bold')
+    doc.text(j.nama_pengawas || '_________________', lm, ttdY + 22)
+    doc.setLineWidth(0.3)
+    doc.line(lm, ttdY + 23, lm + doc.getTextWidth(j.nama_pengawas || '_________________'), ttdY + 23)
+
+    doc.setFont('helvetica', 'normal')
+    const kota = s.kota ?? 'Banggai Kepulauan'
+    doc.text(`${kota}, ${fmtTglPendek(j.tanggal)}`, lm + w, ttdY, { align: 'right' })
+    doc.text('Mengetahui,', lm + w, ttdY + 5, { align: 'right' })
+    doc.text(`Kepala ${s.namaSekolah ?? 'Sekolah'}`, lm + w, ttdY + 10, { align: 'right' })
+    doc.setFont('helvetica', 'bold')
+    doc.text(s.namaKepsek ?? '_________________', lm + w, ttdY + 22, { align: 'right' })
+    const kepsekW = doc.getTextWidth(s.namaKepsek ?? '_________________')
+    doc.setLineWidth(0.3)
+    doc.line(lm + w - kepsekW, ttdY + 23, lm + w, ttdY + 23)
+
+    return doc.output('arraybuffer') as unknown as Uint8Array
+  }
+
+  // Download semua PDF dalam satu ZIP
+  async function handleDownloadZip() {
+    if (!cetakTanggal || (!cetakMode.daftarHadir && !cetakMode.beritaAcara)) return
+    setDownloadingZip(true)
+    try {
+      const token = localStorage.getItem('token')
+      const res = await fetch(`/api/admin/cetak?tanggal=${cetakTanggal}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      const json = await res.json()
+      const jadwalList: JadwalCetak[] = json.data ?? []
+      const sekolah: Sekolah = json.sekolah ?? {}
+
+      const { default: JSZip } = await import('jszip')
+      const zip = new JSZip()
+
+      const modes: Array<'daftar-hadir' | 'berita-acara'> = []
+      if (cetakMode.daftarHadir) modes.push('daftar-hadir')
+      if (cetakMode.beritaAcara) modes.push('berita-acara')
+
+      for (const j of jadwalList) {
+        const kelas = j.kelas.replace(/[^a-zA-Z0-9]/g, '_')
+        const mapel = j.nama_mapel.replace(/[^a-zA-Z0-9]/g, '_')
+        const sesi = `Sesi${j.sesi}`
+        for (const mode of modes) {
+          const pdfBytes = await generatePDFBlob(j, sekolah, mode)
+          const label = mode === 'daftar-hadir' ? 'DaftarHadir' : 'BeritaAcara'
+          zip.file(`${label}_${kelas}_${mapel}_${sesi}.pdf`, pdfBytes)
+        }
+      }
+
+      const zipBlob = await zip.generateAsync({ type: 'blob' })
+      const url = URL.createObjectURL(zipBlob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `Cetak_${cetakTanggal}.zip`
+      a.click()
+      URL.revokeObjectURL(url)
+      setCetakMassalOpen(false)
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Gagal membuat ZIP', 'error')
+    } finally {
+      setDownloadingZip(false)
+    }
   }
 
   return (
@@ -126,7 +335,7 @@ export default function AdminJadwalPage() {
             onClick={() => setCetakMassalOpen(true)}
             className="btn-secondary btn-sm"
           >
-            <Printer className="w-4 h-4" /> Cetak Massal
+            <PackageOpen className="w-4 h-4" /> Download Massal
           </button>
           <button onClick={() => { setEditData({}); setSelectedMapelId(''); setModalOpen(true) }} className="btn-primary btn-sm">
             <Plus className="w-4 h-4" /> Tambah Jadwal
@@ -229,8 +438,13 @@ export default function AdminJadwalPage() {
         footer={
           <>
             <button onClick={() => setCetakMassalOpen(false)} className="btn-secondary">Batal</button>
-            <button onClick={cetakMassal} className="btn-primary" disabled={!cetakTanggal || (!cetakMode.daftarHadir && !cetakMode.beritaAcara)}>
-              <Printer className="w-4 h-4" /> Cetak Semua
+            <button
+              onClick={handleDownloadZip}
+              className="btn-primary"
+              disabled={!cetakTanggal || (!cetakMode.daftarHadir && !cetakMode.beritaAcara) || downloadingZip}
+            >
+              {downloadingZip ? <Spinner size="sm" /> : <PackageOpen className="w-4 h-4" />}
+              {downloadingZip ? 'Membuat ZIP...' : 'Download ZIP'}
             </button>
           </>
         }
