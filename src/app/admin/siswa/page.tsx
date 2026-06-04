@@ -1,5 +1,5 @@
 'use client'
-
+import * as XLSX from 'xlsx'
 import { useState, useEffect, useCallback } from 'react'
 import { Plus, Upload, Download, Pencil, Trash2, RotateCcw, Search } from 'lucide-react'
 import { Modal, Confirm, StatusBadge, SearchInput, Pagination, EmptyState, Spinner, Toast } from '@/components/ui'
@@ -21,6 +21,10 @@ export default function AdminSiswaPage() {
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [resetId, setResetId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
+  const [importData, setImportData] = useState<Partial<Siswa>[]>([])
+  const [importing, setImporting] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
