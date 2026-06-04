@@ -11,16 +11,24 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
   const guruId = searchParams.get('guru_id')
 
-  let query = db.from('mapel').select('*, users!mapel_guru_id_fkey(nama)').order('nama')
+  // Gunakan query biasa, BUKAN FK join notation (!fkey)
+  // karena FK constraint tidak didefinisikan di schema
+  let query = db.from('mapel').select('*').order('nama')
   if (guruId) query = query.eq('guru_id', guruId)
 
   const { data, error } = await query
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
+  // Manual lookup nama guru dari tabel users
+  const guruIds = [...new Set((data ?? []).map((m: Record<string, string>) => m.guru_id).filter(Boolean))]
+  const { data: guruList } = guruIds.length
+    ? await db.from('users').select('username, nama').in('username', guruIds)
+    : { data: [] }
+  const guruMap = Object.fromEntries((guruList ?? []).map((g: { username: string; nama: string }) => [g.username, g.nama]))
+
   const enriched = (data ?? []).map((m: Record<string, unknown>) => ({
     ...m,
-    nama_guru: (m.users as { nama: string } | null)?.nama ?? m.guru_id,
-    users: undefined,
+    nama_guru: guruMap[m.guru_id as string] ?? (m.guru_id as string) ?? '',
   }))
 
   return NextResponse.json({ data: enriched })
@@ -55,7 +63,7 @@ export async function PUT(req: NextRequest) {
 
   const { error } = await db.from('mapel').update({
     nama: update.nama ? String(update.nama).toUpperCase() : undefined,
-    guru_id: update.guru_id,
+    guru_id: update.guru_id || null,
     kelas_list: update.kelas_list,
     jumlah_opsi: update.jumlah_opsi,
     kkm: update.kkm,

@@ -49,6 +49,7 @@ export default function AdminPengaturanPage() {
       setValues(merged)
       if (merged.logoUrl) setLogoPreview(merged.logoUrl)
     } catch (e) {
+      showToast(e instanceof Error ? e.message : \'Gagal memuat data\', \'error\')
       console.error(e)
     } finally {
       setLoading(false)

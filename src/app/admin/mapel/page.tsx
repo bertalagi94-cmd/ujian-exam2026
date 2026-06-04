@@ -30,6 +30,7 @@ export default function AdminMapelPage() {
       const res = await apiRequest<{ data: Mapel[] }>('/api/admin/mapel')
       setMapel(res.data)
     } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Gagal memuat data', 'error')
       console.error(e)
     } finally {
       setLoading(false)

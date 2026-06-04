@@ -24,6 +24,7 @@ export default function AdminKelasPage() {
       const res = await apiRequest<{ data: Kelas[] }>('/api/admin/kelas')
       setKelas(res.data)
     } catch (e) {
+      showToast(e instanceof Error ? e.message : \'Gagal memuat data\', \'error\')
       console.error(e)
     } finally {
       setLoading(false)

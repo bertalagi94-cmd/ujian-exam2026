@@ -232,3 +232,9 @@ CREATE INDEX idx_nilai_mapel ON nilai(mapel_id);
 CREATE INDEX idx_siswa_ujian_sesi ON siswa_ujian(sesi_id);
 CREATE INDEX idx_log_created ON log_aktivitas(created_at DESC);
 CREATE INDEX idx_jadwal_tanggal ON jadwal(tanggal);
+
+-- ============================================================
+-- MIGRATION: Update role GURU_KEPSEK yang sudah ada di DB
+-- Jalankan ini jika sebelumnya sudah ada data dengan role GURU_KEPSEK
+-- ============================================================
+UPDATE users SET role = 'KEPSEK' WHERE role = 'GURU_KEPSEK';
