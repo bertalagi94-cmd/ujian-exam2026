@@ -9,9 +9,8 @@ const nextConfig = {
       },
     ],
   },
-  experimental: {
-    serverComponentsExternalPackages: ['bcryptjs'],
-  },
+  // Pindah dari experimental ke root level (Next.js 14.1+)
+  serverExternalPackages: ['bcryptjs'],
 }
 
 module.exports = nextConfig
