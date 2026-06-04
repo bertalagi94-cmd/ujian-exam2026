@@ -1,50 +1,49 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Plus, Pencil, Trash2, Search, Eye, Lock, ImagePlus, X } from 'lucide-react'
+import { Pencil, Trash2, Search, Eye, Lock, ImagePlus, X, BookOpen, ArrowRight } from 'lucide-react'
 import { Modal, Confirm, StatusBadge, SearchInput, Pagination, EmptyState, Spinner, Toast } from '@/components/ui'
 import { apiRequest } from '@/lib/utils'
 import { Soal, Mapel, Kelas } from '@/types'
+import { useRouter } from 'next/navigation'
 
 const PER_PAGE = 15
 
 interface SoalWithMapel extends Soal {
   nama_mapel?: string
-  gambar_pertanyaan?: string
-  gambar_opsi_a?: string
-  gambar_opsi_b?: string
-  gambar_opsi_c?: string
-  gambar_opsi_d?: string
-  gambar_opsi_e?: string
+  gambar_url?: string
+  gambar_a?: string
+  gambar_b?: string
+  gambar_c?: string
+  gambar_d?: string
+  gambar_e?: string
 }
 
 export default function GuruSoalPage() {
+  const router = useRouter()
   const [soalList, setSoalList] = useState<SoalWithMapel[]>([])
   const [mapelList, setMapelList] = useState<Mapel[]>([])
-  const [kelasList, setKelasList] = useState<Kelas[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState('')
   const [filterMapel, setFilterMapel] = useState('')
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
-  const [modalOpen, setModalOpen] = useState(false)
   const [viewData, setViewData] = useState<SoalWithMapel | null>(null)
-  const [editData, setEditData] = useState<Partial<SoalWithMapel> | null>(null)
+  const [editData, setEditData] = useState<SoalWithMapel | null>(null)
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
   const [jumlahOpsi, setJumlahOpsi] = useState(4)
 
-  // Image state
+  // Image state untuk edit
   const [imgPertanyaan, setImgPertanyaan] = useState<string>('')
   const [imgOpsi, setImgOpsi] = useState<Record<string, string>>({})
   const [uploadingImg, setUploadingImg] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [pendingUploadKey, setPendingUploadKey] = useState<string | null>(null)
 
-  const showToast = (msg: string, type: 'success' | 'error' = 'success') =>
-    setToast({ msg, type })
+  const showToast = (msg: string, type: 'success' | 'error' = 'success') => setToast({ msg, type })
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -64,31 +63,22 @@ export default function GuruSoalPage() {
   useEffect(() => { load() }, [load])
 
   useEffect(() => {
-    Promise.all([
-      apiRequest<{ data: Mapel[] }>('/api/admin/mapel'),
-      apiRequest<{ data: Kelas[] }>('/api/admin/kelas'),
-    ]).then(([m, k]) => { setMapelList(m.data); setKelasList(k.data) })
+    const user = localStorage.getItem('user')
+    const guruId = user ? JSON.parse(user).username : ''
+    apiRequest<{ data: Mapel[] }>(`/api/admin/mapel?guru_id=${guruId}`)
+      .then(m => setMapelList(m.data ?? []))
   }, [])
-
-  function openAdd() {
-    setEditData({ jumlah_opsi: 4, tingkat: 'Sedang', kunci: 'A' })
-    setJumlahOpsi(4)
-    setImgPertanyaan('')
-    setImgOpsi({})
-    setModalOpen(true)
-  }
 
   function openEdit(s: SoalWithMapel) {
     setEditData(s)
     setJumlahOpsi(s.jumlah_opsi || 4)
-    setImgPertanyaan(s.gambar_pertanyaan || '')
+    setImgPertanyaan(s.gambar_url || '')
     const opsiImgs: Record<string, string> = {}
     for (const l of ['a','b','c','d','e']) {
-      const v = s[`gambar_opsi_${l}` as keyof SoalWithMapel] as string
+      const v = s[`gambar_${l}` as keyof SoalWithMapel] as string
       if (v) opsiImgs[l] = v
     }
     setImgOpsi(opsiImgs)
-    setModalOpen(true)
   }
 
   async function uploadImage(key: string, file: File) {
@@ -104,16 +94,11 @@ export default function GuruSoalPage() {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Upload gagal')
-      if (key === 'pertanyaan') {
-        setImgPertanyaan(data.url)
-      } else {
-        setImgOpsi(prev => ({ ...prev, [key]: data.url }))
-      }
+      if (key === 'pertanyaan') setImgPertanyaan(data.url)
+      else setImgOpsi(prev => ({ ...prev, [key]: data.url }))
     } catch (e: unknown) {
       showToast(e instanceof Error ? e.message : 'Upload gambar gagal', 'error')
-    } finally {
-      setUploadingImg(null)
-    }
+    } finally { setUploadingImg(null) }
   }
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -128,8 +113,9 @@ export default function GuruSoalPage() {
     setTimeout(() => fileInputRef.current?.click(), 50)
   }
 
-  async function handleSave(e: React.FormEvent<HTMLFormElement>) {
+  async function handleSaveEdit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
+    if (!editData?.id) return
     const fd = new FormData(e.currentTarget)
     const payload: Record<string, unknown> = Object.fromEntries(fd.entries())
     payload.jumlah_opsi = String(jumlahOpsi)
@@ -139,14 +125,9 @@ export default function GuruSoalPage() {
     }
     setSaving(true)
     try {
-      if (editData?.id) {
-        await apiRequest(`/api/guru/soal/${editData.id}`, { method: 'PUT', body: JSON.stringify(payload) })
-        showToast('Soal berhasil diperbarui')
-      } else {
-        await apiRequest('/api/guru/soal', { method: 'POST', body: JSON.stringify(payload) })
-        showToast('Soal berhasil ditambahkan')
-      }
-      setModalOpen(false)
+      await apiRequest(`/api/guru/soal/${editData.id}`, { method: 'PUT', body: JSON.stringify(payload) })
+      showToast('Soal berhasil diperbarui')
+      setEditData(null)
       load()
     } catch (err: unknown) {
       showToast(err instanceof Error ? err.message : 'Gagal menyimpan', 'error')
@@ -167,10 +148,7 @@ export default function GuruSoalPage() {
   }
 
   const isReadOnly = (s: SoalWithMapel) => ['DISETUJUI', 'MENUNGGU'].includes(s.status)
-
-  const tingkatColor: Record<string, string> = {
-    Mudah: 'badge-green', Sedang: 'badge-yellow', Sulit: 'badge-red',
-  }
+  const tingkatColor: Record<string, string> = { Mudah: 'badge-green', Sedang: 'badge-yellow', Sulit: 'badge-red' }
   const opsiLabels = ['A', 'B', 'C', 'D', 'E']
 
   return (
@@ -181,10 +159,12 @@ export default function GuruSoalPage() {
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="page-title">Bank Soal</h1>
-          <p className="page-subtitle">{total} soal tersimpan · Soal yang sudah dikirim/disetujui hanya bisa dilihat</p>
+          <p className="page-subtitle">{total} soal tersimpan · Edit atau hapus soal DRAFT di sini</p>
         </div>
-        <button onClick={openAdd} className="btn-primary btn-sm">
-          <Plus className="w-4 h-4" /> Tambah Soal
+        {/* Tidak ada tombol Tambah Soal — soal ditambah lewat menu Buat Soal */}
+        <button onClick={() => router.push('/guru/paket')} className="btn-secondary btn-sm">
+          <BookOpen className="w-4 h-4" /> Ke Menu Buat Soal
+          <ArrowRight className="w-3.5 h-3.5" />
         </button>
       </div>
 
@@ -210,7 +190,14 @@ export default function GuruSoalPage() {
           {loading ? (
             <div className="flex items-center justify-center py-20"><Spinner size="lg" /></div>
           ) : soalList.length === 0 ? (
-            <EmptyState message="Tidak ada soal ditemukan" icon={Search} />
+            <div className="py-16 flex flex-col items-center gap-3 text-center px-6">
+              <BookOpen className="w-10 h-10 text-slate-200" />
+              <p className="text-slate-500 font-medium">Belum ada soal tersimpan</p>
+              <p className="text-slate-400 text-sm">Buat soal melalui menu <strong>Buat Soal</strong> terlebih dahulu</p>
+              <button onClick={() => router.push('/guru/paket')} className="btn-primary btn-sm mt-1">
+                Ke Menu Buat Soal <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
           ) : (
             <table className="table">
               <thead>
@@ -230,7 +217,7 @@ export default function GuruSoalPage() {
                     <td className="text-slate-400 text-xs">{(page - 1) * PER_PAGE + i + 1}</td>
                     <td className="max-w-[360px]">
                       <p className="text-sm text-slate-800 line-clamp-2">{s.teks}</p>
-                      {s.gambar_pertanyaan && <span className="text-xs text-brand-500 mt-1 block">📷 Ada gambar</span>}
+                      {s.gambar_url && <span className="text-xs text-brand-500 mt-1 block">📷 Ada gambar</span>}
                     </td>
                     <td className="text-sm text-slate-600 whitespace-nowrap">{s.nama_mapel ?? s.mapel_id}</td>
                     <td>
@@ -278,8 +265,7 @@ export default function GuruSoalPage() {
       </div>
 
       {/* View Modal (read-only) */}
-      <Modal open={!!viewData} onClose={() => setViewData(null)}
-        title="Detail Soal" size="xl">
+      <Modal open={!!viewData} onClose={() => setViewData(null)} title="Detail Soal" size="xl">
         {viewData && (
           <div className="space-y-4">
             <div className="alert-info text-xs flex items-center gap-2">
@@ -289,15 +275,16 @@ export default function GuruSoalPage() {
             <div>
               <p className="label mb-1">Pertanyaan</p>
               <p className="text-sm text-slate-800 leading-relaxed">{viewData.teks}</p>
-              {viewData.gambar_pertanyaan && (
-                <img src={viewData.gambar_pertanyaan} alt="Gambar pertanyaan" className="mt-2 max-h-48 rounded-lg border border-slate-200" />
+              {viewData.gambar_url && (
+                <img src={viewData.gambar_url} alt="Gambar pertanyaan" className="mt-2 max-h-48 rounded-lg border border-slate-200" />
               )}
             </div>
             <div className="space-y-1.5">
               <p className="label mb-1">Pilihan Jawaban</p>
               {opsiLabels.slice(0, viewData.jumlah_opsi).map(l => {
-                const opsiText = viewData[`opsi_${l.toLowerCase()}` as keyof SoalWithMapel] as string
-                const opsiImg = viewData[`gambar_opsi_${l.toLowerCase()}` as keyof SoalWithMapel] as string
+                const lk = l.toLowerCase()
+                const opsiText = viewData[`opsi_${lk}` as keyof SoalWithMapel] as string
+                const opsiImg = viewData[`gambar_${lk}` as keyof SoalWithMapel] as string
                 const isKunci = viewData.kunci === l
                 return (
                   <div key={l} className={`flex items-start gap-2 text-sm px-3 py-2 rounded-lg ${isKunci ? 'bg-emerald-50 text-emerald-800 font-medium' : 'text-slate-600'}`}>
@@ -321,129 +308,107 @@ export default function GuruSoalPage() {
         )}
       </Modal>
 
-      {/* Add/Edit Modal */}
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)}
-        title={editData?.id ? 'Edit Soal' : 'Tambah Soal Baru'} size="xl"
+      {/* Edit Modal */}
+      <Modal open={!!editData} onClose={() => setEditData(null)}
+        title="Edit Soal" size="xl"
         footer={
           <>
-            <button onClick={() => setModalOpen(false)} className="btn-secondary" disabled={saving}>Batal</button>
-            <button form="soal-form" type="submit" className="btn-primary" disabled={saving || !!uploadingImg}>
-              {saving ? <Spinner size="sm" /> : (editData?.id ? 'Simpan Perubahan' : 'Tambah Soal')}
+            <button onClick={() => setEditData(null)} className="btn-secondary" disabled={saving}>Batal</button>
+            <button form="soal-edit-form" type="submit" className="btn-primary" disabled={saving || !!uploadingImg}>
+              {saving ? <Spinner size="sm" /> : 'Simpan Perubahan'}
             </button>
           </>
         }
       >
-        <form id="soal-form" onSubmit={handleSave} className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+        {editData && (
+          <form id="soal-edit-form" onSubmit={handleSaveEdit} className="space-y-4">
             <div>
-              <label className="label">Mata Pelajaran *</label>
-              <select name="mapel_id" className="select" required defaultValue={editData?.mapel_id ?? ''}>
-                <option value="">Pilih Mapel</option>
-                {mapelList.map(m => <option key={m.id} value={m.id}>{m.nama}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="label">Kelas *</label>
-              <select name="kelas_id" className="select" required defaultValue={editData?.kelas_id ?? ''}>
-                <option value="">Pilih Kelas</option>
-                {kelasList.map(k => <option key={k.id} value={k.id}>{k.nama}</option>)}
-              </select>
-            </div>
-          </div>
-
-          <div>
-            <label className="label">Teks Pertanyaan *</label>
-            <textarea name="teks" className="textarea" rows={3} required
-              placeholder="Tulis pertanyaan di sini..."
-              defaultValue={editData?.teks ?? ''} />
-            <div className="mt-2">
-              {imgPertanyaan ? (
-                <div className="relative inline-block">
-                  <img src={imgPertanyaan} alt="Gambar pertanyaan" className="max-h-32 rounded-lg border border-slate-200" />
-                  <button type="button" onClick={() => setImgPertanyaan('')}
-                    className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center">
-                    <X className="w-3 h-3" />
-                  </button>
-                </div>
-              ) : (
-                <button type="button" onClick={() => triggerUpload('pertanyaan')}
-                  className="btn-secondary btn-sm text-xs" disabled={!!uploadingImg}>
-                  {uploadingImg === 'pertanyaan' ? <Spinner size="sm" /> : <><ImagePlus className="w-3.5 h-3.5" /> Tambah Gambar Pertanyaan</>}
-                </button>
-              )}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-3 gap-4">
-            <div>
-              <label className="label">Jumlah Opsi</label>
-              <select className="select" value={jumlahOpsi} onChange={e => setJumlahOpsi(Number(e.target.value))}>
-                <option value={3}>3 Opsi</option>
-                <option value={4}>4 Opsi</option>
-                <option value={5}>5 Opsi</option>
-              </select>
-            </div>
-            <div>
-              <label className="label">Tingkat Kesulitan</label>
-              <select name="tingkat" className="select" defaultValue={editData?.tingkat ?? 'Sedang'}>
-                <option>Mudah</option>
-                <option>Sedang</option>
-                <option>Sulit</option>
-              </select>
-            </div>
-            <div>
-              <label className="label">Kunci Jawaban *</label>
-              <select name="kunci" className="select" required defaultValue={editData?.kunci ?? 'A'}>
-                {opsiLabels.slice(0, jumlahOpsi).map(l => <option key={l} value={l}>{l}</option>)}
-              </select>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <label className="label">Opsi Jawaban</label>
-            {opsiLabels.slice(0, jumlahOpsi).map(label => {
-              const lowerLabel = label.toLowerCase()
-              const imgKey = lowerLabel
-              return (
-                <div key={label} className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="w-7 h-7 rounded-lg bg-slate-100 text-slate-600 font-bold text-xs flex items-center justify-center flex-shrink-0">
-                      {label}
-                    </span>
-                    <input
-                      name={`opsi_${lowerLabel}`}
-                      className="input"
-                      placeholder={`Opsi ${label}`}
-                      required
-                      defaultValue={editData?.[`opsi_${lowerLabel}` as keyof Soal] as string ?? ''}
-                    />
-                    <button type="button" onClick={() => triggerUpload(imgKey)}
-                      className="btn-ghost btn-icon btn-sm text-slate-500 flex-shrink-0" title={`Tambah gambar opsi ${label}`}
-                      disabled={!!uploadingImg}>
-                      {uploadingImg === imgKey ? <Spinner size="sm" /> : <ImagePlus className="w-3.5 h-3.5" />}
+              <label className="label">Teks Pertanyaan *</label>
+              <textarea name="teks" className="textarea" rows={3} required
+                placeholder="Tulis pertanyaan di sini..."
+                defaultValue={editData.teks ?? ''} />
+              <div className="mt-2">
+                {imgPertanyaan ? (
+                  <div className="relative inline-block">
+                    <img src={imgPertanyaan} alt="Gambar pertanyaan" className="max-h-32 rounded-lg border border-slate-200" />
+                    <button type="button" onClick={() => setImgPertanyaan('')}
+                      className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center">
+                      <X className="w-3 h-3" />
                     </button>
                   </div>
-                  {imgOpsi[imgKey] && (
-                    <div className="ml-9 relative inline-block">
-                      <img src={imgOpsi[imgKey]} alt={`Gambar opsi ${label}`} className="max-h-20 rounded border border-slate-200" />
-                      <button type="button" onClick={() => setImgOpsi(prev => { const n = {...prev}; delete n[imgKey]; return n })}
-                        className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center">
-                        <X className="w-3 h-3" />
+                ) : (
+                  <button type="button" onClick={() => triggerUpload('pertanyaan')}
+                    className="btn-secondary btn-sm text-xs" disabled={!!uploadingImg}>
+                    {uploadingImg === 'pertanyaan' ? <Spinner size="sm" /> : <><ImagePlus className="w-3.5 h-3.5" /> Tambah Gambar</>}
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <label className="label">Jumlah Opsi</label>
+                <select className="select" value={jumlahOpsi} onChange={e => setJumlahOpsi(Number(e.target.value))}>
+                  <option value={3}>3 Opsi</option>
+                  <option value={4}>4 Opsi</option>
+                  <option value={5}>5 Opsi</option>
+                </select>
+              </div>
+              <div>
+                <label className="label">Tingkat Kesulitan</label>
+                <select name="tingkat" className="select" defaultValue={editData.tingkat ?? 'Sedang'}>
+                  <option>Mudah</option>
+                  <option>Sedang</option>
+                  <option>Sulit</option>
+                </select>
+              </div>
+              <div>
+                <label className="label">Kunci Jawaban *</label>
+                <select name="kunci" className="select" required defaultValue={editData.kunci ?? 'A'}>
+                  {opsiLabels.slice(0, jumlahOpsi).map(l => <option key={l} value={l}>{l}</option>)}
+                </select>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="label">Opsi Jawaban</label>
+              {opsiLabels.slice(0, jumlahOpsi).map(label => {
+                const lk = label.toLowerCase()
+                return (
+                  <div key={label} className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="w-7 h-7 rounded-lg bg-slate-100 text-slate-600 font-bold text-xs flex items-center justify-center flex-shrink-0">
+                        {label}
+                      </span>
+                      <input name={`opsi_${lk}`} className="input" placeholder={`Opsi ${label}`} required
+                        defaultValue={editData[`opsi_${lk}` as keyof Soal] as string ?? ''} />
+                      <button type="button" onClick={() => triggerUpload(lk)}
+                        className="btn-ghost btn-icon btn-sm text-slate-500 flex-shrink-0" disabled={!!uploadingImg}>
+                        {uploadingImg === lk ? <Spinner size="sm" /> : <ImagePlus className="w-3.5 h-3.5" />}
                       </button>
                     </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
+                    {imgOpsi[lk] && (
+                      <div className="ml-9 relative inline-block">
+                        <img src={imgOpsi[lk]} alt={`Gambar opsi ${label}`} className="max-h-20 rounded border border-slate-200" />
+                        <button type="button" onClick={() => setImgOpsi(prev => { const n = {...prev}; delete n[lk]; return n })}
+                          className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center">
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
 
-          <div>
-            <label className="label">Pembahasan (opsional)</label>
-            <textarea name="pembahasan" className="textarea" rows={2}
-              placeholder="Penjelasan jawaban yang benar..."
-              defaultValue={editData?.pembahasan ?? ''} />
-          </div>
-        </form>
+            <div>
+              <label className="label">Pembahasan (opsional)</label>
+              <textarea name="pembahasan" className="textarea" rows={2}
+                placeholder="Penjelasan jawaban yang benar..."
+                defaultValue={editData.pembahasan ?? ''} />
+            </div>
+          </form>
+        )}
       </Modal>
 
       <Confirm open={!!deleteId} onClose={() => setDeleteId(null)} onConfirm={handleDelete}
