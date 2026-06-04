@@ -31,7 +31,18 @@ export async function GET(req: NextRequest) {
 
   const { data, count, error } = await query
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ data: data ?? [], total: count ?? 0 })
+
+  // Enrich with nama_mapel
+  const soalList = data ?? []
+  if (soalList.length > 0) {
+    const mapelIds = [...new Set(soalList.map((s: { mapel_id: string }) => s.mapel_id).filter(Boolean))]
+    const { data: mapelList } = await db.from('mapel').select('id, nama').in('id', mapelIds)
+    const mapelMap = Object.fromEntries((mapelList ?? []).map((m: { id: string; nama: string }) => [m.id, m.nama]))
+    const enriched = soalList.map((s: Record<string, unknown>) => ({ ...s, nama_mapel: mapelMap[s.mapel_id as string] ?? s.mapel_id }))
+    return NextResponse.json({ data: enriched, total: count ?? 0 })
+  }
+
+  return NextResponse.json({ data: soalList, total: count ?? 0 })
 }
 
 export async function POST(req: NextRequest) {
@@ -48,11 +59,17 @@ export async function POST(req: NextRequest) {
     kelas_id: body.kelas_id,
     guru_id: user.username,
     teks: body.teks,
+    gambar_pertanyaan: body.gambar_pertanyaan || null,
     opsi_a: body.opsi_a,
     opsi_b: body.opsi_b,
     opsi_c: body.opsi_c,
     opsi_d: body.opsi_d || null,
     opsi_e: body.opsi_e || null,
+    gambar_opsi_a: body.gambar_opsi_a || null,
+    gambar_opsi_b: body.gambar_opsi_b || null,
+    gambar_opsi_c: body.gambar_opsi_c || null,
+    gambar_opsi_d: body.gambar_opsi_d || null,
+    gambar_opsi_e: body.gambar_opsi_e || null,
     kunci: body.kunci,
     pembahasan: body.pembahasan || null,
     tingkat: body.tingkat ?? 'Sedang',
