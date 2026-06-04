@@ -12,7 +12,7 @@ export default function AdminJadwalPage() {
   const [jadwal, setJadwal] = useState<Jadwal[]>([])
   const [mapelList, setMapelList] = useState<Mapel[]>([])
   const [kelasList, setKelasList] = useState<Kelas[]>([])
-  const [pengawasList, setPengawasList] = useState<User[]>([])
+  const [guruList, setGuruList] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState('')
@@ -21,6 +21,7 @@ export default function AdminJadwalPage() {
   const [editData, setEditData] = useState<Partial<Jadwal> | null>(null)
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [selectedMapelId, setSelectedMapelId] = useState<string>('')
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
 
   // State untuk modal cetak massal
@@ -52,7 +53,7 @@ export default function AdminJadwalPage() {
     ]).then(([m, k, u]) => {
       setMapelList(m.data)
       setKelasList(k.data)
-      setPengawasList(u.data.filter(u => u.role === 'PENGAWAS'))
+      setGuruList(u.data.filter(u => u.role === 'GURU'))
     })
   }, [])
 
@@ -127,7 +128,7 @@ export default function AdminJadwalPage() {
           >
             <Printer className="w-4 h-4" /> Cetak Massal
           </button>
-          <button onClick={() => { setEditData({}); setModalOpen(true) }} className="btn-primary btn-sm">
+          <button onClick={() => { setEditData({}); setSelectedMapelId(''); setModalOpen(true) }} className="btn-primary btn-sm">
             <Plus className="w-4 h-4" /> Tambah Jadwal
           </button>
         </div>
@@ -195,7 +196,7 @@ export default function AdminJadwalPage() {
                         </button>
                         {j.status === 'AKTIF' && (
                           <>
-                            <button onClick={() => { setEditData(j); setModalOpen(true) }}
+                            <button onClick={() => { setEditData(j); setSelectedMapelId(j.mapel_id ?? ''); setModalOpen(true) }}
                               className="btn-ghost btn-icon btn-sm text-slate-600 hover:bg-slate-50">
                               <Pencil className="w-3.5 h-3.5" />
                             </button>
@@ -315,7 +316,13 @@ export default function AdminJadwalPage() {
           </div>
           <div>
             <label className="label">Mata Pelajaran *</label>
-            <select name="mapel_id" className="select" required defaultValue={editData?.mapel_id ?? ''}>
+            <select
+              name="mapel_id"
+              className="select"
+              required
+              defaultValue={editData?.mapel_id ?? ''}
+              onChange={e => setSelectedMapelId(e.target.value)}
+            >
               <option value="">Pilih Mapel</option>
               {mapelList.map(m => <option key={m.id} value={m.id}>{m.nama}</option>)}
             </select>
@@ -343,10 +350,31 @@ export default function AdminJadwalPage() {
           </div>
           <div>
             <label className="label">Pengawas</label>
-            <select name="pengawas" className="select" defaultValue={editData?.pengawas ?? ''}>
-              <option value="">- Pilih Pengawas -</option>
-              {pengawasList.map(p => <option key={p.username} value={p.username}>{p.nama}</option>)}
-            </select>
+            {(() => {
+              const guruMapel = selectedMapelId
+                ? mapelList.find(m => m.id === selectedMapelId)?.guru_id
+                : null
+              const available = guruList.filter(g => g.username !== guruMapel)
+              const excluded = guruList.find(g => g.username === guruMapel)
+              return (
+                <>
+                  <select name="pengawas" className="select" defaultValue={editData?.pengawas ?? ''}>
+                    <option value="">- Pilih Pengawas -</option>
+                    {available.map(p => (
+                      <option key={p.username} value={p.username}>{p.nama}</option>
+                    ))}
+                  </select>
+                  {excluded && selectedMapelId && (
+                    <p className="mt-1.5 text-xs text-amber-600">
+                      ⚠ <strong>{excluded.nama}</strong> tidak tersedia karena mengampu mata pelajaran ini.
+                    </p>
+                  )}
+                  {available.length === 0 && (
+                    <p className="mt-1.5 text-xs text-slate-400">Tidak ada guru yang tersedia sebagai pengawas.</p>
+                  )}
+                </>
+              )
+            })()}
           </div>
         </form>
       </Modal>
