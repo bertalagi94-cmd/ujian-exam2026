@@ -78,8 +78,31 @@ export function apiRequest<T = unknown>(
       ...options?.headers,
     },
   }).then(async (res) => {
-    const data = await res.json()
-    if (!res.ok) throw new Error(data.error || 'Request gagal')
+    // Safely parse JSON — body bisa kosong (204) atau bukan JSON
+    let data: Record<string, unknown> = {}
+    const text = await res.text()
+    if (text) {
+      try {
+        data = JSON.parse(text)
+      } catch {
+        // Response bukan JSON (misal HTML error page dari server)
+        if (!res.ok) throw new Error(`Server error (${res.status})`)
+        return data as T
+      }
+    }
+
+    if (!res.ok) {
+      // Kalau 401, token mungkin expired — arahkan ke login
+      if (res.status === 401) {
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem('token')
+          window.location.href = '/login'
+        }
+        throw new Error('Sesi berakhir, silakan login kembali')
+      }
+      throw new Error((data.error as string) || `Request gagal (${res.status})`)
+    }
+
     return data as T
   })
 }
