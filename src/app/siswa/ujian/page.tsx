@@ -38,6 +38,13 @@ export default function SiswaUjianPage() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const syncRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const pelanggRef = useRef(0)
+  // FIX 4: Simpan jawaban terbaru di ref agar sync interval selalu baca data terbaru
+  const jawabanRef = useRef<JawabanMap>({})
+  const sesiInfoRef = useRef<SesiInfo | null>(null)
+
+  // Selalu sinkronkan ref dengan state terbaru
+  useEffect(() => { jawabanRef.current = jawaban }, [jawaban])
+  useEffect(() => { sesiInfoRef.current = sesiInfo }, [sesiInfo])
 
   // Anti-cheat: detect tab switch
   useEffect(() => {
@@ -52,48 +59,58 @@ export default function SiswaUjianPage() {
     return () => document.removeEventListener('visibilitychange', onVisibilityChange)
   }, [phase])
 
-  // Timer countdown
+  // FIX 3: Timer hanya dijalankan SEKALI saat phase berubah ke UJIAN,
+  // tidak re-run setiap detik. Gunakan ref untuk track sisa waktu.
+  const sisaWaktuRef = useRef(0)
+  useEffect(() => { sisaWaktuRef.current = sisaWaktu }, [sisaWaktu])
+
   useEffect(() => {
-    if (phase !== 'UJIAN' || sisaWaktu <= 0) return
+    if (phase !== 'UJIAN') return
+    // Jalankan interval sekali, baca waktu dari ref
     timerRef.current = setInterval(() => {
       setSisaWaktu(prev => {
         if (prev <= 1) {
           clearInterval(timerRef.current!)
-          handleSelesai(true)
+          // Gunakan setTimeout agar tidak memanggil handleSelesai di dalam setState
+          setTimeout(() => handleSelesai(true), 0)
           return 0
         }
         return prev - 1
       })
     }, 1000)
     return () => clearInterval(timerRef.current!)
-  }, [phase, sisaWaktu])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase]) // Hanya bergantung pada phase, bukan sisaWaktu
 
-  // Auto sync jawaban every 30s
+  // FIX 4: Auto sync setiap 30 detik, baca dari ref (tidak stale)
   useEffect(() => {
     if (phase !== 'UJIAN') return
     syncRef.current = setInterval(() => syncJawaban(), 30000)
     return () => clearInterval(syncRef.current!)
-  }, [phase, jawaban])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase]) // Tidak perlu jawaban sebagai dep, karena baca dari ref
 
-  async function syncJawaban() {
-    if (!sesiInfo || Object.keys(jawaban).length === 0) return
+  const syncJawaban = useCallback(async () => {
+    const currentSesi = sesiInfoRef.current
+    const currentJawaban = jawabanRef.current
+    if (!currentSesi || Object.keys(currentJawaban).length === 0) return
     try {
       await apiRequest('/api/siswa/ujian/sync', {
         method: 'POST',
         body: JSON.stringify({
-          sesiId: sesiInfo.sesiId,
-          jawaban: Object.entries(jawaban).map(([soal_id, jwb]) => ({ soal_id, jawaban: jwb })),
+          sesiId: currentSesi.sesiId,
+          jawaban: Object.entries(currentJawaban).map(([soal_id, jwb]) => ({ soal_id, jawaban: jwb })),
         }),
       })
     } catch (e) { console.warn('Sync failed:', e) }
-  }
+  }, [])
 
   async function laporPelanggaran(jenis: string, detail: string) {
-    if (!sesiInfo) return
+    if (!sesiInfoRef.current) return
     try {
       await apiRequest('/api/siswa/ujian/pelanggaran', {
         method: 'POST',
-        body: JSON.stringify({ sesiId: sesiInfo.sesiId, jenis, detail }),
+        body: JSON.stringify({ sesiId: sesiInfoRef.current.sesiId, jenis, detail }),
       })
     } catch (e) { console.warn(e) }
   }
@@ -126,10 +143,11 @@ export default function SiswaUjianPage() {
     try {
       await syncJawaban()
       const user = JSON.parse(localStorage.getItem('user') ?? '{}')
+      const currentSesi = sesiInfoRef.current
       const res = await apiRequest<{ nilai: number; benar: number; total: number; grade: string; lulus: boolean }>('/api/siswa/ujian/selesai', {
         method: 'POST',
         body: JSON.stringify({
-          sesiId: sesiInfo!.sesiId,
+          sesiId: currentSesi!.sesiId,
           nis: user.nis,
           isTimeout,
         }),
@@ -170,11 +188,12 @@ export default function SiswaUjianPage() {
             </div>
           )}
 
+          {/* FIX 1: maxLength dan placeholder diubah ke 7 agar konsisten dengan guru/mode-pengawas */}
           <input
             type="text"
             className="input text-center text-2xl font-mono tracking-widest uppercase mb-4"
-            placeholder="XXXXXX"
-            maxLength={6}
+            placeholder="XXXXXXX"
+            maxLength={7}
             value={kode}
             onChange={e => setKode(e.target.value.toUpperCase())}
             onKeyDown={e => e.key === 'Enter' && handleMasukUjian()}
