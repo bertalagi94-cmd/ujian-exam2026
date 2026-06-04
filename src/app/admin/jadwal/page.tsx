@@ -284,6 +284,7 @@ export default function AdminJadwalPage() {
 
     // TTD area — mengikuti posisi konten, minimal 30mm dari bawah halaman
     const ttdY = my + 12
+    const signSpace = 30
     doc.setFontSize(10)
     doc.setFont('helvetica', 'normal')
     doc.text('Pengawas Ujian,', lm, ttdY)
@@ -294,13 +295,13 @@ export default function AdminJadwalPage() {
     doc.text(`Kepala ${s.namaSekolah ?? 'Sekolah'}`, lm + w, ttdY + 10, { align: 'right' })
 
     doc.setFont('helvetica', 'bold')
-    doc.text(j.nama_pengawas || '_________________', lm, ttdY + 22)
+    doc.text(j.nama_pengawas || '_________________', lm, ttdY + signSpace)
     doc.setLineWidth(0.3)
-    doc.line(lm, ttdY + 23, lm + doc.getTextWidth(j.nama_pengawas || '_________________'), ttdY + 23)
+    doc.line(lm, ttdY + signSpace + 1, lm + doc.getTextWidth(j.nama_pengawas || '_________________'), ttdY + signSpace + 1)
 
-    doc.text(s.namaKepsek ?? '_________________', lm + w, ttdY + 22, { align: 'right' })
+    doc.text(s.namaKepsek ?? '_________________', lm + w, ttdY + signSpace, { align: 'right' })
     const kepsekW = doc.getTextWidth(s.namaKepsek ?? '_________________')
-    doc.line(lm + w - kepsekW, ttdY + 23, lm + w, ttdY + 23)
+    doc.line(lm + w - kepsekW, ttdY + signSpace + 1, lm + w, ttdY + signSpace + 1)
 
     return doc.output('arraybuffer') as unknown as Uint8Array
   }
