@@ -431,12 +431,20 @@ export default function AdminSiswaPage() {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="label">Kelas *</label>
-              <select name="kelas" className="select" required defaultValue={editData?.kelas}>
-                <option value="">Pilih Kelas</option>
+              <input
+                list="daftar-kelas"
+                name="kelas"
+                className="input"
+                placeholder="Pilih atau ketik kelas"
+                required
+                defaultValue={editData?.kelas ?? ''}
+                autoComplete="off"
+              />
+              <datalist id="daftar-kelas">
                 {kelas.map(k => (
-                  <option key={k.id} value={k.nama}>{k.nama}</option>
+                  <option key={k.id} value={k.nama} />
                 ))}
-              </select>
+              </datalist>
             </div>
             <div>
               <label className="label">Jenis Kelamin</label>
