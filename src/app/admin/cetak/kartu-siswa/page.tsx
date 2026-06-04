@@ -58,8 +58,8 @@ function KartuSiswaContent() {
     const cards = siswaList.map((siswa, idx) => {
       const initials = getInitials(siswa.nama)
       const [bg1, bg2] = avatarColor(initials)
-      // Password default = 6 digit pertama dari NIS (atau NIS jika <6)
-      const passwordDefault = siswa.nis.slice(-6).padStart(6, '0')
+      // Password default = NIS siswa
+      const passwordDefault = siswa.nis
 
       return `
       <div class="kartu">
