@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Plus, Send, RotateCcw, ChevronDown, ChevronUp, Trash2, ImagePlus, X, Eye, ArrowLeft, CheckCircle2 } from 'lucide-react'
+import { Plus, Send, RotateCcw, ChevronDown, ChevronUp, Trash2, ImagePlus, X, ArrowLeft, CheckCircle2 } from 'lucide-react'
 import { Modal, Confirm, StatusBadge, EmptyState, Spinner, Toast } from '@/components/ui'
 import { apiRequest, formatDateTime } from '@/lib/utils'
 import { PaketSoal, Mapel, Kelas, Soal } from '@/types'
@@ -41,15 +41,14 @@ function ImageUploadButton({ label, url, onUrl, uploadKey, uploading, onTrigger 
 
 export default function GuruBuatSoalPage() {
   const [pakets, setPakets] = useState<PaketSoal[]>([])
-  const [mapelList, setMapelList] = useState<Mapel[]>([])
-  const [kelasList, setKelasList] = useState<Kelas[]>([])
+  const [guruMapelList, setGuruMapelList] = useState<Mapel[]>([]) // hanya mapel guru ini
+  const [allKelasList, setAllKelasList] = useState<Kelas[]>([])   // semua kelas untuk lookup nama
   const [loading, setLoading] = useState(true)
   const [step, setStep] = useState<Step>('list')
   const [activePaket, setActivePaket] = useState<PaketSoal | null>(null)
   const [soalDibuat, setSoalDibuat] = useState<SoalWithImg[]>([])
   const [kirimId, setKirimId] = useState<string | null>(null)
   const [tarikId, setTarikId] = useState<string | null>(null)
-  const [deleteId, setDeleteId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
   const [expandedId, setExpandedId] = useState<string | null>(null)
@@ -81,12 +80,31 @@ export default function GuruBuatSoalPage() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
   useEffect(() => {
+    // Ambil hanya mapel yang diampu guru ini, dan semua kelas untuk lookup nama
+    const user = localStorage.getItem('user')
+    const guruId = user ? JSON.parse(user).username : ''
     Promise.all([
-      apiRequest<{ data: Mapel[] }>('/api/admin/mapel'),
+      apiRequest<{ data: Mapel[] }>(`/api/admin/mapel?guru_id=${guruId}`),
       apiRequest<{ data: Kelas[] }>('/api/admin/kelas'),
-    ]).then(([m, k]) => { setMapelList(m.data); setKelasList(k.data) })
+    ]).then(([m, k]) => {
+      setGuruMapelList(m.data ?? [])
+      setAllKelasList(k.data ?? [])
+    })
   }, [])
+
+  // Kelas yang tersedia berdasarkan mapel yang dipilih (dari kelas_list di mapel)
+  const kelasUntukMapel: Kelas[] = (() => {
+    if (!setupMapel) return []
+    const mapel = guruMapelList.find(m => m.id === setupMapel)
+    if (!mapel?.kelas_list) return []
+    const kelasIds = mapel.kelas_list.split(',').map(s => s.trim()).filter(Boolean)
+    return allKelasList.filter(k => kelasIds.includes(k.id))
+  })()
+
+  // Reset kelas saat mapel berubah
+  useEffect(() => { setSetupKelas('') }, [setupMapel])
 
   function resetSoalForm() {
     formRef.current?.reset()
@@ -102,15 +120,13 @@ export default function GuruBuatSoalPage() {
     }
     setSaving(true)
     try {
-      // Create paket first
-      const res = await apiRequest<{ id?: string; message: string }>('/api/guru/paket', {
+      await apiRequest<{ id?: string; message: string }>('/api/guru/paket', {
         method: 'POST',
         body: JSON.stringify({ mapel_id: setupMapel, kelas_id: setupKelas, acak: setupAcak }),
       })
-      // Reload to get the new paket
       const listRes = await apiRequest<{ data: PaketSoal[] }>('/api/guru/paket')
       setPakets(listRes.data)
-      const newPaket = listRes.data[0] // newest first
+      const newPaket = listRes.data[0]
       if (newPaket) {
         setActivePaket(newPaket)
         setSoalDibuat([])
@@ -157,7 +173,6 @@ export default function GuruBuatSoalPage() {
     payload.jumlah_opsi = String(jumlahOpsi)
     payload.mapel_id = activePaket.mapel_id
     payload.kelas_id = activePaket.kelas_id
-    payload.acak = activePaket.acak
     payload.paket_id = activePaket.id
     payload.gambar_pertanyaan = imgPertanyaan || null
     for (const l of ['a','b','c','d','e']) {
@@ -169,7 +184,6 @@ export default function GuruBuatSoalPage() {
       showToast(`Soal ke-${soalDibuat.length + 1} berhasil ditambahkan`)
       setSoalDibuat(prev => [...prev, { ...payload, id: '' } as SoalWithImg])
       resetSoalForm()
-      // Refresh paket count
       const listRes = await apiRequest<{ data: PaketSoal[] }>('/api/guru/paket')
       setPakets(listRes.data)
       const updated = listRes.data.find(p => p.id === activePaket.id)
@@ -221,14 +235,8 @@ export default function GuruBuatSoalPage() {
     } finally { setSaving(false) }
   }
 
-  async function handleDeletePaket() {
-    // We don't have a delete paket API but we can handle it gracefully
-    setDeleteId(null)
-    showToast('Fitur hapus paket belum tersedia', 'error')
-  }
-
-  const getNamaMapel = (id: string) => mapelList.find(m => m.id === id)?.nama ?? id
-  const getNamaKelas = (id: string) => kelasList.find(k => k.id === id)?.nama ?? id
+  const getNamaMapel = (id: string) => guruMapelList.find(m => m.id === id)?.nama ?? allKelasList.find(k => k.id === id)?.nama ?? id
+  const getNamaKelas = (id: string) => allKelasList.find(k => k.id === id)?.nama ?? id
 
   // ── STEP: BUAT SOAL ──────────────────────────────────────────────
   if (step === 'buat' && activePaket) {
@@ -332,7 +340,7 @@ export default function GuruBuatSoalPage() {
               <textarea name="pembahasan" className="textarea" rows={2} placeholder="Penjelasan jawaban yang benar..." />
             </div>
 
-            <div className="flex gap-3 pt-2">
+            <div className="flex gap-3 pt-2 flex-wrap">
               <button type="submit" className="btn-primary" disabled={saving || !!uploadingImg}>
                 {saving ? <Spinner size="sm" /> : <><Plus className="w-4 h-4" /> Tambah & Lanjut ke Soal Berikutnya</>}
               </button>
@@ -380,15 +388,21 @@ export default function GuruBuatSoalPage() {
               <label className="label">Mata Pelajaran *</label>
               <select className="select" value={setupMapel} onChange={e => setSetupMapel(e.target.value)} required>
                 <option value="">Pilih Mata Pelajaran</option>
-                {mapelList.map(m => <option key={m.id} value={m.id}>{m.nama}</option>)}
+                {guruMapelList.map(m => <option key={m.id} value={m.id}>{m.nama}</option>)}
               </select>
+              {guruMapelList.length === 0 && (
+                <p className="text-xs text-amber-600 mt-1">Belum ada mata pelajaran yang diampu. Hubungi admin.</p>
+              )}
             </div>
             <div>
               <label className="label">Kelas *</label>
-              <select className="select" value={setupKelas} onChange={e => setSetupKelas(e.target.value)} required>
-                <option value="">Pilih Kelas</option>
-                {kelasList.map(k => <option key={k.id} value={k.id}>{k.nama}</option>)}
+              <select className="select" value={setupKelas} onChange={e => setSetupKelas(e.target.value)} required disabled={!setupMapel}>
+                <option value="">{setupMapel ? 'Pilih Kelas' : 'Pilih mapel dulu'}</option>
+                {kelasUntukMapel.map(k => <option key={k.id} value={k.id}>{k.nama}</option>)}
               </select>
+              {setupMapel && kelasUntukMapel.length === 0 && (
+                <p className="text-xs text-amber-600 mt-1">Tidak ada kelas yang terdaftar untuk mapel ini. Hubungi admin.</p>
+              )}
             </div>
             <div>
               <label className="label">Acak Urutan Soal</label>
