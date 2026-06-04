@@ -1,10 +1,18 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { Play, Square, Users, Clock, Copy, CheckCircle, AlertCircle } from 'lucide-react'
-import { PageLoader, StatusBadge, Spinner, Toast, Confirm } from '@/components/ui'
+import { Play, Square, Clock, Copy, CheckCircle, RefreshCw } from 'lucide-react'
+import { PageLoader, StatusBadge, Spinner, Toast, Confirm, Modal } from '@/components/ui'
 import { apiRequest, formatDate, generateKodeSesi } from '@/lib/utils'
-import { Jadwal, SesiUjian } from '@/types'
+import { Jadwal, SesiUjian, Siswa } from '@/types'
+
+interface SusulanResult {
+  bisa: boolean
+  message: string
+  sesiBaruId?: string
+  kodeSesi?: string
+  siswa?: Pick<Siswa, 'nis' | 'nama'>[]
+}
 
 export default function PengawasDashboard() {
   const [jadwal, setJadwal] = useState<Jadwal[]>([])
@@ -12,9 +20,14 @@ export default function PengawasDashboard() {
   const [loading, setLoading] = useState(true)
   const [mulaiId, setMulaiId] = useState<string | null>(null)
   const [tutupId, setTutupId] = useState<string | null>(null)
+  const [susulanSesiId, setSusulanSesiId] = useState<string | null>(null)
+  const [susulanResult, setSusulanResult] = useState<SusulanResult | null>(null)
   const [saving, setSaving] = useState(false)
   const [copied, setCopied] = useState<string | null>(null)
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
+
+  // Sesi selesai hari ini (untuk tombol susulan)
+  const [sesiSelesai, setSesiSelesai] = useState<SesiUjian[]>([])
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => setToast({ msg, type })
 
@@ -27,6 +40,10 @@ export default function PengawasDashboard() {
       ])
       setJadwal(j.data)
       setSesiAktif(s.data)
+
+      // Ambil sesi selesai hari ini untuk fitur susulan
+      const res = await apiRequest<{ data: SesiUjian[] }>('/api/pengawas/sesi?status=SELESAI')
+      setSesiSelesai(res.data ?? [])
     } finally { setLoading(false) }
   }, [])
 
@@ -60,6 +77,21 @@ export default function PengawasDashboard() {
     } catch (err: unknown) {
       showToast(err instanceof Error ? err.message : 'Gagal menutup sesi', 'error')
     } finally { setSaving(false) }
+  }
+
+  async function handleSusulan() {
+    if (!susulanSesiId) return
+    setSaving(true)
+    try {
+      const res = await apiRequest<SusulanResult>(`/api/pengawas/sesi/${susulanSesiId}/susulan`, { method: 'POST' })
+      setSusulanResult(res)
+      if (res.bisa) load()
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Gagal membuka ujian susulan', 'error')
+    } finally {
+      setSaving(false)
+      setSusulanSesiId(null)
+    }
   }
 
   function copyKode(kode: string) {
@@ -97,7 +129,6 @@ export default function PengawasDashboard() {
                     <div className="text-sm text-slate-500">Kelas {s.kelas} · {s.jumlah_peserta} peserta</div>
                   </div>
                   <div className="flex items-center gap-3">
-                    {/* Kode sesi */}
                     <div className="flex items-center gap-2 bg-slate-50 rounded-xl px-4 py-2">
                       <span className="font-mono text-2xl font-bold text-brand-700 tracking-widest">
                         {s.kode_sesi}
@@ -168,6 +199,32 @@ export default function PengawasDashboard() {
         )}
       </div>
 
+      {/* Ujian Susulan — sesi yang sudah selesai hari ini */}
+      {sesiSelesai.length > 0 && (
+        <div>
+          <h2 className="font-semibold text-slate-900 mb-1">Ujian Susulan</h2>
+          <p className="text-sm text-slate-400 mb-3">
+            Buka kembali akses ujian untuk siswa yang belum hadir. Sistem akan otomatis memeriksa ketersediaan siswa.
+          </p>
+          <div className="space-y-2">
+            {sesiSelesai.map(s => (
+              <div key={s.id} className="card py-3 flex items-center gap-4">
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium text-slate-800">{s.nama_mapel}</div>
+                  <div className="text-xs text-slate-400">Kelas {s.kelas} · Selesai</div>
+                </div>
+                <button
+                  onClick={() => setSusulanSesiId(s.id)}
+                  className="btn-secondary btn-sm flex-shrink-0"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" /> Buka Susulan
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Jadwal Mendatang */}
       <div>
         <h2 className="font-semibold text-slate-900 mb-3">Jadwal Mendatang</h2>
@@ -192,6 +249,7 @@ export default function PengawasDashboard() {
         )}
       </div>
 
+      {/* Confirm buka sesi */}
       <Confirm
         open={!!mulaiId}
         onClose={() => setMulaiId(null)}
@@ -203,6 +261,7 @@ export default function PengawasDashboard() {
         loading={saving}
       />
 
+      {/* Confirm tutup sesi */}
       <Confirm
         open={!!tutupId}
         onClose={() => setTutupId(null)}
@@ -213,6 +272,68 @@ export default function PengawasDashboard() {
         variant="danger"
         loading={saving}
       />
+
+      {/* Confirm buka susulan */}
+      <Confirm
+        open={!!susulanSesiId}
+        onClose={() => setSusulanSesiId(null)}
+        onConfirm={handleSusulan}
+        title="Buka Ujian Susulan"
+        message="Sistem akan memeriksa apakah ada siswa yang belum mengikuti ujian ini. Jika semua sudah ujian, permintaan akan dibatalkan otomatis."
+        confirmLabel="Cek & Buka"
+        variant="primary"
+        loading={saving}
+      />
+
+      {/* Modal hasil susulan */}
+      {susulanResult && (
+        <Modal
+          open={!!susulanResult}
+          onClose={() => setSusulanResult(null)}
+          title={susulanResult.bisa ? 'Sesi Susulan Dibuka' : 'Ujian Susulan Tidak Diperlukan'}
+          footer={
+            <button onClick={() => setSusulanResult(null)} className="btn-primary">Tutup</button>
+          }
+        >
+          <div className="space-y-3">
+            <p className={`text-sm font-medium ${susulanResult.bisa ? 'text-emerald-700' : 'text-slate-600'}`}>
+              {susulanResult.message}
+            </p>
+            {susulanResult.bisa && susulanResult.kodeSesi && (
+              <div className="bg-brand-50 rounded-xl px-5 py-4 flex items-center justify-between">
+                <span className="text-sm text-slate-600">Kode Sesi Susulan</span>
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-2xl font-bold text-brand-700 tracking-widest">
+                    {susulanResult.kodeSesi}
+                  </span>
+                  <button
+                    onClick={() => copyKode(susulanResult.kodeSesi!)}
+                    className="btn-ghost btn-icon btn-sm"
+                  >
+                    {copied === susulanResult.kodeSesi
+                      ? <CheckCircle className="w-4 h-4 text-emerald-500" />
+                      : <Copy className="w-4 h-4 text-slate-400" />
+                    }
+                  </button>
+                </div>
+              </div>
+            )}
+            {susulanResult.bisa && susulanResult.siswa && susulanResult.siswa.length > 0 && (
+              <div>
+                <p className="text-xs text-slate-500 mb-2">Siswa yang bisa mengikuti ujian susulan:</p>
+                <div className="space-y-1 max-h-48 overflow-y-auto">
+                  {susulanResult.siswa.map(s => (
+                    <div key={s.nis} className="flex items-center gap-2 text-sm py-1 border-b border-slate-50">
+                      <span className="font-mono text-xs text-slate-400 w-24">{s.nis}</span>
+                      <span className="text-slate-700">{s.nama}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </Modal>
+      )}
     </div>
   )
 }

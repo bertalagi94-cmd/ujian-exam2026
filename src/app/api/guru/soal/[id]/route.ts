@@ -5,7 +5,7 @@ import { requireRole } from '@/lib/auth'
 interface Ctx { params: { id: string } }
 
 export async function PUT(req: NextRequest, { params }: Ctx) {
-  const auth = requireRole(req, ['GURU', 'GURU_KEPSEK'])
+  const auth = requireRole(req, ['GURU'])
   if ('error' in auth) return auth.error
   const { user } = auth
 
@@ -41,7 +41,7 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
 }
 
 export async function DELETE(req: NextRequest, { params }: Ctx) {
-  const auth = requireRole(req, ['GURU', 'GURU_KEPSEK'])
+  const auth = requireRole(req, ['GURU'])
   if ('error' in auth) return auth.error
   const { user } = auth
 

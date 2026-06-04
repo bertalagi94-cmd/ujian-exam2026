@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, Pencil, Trash2, School } from 'lucide-react'
+import { Plus, Pencil, Trash2, School, CreditCard } from 'lucide-react'
 import { Modal, Confirm, EmptyState, Spinner, Toast } from '@/components/ui'
 import { apiRequest } from '@/lib/utils'
 import { Kelas, User } from '@/types'
@@ -16,9 +16,7 @@ export default function AdminKelasPage() {
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
 
-  const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
-    setToast({ msg, type })
-  }
+  const showToast = (msg: string, type: 'success' | 'error' = 'success') => setToast({ msg, type })
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -36,12 +34,17 @@ export default function AdminKelasPage() {
 
   useEffect(() => {
     apiRequest<{ data: User[] }>('/api/admin/users')
-      .then(r => setUsers(r.data.filter(u => u.role === 'GURU' || u.role === 'GURU_KEPSEK')))
+      .then(r => setUsers(r.data.filter(u => u.role === 'GURU')))
       .catch(() => {})
   }, [])
 
   function openAdd() { setEditData({}); setModalOpen(true) }
   function openEdit(k: Kelas) { setEditData(k); setModalOpen(true) }
+
+  // Buka tab cetak kartu siswa
+  function cetakKartu(k: Kelas) {
+    window.open(`/admin/cetak/kartu-siswa?kelas=${encodeURIComponent(k.nama)}`, '_blank')
+  }
 
   async function handleSave(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -97,7 +100,6 @@ export default function AdminKelasPage() {
         </button>
       </div>
 
-      {/* Table */}
       <div className="card p-0 overflow-hidden">
         <div className="table-wrapper">
           {loading ? (
@@ -138,6 +140,14 @@ export default function AdminKelasPage() {
                     </td>
                     <td>
                       <div className="flex items-center gap-1">
+                        {/* Tombol cetak kartu siswa */}
+                        <button
+                          onClick={() => cetakKartu(k)}
+                          className="btn-ghost btn-icon btn-sm text-purple-600 hover:bg-purple-50"
+                          title={`Cetak Kartu Siswa Kelas ${k.nama}`}
+                        >
+                          <CreditCard className="w-3.5 h-3.5" />
+                        </button>
                         <button
                           onClick={() => openEdit(k)}
                           className="btn-ghost btn-icon btn-sm text-blue-600 hover:bg-blue-50"
@@ -162,7 +172,13 @@ export default function AdminKelasPage() {
         </div>
       </div>
 
-      {/* Modal Form */}
+      {/* Legend ikon */}
+      <div className="flex gap-4 text-xs text-slate-400 px-1">
+        <span className="flex items-center gap-1"><CreditCard className="w-3.5 h-3.5 text-purple-400" /> Cetak Kartu Siswa</span>
+        <span className="flex items-center gap-1"><Pencil className="w-3.5 h-3.5 text-blue-400" /> Edit</span>
+        <span className="flex items-center gap-1"><Trash2 className="w-3.5 h-3.5 text-red-400" /> Hapus</span>
+      </div>
+
       <Modal
         open={modalOpen}
         onClose={() => setModalOpen(false)}
@@ -182,7 +198,7 @@ export default function AdminKelasPage() {
             <input
               name="nama"
               className="input"
-              placeholder="Contoh: 10, 11, 12"
+              placeholder="Contoh: 7, 8, 9"
               required
               defaultValue={editData?.nama ?? ''}
             />
@@ -220,7 +236,6 @@ export default function AdminKelasPage() {
         </form>
       </Modal>
 
-      {/* Confirm Delete */}
       <Confirm
         open={!!deleteId}
         onClose={() => setDeleteId(null)}

@@ -11,9 +11,7 @@ export default function GuruLayout({ children }: { children: React.ReactNode }) 
     const user = localStorage.getItem('user')
     if (!user) { router.replace('/login'); return }
     const parsed = JSON.parse(user)
-    if (!['GURU', 'GURU_KEPSEK'].includes(parsed.role)) {
-      router.replace('/login')
-    }
+    if (parsed.role !== 'GURU') router.replace('/login')
   }, [router])
 
   return (

@@ -6,7 +6,7 @@ export async function POST(
   req: NextRequest,
   { params }: { params: { id: string; action: string } }
 ) {
-  const auth = requireRole(req, ['GURU', 'GURU_KEPSEK'])
+  const auth = requireRole(req, ['GURU'])
   if ('error' in auth) return auth.error
   const { user } = auth
   const db = createAdminClient()

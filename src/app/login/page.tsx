@@ -62,7 +62,6 @@ export default function LoginPage() {
         GURU: '/guru',
         PENGAWAS: '/pengawas',
         KEPSEK: '/kepsek',
-        GURU_KEPSEK: '/guru',
         SISWA: '/siswa',
       }
       router.push(roleRoutes[data.role] ?? '/login')

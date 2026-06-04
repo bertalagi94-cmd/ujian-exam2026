@@ -3,7 +3,7 @@ import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 
 export async function GET(req: NextRequest) {
-  const auth = requireRole(req, ['KEPSEK', 'GURU_KEPSEK', 'ADMIN'])
+  const auth = requireRole(req, ['KEPSEK', 'ADMIN'])
   if ('error' in auth) return auth.error
 
   const db = createAdminClient()
@@ -15,7 +15,7 @@ export async function GET(req: NextRequest) {
     { data: nilaiAll },
   ] = await Promise.all([
     db.from('siswa').select('*', { count: 'exact', head: true }).eq('status', 'AKTIF'),
-    db.from('users').select('*', { count: 'exact', head: true }).eq('status', 'AKTIF'),
+    db.from('users').select('*', { count: 'exact', head: true }).eq('status', 'AKTIF').eq('role', 'GURU'),
     db.from('nilai').select('*', { count: 'exact', head: true }),
     db.from('nilai').select('nilai, kelas, mapel_id, lulus'),
   ])

@@ -92,7 +92,6 @@ export default function AdminUsersPage() {
     GURU: 'badge-blue',
     PENGAWAS: 'badge-yellow',
     KEPSEK: 'badge-purple',
-    GURU_KEPSEK: 'badge-purple',
   }
 
   return (
@@ -114,7 +113,7 @@ export default function AdminUsersPage() {
         <SearchInput value={search} onChange={setSearch} placeholder="Cari nama atau username..." className="flex-1 min-w-[200px]" />
         <select value={filterRole} onChange={e => setFilterRole(e.target.value)} className="select w-40">
           <option value="">Semua Role</option>
-          {['ADMIN', 'GURU', 'PENGAWAS', 'KEPSEK', 'GURU_KEPSEK'].map(r => (
+          {['ADMIN', 'GURU', 'PENGAWAS', 'KEPSEK'].map(r => (
             <option key={r} value={r}>{r}</option>
           ))}
         </select>
@@ -207,7 +206,6 @@ export default function AdminUsersPage() {
                 <option value="GURU">Guru</option>
                 <option value="PENGAWAS">Pengawas</option>
                 <option value="KEPSEK">Kepala Sekolah</option>
-                <option value="GURU_KEPSEK">Guru & Kepsek</option>
               </select>
             </div>
             <div>

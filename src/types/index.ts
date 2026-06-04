@@ -1,4 +1,4 @@
-export type Role = 'ADMIN' | 'GURU' | 'PENGAWAS' | 'KEPSEK' | 'GURU_KEPSEK' | 'SISWA'
+export type Role = 'ADMIN' | 'GURU' | 'PENGAWAS' | 'KEPSEK' | 'SISWA'
 
 export interface User {
   username: string
@@ -61,7 +61,7 @@ export interface Jadwal {
   kelas: string
   pengawas?: string
   durasi: number
-  status: 'AKTIF' | 'BERJALAN' | 'SELESAI' | 'MENUNGGU_BUKA'
+  status: 'AKTIF' | 'BERJALAN' | 'SELESAI'
   // joined
   nama_mapel?: string
   nama_pengawas?: string

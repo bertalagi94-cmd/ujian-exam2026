@@ -11,7 +11,6 @@ DROP TABLE IF EXISTS pelanggaran CASCADE;
 DROP TABLE IF EXISTS nilai CASCADE;
 DROP TABLE IF EXISTS jawaban CASCADE;
 DROP TABLE IF EXISTS siswa_ujian CASCADE;
-DROP TABLE IF EXISTS permintaan_buka_sesi CASCADE;
 DROP TABLE IF EXISTS sesi_ujian CASCADE;
 DROP TABLE IF EXISTS jadwal CASCADE;
 DROP TABLE IF EXISTS soal CASCADE;
@@ -49,7 +48,7 @@ CREATE TABLE users (
   username TEXT PRIMARY KEY,
   password_hash TEXT NOT NULL,
   nama TEXT NOT NULL,
-  role TEXT NOT NULL,
+  role TEXT NOT NULL CHECK (role IN ('ADMIN', 'GURU', 'PENGAWAS', 'KEPSEK')),
   mapel_id TEXT,
   last_login TIMESTAMPTZ,
   status TEXT DEFAULT 'AKTIF',
@@ -97,7 +96,8 @@ CREATE TABLE jadwal (
   kelas TEXT NOT NULL,
   pengawas TEXT,
   durasi INTEGER DEFAULT 90,
-  status TEXT DEFAULT 'AKTIF',
+  -- status: AKTIF = belum dimulai, BERJALAN = sesi sedang aktif, SELESAI = ujian selesai
+  status TEXT DEFAULT 'AKTIF' CHECK (status IN ('AKTIF', 'BERJALAN', 'SELESAI')),
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -110,6 +110,7 @@ CREATE TABLE paket_soal (
   tanggal TIMESTAMPTZ DEFAULT NOW(),
   catatan TEXT,
   jumlah_soal INTEGER DEFAULT 0,
+  acak TEXT DEFAULT 'YA',   -- YA = urutan soal diacak per siswa
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -129,7 +130,6 @@ CREATE TABLE soal (
   catatan TEXT,
   gambar_url TEXT,
   paket_id TEXT,
-  acak TEXT DEFAULT 'YA',
   gambar_a TEXT, gambar_b TEXT, gambar_c TEXT, gambar_d TEXT, gambar_e TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -148,17 +148,6 @@ CREATE TABLE sesi_ujian (
   kode_sesi TEXT UNIQUE,
   is_darurat BOOLEAN DEFAULT FALSE,
   siswa_diizinkan TEXT[],
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE TABLE permintaan_buka_sesi (
-  id TEXT PRIMARY KEY,
-  jadwal_id TEXT,
-  pengawas_id TEXT,
-  alasan TEXT,
-  status TEXT DEFAULT 'MENUNGGU',
-  disetujui_oleh TEXT,
-  waktu_setujui TIMESTAMPTZ,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -243,4 +232,3 @@ CREATE INDEX idx_nilai_mapel ON nilai(mapel_id);
 CREATE INDEX idx_siswa_ujian_sesi ON siswa_ujian(sesi_id);
 CREATE INDEX idx_log_created ON log_aktivitas(created_at DESC);
 CREATE INDEX idx_jadwal_tanggal ON jadwal(tanggal);
-

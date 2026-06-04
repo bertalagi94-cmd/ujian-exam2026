@@ -4,14 +4,17 @@ import { requireRole } from '@/lib/auth'
 import { generateId } from '@/lib/utils'
 
 export async function GET(req: NextRequest) {
-  const auth = requireRole(req, ['PENGAWAS', 'GURU_KEPSEK', 'ADMIN'])
+  const auth = requireRole(req, ['PENGAWAS', 'ADMIN'])
   if ('error' in auth) return auth.error
 
   const db = createAdminClient()
+  const { searchParams } = new URL(req.url)
+  const status = searchParams.get('status') ?? 'BERJALAN'
+
   const { data, error } = await db
     .from('sesi_ujian')
     .select('*')
-    .eq('status', 'BERJALAN')
+    .eq('status', status)
     .order('created_at', { ascending: false })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
@@ -28,7 +31,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const auth = requireRole(req, ['PENGAWAS', 'GURU_KEPSEK', 'ADMIN'])
+  const auth = requireRole(req, ['PENGAWAS', 'ADMIN'])
   if ('error' in auth) return auth.error
 
   const db = createAdminClient()

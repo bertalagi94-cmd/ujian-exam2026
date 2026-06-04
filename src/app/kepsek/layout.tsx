@@ -9,7 +9,7 @@ export default function KepsekLayout({ children }: { children: React.ReactNode }
   useEffect(() => {
     const user = localStorage.getItem('user')
     if (!user) { router.replace('/login'); return }
-    if (!['KEPSEK', 'GURU_KEPSEK'].includes(JSON.parse(user).role)) router.replace('/login')
+    if (JSON.parse(user).role !== 'KEPSEK') router.replace('/login')
   }, [router])
   return (
     <div className="flex min-h-screen bg-surface-50">

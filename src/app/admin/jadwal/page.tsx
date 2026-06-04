@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, Pencil, Trash2, Calendar } from 'lucide-react'
+import { Plus, Pencil, Trash2, Calendar, Printer, FileText, Download } from 'lucide-react'
 import { Modal, Confirm, StatusBadge, SearchInput, EmptyState, Spinner, Toast, Pagination } from '@/components/ui'
 import { apiRequest, formatDate } from '@/lib/utils'
 import { Jadwal, Mapel, Kelas, User } from '@/types'
@@ -23,6 +23,12 @@ export default function AdminJadwalPage() {
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
 
+  // State untuk modal cetak massal
+  const [cetakMassalOpen, setCetakMassalOpen] = useState(false)
+  const [cetakMode, setCetakMode] = useState<'daftar-hadir' | 'berita-acara'>('daftar-hadir')
+  const [cetakTanggal, setCetakTanggal] = useState('')
+  const [tanggalList, setTanggalList] = useState<string[]>([])
+
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => setToast({ msg, type })
 
   const load = useCallback(async () => {
@@ -30,6 +36,10 @@ export default function AdminJadwalPage() {
     try {
       const res = await apiRequest<{ data: Jadwal[] }>('/api/admin/jadwal')
       setJadwal(res.data)
+      // Kumpulkan daftar tanggal unik untuk picker cetak massal
+      const dates = [...new Set(res.data.map(j => j.tanggal.slice(0, 10)))].sort().reverse()
+      setTanggalList(dates)
+      if (dates.length > 0) setCetakTanggal(dates[0])
     } finally { setLoading(false) }
   }, [])
 
@@ -42,7 +52,7 @@ export default function AdminJadwalPage() {
     ]).then(([m, k, u]) => {
       setMapelList(m.data)
       setKelasList(k.data)
-      setPengawasList(u.data.filter(u => ['PENGAWAS', 'GURU_KEPSEK'].includes(u.role)))
+      setPengawasList(u.data.filter(u => u.role === 'PENGAWAS'))
     })
   }, [])
 
@@ -87,8 +97,18 @@ export default function AdminJadwalPage() {
     } finally { setSaving(false) }
   }
 
-  const statusColor: Record<string, string> = {
-    AKTIF: 'badge-green', BERJALAN: 'badge-blue', SELESAI: 'badge-slate', MENUNGGU_BUKA: 'badge-yellow',
+  // Buka tab cetak — per jadwal
+  function cetakSatu(jadwal: Jadwal, mode: 'daftar-hadir' | 'berita-acara') {
+    const url = `/admin/cetak?tanggal=${jadwal.tanggal.slice(0, 10)}&mode=${mode}&id=${jadwal.id}`
+    window.open(url, '_blank')
+  }
+
+  // Buka tab cetak massal
+  function cetakMassal() {
+    if (!cetakTanggal) return
+    const url = `/admin/cetak?tanggal=${cetakTanggal}&mode=${cetakMode}`
+    window.open(url, '_blank')
+    setCetakMassalOpen(false)
   }
 
   return (
@@ -100,9 +120,17 @@ export default function AdminJadwalPage() {
           <h1 className="page-title">Jadwal Ujian</h1>
           <p className="page-subtitle">{jadwal.length} jadwal terdaftar</p>
         </div>
-        <button onClick={() => { setEditData({}); setModalOpen(true) }} className="btn-primary btn-sm">
-          <Plus className="w-4 h-4" /> Tambah Jadwal
-        </button>
+        <div className="flex gap-2 flex-wrap">
+          <button
+            onClick={() => setCetakMassalOpen(true)}
+            className="btn-secondary btn-sm"
+          >
+            <Printer className="w-4 h-4" /> Cetak Massal
+          </button>
+          <button onClick={() => { setEditData({}); setModalOpen(true) }} className="btn-primary btn-sm">
+            <Plus className="w-4 h-4" /> Tambah Jadwal
+          </button>
+        </div>
       </div>
 
       <div className="card py-4 flex gap-3 flex-wrap">
@@ -110,7 +138,7 @@ export default function AdminJadwalPage() {
           placeholder="Cari mata pelajaran..." className="flex-1 min-w-[200px]" />
         <select value={filterStatus} onChange={e => { setFilterStatus(e.target.value); setPage(1) }} className="select w-40">
           <option value="">Semua Status</option>
-          {['AKTIF', 'BERJALAN', 'SELESAI', 'MENUNGGU_BUKA'].map(s => (
+          {['AKTIF', 'BERJALAN', 'SELESAI'].map(s => (
             <option key={s} value={s}>{s}</option>
           ))}
         </select>
@@ -148,11 +176,27 @@ export default function AdminJadwalPage() {
                     <td className="text-sm text-slate-600">{j.durasi} menit</td>
                     <td><StatusBadge status={j.status} /></td>
                     <td>
-                      <div className="flex gap-1">
+                      <div className="flex gap-1 flex-wrap">
+                        {/* Tombol cetak daftar hadir */}
+                        <button
+                          onClick={() => cetakSatu(j, 'daftar-hadir')}
+                          className="btn-ghost btn-icon btn-sm text-emerald-600 hover:bg-emerald-50"
+                          title="Cetak Daftar Hadir"
+                        >
+                          <FileText className="w-3.5 h-3.5" />
+                        </button>
+                        {/* Tombol cetak berita acara */}
+                        <button
+                          onClick={() => cetakSatu(j, 'berita-acara')}
+                          className="btn-ghost btn-icon btn-sm text-blue-600 hover:bg-blue-50"
+                          title="Cetak Berita Acara"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                        </button>
                         {j.status === 'AKTIF' && (
                           <>
                             <button onClick={() => { setEditData(j); setModalOpen(true) }}
-                              className="btn-ghost btn-icon btn-sm text-blue-600 hover:bg-blue-50">
+                              className="btn-ghost btn-icon btn-sm text-slate-600 hover:bg-slate-50">
                               <Pencil className="w-3.5 h-3.5" />
                             </button>
                             <button onClick={() => setDeleteId(j.id)}
@@ -175,6 +219,76 @@ export default function AdminJadwalPage() {
         </div>
       </div>
 
+      {/* Modal Cetak Massal */}
+      <Modal
+        open={cetakMassalOpen}
+        onClose={() => setCetakMassalOpen(false)}
+        title="Cetak Dokumen Massal"
+        size="sm"
+        footer={
+          <>
+            <button onClick={() => setCetakMassalOpen(false)} className="btn-secondary">Batal</button>
+            <button onClick={cetakMassal} className="btn-primary" disabled={!cetakTanggal}>
+              <Printer className="w-4 h-4" /> Cetak Semua
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-slate-500">
+            Pilih tanggal dan jenis dokumen. Semua jadwal pada tanggal tersebut akan dicetak sekaligus dalam satu file.
+          </p>
+          <div>
+            <label className="label">Tanggal Ujian</label>
+            <select
+              value={cetakTanggal}
+              onChange={e => setCetakTanggal(e.target.value)}
+              className="select w-full"
+            >
+              {tanggalList.length === 0 && <option value="">-- Belum ada jadwal --</option>}
+              {tanggalList.map(t => (
+                <option key={t} value={t}>{formatDate(t)}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="label">Jenis Dokumen</label>
+            <div className="flex gap-3">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="cetakMode"
+                  value="daftar-hadir"
+                  checked={cetakMode === 'daftar-hadir'}
+                  onChange={() => setCetakMode('daftar-hadir')}
+                  className="accent-brand-600"
+                />
+                <span className="text-sm text-slate-700">Daftar Hadir</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="cetakMode"
+                  value="berita-acara"
+                  checked={cetakMode === 'berita-acara'}
+                  onChange={() => setCetakMode('berita-acara')}
+                  className="accent-brand-600"
+                />
+                <span className="text-sm text-slate-700">Berita Acara</span>
+              </label>
+            </div>
+          </div>
+          {cetakTanggal && (
+            <div className="bg-slate-50 rounded-xl px-4 py-3 text-sm text-slate-600">
+              Akan mencetak{' '}
+              <strong>{jadwal.filter(j => j.tanggal.slice(0, 10) === cetakTanggal).length} jadwal</strong>
+              {' '}pada <strong>{formatDate(cetakTanggal)}</strong>
+            </div>
+          )}
+        </div>
+      </Modal>
+
+      {/* Modal Tambah/Edit */}
       <Modal open={modalOpen} onClose={() => setModalOpen(false)}
         title={editData?.id ? 'Edit Jadwal' : 'Tambah Jadwal Baru'}
         footer={

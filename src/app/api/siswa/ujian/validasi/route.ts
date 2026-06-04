@@ -25,6 +25,24 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ valid: false, message: 'Kode sesi tidak ditemukan atau ujian sudah selesai.' })
   }
 
+  // Validasi kelas: kelas siswa harus cocok dengan kelas sesi
+  if (user.kelas && String(user.kelas) !== String(sesi.kelas)) {
+    return NextResponse.json({
+      valid: false,
+      message: `Anda bukan peserta ujian ini. Kelas Anda (${user.kelas}) tidak sesuai dengan kelas sesi (${sesi.kelas}).`,
+    })
+  }
+
+  // Jika sesi susulan (is_darurat=true), cek apakah siswa ini termasuk yang diizinkan
+  if (sesi.is_darurat && Array.isArray(sesi.siswa_diizinkan) && sesi.siswa_diizinkan.length > 0) {
+    if (!sesi.siswa_diizinkan.includes(nis)) {
+      return NextResponse.json({
+        valid: false,
+        message: 'Anda tidak terdaftar dalam sesi ujian susulan ini. Hubungi pengawas.',
+      })
+    }
+  }
+
   // Check siswa already finished
   const { data: nilaiAda } = await db
     .from('nilai')
@@ -57,12 +75,13 @@ export async function POST(req: NextRequest) {
     status: 'AKTIF',
   }, { onConflict: 'sesi_id,nis' })
 
-  // Get soal for this sesi (randomized per kelas/mapel)
+  // Get paket soal untuk kelas dan mapel ini
+  // acak diatur di level paket, bukan di tiap soal
   const { data: paketData } = await db
     .from('paket_soal')
     .select('id, acak')
     .eq('mapel_id', sesi.mapel_id)
-    .eq('kelas_id', user.kelas ?? sesi.kelas)
+    .eq('kelas_id', sesi.kelas)
     .eq('status', 'DISETUJUI')
     .limit(1)
     .single()
@@ -81,10 +100,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ valid: false, message: 'Tidak ada soal tersedia untuk ujian ini.' })
   }
 
-  // Shuffle berdasarkan pengaturan acak di level paket
-  const shouldAcak = paketData
-    ? (paketData as { id: string; acak?: string }).acak === 'YA'
-    : false
+  // Shuffle berdasarkan pengaturan acak di paket_soal
+  const shouldAcak = paketData?.acak === 'YA'
 
   let finalSoal
   if (shouldAcak) {

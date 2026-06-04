@@ -4,7 +4,7 @@ import { requireRole } from '@/lib/auth'
 import { generateId } from '@/lib/utils'
 
 export async function GET(req: NextRequest) {
-  const auth = requireRole(req, ['GURU', 'GURU_KEPSEK'])
+  const auth = requireRole(req, ['GURU'])
   if ('error' in auth) return auth.error
   const { user } = auth
 
@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const auth = requireRole(req, ['GURU', 'GURU_KEPSEK'])
+  const auth = requireRole(req, ['GURU'])
   if ('error' in auth) return auth.error
   const { user } = auth
 

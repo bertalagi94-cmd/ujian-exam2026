@@ -6,7 +6,7 @@ const SECRET = process.env.JWT_SECRET!
 export interface JWTPayload {
   username: string
   nama: string
-  role: 'ADMIN' | 'GURU' | 'PENGAWAS' | 'KEPSEK' | 'GURU_KEPSEK' | 'SISWA'
+  role: 'ADMIN' | 'GURU' | 'PENGAWAS' | 'KEPSEK' | 'SISWA'
   nis?: string
   kelas?: string
   iat?: number
