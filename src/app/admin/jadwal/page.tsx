@@ -138,11 +138,11 @@ export default function AdminJadwalPage() {
     const doc = new jsPDF({ unit: 'mm', format: 'a4' })
     const s = sekolah
     const lm = 25, rm = 20, top = 20, w = 210 - lm - rm
+    const pageW = 210
 
-    // KOP
+    // KOP — logo kiri, teks center dari seluruh halaman
     if (s.logoUrl) {
       try {
-        // load image as base64
         const resp = await fetch(s.logoUrl)
         const blob = await resp.blob()
         const b64 = await new Promise<string>(res => {
@@ -151,25 +151,30 @@ export default function AdminJadwalPage() {
         doc.addImage(b64, 'PNG', lm, top, 18, 18)
       } catch { /* skip logo jika gagal load */ }
     }
+    // Nama sekolah & info di tengah halaman
     doc.setFont('helvetica', 'bold')
     doc.setFontSize(14)
-    doc.text((s.namaSekolah ?? 'NAMA SEKOLAH').toUpperCase(), lm + 21, top + 6, { align: 'left' })
+    doc.text((s.namaSekolah ?? 'NAMA SEKOLAH').toUpperCase(), pageW / 2, top + 6, { align: 'center' })
     doc.setFont('helvetica', 'normal')
     doc.setFontSize(9)
-    doc.text(`NPSN: ${s.npsn ?? '-'}`, lm + 21, top + 11)
-    doc.text(s.alamat ?? '', lm + 21, top + 15)
+    doc.text(`NPSN: ${s.npsn ?? '-'}`, pageW / 2, top + 11, { align: 'center' })
+    doc.text(s.alamat ?? '', pageW / 2, top + 15, { align: 'center' })
 
     // Garis ganda
     const lineY = top + 21
     doc.setLineWidth(0.8); doc.line(lm, lineY, lm + w, lineY)
     doc.setLineWidth(0.3); doc.line(lm, lineY + 1.5, lm + w, lineY + 1.5)
 
+    let my = lineY + 2 // akan di-update tiap section
+
     if (mode === 'daftar-hadir') {
       // Judul
       doc.setFont('helvetica', 'bold'); doc.setFontSize(12)
-      doc.text('DAFTAR HADIR PESERTA UJIAN', lm + w / 2, lineY + 10, { align: 'center' })
+      my += 8
+      doc.text('DAFTAR HADIR PESERTA UJIAN', pageW / 2, my, { align: 'center' })
       doc.setLineWidth(0.3)
-      doc.line(lm + w / 2 - 38, lineY + 11, lm + w / 2 + 38, lineY + 11)
+      doc.line(pageW / 2 - 38, my + 1, pageW / 2 + 38, my + 1)
+      my += 8
 
       // Meta info 2 kolom
       doc.setFont('helvetica', 'normal'); doc.setFontSize(10)
@@ -179,7 +184,6 @@ export default function AdminJadwalPage() {
         ['Pukul', `${j.jam_mulai} - ${j.jam_selesai} WITA`, 'Pengawas', j.nama_pengawas || '-'],
         ['Tahun Ajaran', s.tahunAjaran ?? '-', 'Durasi', `${j.durasi} menit`],
       ]
-      let my = lineY + 17
       for (const row of meta) {
         doc.text(row[0], lm, my); doc.text(':', lm + 32, my)
         doc.setFont('helvetica', 'bold'); doc.text(row[1], lm + 35, my); doc.setFont('helvetica', 'normal')
@@ -189,17 +193,27 @@ export default function AdminJadwalPage() {
       }
 
       // Tabel siswa
-      my += 2
+      my += 3
       const colW = [12, 35, w - 12 - 35 - 38, 38]
       const headers = ['No', 'NIS', 'Nama Siswa', 'Tanda Tangan']
-      doc.setFillColor(220, 220, 220); doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5)
+      // Header abu-abu
+      doc.setFillColor(220, 220, 220)
+      doc.setDrawColor(0)
       let cx = lm
       for (let i = 0; i < headers.length; i++) {
-        doc.rect(cx, my, colW[i], 7, 'FD')
+        doc.rect(cx, my, colW[i], 7, 'F') // fill dulu
+        doc.rect(cx, my, colW[i], 7, 'S') // border
+        cx += colW[i]
+      }
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5)
+      cx = lm
+      for (let i = 0; i < headers.length; i++) {
         doc.text(headers[i], cx + colW[i] / 2, my + 4.8, { align: 'center' })
         cx += colW[i]
       }
       my += 7
+
+      // Baris siswa
       doc.setFont('helvetica', 'normal')
       for (let i = 0; i < j.siswa.length; i++) {
         const siswa = j.siswa[i]
@@ -211,24 +225,33 @@ export default function AdminJadwalPage() {
         doc.rect(cx, my, colW[3], 7); cx += colW[3]
         my += 7
       }
-      my += 4
-      doc.setFontSize(10); doc.text(`Jumlah peserta: `, lm, my)
+      my += 5
+      doc.setFontSize(10)
+      doc.text('Jumlah peserta: ', lm, my)
       doc.setFont('helvetica', 'bold'); doc.text(`${j.siswa.length} siswa`, lm + 32, my)
       doc.setFont('helvetica', 'normal')
+      my += 6
 
     } else {
       // BERITA ACARA
       doc.setFont('helvetica', 'bold'); doc.setFontSize(12)
-      doc.text('BERITA ACARA PELAKSANAAN UJIAN', lm + w / 2, lineY + 10, { align: 'center' })
+      my += 8
+      doc.text('BERITA ACARA PELAKSANAAN UJIAN', pageW / 2, my, { align: 'center' })
       doc.setLineWidth(0.3)
-      doc.line(lm + w / 2 - 44, lineY + 11, lm + w / 2 + 44, lineY + 11)
+      doc.line(pageW / 2 - 44, my + 1, pageW / 2 + 44, my + 1)
+      my += 10
 
       doc.setFont('helvetica', 'normal'); doc.setFontSize(10)
-      let my = lineY + 20
-      doc.text(`Pada hari ini, `, lm, my, { charSpace: 0 })
-      doc.setFont('helvetica', 'bold'); doc.text(fmtTanggal(j.tanggal), lm + 25, my)
-      doc.setFont('helvetica', 'normal'); doc.text(' telah dilaksanakan Ujian dengan ketentuan sebagai berikut:', lm + 25 + doc.getTextWidth(fmtTanggal(j.tanggal)), my)
-      my += 8
+      // Baris "Pada hari ini ..."
+      const introPrefix = 'Pada hari ini, '
+      const introDate = fmtTanggal(j.tanggal)
+      const introSuffix = ' telah dilaksanakan Ujian dengan ketentuan sebagai berikut:'
+      doc.text(introPrefix, lm, my)
+      doc.setFont('helvetica', 'bold')
+      doc.text(introDate, lm + doc.getTextWidth(introPrefix), my)
+      doc.setFont('helvetica', 'normal')
+      doc.text(introSuffix, lm + doc.getTextWidth(introPrefix) + doc.getTextWidth(introDate), my)
+      my += 9
 
       const baRows = [
         ['Mata Pelajaran', j.nama_mapel],
@@ -245,31 +268,31 @@ export default function AdminJadwalPage() {
         doc.text(label, lm, my); doc.text(':', lm + 56, my); doc.text(val, lm + 60, my)
         my += 7
       }
-      my += 4
-      doc.setFontSize(10)
+      my += 5
       const closing = 'Demikian berita acara ini dibuat dengan sesungguhnya untuk dapat dipergunakan sebagaimana mestinya.'
       const lines = doc.splitTextToSize(closing, w)
-      doc.text(lines, lm, my); my += lines.length * 6 + 6
+      doc.text(lines, lm, my)
+      my += lines.length * 6 + 8
     }
 
-    // TTD area
-    const ttdY = Math.max(240, 290 - 40)
+    // TTD area — mengikuti posisi konten, minimal 30mm dari bawah halaman
+    const ttdY = Math.max(my + 6, 245)
     doc.setFontSize(10)
+    doc.setFont('helvetica', 'normal')
     doc.text('Pengawas Ujian,', lm, ttdY)
+
+    const kota = s.kota ?? 'Banggai Kepulauan'
+    doc.text(`${kota}, ${fmtTglPendek(j.tanggal)}`, lm + w, ttdY, { align: 'right' })
+    doc.text('Mengetahui,', lm + w, ttdY + 5, { align: 'right' })
+    doc.text(`Kepala ${s.namaSekolah ?? 'Sekolah'}`, lm + w, ttdY + 10, { align: 'right' })
+
     doc.setFont('helvetica', 'bold')
     doc.text(j.nama_pengawas || '_________________', lm, ttdY + 22)
     doc.setLineWidth(0.3)
     doc.line(lm, ttdY + 23, lm + doc.getTextWidth(j.nama_pengawas || '_________________'), ttdY + 23)
 
-    doc.setFont('helvetica', 'normal')
-    const kota = s.kota ?? 'Banggai Kepulauan'
-    doc.text(`${kota}, ${fmtTglPendek(j.tanggal)}`, lm + w, ttdY, { align: 'right' })
-    doc.text('Mengetahui,', lm + w, ttdY + 5, { align: 'right' })
-    doc.text(`Kepala ${s.namaSekolah ?? 'Sekolah'}`, lm + w, ttdY + 10, { align: 'right' })
-    doc.setFont('helvetica', 'bold')
     doc.text(s.namaKepsek ?? '_________________', lm + w, ttdY + 22, { align: 'right' })
     const kepsekW = doc.getTextWidth(s.namaKepsek ?? '_________________')
-    doc.setLineWidth(0.3)
     doc.line(lm + w - kepsekW, ttdY + 23, lm + w, ttdY + 23)
 
     return doc.output('arraybuffer') as unknown as Uint8Array
