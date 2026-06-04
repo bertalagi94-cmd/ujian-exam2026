@@ -19,14 +19,16 @@ export async function GET(req: NextRequest) {
 
   const db = createAdminClient()
 
-  // Ambil jadwal hari ini yang pengawasnya guru ini (semua status)
+  // Ambil jadwal hari ini — gunakan gte/lte agar cover format DATE maupun TIMESTAMPTZ
   const today = new Date().toISOString().slice(0, 10)
+  const todayStart = `${today}T00:00:00`
+  const todayEnd   = `${today}T23:59:59`
 
   const { data: jadwalList, error } = await db
     .from('jadwal')
     .select('*')
     .eq('pengawas', user.username)
-    .eq('tanggal', today)
+    .or(`tanggal.eq.${today},and(tanggal.gte.${todayStart},tanggal.lte.${todayEnd})`)
     .order('sesi')
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
@@ -51,8 +53,15 @@ export async function GET(req: NextRequest) {
 
   const enrichedJadwal = jadwalList.map(j => {
     const sesiTerkait = (sesiList ?? []).find(s => s.jadwal_id === j.id)
+    // Sinkronkan status jadwal dengan status sesi aktual
+    let status = j.status
+    if (sesiTerkait?.status === 'BERJALAN') status = 'BERJALAN'
+    if (sesiTerkait?.status === 'SELESAI' && status !== 'BERJALAN') status = 'SELESAI'
+
     return {
       ...j,
+      tanggal: j.tanggal?.slice(0, 10) ?? j.tanggal,
+      status,
       nama_mapel: mapelMap[j.mapel_id] ?? j.mapel_id,
       nama_kelas: kelasMap[j.kelas] ?? j.kelas,
       sesi_ujian: sesiTerkait ?? null,
