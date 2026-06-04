@@ -10,6 +10,12 @@ const PER_PAGE = 15
 
 interface SoalWithMapel extends Soal {
   nama_mapel?: string
+  gambar_pertanyaan?: string
+  gambar_opsi_a?: string
+  gambar_opsi_b?: string
+  gambar_opsi_c?: string
+  gambar_opsi_d?: string
+  gambar_opsi_e?: string
 }
 
 export default function GuruSoalPage() {
