@@ -18,7 +18,7 @@ interface JadwalPengawasan {
   status: 'AKTIF' | 'BERJALAN' | 'SELESAI'
   nama_mapel: string
   nama_kelas: string
-  sesi_ujian?: { id: string } | null
+  sesi_ujian?: { id: string; status: string } | null
 }
 
 interface SiswaInfo {
@@ -442,7 +442,7 @@ export default function JadwalPengawasanPage() {
                           </div>
                         )}
 
-                        {/* Tombol Ujian Susulan untuk jadwal yang SELESAI */}
+                        {/* Tombol Ujian Susulan — tampil kapan saja selama status SELESAI */}
                         {isSelesai && j.sesi_ujian?.id && (
                           <div className="mt-3 flex items-center justify-between gap-3 flex-wrap">
                             <p className="text-xs text-slate-400">Ada siswa yang tidak hadir?</p>
