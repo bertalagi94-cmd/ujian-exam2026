@@ -4,7 +4,7 @@ import { requireRole } from '@/lib/auth'
 import { generateId } from '@/lib/utils'
 
 export async function GET(req: NextRequest) {
-  const auth = requireRole(req, ['PENGAWAS', 'ADMIN'])
+  const auth = requireRole(req, ['GURU', 'ADMIN'])
   if ('error' in auth) return auth.error
 
   const db = createAdminClient()
