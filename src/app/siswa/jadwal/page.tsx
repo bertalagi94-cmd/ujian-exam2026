@@ -22,8 +22,10 @@ export default function SiswaJadwalPage() {
   if (loading) return <PageLoader />
 
   const today = new Date().toISOString().slice(0, 10)
-  const mendatang = jadwal.filter(j => j.tanggal >= today)
-  const lewat = jadwal.filter(j => j.tanggal < today)
+  // BUG FIX: Pisahkan hari ini, mendatang (besok dst), dan sudah lewat
+  const hariIni   = jadwal.filter(j => j.tanggal === today)
+  const mendatang = jadwal.filter(j => j.tanggal > today)
+  const lewat     = jadwal.filter(j => j.tanggal < today)
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -36,14 +38,13 @@ export default function SiswaJadwalPage() {
         <div className="card"><EmptyState message="Tidak ada jadwal ujian" icon={Calendar} /></div>
       ) : (
         <>
-          {mendatang.length > 0 && (
+          {/* Jadwal Hari Ini */}
+          {hariIni.length > 0 && (
             <div>
-              <h2 className="font-semibold text-slate-700 mb-3 text-sm uppercase tracking-wide">Mendatang</h2>
+              <h2 className="font-semibold text-brand-600 mb-3 text-sm uppercase tracking-wide">Hari Ini</h2>
               <div className="space-y-2">
-                {mendatang.map(j => (
-                  <div key={j.id} className={`card py-4 flex items-center gap-4 ${
-                    j.tanggal === today ? 'border-l-4 border-brand-500' : ''
-                  }`}>
+                {hariIni.map(j => (
+                  <div key={j.id} className="card py-4 flex items-center gap-4 border-l-4 border-brand-500">
                     <div className="w-12 h-12 bg-brand-50 rounded-xl flex flex-col items-center justify-center flex-shrink-0">
                       <span className="text-brand-700 font-bold text-lg leading-tight">
                         {new Date(j.tanggal).getDate()}
@@ -72,6 +73,42 @@ export default function SiswaJadwalPage() {
             </div>
           )}
 
+          {/* Jadwal Mendatang (besok dan seterusnya) */}
+          {mendatang.length > 0 && (
+            <div>
+              <h2 className="font-semibold text-slate-700 mb-3 text-sm uppercase tracking-wide">Mendatang</h2>
+              <div className="space-y-2">
+                {mendatang.map(j => (
+                  <div key={j.id} className="card py-4 flex items-center gap-4">
+                    <div className="w-12 h-12 bg-brand-50 rounded-xl flex flex-col items-center justify-center flex-shrink-0">
+                      <span className="text-brand-700 font-bold text-lg leading-tight">
+                        {new Date(j.tanggal).getDate()}
+                      </span>
+                      <span className="text-brand-400 text-xs leading-tight">
+                        {new Date(j.tanggal).toLocaleDateString('id-ID', { month: 'short' })}
+                      </span>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-semibold text-slate-900">{j.nama_mapel}</div>
+                      <div className="flex items-center gap-3 text-sm text-slate-500 mt-0.5">
+                        <span className="flex items-center gap-1">
+                          <Clock className="w-3.5 h-3.5" />
+                          {j.jam_mulai} – {j.jam_selesai}
+                        </span>
+                        <span>·</span>
+                        <span>{j.durasi} menit</span>
+                        <span>·</span>
+                        <span>Sesi {j.sesi}</span>
+                      </div>
+                    </div>
+                    <StatusBadge status={j.status} />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Jadwal Sudah Lewat */}
           {lewat.length > 0 && (
             <div>
               <h2 className="font-semibold text-slate-400 mb-3 text-sm uppercase tracking-wide">Sudah Lewat</h2>
