@@ -81,13 +81,20 @@ export async function POST(req: NextRequest) {
   const isNewEntry = !siswaUjian
 
   // Register or re-enter siswa
-  await db.from('siswa_ujian').upsert({
-    sesi_id: sesi.id,
-    nis,
-    waktu_daftar: new Date().toISOString(),
-    waktu_mulai: new Date().toISOString(),
-    status: 'AKTIF',
-  }, { onConflict: 'sesi_id,nis' })
+  if (isNewEntry) {
+    await db.from('siswa_ujian').insert({
+      sesi_id: sesi.id,
+      nis,
+      waktu_daftar: new Date().toISOString(),
+      waktu_mulai: new Date().toISOString(),
+      status: 'AKTIF',
+    })
+  } else {
+    await db.from('siswa_ujian')
+      .update({ status: 'AKTIF' })
+      .eq('sesi_id', sesi.id)
+      .eq('nis', nis)
+  }
 
   // Increment jumlah_peserta hanya jika siswa ini baru pertama kali masuk
   if (isNewEntry) {
@@ -172,6 +179,7 @@ export async function POST(req: NextRequest) {
     namaMapel: mapel?.nama ?? sesi.mapel_id,
     kelas: sesi.kelas,
     durasi: sesi.durasi,
+    waktu_mulai: siswaUjian?.waktu_mulai ?? new Date().toISOString(),
     soalList: finalSoal,
   })
 }
