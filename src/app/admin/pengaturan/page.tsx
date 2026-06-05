@@ -361,61 +361,86 @@ export default function AdminPengaturanPage() {
           </button>
         </div>
 
-        {isMaintenance && (
-          <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
-            <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-            <span>Maintenance mode aktif. Semua pengguna kecuali Admin dan akun IS_TESTER tidak bisa login.</span>
-          </div>
+        {!isMaintenance && (
+          <p className="text-sm text-slate-400 pb-1">
+            Aktifkan maintenance mode untuk mengisi pesan, jadwal, dan menyimpan konfigurasi.
+          </p>
         )}
 
-        <div className="space-y-4">
-          <div>
-            <label className="label">Pesan Maintenance</label>
-            <textarea
-              className="input min-h-[80px] resize-none"
-              placeholder="Contoh: Sistem sedang dalam pemeliharaan. Mohon coba kembali pukul 08.00 WIT."
-              value={values.maintenancePesan}
-              onChange={e => set('maintenancePesan', e.target.value)}
-              rows={3}
-            />
-            <p className="text-xs text-slate-400 mt-1">Pesan ini ditampilkan kepada pengguna saat maintenance aktif.</p>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="label">Jadwal Mulai</label>
-              <input
-                type="datetime-local"
-                className="input"
-                value={values.maintenanceMulai}
-                onChange={e => set('maintenanceMulai', e.target.value)}
-              />
+        {isMaintenance && (
+          <>
+            <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+              <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+              <span>Maintenance mode aktif. Semua pengguna kecuali Admin dan akun IS_TESTER tidak bisa login.</span>
             </div>
-            <div>
-              <label className="label">Jadwal Selesai</label>
-              <input
-                type="datetime-local"
-                className="input"
-                value={values.maintenanceSelesai}
-                onChange={e => set('maintenanceSelesai', e.target.value)}
-              />
-            </div>
-          </div>
-        </div>
 
-        <div className="pt-2 flex justify-end">
-          <button
-            type="button"
-            onClick={() => saveSection(['maintenanceAktif','maintenancePesan','maintenanceMulai','maintenanceSelesai'], 'Maintenance Mode')}
-            className={`btn-sm font-medium ${isMaintenance ? 'btn-danger' : 'btn-primary'}`}
-            disabled={savingSection === 'Maintenance Mode'}
-          >
-            {savingSection === 'Maintenance Mode'
-              ? <Spinner size="sm" />
-              : <><Save className="w-4 h-4" /> Simpan Maintenance</>
-            }
-          </button>
-        </div>
+            <div className="space-y-4">
+              <div>
+                <label className="label">Pesan Maintenance</label>
+                <textarea
+                  className="input min-h-[80px] resize-none"
+                  placeholder="Contoh: Sistem sedang dalam pemeliharaan. Mohon coba kembali pukul 08.00 WIT."
+                  value={values.maintenancePesan}
+                  onChange={e => set('maintenancePesan', e.target.value)}
+                  rows={3}
+                />
+                <p className="text-xs text-slate-400 mt-1">Pesan ini ditampilkan kepada pengguna saat maintenance aktif.</p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="label">Jadwal Mulai</label>
+                  <input
+                    type="datetime-local"
+                    className="input"
+                    value={values.maintenanceMulai}
+                    onChange={e => set('maintenanceMulai', e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="label">Jadwal Selesai</label>
+                  <input
+                    type="datetime-local"
+                    className="input"
+                    value={values.maintenanceSelesai}
+                    onChange={e => set('maintenanceSelesai', e.target.value)}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-2 flex justify-end">
+              <button
+                type="button"
+                onClick={() => saveSection(['maintenanceAktif','maintenancePesan','maintenanceMulai','maintenanceSelesai'], 'Maintenance Mode')}
+                className="btn-sm btn-danger font-medium"
+                disabled={savingSection === 'Maintenance Mode'}
+              >
+                {savingSection === 'Maintenance Mode'
+                  ? <Spinner size="sm" />
+                  : <><Save className="w-4 h-4" /> Simpan Maintenance</>
+                }
+              </button>
+            </div>
+          </>
+        )}
+
+        {/* Tombol simpan saat nonaktif — hanya untuk menyimpan status nonaktif */}
+        {!isMaintenance && (
+          <div className="pt-2 flex justify-end">
+            <button
+              type="button"
+              onClick={() => saveSection(['maintenanceAktif','maintenancePesan','maintenanceMulai','maintenanceSelesai'], 'Maintenance Mode')}
+              className="btn-sm btn-primary font-medium"
+              disabled={savingSection === 'Maintenance Mode'}
+            >
+              {savingSection === 'Maintenance Mode'
+                ? <Spinner size="sm" />
+                : <><Save className="w-4 h-4" /> Simpan</>
+              }
+            </button>
+          </div>
+        )}
       </div>
 
       {/* ── Keamanan ── */}
