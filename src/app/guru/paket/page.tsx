@@ -163,11 +163,12 @@ export default function GuruBuatSoalPage() {
   async function lanjutkanPaket(p: PaketSoal) {
     setActivePaket(p)
     setSoalDibuat([])
-    setStep('buat')
     resetSoalForm()
-    // Load soal yang sudah tersimpan di DB untuk paket ini
+    // Load dulu soal yang sudah ada, BARU pindah ke step buat
+    // agar soalDibuat.length sudah benar saat pertama render
     const existing = await loadSoalPaket(p.id)
     setSoalDibuat(existing)
+    setStep('buat')
   }
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
