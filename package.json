@@ -1,7 +1,7 @@
 {
   "name": "smartexam",
   "version": "1.0.0",
-  "description": "SmartExam CBT - MTS Alkhairaat Tatakalai",
+  "description": "SmartExam CBT - Agrabil",
   "private": true,
   "scripts": {
     "dev": "next dev",
