@@ -67,14 +67,36 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ valid: false, message: 'Akun Anda dikunci oleh pengawas. Hubungi pengawas.' })
   }
 
+  // Cek apakah siswa ini belum pernah daftar sebelumnya (baru masuk pertama kali)
+  const isNewEntry = !siswaUjian
+
   // Register or re-enter siswa
   await db.from('siswa_ujian').upsert({
     sesi_id: sesi.id,
     nis,
-    waktu_daftar: new Date().toISOString(), // FIX 5: pastikan waktu_daftar selalu terisi
+    waktu_daftar: new Date().toISOString(),
     waktu_mulai: new Date().toISOString(),
     status: 'AKTIF',
   }, { onConflict: 'sesi_id,nis' })
+
+  // Increment jumlah_peserta hanya jika siswa ini baru pertama kali masuk
+  if (isNewEntry) {
+    await db.rpc('increment_jumlah_peserta', { sesi_id_param: sesi.id })
+      .then(async ({ error }) => {
+        // Fallback jika RPC belum ada: update manual
+        if (error) {
+          const { data: currentSesi } = await db
+            .from('sesi_ujian')
+            .select('jumlah_peserta')
+            .eq('id', sesi.id)
+            .single()
+          await db
+            .from('sesi_ujian')
+            .update({ jumlah_peserta: (currentSesi?.jumlah_peserta ?? 0) + 1 })
+            .eq('id', sesi.id)
+        }
+      })
+  }
 
   // Get paket soal untuk kelas dan mapel ini
   // acak diatur di level paket, bukan di tiap soal
