@@ -568,7 +568,7 @@ export default function AdminJadwalPage() {
               onChange={e => setSelectedMapelId(e.target.value)}
             >
               <option value="">Pilih Mapel</option>
-              {mapelList.map(m => <option key={m.id} value={m.id}>{m.nama}</option>)}
+              {mapelList.filter((m, idx, arr) => arr.findIndex(x => x.nama === m.nama) === idx).map(m => <option key={m.id} value={m.id}>{m.nama}</option>)}
             </select>
           </div>
           <div>
