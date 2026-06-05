@@ -398,6 +398,7 @@ export default function AdminJadwalPage() {
                   <th>Tanggal</th>
                   <th>Mata Pelajaran</th>
                   <th>Kelas</th>
+                  <th>Pengawas</th>
                   <th>Waktu</th>
                   <th>Durasi</th>
                   <th>Status</th>
@@ -413,6 +414,7 @@ export default function AdminJadwalPage() {
                     </td>
                     <td className="font-medium text-slate-800">{j.nama_mapel ?? j.mapel_id}</td>
                     <td><span className="badge-blue">{j.kelas}</span></td>
+                    <td className="text-sm text-slate-600">{j.nama_pengawas ?? <span className="text-slate-400 text-xs">-</span>}</td>
                     <td className="text-sm text-slate-600">{j.jam_mulai} – {j.jam_selesai}</td>
                     <td className="text-sm text-slate-600">{j.durasi} menit</td>
                     <td><StatusBadge status={j.status} /></td>
