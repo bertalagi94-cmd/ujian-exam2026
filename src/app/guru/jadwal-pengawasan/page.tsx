@@ -80,19 +80,15 @@ function ModalSusulan({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Step 1: Cek saja (tidak membuka sesi) — gunakan endpoint yang sama tapi kita akan
-  // memanggil POST; karena API memang sekaligus membuka, kita tampung hasilnya dulu
-  // dan baru tampilkan kode setelah user konfirmasi.
-  // Karena API membuat sesi sekaligus, kita simpan hasilnya dan tampilkan di step 2.
+  // Step 1: Panggil API susulan berdasarkan jadwal_id (tidak perlu sesi_ujian)
   async function cekSiswa() {
-    if (!jadwal.sesi_ujian?.id) return
     setPhase('checking')
     setErrorMsg(null)
     try {
-      await new Promise(r => setTimeout(r, 1800)) // biar animasi terlihat
+      await new Promise(r => setTimeout(r, 1800))
       const res = await apiRequest<SusulanResult>(
-        `/api/pengawas/sesi/${jadwal.sesi_ujian.id}/susulan`,
-        { method: 'POST' }
+        `/api/guru/susulan`,
+        { method: 'POST', body: JSON.stringify({ jadwalId: jadwal.id }) }
       )
       if (!res.bisa) {
         setPhase('empty')
@@ -442,8 +438,8 @@ export default function JadwalPengawasanPage() {
                           </div>
                         )}
 
-                        {/* Tombol Ujian Susulan — tampil kapan saja selama status SELESAI */}
-                        {isSelesai && j.sesi_ujian?.id && (
+                        {/* Tombol Ujian Susulan — muncul kapan saja selama status SELESAI */}
+                        {isSelesai && (
                           <div className="mt-3 flex items-center justify-between gap-3 flex-wrap">
                             <p className="text-xs text-slate-400">Ada siswa yang tidak hadir?</p>
                             <button
