@@ -26,11 +26,55 @@ export async function POST(req: NextRequest) {
   // Ambil data jadwal
   const { data: jadwal } = await db
     .from('jadwal')
-    .select('id, kelas, mapel_id, durasi, status')
+    .select('id, kelas, mapel_id, durasi, status, pengawas')
     .eq('id', jadwalId)
     .single()
 
   if (!jadwal) return NextResponse.json({ error: 'Jadwal tidak ditemukan' }, { status: 404 })
+
+  // Cek apakah guru ini sudah punya sesi BERJALAN (sebagai pengawas reguler atau susulan lain)
+  // Ambil semua jadwal yang guru ini terlibat, lalu cek sesi aktif
+  const { data: jadwalGuru } = await db
+    .from('jadwal')
+    .select('id')
+    .eq('pengawas', auth.user.username)
+
+  if (jadwalGuru && jadwalGuru.length > 0) {
+    const jadwalGuruIds = jadwalGuru.map(j => j.id)
+    const { data: sesiAktifGuru } = await db
+      .from('sesi_ujian')
+      .select('id, jadwal_id, kode_sesi, is_darurat')
+      .in('jadwal_id', jadwalGuruIds)
+      .eq('status', 'BERJALAN')
+      .neq('jadwal_id', jadwalId) // boleh jika sesi aktif memang dari jadwal yang sama (re-check)
+      .limit(1)
+
+    if (sesiAktifGuru && sesiAktifGuru.length > 0) {
+      return NextResponse.json({
+        error: 'Anda masih memiliki sesi ujian yang sedang berjalan. Tutup sesi tersebut terlebih dahulu sebelum membuka ujian susulan.',
+        konflik: true,
+        sesiAktifId: sesiAktifGuru[0].id,
+      }, { status: 409 })
+    }
+  }
+
+  // Cek juga apakah sudah ada sesi susulan BERJALAN untuk jadwal ini
+  const { data: sesiSusulanAktif } = await db
+    .from('sesi_ujian')
+    .select('id, kode_sesi')
+    .eq('jadwal_id', jadwalId)
+    .eq('status', 'BERJALAN')
+    .single()
+
+  if (sesiSusulanAktif) {
+    return NextResponse.json({
+      bisa: false,
+      message: 'Sudah ada sesi ujian yang sedang berjalan untuk jadwal ini.',
+      sesiAktifId: sesiSusulanAktif.id,
+      kodeSesi: sesiSusulanAktif.kode_sesi,
+      sudahBerjalan: true,
+    })
+  }
 
   // Ambil semua sesi ujian yang pernah ada untuk jadwal ini (termasuk susulan sebelumnya)
   const { data: semuaSesi } = await db
