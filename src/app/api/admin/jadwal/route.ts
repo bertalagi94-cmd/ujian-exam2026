@@ -21,13 +21,23 @@ export async function GET(req: NextRequest) {
 
   if (!data?.length) return NextResponse.json({ data: [] })
 
+  // Enrich nama_mapel
   const mapelIds = [...new Set(data.map(r => r.mapel_id).filter(Boolean))]
   const { data: mapelList } = await db.from('mapel').select('id, nama').in('id', mapelIds)
   const mapelMap = Object.fromEntries((mapelList ?? []).map(m => [m.id, m.nama]))
 
+  // Enrich nama_pengawas
+  const pengawasIds = [...new Set(data.map(r => r.pengawas).filter(Boolean))]
+  const guruMap: Record<string, string> = {}
+  if (pengawasIds.length > 0) {
+    const { data: guruList } = await db.from('users').select('username, nama').in('username', pengawasIds)
+    for (const g of guruList ?? []) guruMap[g.username] = g.nama
+  }
+
   const enriched = data.map(r => ({
     ...r,
     nama_mapel: mapelMap[r.mapel_id] ?? r.mapel_id,
+    nama_pengawas: r.pengawas ? (guruMap[r.pengawas] ?? r.pengawas) : null,
   }))
 
   return NextResponse.json({ data: enriched })
