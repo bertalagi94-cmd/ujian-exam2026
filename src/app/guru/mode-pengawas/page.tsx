@@ -409,7 +409,7 @@ export default function ModePengawasPage() {
                                         {sw.jumlah_pelanggaran}× langgar
                                       </span>
                                     )}
-                                    {(sw.status === 'RESET' || sw.status === 'AKTIF') && sw.status !== 'TERKUNCI' && (
+                                    {(sw.status === 'RESET' || sw.status === 'AKTIF') && (
                                       <button
                                         onClick={() => setResetTarget({ sesiId, nis: sw.nis, nama: sw.nama })}
                                         className="flex-shrink-0 flex items-center gap-1 text-xs px-2 py-1 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 font-medium text-slate-600"
