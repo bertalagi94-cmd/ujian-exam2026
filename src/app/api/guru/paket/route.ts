@@ -29,10 +29,23 @@ export async function GET(req: NextRequest) {
   const mapelMap = Object.fromEntries((mapelList ?? []).map(m => [m.id, m.nama]))
   const kelasMap = Object.fromEntries((kelasList ?? []).map(k => [k.id, String(k.nama)]))
 
+  // Hitung jumlah_soal real-time dari tabel soal (bukan dari kolom cached)
+  const paketIds = pakets.map(p => p.id)
+  const { data: soalCounts } = await db
+    .from('soal')
+    .select('paket_id')
+    .in('paket_id', paketIds)
+
+  const countMap: Record<string, number> = {}
+  for (const s of soalCounts ?? []) {
+    if (s.paket_id) countMap[s.paket_id] = (countMap[s.paket_id] ?? 0) + 1
+  }
+
   const enriched = pakets.map(p => ({
     ...p,
     nama_mapel: mapelMap[p.mapel_id] ?? p.mapel_id,
     nama_kelas: kelasMap[p.kelas_id] ?? p.kelas_id,
+    jumlah_soal: countMap[p.id] ?? 0,
   }))
 
   return NextResponse.json({ data: enriched })
