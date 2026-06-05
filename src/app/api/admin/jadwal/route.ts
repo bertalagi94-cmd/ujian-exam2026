@@ -101,7 +101,28 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  const { error } = await db.from('jadwal').insert({
+  // Cegah bentrok pengawas: pengawas yang sama di hari yang sama dengan jam yang bertabrakan
+  if (body.pengawas && body.tanggal && body.jam_mulai && body.jam_selesai) {
+    const { data: jadwalPengawas } = await db
+      .from('jadwal')
+      .select('id, jam_mulai, jam_selesai')
+      .eq('pengawas', body.pengawas)
+      .eq('tanggal', body.tanggal)
+
+    const bentrok = (jadwalPengawas ?? []).find(j => {
+      // Overlap jika: mulai baru < selesai lama DAN selesai baru > mulai lama
+      return body.jam_mulai < j.jam_selesai && body.jam_selesai > j.jam_mulai
+    })
+
+    if (bentrok) {
+      return NextResponse.json(
+        { error: `Pengawas ini sudah bertugas di hari yang sama pada jam ${bentrok.jam_mulai}–${bentrok.jam_selesai}. Pilih pengawas lain atau atur jam yang tidak bertabrakan.` },
+        { status: 409 }
+      )
+    }
+  }
+
+
     id: generateId('JDW'),
     tanggal: body.tanggal,
     sesi: body.sesi || 1,
@@ -144,7 +165,28 @@ export async function PUT(req: NextRequest) {
     }
   }
 
-  const { error } = await db.from('jadwal').update(update).eq('id', id)
+  // Cegah bentrok pengawas saat edit
+  if (update.pengawas && update.tanggal && update.jam_mulai && update.jam_selesai) {
+    const { data: jadwalPengawas } = await db
+      .from('jadwal')
+      .select('id, jam_mulai, jam_selesai')
+      .eq('pengawas', update.pengawas)
+      .eq('tanggal', update.tanggal)
+      .neq('id', id)
+
+    const bentrok = (jadwalPengawas ?? []).find(j => {
+      return update.jam_mulai < j.jam_selesai && update.jam_selesai > j.jam_mulai
+    })
+
+    if (bentrok) {
+      return NextResponse.json(
+        { error: `Pengawas ini sudah bertugas di hari yang sama pada jam ${bentrok.jam_mulai}–${bentrok.jam_selesai}. Pilih pengawas lain atau atur jam yang tidak bertabrakan.` },
+        { status: 409 }
+      )
+    }
+  }
+
+
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ message: 'Jadwal berhasil diperbarui' })
 }
