@@ -85,20 +85,18 @@ export async function POST(req: NextRequest) {
   const db = createAdminClient()
   const body = await req.json()
 
-  // Cegah duplikat: cek apakah sudah ada jadwal dengan mapel + kelas + tanggal + sesi yang sama
+  // Cegah duplikat: cek apakah sudah ada jadwal dengan mapel + kelas yang sama
   const { data: existing } = await db
     .from('jadwal')
     .select('id')
     .eq('mapel_id', body.mapel_id)
     .eq('kelas', String(body.kelas))
-    .eq('tanggal', body.tanggal)
-    .eq('sesi', body.sesi || 1)
     .limit(1)
     .single()
 
   if (existing) {
     return NextResponse.json(
-      { error: 'Jadwal untuk mata pelajaran, kelas, tanggal, dan sesi yang sama sudah ada.' },
+      { error: 'Jadwal untuk mata pelajaran dan kelas yang sama sudah ada.' },
       { status: 409 }
     )
   }
@@ -127,22 +125,20 @@ export async function PUT(req: NextRequest) {
   const db = createAdminClient()
   const { id, ...update } = await req.json()
 
-  // Cegah duplikat saat edit: cek jadwal lain dengan kombinasi yang sama (kecuali dirinya sendiri)
-  if (update.mapel_id && update.kelas && update.tanggal) {
+  // Cegah duplikat saat edit: cek jadwal lain dengan mapel + kelas yang sama (kecuali dirinya sendiri)
+  if (update.mapel_id && update.kelas) {
     const { data: existing } = await db
       .from('jadwal')
       .select('id')
       .eq('mapel_id', update.mapel_id)
       .eq('kelas', String(update.kelas))
-      .eq('tanggal', update.tanggal)
-      .eq('sesi', update.sesi || 1)
       .neq('id', id)
       .limit(1)
       .single()
 
     if (existing) {
       return NextResponse.json(
-        { error: 'Jadwal untuk mata pelajaran, kelas, tanggal, dan sesi yang sama sudah ada.' },
+        { error: 'Jadwal untuk mata pelajaran dan kelas yang sama sudah ada.' },
         { status: 409 }
       )
     }
