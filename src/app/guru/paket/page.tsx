@@ -367,7 +367,7 @@ export default function GuruBuatSoalPage() {
         <span className="w-5 h-5 rounded-full bg-brand-100 text-brand-700 font-bold text-xs flex items-center justify-center flex-shrink-0 mt-0.5">{i+1}</span>
         <div className="flex-1 min-w-0">
           <p className="line-clamp-2">{s.teks}</p>
-          {(s.gambar_pertanyaan || (s as Record<string,unknown>).gambar_url) && (
+          {(s.gambar_pertanyaan || (s as unknown as Record<string,string>).gambar_url) && (
             <span className="text-xs text-brand-500">📷 Ada gambar</span>
           )}
         </div>
@@ -732,7 +732,7 @@ export default function GuruBuatSoalPage() {
               <p className="label mb-1">Pilihan Jawaban</p>
               {opsiLabels.slice(0, viewSoal.jumlah_opsi || 4).map(l => {
                 const lk = l.toLowerCase()
-                const opsiText = (viewSoal as Record<string,unknown>)[`opsi_${lk}`] as string
+                const opsiText = (viewSoal as unknown as Record<string,string>)[`opsi_${lk}`]
                 const isKunci = viewSoal.kunci === l
                 return (
                   <div key={l} className={`flex items-start gap-2 text-sm px-3 py-2 rounded-lg ${isKunci ? 'bg-emerald-50 text-emerald-800 font-medium' : 'text-slate-600'}`}>
@@ -827,7 +827,7 @@ export default function GuruBuatSoalPage() {
           <label className="label">Opsi Jawaban</label>
           {opsiLabels.slice(0, editJumlahOpsi).map(label => {
             const lk = label.toLowerCase()
-            const defaultVal = (editSoal as Record<string,unknown>)[`opsi_${lk}`] as string ?? ''
+            const defaultVal = (editSoal as unknown as Record<string,string>)[`opsi_${lk}`] ?? ''
             return (
               <div key={label} className="space-y-1">
                 <div className="flex items-center gap-2">
