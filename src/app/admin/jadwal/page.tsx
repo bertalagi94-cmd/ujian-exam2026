@@ -1,14 +1,16 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, Pencil, Trash2, Calendar, FileText, Download, PackageOpen } from 'lucide-react'
+import {
+  Plus, Pencil, Trash2, Calendar, FileText, Download, PackageOpen,
+  CheckCircle, Clock, AlertCircle, XCircle, HelpCircle
+} from 'lucide-react'
 import { Modal, Confirm, StatusBadge, SearchInput, EmptyState, Spinner, Toast, Pagination } from '@/components/ui'
 import { apiRequest, formatDate } from '@/lib/utils'
 import { Jadwal, Mapel, Kelas, User } from '@/types'
 
 const PER_PAGE = 20
 
-// Helper tanggal
 function fmtTanggal(d: string) {
   if (!d) return ''
   const days = ['Minggu','Senin','Selasa','Rabu','Kamis','Jumat','Sabtu']
@@ -21,6 +23,42 @@ function fmtTglPendek(d: string) {
   const months = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember']
   const dt = new Date(d)
   return `${dt.getDate()} ${months[dt.getMonth()]} ${dt.getFullYear()}`
+}
+
+// Badge status soal
+function SoalStatusBadge({ status }: { status?: string }) {
+  switch (status) {
+    case 'DISETUJUI':
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700">
+          <CheckCircle className="w-3 h-3" /> Soal Siap
+        </span>
+      )
+    case 'MENUNGGU':
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-700">
+          <Clock className="w-3 h-3" /> Menunggu Persetujuan
+        </span>
+      )
+    case 'DRAFT':
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">
+          <AlertCircle className="w-3 h-3" /> Draft
+        </span>
+      )
+    case 'DITOLAK':
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700">
+          <XCircle className="w-3 h-3" /> Ditolak
+        </span>
+      )
+    default:
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-500">
+          <HelpCircle className="w-3 h-3" /> Belum Ada Soal
+        </span>
+      )
+  }
 }
 
 interface Siswa { nis: string; nama: string }
@@ -51,7 +89,6 @@ export default function AdminJadwalPage() {
   const [selectedMapelId, setSelectedMapelId] = useState<string>('')
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
 
-  // State untuk modal cetak massal
   const [cetakMassalOpen, setCetakMassalOpen] = useState(false)
   const [cetakMode, setCetakMode] = useState<{ daftarHadir: boolean; beritaAcara: boolean }>({ daftarHadir: true, beritaAcara: true })
   const [cetakTanggal, setCetakTanggal] = useState('')
@@ -65,7 +102,6 @@ export default function AdminJadwalPage() {
     try {
       const res = await apiRequest<{ data: Jadwal[] }>('/api/admin/jadwal')
       setJadwal(res.data)
-      // Kumpulkan daftar tanggal unik untuk picker cetak massal
       const dates = [...new Set(res.data.map(j => j.tanggal.slice(0, 10)))].sort().reverse()
       setTanggalList(dates)
       if (dates.length > 0) setCetakTanggal(dates[0])
@@ -126,13 +162,11 @@ export default function AdminJadwalPage() {
     } finally { setSaving(false) }
   }
 
-  // Buka tab cetak — per jadwal
   function cetakSatu(jadwal: Jadwal, mode: 'daftar-hadir' | 'berita-acara') {
     const url = `/admin/cetak?tanggal=${jadwal.tanggal.slice(0, 10)}&mode=${mode}&id=${jadwal.id}`
     window.open(url, '_blank')
   }
 
-  // Generate satu PDF (daftar hadir atau berita acara) sebagai Blob menggunakan jsPDF
   async function generatePDFBlob(j: JadwalCetak, sekolah: Sekolah, mode: 'daftar-hadir' | 'berita-acara'): Promise<Uint8Array> {
     const { jsPDF } = await import('jspdf')
     const doc = new jsPDF({ unit: 'mm', format: 'a4' })
@@ -140,7 +174,6 @@ export default function AdminJadwalPage() {
     const lm = 25, rm = 20, top = 20, w = 210 - lm - rm
     const pageW = 210
 
-    // KOP — logo kiri, teks center dari seluruh halaman
     if (s.logoUrl) {
       try {
         const resp = await fetch(s.logoUrl)
@@ -149,9 +182,8 @@ export default function AdminJadwalPage() {
           const r = new FileReader(); r.onload = () => res((r.result as string).split(',')[1]); r.readAsDataURL(blob)
         })
         doc.addImage(b64, 'PNG', lm, top, 18, 18)
-      } catch { /* skip logo jika gagal load */ }
+      } catch { /* skip */ }
     }
-    // Nama sekolah & info di tengah halaman
     doc.setFont('helvetica', 'bold')
     doc.setFontSize(14)
     doc.text((s.namaSekolah ?? 'NAMA SEKOLAH').toUpperCase(), pageW / 2, top + 6, { align: 'center' })
@@ -160,15 +192,13 @@ export default function AdminJadwalPage() {
     doc.text(`NPSN: ${s.npsn ?? '-'}`, pageW / 2, top + 11, { align: 'center' })
     doc.text(s.alamat ?? '', pageW / 2, top + 15, { align: 'center' })
 
-    // Garis ganda
     const lineY = top + 21
     doc.setLineWidth(0.8); doc.line(lm, lineY, lm + w, lineY)
     doc.setLineWidth(0.3); doc.line(lm, lineY + 1.5, lm + w, lineY + 1.5)
 
-    let my = lineY + 2 // akan di-update tiap section
+    let my = lineY + 2
 
     if (mode === 'daftar-hadir') {
-      // Judul
       doc.setFont('helvetica', 'bold'); doc.setFontSize(12)
       my += 8
       doc.text('DAFTAR HADIR PESERTA UJIAN', pageW / 2, my, { align: 'center' })
@@ -176,7 +206,6 @@ export default function AdminJadwalPage() {
       doc.line(pageW / 2 - 38, my + 1, pageW / 2 + 38, my + 1)
       my += 8
 
-      // Meta info 2 kolom
       doc.setFont('helvetica', 'normal'); doc.setFontSize(10)
       const meta = [
         ['Mata Pelajaran', j.nama_mapel, 'Kelas', j.kelas],
@@ -192,17 +221,15 @@ export default function AdminJadwalPage() {
         my += 6
       }
 
-      // Tabel siswa
       my += 3
       const colW = [12, 35, w - 12 - 35 - 38, 38]
       const headers = ['No', 'NIS', 'Nama Siswa', 'Tanda Tangan']
-      // Header abu-abu
       doc.setFillColor(220, 220, 220)
       doc.setDrawColor(0)
       let cx = lm
       for (let i = 0; i < headers.length; i++) {
-        doc.rect(cx, my, colW[i], 7, 'F') // fill dulu
-        doc.rect(cx, my, colW[i], 7, 'S') // border
+        doc.rect(cx, my, colW[i], 7, 'F')
+        doc.rect(cx, my, colW[i], 7, 'S')
         cx += colW[i]
       }
       doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5)
@@ -213,7 +240,6 @@ export default function AdminJadwalPage() {
       }
       my += 7
 
-      // Baris siswa
       doc.setFont('helvetica', 'normal')
       for (let i = 0; i < j.siswa.length; i++) {
         const siswa = j.siswa[i]
@@ -231,9 +257,7 @@ export default function AdminJadwalPage() {
       doc.setFont('helvetica', 'bold'); doc.text(`${j.siswa.length} siswa`, lm + 32, my)
       doc.setFont('helvetica', 'normal')
       my += 6
-
     } else {
-      // BERITA ACARA
       doc.setFont('helvetica', 'bold'); doc.setFontSize(12)
       my += 8
       doc.text('BERITA ACARA PELAKSANAAN UJIAN', pageW / 2, my, { align: 'center' })
@@ -242,17 +266,14 @@ export default function AdminJadwalPage() {
       my += 10
 
       doc.setFont('helvetica', 'normal'); doc.setFontSize(10)
-      // Baris "Pada hari ini ..."
       const introPrefix = 'Pada hari ini,  '
       const introDate = fmtTanggal(j.tanggal)
       const introSuffix = ' telah dilaksanakan Ujian dengan ketentuan sebagai berikut:'
-      // Ukur lebar masing-masing bagian dengan font yang sesuai
       doc.setFont('helvetica', 'normal')
       const prefixW = doc.getTextWidth(introPrefix)
       doc.setFont('helvetica', 'bold')
       const dateW = doc.getTextWidth(introDate)
       doc.setFont('helvetica', 'normal')
-      // Render
       doc.text(introPrefix, lm, my)
       doc.setFont('helvetica', 'bold')
       doc.text(introDate, lm + prefixW, my)
@@ -282,7 +303,6 @@ export default function AdminJadwalPage() {
       my += lines.length * 6 + 8
     }
 
-    // TTD area — mengikuti posisi konten, minimal 30mm dari bawah halaman
     const ttdY = my + 12
     const signSpace = 30
     doc.setFontSize(10)
@@ -306,7 +326,6 @@ export default function AdminJadwalPage() {
     return doc.output('arraybuffer') as unknown as Uint8Array
   }
 
-  // Download semua PDF dalam satu ZIP
   async function handleDownloadZip() {
     if (!cetakTanggal || (!cetakMode.daftarHadir && !cetakMode.beritaAcara)) return
     setDownloadingZip(true)
@@ -362,10 +381,7 @@ export default function AdminJadwalPage() {
           <p className="page-subtitle">{jadwal.length} jadwal terdaftar</p>
         </div>
         <div className="flex gap-2 flex-wrap">
-          <button
-            onClick={() => setCetakMassalOpen(true)}
-            className="btn-secondary btn-sm"
-          >
+          <button onClick={() => setCetakMassalOpen(true)} className="btn-secondary btn-sm">
             <PackageOpen className="w-4 h-4" /> Download Massal
           </button>
           <button onClick={() => { setEditData({}); setSelectedMapelId(''); setModalOpen(true) }} className="btn-primary btn-sm">
@@ -385,7 +401,8 @@ export default function AdminJadwalPage() {
         </select>
       </div>
 
-      <div className="card p-0 overflow-hidden">
+      {/* ── TABEL (desktop) ── */}
+      <div className="card p-0 overflow-hidden hidden md:block">
         <div className="table-wrapper">
           {loading ? (
             <div className="flex justify-center py-20"><Spinner size="lg" /></div>
@@ -400,8 +417,8 @@ export default function AdminJadwalPage() {
                   <th>Kelas</th>
                   <th>Pengawas</th>
                   <th>Waktu</th>
-                  <th>Durasi</th>
-                  <th>Status</th>
+                  <th>Status Ujian</th>
+                  <th>Status Soal</th>
                   <th>Aksi</th>
                 </tr>
               </thead>
@@ -410,30 +427,22 @@ export default function AdminJadwalPage() {
                   <tr key={j.id}>
                     <td>
                       <div className="font-medium text-slate-800">{formatDate(j.tanggal)}</div>
-                      <div className="text-xs text-slate-400">Sesi {j.sesi}</div>
+                      <div className="text-xs text-slate-400">Sesi {j.sesi} · {j.durasi} mnt</div>
                     </td>
                     <td className="font-medium text-slate-800">{j.nama_mapel ?? j.mapel_id}</td>
                     <td><span className="badge-blue">{j.kelas}</span></td>
                     <td className="text-sm text-slate-600">{j.nama_pengawas ?? <span className="text-slate-400 text-xs">-</span>}</td>
-                    <td className="text-sm text-slate-600">{j.jam_mulai} – {j.jam_selesai}</td>
-                    <td className="text-sm text-slate-600">{j.durasi} menit</td>
+                    <td className="text-sm text-slate-600 whitespace-nowrap">{j.jam_mulai} – {j.jam_selesai}</td>
                     <td><StatusBadge status={j.status} /></td>
+                    <td><SoalStatusBadge status={j.status_soal} /></td>
                     <td>
                       <div className="flex gap-1 flex-wrap">
-                        {/* Tombol cetak daftar hadir */}
-                        <button
-                          onClick={() => cetakSatu(j, 'daftar-hadir')}
-                          className="btn-ghost btn-icon btn-sm text-emerald-600 hover:bg-emerald-50"
-                          title="Cetak Daftar Hadir"
-                        >
+                        <button onClick={() => cetakSatu(j, 'daftar-hadir')}
+                          className="btn-ghost btn-icon btn-sm text-emerald-600 hover:bg-emerald-50" title="Cetak Daftar Hadir">
                           <FileText className="w-3.5 h-3.5" />
                         </button>
-                        {/* Tombol cetak berita acara */}
-                        <button
-                          onClick={() => cetakSatu(j, 'berita-acara')}
-                          className="btn-ghost btn-icon btn-sm text-blue-600 hover:bg-blue-50"
-                          title="Cetak Berita Acara"
-                        >
+                        <button onClick={() => cetakSatu(j, 'berita-acara')}
+                          className="btn-ghost btn-icon btn-sm text-blue-600 hover:bg-blue-50" title="Cetak Berita Acara">
                           <Download className="w-3.5 h-3.5" />
                         </button>
                         {j.status === 'AKTIF' && (
@@ -462,20 +471,83 @@ export default function AdminJadwalPage() {
         </div>
       </div>
 
+      {/* ── CARD LIST (mobile) ── */}
+      <div className="md:hidden space-y-3">
+        {loading ? (
+          <div className="flex justify-center py-20"><Spinner size="lg" /></div>
+        ) : paginated.length === 0 ? (
+          <div className="card"><EmptyState message="Tidak ada jadwal ditemukan" icon={Calendar} /></div>
+        ) : (
+          <>
+            {paginated.map(j => (
+              <div key={j.id} className="card p-4 space-y-3">
+                {/* Baris atas: mapel + status ujian */}
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <div className="font-semibold text-slate-900">{j.nama_mapel ?? j.mapel_id}</div>
+                    <div className="text-xs text-slate-500 mt-0.5">
+                      {formatDate(j.tanggal)} · Sesi {j.sesi}
+                    </div>
+                  </div>
+                  <StatusBadge status={j.status} />
+                </div>
+
+                {/* Detail */}
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+                  <div className="text-slate-500">Kelas</div>
+                  <div><span className="badge-blue">{j.kelas}</span></div>
+                  <div className="text-slate-500">Waktu</div>
+                  <div className="text-slate-700">{j.jam_mulai} – {j.jam_selesai} <span className="text-slate-400">({j.durasi} mnt)</span></div>
+                  <div className="text-slate-500">Pengawas</div>
+                  <div className="text-slate-700">{j.nama_pengawas ?? <span className="text-slate-400">-</span>}</div>
+                </div>
+
+                {/* Status soal */}
+                <div className="pt-1 border-t border-slate-100">
+                  <SoalStatusBadge status={j.status_soal} />
+                </div>
+
+                {/* Aksi */}
+                <div className="flex gap-2 pt-1 border-t border-slate-100">
+                  <button onClick={() => cetakSatu(j, 'daftar-hadir')}
+                    className="flex-1 btn-secondary btn-sm text-emerald-700 border-emerald-200 hover:bg-emerald-50">
+                    <FileText className="w-3.5 h-3.5" /> Daftar Hadir
+                  </button>
+                  <button onClick={() => cetakSatu(j, 'berita-acara')}
+                    className="flex-1 btn-secondary btn-sm text-blue-700 border-blue-200 hover:bg-blue-50">
+                    <Download className="w-3.5 h-3.5" /> Berita Acara
+                  </button>
+                  {j.status === 'AKTIF' && (
+                    <>
+                      <button onClick={() => { setEditData(j); setSelectedMapelId(j.mapel_id ?? ''); setModalOpen(true) }}
+                        className="btn-ghost btn-icon btn-sm text-slate-600">
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                      <button onClick={() => setDeleteId(j.id)}
+                        className="btn-ghost btn-icon btn-sm text-red-600">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            ))}
+            <div className="card py-2 px-4">
+              <Pagination page={page} totalPages={Math.ceil(filtered.length / PER_PAGE)}
+                onPage={setPage} total={filtered.length} perPage={PER_PAGE} />
+            </div>
+          </>
+        )}
+      </div>
+
       {/* Modal Cetak Massal */}
-      <Modal
-        open={cetakMassalOpen}
-        onClose={() => setCetakMassalOpen(false)}
-        title="Cetak Dokumen Massal"
-        size="sm"
+      <Modal open={cetakMassalOpen} onClose={() => setCetakMassalOpen(false)}
+        title="Cetak Dokumen Massal" size="sm"
         footer={
           <>
             <button onClick={() => setCetakMassalOpen(false)} className="btn-secondary">Batal</button>
-            <button
-              onClick={handleDownloadZip}
-              className="btn-primary"
-              disabled={!cetakTanggal || (!cetakMode.daftarHadir && !cetakMode.beritaAcara) || downloadingZip}
-            >
+            <button onClick={handleDownloadZip} className="btn-primary"
+              disabled={!cetakTanggal || (!cetakMode.daftarHadir && !cetakMode.beritaAcara) || downloadingZip}>
               {downloadingZip ? <Spinner size="sm" /> : <PackageOpen className="w-4 h-4" />}
               {downloadingZip ? 'Membuat ZIP...' : 'Download ZIP'}
             </button>
@@ -488,11 +560,7 @@ export default function AdminJadwalPage() {
           </p>
           <div>
             <label className="label">Tanggal Ujian</label>
-            <select
-              value={cetakTanggal}
-              onChange={e => setCetakTanggal(e.target.value)}
-              className="select w-full"
-            >
+            <select value={cetakTanggal} onChange={e => setCetakTanggal(e.target.value)} className="select w-full">
               {tanggalList.length === 0 && <option value="">-- Belum ada jadwal --</option>}
               {tanggalList.map(t => (
                 <option key={t} value={t}>{formatDate(t)}</option>
@@ -503,21 +571,15 @@ export default function AdminJadwalPage() {
             <label className="label">Jenis Dokumen</label>
             <div className="flex gap-4">
               <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={cetakMode.daftarHadir}
+                <input type="checkbox" checked={cetakMode.daftarHadir}
                   onChange={e => setCetakMode(prev => ({ ...prev, daftarHadir: e.target.checked }))}
-                  className="accent-brand-600 w-4 h-4"
-                />
+                  className="accent-brand-600 w-4 h-4" />
                 <span className="text-sm text-slate-700">Daftar Hadir</span>
               </label>
               <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={cetakMode.beritaAcara}
+                <input type="checkbox" checked={cetakMode.beritaAcara}
                   onChange={e => setCetakMode(prev => ({ ...prev, beritaAcara: e.target.checked }))}
-                  className="accent-brand-600 w-4 h-4"
-                />
+                  className="accent-brand-600 w-4 h-4" />
                 <span className="text-sm text-slate-700">Berita Acara</span>
               </label>
             </div>
@@ -562,15 +624,12 @@ export default function AdminJadwalPage() {
           </div>
           <div>
             <label className="label">Mata Pelajaran *</label>
-            <select
-              name="mapel_id"
-              className="select"
-              required
+            <select name="mapel_id" className="select" required
               defaultValue={editData?.mapel_id ?? ''}
-              onChange={e => setSelectedMapelId(e.target.value)}
-            >
+              onChange={e => setSelectedMapelId(e.target.value)}>
               <option value="">Pilih Mapel</option>
-              {mapelList.filter((m, idx, arr) => arr.findIndex(x => x.nama === m.nama) === idx).map(m => <option key={m.id} value={m.id}>{m.nama}</option>)}
+              {mapelList.filter((m, idx, arr) => arr.findIndex(x => x.nama === m.nama) === idx)
+                .map(m => <option key={m.id} value={m.id}>{m.nama}</option>)}
             </select>
           </div>
           <div>
@@ -597,9 +656,7 @@ export default function AdminJadwalPage() {
           <div>
             <label className="label">Pengawas</label>
             {(() => {
-              const guruMapel = selectedMapelId
-                ? mapelList.find(m => m.id === selectedMapelId)?.guru_id
-                : null
+              const guruMapel = selectedMapelId ? mapelList.find(m => m.id === selectedMapelId)?.guru_id : null
               const available = guruList.filter(g => g.username !== guruMapel)
               const excluded = guruList.find(g => g.username === guruMapel)
               return (
