@@ -34,11 +34,46 @@ export async function GET(req: NextRequest) {
     for (const g of guruList ?? []) guruMap[g.username] = g.nama
   }
 
-  const enriched = data.map(r => ({
-    ...r,
-    nama_mapel: mapelMap[r.mapel_id] ?? r.mapel_id,
-    nama_pengawas: r.pengawas ? (guruMap[r.pengawas] ?? r.pengawas) : null,
-  }))
+  // Enrich status_soal: ambil paket_soal terbaru per (mapel_id, kelas_id)
+  // kelas di jadwal = nama kelas (string), kelas_id di paket_soal = id kelas
+  // Kita perlu mapping nama kelas -> id kelas
+  const kelasNamaList = [...new Set(data.map(r => r.kelas).filter(Boolean))]
+  const { data: kelasList } = await db.from('kelas').select('id, nama').in('nama', kelasNamaList)
+  const kelasNamaToId = Object.fromEntries((kelasList ?? []).map(k => [String(k.nama), k.id]))
+
+  // Ambil semua paket_soal yang relevan
+  const kelasIds = (kelasList ?? []).map(k => k.id)
+  let paketStatusMap: Record<string, string> = {}
+  if (mapelIds.length > 0 && kelasIds.length > 0) {
+    const { data: paketList } = await db
+      .from('paket_soal')
+      .select('mapel_id, kelas_id, status')
+      .in('mapel_id', mapelIds)
+      .in('kelas_id', kelasIds)
+      .order('tanggal', { ascending: false })
+
+    // Untuk setiap kombinasi mapel+kelas, ambil status paket terbaru
+    // Priority: DISETUJUI > MENUNGGU > DITOLAK > DRAFT
+    const statusPriority: Record<string, number> = { DISETUJUI: 4, MENUNGGU: 3, DITOLAK: 2, DRAFT: 1 }
+    for (const p of paketList ?? []) {
+      const key = `${p.mapel_id}__${p.kelas_id}`
+      const existing = paketStatusMap[key]
+      if (!existing || (statusPriority[p.status] ?? 0) > (statusPriority[existing] ?? 0)) {
+        paketStatusMap[key] = p.status
+      }
+    }
+  }
+
+  const enriched = data.map(r => {
+    const kelasId = kelasNamaToId[String(r.kelas)]
+    const soalKey = `${r.mapel_id}__${kelasId}`
+    return {
+      ...r,
+      nama_mapel: mapelMap[r.mapel_id] ?? r.mapel_id,
+      nama_pengawas: r.pengawas ? (guruMap[r.pengawas] ?? r.pengawas) : null,
+      status_soal: paketStatusMap[soalKey] ?? 'BELUM_ADA',
+    }
+  })
 
   return NextResponse.json({ data: enriched })
 }
@@ -49,6 +84,24 @@ export async function POST(req: NextRequest) {
 
   const db = createAdminClient()
   const body = await req.json()
+
+  // Cegah duplikat: cek apakah sudah ada jadwal dengan mapel + kelas + tanggal + sesi yang sama
+  const { data: existing } = await db
+    .from('jadwal')
+    .select('id')
+    .eq('mapel_id', body.mapel_id)
+    .eq('kelas', String(body.kelas))
+    .eq('tanggal', body.tanggal)
+    .eq('sesi', body.sesi || 1)
+    .limit(1)
+    .single()
+
+  if (existing) {
+    return NextResponse.json(
+      { error: 'Jadwal untuk mata pelajaran, kelas, tanggal, dan sesi yang sama sudah ada.' },
+      { status: 409 }
+    )
+  }
 
   const { error } = await db.from('jadwal').insert({
     id: generateId('JDW'),
@@ -73,6 +126,27 @@ export async function PUT(req: NextRequest) {
 
   const db = createAdminClient()
   const { id, ...update } = await req.json()
+
+  // Cegah duplikat saat edit: cek jadwal lain dengan kombinasi yang sama (kecuali dirinya sendiri)
+  if (update.mapel_id && update.kelas && update.tanggal) {
+    const { data: existing } = await db
+      .from('jadwal')
+      .select('id')
+      .eq('mapel_id', update.mapel_id)
+      .eq('kelas', String(update.kelas))
+      .eq('tanggal', update.tanggal)
+      .eq('sesi', update.sesi || 1)
+      .neq('id', id)
+      .limit(1)
+      .single()
+
+    if (existing) {
+      return NextResponse.json(
+        { error: 'Jadwal untuk mata pelajaran, kelas, tanggal, dan sesi yang sama sudah ada.' },
+        { status: 409 }
+      )
+    }
+  }
 
   const { error } = await db.from('jadwal').update(update).eq('id', id)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
