@@ -5,7 +5,7 @@ import { requireRole } from '@/lib/auth'
 // GET /api/pengawas/sesi/[id]/siswa
 // Mengembalikan daftar siswa yang sudah masuk ujian dalam sesi tertentu
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
-  const auth = requireRole(req, ['PENGAWAS', 'ADMIN'])
+  const auth = requireRole(req, ['GURU', 'ADMIN'])
   if ('error' in auth) return auth.error
 
   const db = createAdminClient()
