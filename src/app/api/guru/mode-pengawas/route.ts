@@ -44,12 +44,13 @@ export async function GET(req: NextRequest) {
   const mapelMap = Object.fromEntries((mapelList ?? []).map(m => [m.id, m.nama]))
   const kelasMap = Object.fromEntries((kelasList ?? []).map(k => [k.id, k.nama]))
 
-  // Ambil sesi aktif yang terkait jadwal hari ini
+  // Ambil SEMUA sesi yang terkait jadwal hari ini (termasuk susulan / is_darurat)
   const jadwalIds = jadwalList.map(j => j.id)
   const { data: sesiList } = await db
     .from('sesi_ujian')
     .select('*')
     .in('jadwal_id', jadwalIds)
+    .order('waktu_mulai', { ascending: false }) // terbaru dulu
 
   // Ambil jumlah peserta & selesai dari siswa_ujian (data live, lebih akurat dari jumlah_peserta)
   const sesiIds = (sesiList ?? []).map(s => s.id)
@@ -68,7 +69,9 @@ export async function GET(req: NextRequest) {
   }
 
   const enrichedJadwal = jadwalList.map(j => {
-    const sesiTerkait = (sesiList ?? []).find(s => s.jadwal_id === j.id)
+    // Prioritaskan sesi yang BERJALAN (termasuk susulan); jika tidak ada, ambil yang terbaru
+    const sesiUntukJadwal = (sesiList ?? []).filter(s => s.jadwal_id === j.id)
+    const sesiTerkait = sesiUntukJadwal.find(s => s.status === 'BERJALAN') ?? sesiUntukJadwal[0] ?? null
     // Sinkronkan status jadwal dengan status sesi aktual
     let status = j.status
     if (sesiTerkait?.status === 'BERJALAN') status = 'BERJALAN'
