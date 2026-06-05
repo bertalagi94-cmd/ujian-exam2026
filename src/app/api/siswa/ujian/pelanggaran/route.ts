@@ -30,6 +30,11 @@ export async function POST(req: NextRequest) {
     status: 'BELUM_DITINDAKLANJUTI',
   })
 
+  await db.from('siswa_ujian')
+    .update({ status: 'RESET' })
+    .eq('sesi_id', sesiId)
+    .eq('nis', user.nis!)
+
   // Setiap pelanggaran → set status RESET (siswa harus tunggu kode dari pengawas)
   // Pengawas yang memutuskan kapan di-reset dengan memberikan kode 7 digit
   // Jika sudah 3x pelanggaran → TERKUNCI permanen setelah pengawas melakukan reset ke-3
