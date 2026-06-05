@@ -556,8 +556,8 @@ export default function PengawasDashboard() {
                                 </div>
                               )}
 
-                              {/* Tombol reset (hanya untuk yang AKTIF dan ada pelanggaran, atau yang sudah RESET) */}
-                              {(sw.status === 'AKTIF' || sw.status === 'RESET') && sw.status !== 'TERKUNCI' && (
+                              {/* Tombol reset (hanya untuk yang AKTIF atau sudah RESET) */}
+                              {(sw.status === 'AKTIF' || sw.status === 'RESET') && (
                                 <button
                                   onClick={() => setResetTarget({ sesiId: s.id, nis: sw.nis, nama: sw.nama })}
                                   className="flex-shrink-0 text-xs px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg hover:bg-amber-50 hover:border-amber-200 flex items-center gap-1 font-medium text-slate-600 hover:text-amber-700 transition-colors"
