@@ -1,12 +1,12 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { BookOpen, Clock, AlertTriangle, CheckCircle, ChevronLeft, ChevronRight, Send, Maximize } from 'lucide-react'
+import { BookOpen, Clock, AlertTriangle, CheckCircle, ChevronLeft, ChevronRight, Send, Maximize, KeyRound, LogOut } from 'lucide-react'
 import { apiRequest } from '@/lib/utils'
 import { Soal } from '@/types'
 import { Confirm, Spinner } from '@/components/ui'
 
-type Phase = 'KODE' | 'UJIAN' | 'SELESAI'
+type Phase = 'KODE' | 'UJIAN' | 'SELESAI' | 'RESET_KODE'
 
 interface SesiInfo {
   sesiId: string
@@ -70,20 +70,32 @@ export default function SiswaUjianPage() {
   const [warningMsg, setWarningMsg] = useState('')
   const [showWarningOverlay, setShowWarningOverlay] = useState(false)
 
+  // Reset kode state (siswa harus masukkan kode dari pengawas)
+  const [kodeReset, setKodeReset] = useState('')
+  const [kodeResetError, setKodeResetError] = useState('')
+  const [kodeResetLoading, setKodeResetLoading] = useState(false)
+  const [pendingResetSesiId, setPendingResetSesiId] = useState<string | null>(null)
+
+  // Logout paksa karena pelanggaran 3x
+  const [dikeluarkan, setDikeluarkan] = useState(false)
+
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const syncRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const sesiPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const pelanggRef = useRef(0)
   const jawabanRef = useRef<JawabanMap>({})
   const sesiInfoRef = useRef<SesiInfo | null>(null)
+  const phaseRef = useRef<Phase>('KODE')
 
   useEffect(() => { jawabanRef.current = jawaban }, [jawaban])
   useEffect(() => { sesiInfoRef.current = sesiInfo }, [sesiInfo])
+  useEffect(() => { phaseRef.current = phase }, [phase])
 
   // ── Minta izin blokir notifikasi saat ujian dimulai ───────────────────────
   useEffect(() => {
     if (phase !== 'UJIAN') return
     if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission() // minta permission → user deny = notif tidak muncul
+      Notification.requestPermission()
     }
   }, [phase])
 
@@ -107,15 +119,6 @@ export default function SiswaUjianPage() {
       document.removeEventListener('MSFullscreenChange', onFSChange)
     }
   }, [phase])
-
-  // ── Jika user keluar fullscreen → tampil overlay peringatan ──────────────
-  useEffect(() => {
-    if (phase !== 'UJIAN') return
-    if (!isFS) {
-      // Baru masuk ujian, FS belum aktif → tidak perlu warning
-      return
-    }
-  }, [isFS, phase])
 
   // ── Deteksi keluar fullscreen saat ujian ─────────────────────────────────
   useEffect(() => {
@@ -175,18 +178,18 @@ export default function SiswaUjianPage() {
     if (phase !== 'UJIAN') return
     function onKeyDown(e: KeyboardEvent) {
       const blockedKeys = [
-        e.ctrlKey && e.key === 'c',   // copy
-        e.ctrlKey && e.key === 'v',   // paste
-        e.ctrlKey && e.key === 'a',   // select all
-        e.ctrlKey && e.key === 'u',   // view source
-        e.ctrlKey && e.key === 'p',   // print
-        e.ctrlKey && e.shiftKey && e.key === 'I', // devtools
-        e.ctrlKey && e.shiftKey && e.key === 'J', // console
-        e.ctrlKey && e.shiftKey && e.key === 'C', // inspector
-        e.key === 'F12',              // devtools
-        e.key === 'PrintScreen',      // screenshot
-        e.altKey && e.key === 'Tab',  // alt tab
-        e.metaKey,                    // Windows/Mac key
+        e.ctrlKey && e.key === 'c',
+        e.ctrlKey && e.key === 'v',
+        e.ctrlKey && e.key === 'a',
+        e.ctrlKey && e.key === 'u',
+        e.ctrlKey && e.key === 'p',
+        e.ctrlKey && e.shiftKey && e.key === 'I',
+        e.ctrlKey && e.shiftKey && e.key === 'J',
+        e.ctrlKey && e.shiftKey && e.key === 'C',
+        e.key === 'F12',
+        e.key === 'PrintScreen',
+        e.altKey && e.key === 'Tab',
+        e.metaKey,
       ]
       if (blockedKeys.some(Boolean)) {
         e.preventDefault()
@@ -237,10 +240,36 @@ export default function SiswaUjianPage() {
 
   // ── Keluar fullscreen saat ujian selesai ──────────────────────────────────
   useEffect(() => {
-    if (phase === 'SELESAI' && isFullscreen()) {
+    if ((phase === 'SELESAI' || phase === 'RESET_KODE') && isFullscreen()) {
       exitFullscreen().catch(() => {})
     }
   }, [phase])
+
+  // ── Polling status sesi setiap 10 detik — jika SELESAI, paksa submit ─────
+  const cekStatusSesi = useCallback(async () => {
+    const currentSesi = sesiInfoRef.current
+    const currentPhase = phaseRef.current
+    if (!currentSesi || currentPhase !== 'UJIAN') return
+    try {
+      const res = await apiRequest<{ status?: string; sesi_status?: string } | null>(
+        `/api/siswa/ujian/cek-sesi?sesiId=${currentSesi.sesiId}`
+      )
+      if (res && (res as { sesi_status?: string }).sesi_status === 'SELESAI') {
+        // Sesi ditutup pengawas → paksa selesai
+        clearInterval(timerRef.current!)
+        clearInterval(syncRef.current!)
+        clearInterval(sesiPollRef.current!)
+        await handleSelesai(true)
+      }
+    } catch { /* silent */ }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    if (phase !== 'UJIAN') return
+    sesiPollRef.current = setInterval(cekStatusSesi, 10000)
+    return () => clearInterval(sesiPollRef.current!)
+  }, [phase, cekStatusSesi])
 
   // ── Timer ─────────────────────────────────────────────────────────────────
   const sisaWaktuRef = useRef(0)
@@ -286,12 +315,19 @@ export default function SiswaUjianPage() {
   }, [])
 
   async function laporPelanggaran(jenis: string, detail: string) {
-    if (!sesiInfoRef.current) return
+    const currentSesi = sesiInfoRef.current
+    if (!currentSesi) return
     try {
-      await apiRequest('/api/siswa/ujian/pelanggaran', {
+      const res = await apiRequest<{ perlu_reset?: boolean; level?: number }>('/api/siswa/ujian/pelanggaran', {
         method: 'POST',
-        body: JSON.stringify({ sesiId: sesiInfoRef.current.sesiId, jenis, detail }),
+        body: JSON.stringify({ sesiId: currentSesi.sesiId, jenis, detail }),
       })
+      // Setelah lapor pelanggaran, tampilkan overlay (sudah dihandle)
+      // Pengawas yang akan memberikan kode reset
+      if (res?.perlu_reset) {
+        // Overlay warning sudah ditampilkan di event handler masing-masing
+        // Tidak perlu action tambahan di sini — pengawas akan reset via dashboard
+      }
     } catch (e) { console.warn(e) }
   }
 
@@ -300,15 +336,27 @@ export default function SiswaUjianPage() {
     setLoading(true); setError('')
     try {
       const user = JSON.parse(localStorage.getItem('user') ?? '{}')
-      const res = await apiRequest<{ valid: boolean; message?: string } & SesiInfo>('/api/siswa/ujian/validasi', {
+      const res = await apiRequest<{ 
+        valid: boolean
+        message?: string
+        perlu_kode_reset?: boolean
+        sesiId?: string
+      } & SesiInfo>('/api/siswa/ujian/validasi', {
         method: 'POST',
         body: JSON.stringify({ kodeSesi: kode.trim().toUpperCase(), nis: user.nis }),
       })
+
+      // Siswa dalam status RESET — perlu kode 7 digit dari pengawas
+      if (!res.valid && res.perlu_kode_reset && res.sesiId) {
+        setPendingResetSesiId(res.sesiId)
+        setPhase('RESET_KODE')
+        return
+      }
+
       if (!res.valid) { setError(res.message ?? 'Kode tidak valid'); return }
       setSesiInfo(res)
       setSisaWaktu(res.durasi * 60)
       setPhase('UJIAN')
-      // Langsung request fullscreen
       setTimeout(() => {
         requestFullscreen(document.documentElement).catch(() => {})
       }, 100)
@@ -317,12 +365,48 @@ export default function SiswaUjianPage() {
     } finally { setLoading(false) }
   }
 
+  async function handleVerifikasiReset() {
+    if (!kodeReset.trim()) { setKodeResetError('Masukkan kode reset dari pengawas'); return }
+    if (!pendingResetSesiId) return
+    setKodeResetLoading(true); setKodeResetError('')
+    try {
+      const res = await apiRequest<{ valid: boolean; message?: string }>('/api/siswa/ujian/verifikasi-reset', {
+        method: 'POST',
+        body: JSON.stringify({ sesiId: pendingResetSesiId, kodeReset: kodeReset.trim().toUpperCase() }),
+      })
+      if (!res.valid) { setKodeResetError(res.message ?? 'Kode tidak valid'); return }
+      
+      // Kode valid — lanjutkan ujian dengan kode sesi yang sama
+      // Ambil soal lagi menggunakan kode sesi asli
+      setKodeReset('')
+      setPhase('KODE')
+      setKode(kode) // kode sesi yang sudah dimasukkan sebelumnya
+      // Langsung trigger masuk ujian
+      setLoading(true)
+      try {
+        const user = JSON.parse(localStorage.getItem('user') ?? '{}')
+        const sesiRes = await apiRequest<{ valid: boolean; message?: string } & SesiInfo>('/api/siswa/ujian/validasi', {
+          method: 'POST',
+          body: JSON.stringify({ kodeSesi: kode.trim().toUpperCase(), nis: user.nis }),
+        })
+        if (!sesiRes.valid) { setError(sesiRes.message ?? 'Gagal masuk ujian'); setPhase('KODE'); return }
+        setSesiInfo(sesiRes)
+        setSisaWaktu(sesiRes.durasi * 60)
+        setPhase('UJIAN')
+        setTimeout(() => requestFullscreen(document.documentElement).catch(() => {}), 100)
+      } finally { setLoading(false) }
+    } catch (err: unknown) {
+      setKodeResetError(err instanceof Error ? err.message : 'Gagal memverifikasi kode')
+    } finally { setKodeResetLoading(false) }
+  }
+
   async function handleSelesai(isTimeout = false) {
     if (submitting) return
     setConfirmSelesai(false)
     setSubmitting(true)
     clearInterval(timerRef.current!)
     clearInterval(syncRef.current!)
+    clearInterval(sesiPollRef.current!)
 
     try {
       await syncJawaban()
@@ -404,6 +488,76 @@ export default function SiswaUjianPage() {
     )
   }
 
+  // ── Phase: RESET_KODE — siswa harus masukkan kode 7 digit dari pengawas ──
+  if (phase === 'RESET_KODE') {
+    return (
+      <div className="max-w-md mx-auto animate-fade-in">
+        <div className="card text-center">
+          <div className="w-16 h-16 bg-amber-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+            <KeyRound className="w-8 h-8 text-amber-600" />
+          </div>
+          <h1 className="text-xl font-bold text-slate-900 mb-2">Akun Di-Reset Pengawas</h1>
+          <p className="text-sm text-slate-500 mb-2">
+            Akun Anda di-reset oleh pengawas karena terdeteksi pelanggaran.
+          </p>
+          <p className="text-sm font-semibold text-amber-700 mb-6">
+            Minta kode 7 digit kepada pengawas untuk melanjutkan ujian.
+          </p>
+
+          {kodeResetError && (
+            <div className="alert-error mb-4 text-left">
+              <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+              <span>{kodeResetError}</span>
+            </div>
+          )}
+
+          <input
+            type="text"
+            className="input text-center text-2xl font-mono tracking-widest uppercase mb-4"
+            placeholder="XXXXXXX"
+            maxLength={7}
+            value={kodeReset}
+            onChange={e => setKodeReset(e.target.value.toUpperCase())}
+            onKeyDown={e => e.key === 'Enter' && handleVerifikasiReset()}
+            autoFocus
+          />
+
+          <button onClick={handleVerifikasiReset} disabled={kodeResetLoading} className="btn-primary w-full justify-center py-3">
+            {kodeResetLoading ? <Spinner size="sm" /> : 'Lanjutkan Ujian'}
+          </button>
+
+          <p className="mt-4 text-xs text-slate-400">
+            Hubungi pengawas di ruangan untuk mendapatkan kode reset.
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  // ── Phase: DIKELUARKAN (3x pelanggaran → nilai 0) ─────────────────────────
+  if (dikeluarkan) {
+    return (
+      <div className="max-w-md mx-auto animate-fade-in">
+        <div className="card text-center">
+          <div className="w-20 h-20 bg-red-100 rounded-3xl flex items-center justify-center mx-auto mb-4">
+            <LogOut className="w-10 h-10 text-red-600" />
+          </div>
+          <h2 className="text-xl font-bold text-slate-900 mb-2">Ujian Dihentikan</h2>
+          <p className="text-sm text-slate-500 mb-4">
+            Anda telah melanggar aturan ujian sebanyak 3 kali. Sistem secara otomatis menghentikan ujian Anda.
+          </p>
+          <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 mb-6">
+            <p className="text-sm font-semibold text-red-700">Nilai Anda: 0</p>
+            <p className="text-xs text-red-500 mt-1">Hubungi pengawas atau guru untuk informasi lebih lanjut.</p>
+          </div>
+          <button onClick={() => window.location.href = '/siswa'} className="btn-secondary w-full justify-center">
+            Kembali ke Beranda
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   // ── Phase: SELESAI ────────────────────────────────────────────────────────
   if (phase === 'SELESAI' && hasilNilai) {
     return (
@@ -476,6 +630,9 @@ export default function SiswaUjianPage() {
             <p className="text-sm text-slate-600 mb-1">{warningMsg}</p>
             <p className="text-xs text-red-500 font-medium mb-6">
               Pelanggaran ke-{pelanggRef.current} — Aktivitas ini dilaporkan ke pengawas
+            </p>
+            <p className="text-xs text-amber-600 font-medium mb-4">
+              ⚠ Pengawas akan memberikan kode 7 digit untuk melanjutkan ujian.
             </p>
             <button
               onClick={handleKembaliFullscreen}
