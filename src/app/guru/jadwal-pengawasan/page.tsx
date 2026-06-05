@@ -1,9 +1,9 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { Calendar, Clock, BookOpen, Users, CheckCircle, PlayCircle, AlertCircle, RefreshCw } from 'lucide-react'
+import { Calendar, Clock, BookOpen, Users, CheckCircle, PlayCircle, AlertCircle, RefreshCw, ClipboardList, X, UserX, RotateCcw, Copy } from 'lucide-react'
 import { apiRequest, formatDate } from '@/lib/utils'
-import { PageLoader } from '@/components/ui'
+import { PageLoader, Spinner } from '@/components/ui'
 
 interface JadwalPengawasan {
   id: string
@@ -18,7 +18,23 @@ interface JadwalPengawasan {
   status: 'AKTIF' | 'BERJALAN' | 'SELESAI'
   nama_mapel: string
   nama_kelas: string
+  sesi_ujian?: { id: string } | null
 }
+
+interface SiswaInfo {
+  nis: string
+  nama: string
+}
+
+interface SusulanResult {
+  bisa: boolean
+  message: string
+  sesiBaruId?: string
+  kodeSesi?: string
+  siswa?: SiswaInfo[]
+}
+
+type SusulanPhase = 'idle' | 'checking' | 'result' | 'opened'
 
 const STATUS_CONFIG = {
   AKTIF:    { label: 'Akan Datang', cls: 'bg-blue-100 text-blue-700 border-blue-200',    icon: <Clock className="w-3.5 h-3.5" /> },
@@ -29,7 +45,7 @@ const STATUS_CONFIG = {
 function groupByMonth(list: JadwalPengawasan[]) {
   const map: Record<string, JadwalPengawasan[]> = {}
   list.forEach(j => {
-    const key = j.tanggal.slice(0, 7) // YYYY-MM
+    const key = j.tanggal.slice(0, 7)
     if (!map[key]) map[key] = []
     map[key].push(j)
   })
@@ -44,11 +60,222 @@ function isPast(dateStr: string) {
   return dateStr < new Date().toISOString().slice(0, 10)
 }
 
+// ── Modal Ujian Susulan ──────────────────────────────────────────────────────
+function ModalSusulan({
+  jadwal,
+  onClose,
+}: {
+  jadwal: JadwalPengawasan
+  onClose: () => void
+}) {
+  const [phase, setPhase] = useState<SusulanPhase>('idle')
+  const [result, setResult] = useState<SusulanResult | null>(null)
+  const [copied, setCopied] = useState(false)
+
+  useEffect(() => {
+    // Auto-start checking when modal opens
+    const timer = setTimeout(() => cekSusulan(), 600)
+    return () => clearTimeout(timer)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  async function cekSusulan() {
+    if (!jadwal.sesi_ujian?.id) return
+    setPhase('checking')
+    try {
+      // Simulate a slightly longer check so the animation is visible
+      await new Promise(r => setTimeout(r, 1800))
+      const res = await apiRequest<SusulanResult>(
+        `/api/pengawas/sesi/${jadwal.sesi_ujian.id}/susulan`,
+        { method: 'POST' }
+      )
+      setResult(res)
+      setPhase('result')
+    } catch (err: unknown) {
+      setResult({
+        bisa: false,
+        message: err instanceof Error ? err.message : 'Gagal mengecek data susulan',
+      })
+      setPhase('result')
+    }
+  }
+
+  function copyKode(kode: string) {
+    navigator.clipboard.writeText(kode)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2500)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full animate-fade-in overflow-hidden">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-purple-100 flex items-center justify-center">
+              <ClipboardList className="w-4 h-4 text-purple-600" />
+            </div>
+            <div>
+              <div className="text-sm font-bold text-slate-900">Ujian Susulan</div>
+              <div className="text-xs text-slate-400">{jadwal.nama_mapel} — Kelas {jadwal.nama_kelas}</div>
+            </div>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-600">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="p-6">
+          {/* Phase: Checking */}
+          {phase === 'checking' && (
+            <div className="flex flex-col items-center py-8 gap-5">
+              {/* Animated radar scan effect */}
+              <div className="relative w-24 h-24">
+                <div className="absolute inset-0 rounded-full border-4 border-purple-100" />
+                <div className="absolute inset-2 rounded-full border-2 border-purple-200 animate-ping" style={{ animationDuration: '1.5s' }} />
+                <div className="absolute inset-0 rounded-full border-4 border-purple-500 border-t-transparent animate-spin" />
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <Users className="w-8 h-8 text-purple-500" />
+                </div>
+              </div>
+              <div className="text-center">
+                <p className="text-base font-semibold text-slate-800">Mengecek Data Siswa...</p>
+                <p className="text-sm text-slate-400 mt-1">Sistem sedang memverifikasi kehadiran semua siswa</p>
+              </div>
+              {/* Animated loading dots */}
+              <div className="flex gap-2">
+                {[0, 1, 2].map(i => (
+                  <div key={i} className="w-2 h-2 rounded-full bg-purple-400 animate-bounce" style={{ animationDelay: `${i * 0.15}s` }} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Phase: idle (initial state) */}
+          {phase === 'idle' && (
+            <div className="flex flex-col items-center py-8 gap-4">
+              <Spinner size="lg" />
+              <p className="text-sm text-slate-400">Mempersiapkan...</p>
+            </div>
+          )}
+
+          {/* Phase: Result - Tidak bisa susulan */}
+          {phase === 'result' && result && !result.bisa && (
+            <div className="flex flex-col items-center py-4 gap-4">
+              <div className="w-16 h-16 rounded-2xl bg-emerald-100 flex items-center justify-center">
+                <CheckCircle className="w-8 h-8 text-emerald-600" />
+              </div>
+              <div className="text-center">
+                <h3 className="font-bold text-slate-900 text-base mb-1">Semua Siswa Sudah Ujian</h3>
+                <p className="text-sm text-slate-500">{result.message}</p>
+              </div>
+              <button onClick={onClose} className="mt-2 px-6 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-900 text-white text-sm font-semibold">
+                Tutup
+              </button>
+            </div>
+          )}
+
+          {/* Phase: Result - Ada siswa belum ujian */}
+          {phase === 'result' && result && result.bisa && phase !== 'opened' && (
+            <div className="flex flex-col gap-4">
+              <div className="flex items-center gap-3 p-3 bg-amber-50 border border-amber-200 rounded-xl">
+                <UserX className="w-5 h-5 text-amber-600 flex-shrink-0" />
+                <div>
+                  <p className="text-sm font-semibold text-amber-800">
+                    {result.siswa?.length} siswa belum mengikuti ujian
+                  </p>
+                  <p className="text-xs text-amber-600">Apakah akan membuka sesi susulan?</p>
+                </div>
+              </div>
+
+              {/* Daftar siswa belum ujian */}
+              <div>
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Daftar Siswa Belum Ujian:</p>
+                <div className="max-h-44 overflow-y-auto space-y-1.5 pr-1">
+                  {result.siswa?.map((s, i) => (
+                    <div key={s.nis} className="flex items-center gap-2 px-3 py-2 bg-slate-50 rounded-xl">
+                      <div className="w-5 h-5 rounded-full bg-amber-100 text-amber-700 text-xs font-bold flex items-center justify-center flex-shrink-0">
+                        {i + 1}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-slate-800 truncate">{s.nama}</p>
+                        <p className="text-xs text-slate-400 font-mono">{s.nis}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <p className="text-xs text-slate-400 bg-slate-50 px-3 py-2 rounded-xl">
+                ℹ Durasi sesi susulan akan ditentukan oleh pengawas. Tutup sesi kapan pun ujian selesai.
+              </p>
+
+              <div className="flex gap-3">
+                <button onClick={onClose} className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 text-sm font-medium">
+                  Batal
+                </button>
+                <button
+                  onClick={() => setPhase('opened')}
+                  className="flex-1 px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-sm font-semibold flex items-center justify-center gap-2"
+                >
+                  <RotateCcw className="w-4 h-4" />
+                  Ya, Buka Susulan
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Phase: Opened — tampilkan kode sesi */}
+          {phase === 'opened' && result?.kodeSesi && (
+            <div className="flex flex-col items-center gap-5 py-2">
+              <div className="w-14 h-14 rounded-2xl bg-purple-100 flex items-center justify-center">
+                <ClipboardList className="w-7 h-7 text-purple-600" />
+              </div>
+              <div className="text-center">
+                <h3 className="font-bold text-slate-900 text-base mb-1">Sesi Susulan Dibuka!</h3>
+                <p className="text-sm text-slate-500">Bagikan kode ini kepada siswa yang belum ujian</p>
+              </div>
+
+              {/* Kode sesi */}
+              <div className="flex flex-col items-center gap-3">
+                <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Kode Sesi Susulan</p>
+                <div className="flex items-center gap-2">
+                  {result.kodeSesi.split('').map((char, i) => (
+                    <div key={i} className="w-11 h-14 rounded-xl bg-gradient-to-b from-purple-500 to-purple-700 flex items-center justify-center text-white text-2xl font-black shadow-lg">
+                      {char}
+                    </div>
+                  ))}
+                </div>
+                <button
+                  onClick={() => copyKode(result.kodeSesi!)}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all ${copied ? 'bg-purple-100 text-purple-700 border border-purple-200' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 border border-slate-200'}`}
+                >
+                  {copied ? <CheckCircle className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                  {copied ? 'Tersalin!' : 'Salin Kode'}
+                </button>
+              </div>
+
+              <p className="text-xs text-slate-400 text-center">
+                Tutup sesi kapan pun dari menu <strong>Mode Pengawas</strong> saat ujian susulan selesai.
+              </p>
+
+              <button onClick={onClose} className="w-full px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-900 text-white text-sm font-semibold">
+                Tutup
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function JadwalPengawasanPage() {
   const [jadwal, setJadwal] = useState<JadwalPengawasan[]>([])
   const [loading, setLoading] = useState(true)
   const [hasJadwal, setHasJadwal] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
+  const [susulanTarget, setSusulanTarget] = useState<JadwalPengawasan | null>(null)
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true)
@@ -133,8 +360,8 @@ export default function JadwalPengawasanPage() {
               {items.map(j => {
                 const cfg = STATUS_CONFIG[j.status] ?? STATUS_CONFIG.AKTIF
                 const today = isToday(j.tanggal)
-                const past = isPast(j.tanggal) && j.status === 'AKTIF'
                 const dayName = new Date(j.tanggal).toLocaleDateString('id-ID', { weekday: 'long' })
+                const isSelesai = j.status === 'SELESAI'
 
                 return (
                   <div
@@ -197,6 +424,20 @@ export default function JadwalPengawasanPage() {
                             Sesi sedang berlangsung — pantau di <strong className="mx-1">Mode Pengawas</strong>.
                           </div>
                         )}
+
+                        {/* Tombol Ujian Susulan untuk jadwal yang SELESAI */}
+                        {isSelesai && j.sesi_ujian?.id && (
+                          <div className="mt-3 flex items-center justify-between gap-3 flex-wrap">
+                            <p className="text-xs text-slate-400">Ada siswa yang tidak hadir?</p>
+                            <button
+                              onClick={() => setSusulanTarget(j)}
+                              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-purple-50 hover:bg-purple-100 border border-purple-200 text-purple-700 text-xs font-semibold transition-all"
+                            >
+                              <ClipboardList className="w-3.5 h-3.5" />
+                              Ujian Susulan
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -206,6 +447,17 @@ export default function JadwalPengawasanPage() {
           </section>
         )
       })}
+
+      {/* Modal Susulan */}
+      {susulanTarget && (
+        <ModalSusulan
+          jadwal={susulanTarget}
+          onClose={() => {
+            setSusulanTarget(null)
+            load(true)
+          }}
+        />
+      )}
     </div>
   )
 }
