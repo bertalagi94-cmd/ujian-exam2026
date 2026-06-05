@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ valid: false, message: 'Kode sesi tidak ditemukan atau ujian sudah selesai.' })
   }
 
-  // Validasi kelas: kelas siswa harus cocok dengan kelas sesi
+  // Validasi kelas
   if (user.kelas && String(user.kelas) !== String(sesi.kelas)) {
     return NextResponse.json({
       valid: false,
@@ -55,7 +55,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ valid: false, message: 'Anda sudah menyelesaikan ujian ini.' })
   }
 
-  // Check siswa_ujian status (terkunci?)
+  // Check siswa_ujian status
   const { data: siswaUjian } = await db
     .from('siswa_ujian')
     .select('status')
@@ -64,7 +64,17 @@ export async function POST(req: NextRequest) {
     .single()
 
   if (siswaUjian?.status === 'TERKUNCI') {
-    return NextResponse.json({ valid: false, message: 'Akun Anda dikunci oleh pengawas. Hubungi pengawas.' })
+    return NextResponse.json({ valid: false, message: 'Akun Anda dikunci permanen oleh pengawas karena pelanggaran berulang. Nilai Anda 0.' })
+  }
+
+  // Jika status RESET → siswa harus verifikasi kode reset dulu, bukan masuk via kode sesi biasa
+  if (siswaUjian?.status === 'RESET') {
+    return NextResponse.json({ 
+      valid: false, 
+      perlu_kode_reset: true,
+      sesiId: sesi.id,
+      message: 'Akun Anda di-reset oleh pengawas karena pelanggaran. Masukkan kode 7 digit dari pengawas untuk melanjutkan ujian.' 
+    })
   }
 
   // Cek apakah siswa ini belum pernah daftar sebelumnya (baru masuk pertama kali)
@@ -83,7 +93,6 @@ export async function POST(req: NextRequest) {
   if (isNewEntry) {
     await db.rpc('increment_jumlah_peserta', { sesi_id_param: sesi.id })
       .then(async ({ error }) => {
-        // Fallback jika RPC belum ada: update manual
         if (error) {
           const { data: currentSesi } = await db
             .from('sesi_ujian')
@@ -98,8 +107,7 @@ export async function POST(req: NextRequest) {
       })
   }
 
-  // Get paket soal untuk kelas dan mapel ini
-  // acak diatur di level paket, bukan di tiap soal
+  // Get paket soal
   const { data: paketData } = await db
     .from('paket_soal')
     .select('id, acak')
@@ -123,12 +131,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ valid: false, message: 'Tidak ada soal tersedia untuk ujian ini.' })
   }
 
-  // Shuffle berdasarkan pengaturan acak di paket_soal
   const shouldAcak = paketData?.acak === 'YA'
 
   let finalSoal
   if (shouldAcak) {
-    // Fisher-Yates shuffle
     const arr = [...soalList]
     for (let i = arr.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1))
@@ -139,7 +145,6 @@ export async function POST(req: NextRequest) {
     finalSoal = soalList.map((s, i) => ({ ...s, nomor: i + 1 }))
   }
 
-  // Get mapel name
   const { data: mapel } = await db.from('mapel').select('nama').eq('id', sesi.mapel_id).single()
 
   return NextResponse.json({
