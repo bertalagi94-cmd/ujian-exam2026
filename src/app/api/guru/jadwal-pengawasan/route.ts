@@ -32,33 +32,44 @@ export async function GET(req: NextRequest) {
   const mapelMap = Object.fromEntries((mapelList ?? []).map(m => [m.id, m.nama]))
   const kelasMap = Object.fromEntries((kelasList ?? []).map(k => [k.id, k.nama]))
 
-  // Cek sesi_ujian untuk jadwal hari ini agar status akurat
-  const today = new Date().toISOString().slice(0, 10)
-  const todayJadwalIds = jadwalList.filter(j => j.tanggal === today || j.tanggal.slice(0, 10) === today).map(j => j.id)
+  // Ambil sesi_ujian untuk SEMUA jadwal (bukan hanya hari ini)
+  // agar tombol susulan bisa muncul kapan pun, tidak terbatas tanggal
+  const allJadwalIds = jadwalList.map(j => j.id)
+  const { data: sesiList } = await db
+    .from('sesi_ujian')
+    .select('id, jadwal_id, status')
+    .in('jadwal_id', allJadwalIds)
+    // Ambil sesi non-susulan (is_darurat = false atau null) untuk status utama
+    .order('waktu_mulai', { ascending: false })
 
-  let sesiMap: Record<string, { status: string }> = {}
-  if (todayJadwalIds.length > 0) {
-    const { data: sesiList } = await db
-      .from('sesi_ujian')
-      .select('jadwal_id, status')
-      .in('jadwal_id', todayJadwalIds)
-    sesiMap = Object.fromEntries((sesiList ?? []).map(s => [s.jadwal_id, { status: s.status }]))
+  // Buat map: jadwal_id → sesi terbaru (non-susulan lebih diutamakan)
+  const sesiMap: Record<string, { id: string; status: string }> = {}
+  for (const s of sesiList ?? []) {
+    // Simpan sesi pertama yang ditemukan per jadwal (sudah diurutkan terbaru)
+    if (!sesiMap[s.jadwal_id]) {
+      sesiMap[s.jadwal_id] = { id: s.id, status: s.status }
+    }
   }
+
+  const today = new Date().toISOString().slice(0, 10)
 
   const enriched = jadwalList.map(j => {
     const tanggal = j.tanggal?.slice(0, 10) ?? j.tanggal
-    const isToday = tanggal === today
-    // Jika ada sesi berjalan untuk jadwal ini, override status ke BERJALAN
+    const sesi = sesiMap[j.id]
+
+    // Override status berdasarkan sesi aktual
     let status = j.status
-    if (isToday && sesiMap[j.id]?.status === 'BERJALAN') status = 'BERJALAN'
-    if (isToday && sesiMap[j.id]?.status === 'SELESAI') status = 'SELESAI'
+    if (sesi?.status === 'BERJALAN') status = 'BERJALAN'
+    if (sesi?.status === 'SELESAI') status = 'SELESAI'
 
     return {
       ...j,
-      tanggal, // normalize to YYYY-MM-DD
+      tanggal,
       status,
       nama_mapel: mapelMap[j.mapel_id] ?? j.mapel_id,
       nama_kelas: kelasMap[j.kelas] ?? j.kelas,
+      // Selalu sertakan sesi_ujian agar halaman bisa menampilkan tombol susulan
+      sesi_ujian: sesi ? { id: sesi.id, status: sesi.status } : null,
     }
   })
 
