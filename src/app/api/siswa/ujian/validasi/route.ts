@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
   // Check siswa_ujian status
   const { data: siswaUjian } = await db
     .from('siswa_ujian')
-    .select('status')
+    .select('status, waktu_mulai')
     .eq('sesi_id', sesi.id)
     .eq('nis', nis)
     .single()
