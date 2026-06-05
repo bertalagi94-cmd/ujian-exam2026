@@ -64,6 +64,21 @@ interface ResetResult {
   message: string
 }
 
+
+// ── Terjemahan jenis pelanggaran ke Bahasa Indonesia ──────────────────────
+function terjemahJenis(jenis: string): string {
+  const map: Record<string, string> = {
+    WINDOW_BLUR:     'Keluar dari Aplikasi Ujian',
+    EXIT_FULLSCREEN: 'Keluar Layar Penuh',
+    TAB_SWITCH:      'Berpindah Tab/Aplikasi',
+    COPY_PASTE:      'Salin/Tempel Teks',
+    CONTEXT_MENU:    'Klik Kanan',
+    KEYBOARD_BLOCK:  'Shortcut Terlarang',
+    DRAG_DROP:       'Drag & Drop',
+  }
+  return map[jenis] ?? jenis.replace(/_/g, ' ')
+}
+
 function getMinutesUntilStart(jamMulai: string): number {
   const now = new Date()
   const [h, m] = jamMulai.split(':').map(Number)
@@ -310,7 +325,7 @@ export default function ModePengawasPage() {
           <div>
             <div className="text-xs font-bold uppercase tracking-wide">Pelanggaran Baru!</div>
             <div className="text-sm font-semibold truncate">{pelNotif.nama_siswa}</div>
-            <div className="text-xs opacity-80">{pelNotif.jenis.replace('_', ' ')}</div>
+            <div className="text-xs opacity-80">{terjemahJenis(pelNotif.jenis)}</div>
           </div>
           <button onClick={() => setPelNotif(null)} className="ml-1 opacity-70 hover:opacity-100 text-lg leading-none">×</button>
         </div>
@@ -441,7 +456,7 @@ export default function ModePengawasPage() {
                                       <span className="font-semibold text-slate-800">{p.nama_siswa}</span>
                                       <span className="text-slate-400 font-mono ml-1">{p.nis}</span>
                                     </div>
-                                    <span className="bg-red-100 text-red-700 font-bold px-2 py-0.5 rounded-full">{p.jenis.replace('_', ' ')}</span>
+                                    <span className="bg-red-100 text-red-700 font-bold px-2 py-0.5 rounded-full">{terjemahJenis(p.jenis)}</span>
                                     <span className="text-slate-400">{new Date(p.created_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}</span>
                                     <button
                                       onClick={() => setResetTarget({ sesiId, nis: p.nis, nama: p.nama_siswa })}
