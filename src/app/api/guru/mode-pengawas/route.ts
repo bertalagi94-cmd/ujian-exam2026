@@ -51,6 +51,22 @@ export async function GET(req: NextRequest) {
     .select('*')
     .in('jadwal_id', jadwalIds)
 
+  // Ambil jumlah peserta & selesai dari siswa_ujian (data live, lebih akurat dari jumlah_peserta)
+  const sesiIds = (sesiList ?? []).map(s => s.id)
+  let siswaUjianMap: Record<string, { total: number; selesai: number }> = {}
+  if (sesiIds.length > 0) {
+    const { data: siswaUjianList } = await db
+      .from('siswa_ujian')
+      .select('sesi_id, status')
+      .in('sesi_id', sesiIds)
+
+    for (const su of siswaUjianList ?? []) {
+      if (!siswaUjianMap[su.sesi_id]) siswaUjianMap[su.sesi_id] = { total: 0, selesai: 0 }
+      siswaUjianMap[su.sesi_id].total++
+      if (su.status === 'SELESAI') siswaUjianMap[su.sesi_id].selesai++
+    }
+  }
+
   const enrichedJadwal = jadwalList.map(j => {
     const sesiTerkait = (sesiList ?? []).find(s => s.jadwal_id === j.id)
     // Sinkronkan status jadwal dengan status sesi aktual
@@ -64,7 +80,11 @@ export async function GET(req: NextRequest) {
       status,
       nama_mapel: mapelMap[j.mapel_id] ?? j.mapel_id,
       nama_kelas: kelasMap[j.kelas] ?? j.kelas,
-      sesi_ujian: sesiTerkait ?? null,
+      sesi_ujian: sesiTerkait ? {
+        ...sesiTerkait,
+        jumlah_peserta: siswaUjianMap[sesiTerkait.id]?.total ?? sesiTerkait.jumlah_peserta ?? 0,
+        jumlah_selesai: siswaUjianMap[sesiTerkait.id]?.selesai ?? 0,
+      } : null,
     }
   })
 
