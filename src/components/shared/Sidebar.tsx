@@ -6,7 +6,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import {
   LayoutDashboard, Users, BookOpen, Calendar, ClipboardList,
   BarChart3, Settings, LogOut, Menu, X, ChevronRight,
-  GraduationCap, School, Bell, User, FileUp
+  GraduationCap, School, Bell, User, FileUp, FileText
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { AuthUser } from '@/types'
@@ -185,6 +185,7 @@ export function GuruSidebar() {
 
   const navItems: NavItem[] = [
     { label: 'Dashboard', href: '/guru', icon: LayoutDashboard },
+    { label: 'Kisi-kisi', href: '/guru/kisi-kisi', icon: FileText },  // ← BARU
     { label: 'Bank Soal', href: '/guru/soal', icon: BookOpen },
     { label: 'Buat Soal', href: '/guru/paket', icon: ClipboardList },
     { label: 'Rekap Nilai', href: '/guru/nilai', icon: BarChart3 },
@@ -247,6 +248,7 @@ export function SiswaSidebar() {
       roleLabel="Siswa"
       navItems={[
         { label: 'Beranda', href: '/siswa', icon: LayoutDashboard },
+        { label: 'Kisi-kisi', href: '/siswa/kisi-kisi', icon: FileText },  // ← BARU
         { label: 'Mulai Ujian', href: '/siswa/ujian', icon: BookOpen },
         { label: 'Nilai Saya', href: '/siswa/nilai', icon: BarChart3 },
         { label: 'Jadwal', href: '/siswa/jadwal', icon: Calendar },
