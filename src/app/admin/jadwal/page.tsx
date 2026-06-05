@@ -43,7 +43,7 @@ function SoalStatusBadge({ status }: { status?: string }) {
     case 'DRAFT':
       return (
         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">
-          <AlertCircle className="w-3 h-3" /> Draft
+          <AlertCircle className="w-3 h-3" /> Sedang Dibuat
         </span>
       )
     case 'DITOLAK':
@@ -742,7 +742,7 @@ export default function AdminJadwalPage() {
           const labelGrup: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
             BELUM_ADA: { label: 'Belum Ada Soal', color: 'text-slate-600', icon: <HelpCircle className="w-4 h-4" /> },
             DITOLAK:   { label: 'Soal Ditolak',   color: 'text-red-600',   icon: <XCircle className="w-4 h-4" /> },
-            DRAFT:     { label: 'Masih Draft',     color: 'text-blue-600',  icon: <AlertCircle className="w-4 h-4" /> },
+            DRAFT:     { label: 'Sedang Dibuat',    color: 'text-blue-600',  icon: <AlertCircle className="w-4 h-4" /> },
             MENUNGGU:  { label: 'Menunggu Persetujuan', color: 'text-amber-600', icon: <Clock className="w-4 h-4" /> },
           }
 
