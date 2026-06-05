@@ -119,7 +119,7 @@ export async function POST(req: NextRequest) {
 
   let soalQuery = db
     .from('soal')
-    .select('*')
+    .select('id, paket_id, mapel_id, teks, opsi_a, opsi_b, opsi_c, opsi_d, opsi_e, status')
     .eq('mapel_id', sesi.mapel_id)
     .eq('status', 'DISETUJUI')
 
