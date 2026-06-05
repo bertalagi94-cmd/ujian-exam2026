@@ -32,6 +32,10 @@ interface SusulanResult {
   sesiBaruId?: string
   kodeSesi?: string
   siswa?: SiswaInfo[]
+  konflik?: boolean       // guru masih punya sesi lain yang berjalan
+  sudahBerjalan?: boolean // sudah ada sesi berjalan untuk jadwal ini
+  sesiAktifId?: string
+  error?: string
 }
 
 const STATUS_CONFIG = {
@@ -90,6 +94,19 @@ function ModalSusulan({
         `/api/guru/susulan`,
         { method: 'POST', body: JSON.stringify({ jadwalId: jadwal.id }) }
       )
+      // Guru masih memiliki sesi aktif di jadwal lain — blokir
+      if (res.konflik || res.error) {
+        setErrorMsg(res.error ?? res.message ?? 'Tidak dapat membuka sesi susulan.')
+        setPhase('confirm')
+        return
+      }
+      // Sudah ada sesi berjalan untuk jadwal ini (mungkin re-open)
+      if (res.sudahBerjalan) {
+        setKodeSesi(res.kodeSesi ?? null)
+        setPhase('confirm')
+        setErrorMsg(res.message ?? 'Sudah ada sesi yang sedang berjalan.')
+        return
+      }
       if (!res.bisa) {
         setPhase('empty')
       } else {
