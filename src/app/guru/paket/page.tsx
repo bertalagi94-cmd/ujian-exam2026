@@ -82,6 +82,8 @@ export default function GuruBuatSoalPage() {
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => setToast({ msg, type })
 
+  const SYNC_EVENT = 'guru-paket-updated'
+
   const load = useCallback(async () => {
     setLoading(true)
     try {
@@ -91,6 +93,13 @@ export default function GuruBuatSoalPage() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  // Sinkronisasi dengan menu Bank Soal
+  useEffect(() => {
+    const handler = () => load()
+    window.addEventListener(SYNC_EVENT, handler)
+    return () => window.removeEventListener(SYNC_EVENT, handler)
+  }, [load])
 
   useEffect(() => {
     const user = localStorage.getItem('user')
@@ -125,7 +134,7 @@ export default function GuruBuatSoalPage() {
   async function loadSoalPaket(paketId: string) {
     setLoadingSoal(true)
     try {
-      const res = await apiRequest<{ data: SoalWithImg[] }>(`/api/admin/soal/${paketId}/soal`)
+      const res = await apiRequest<{ data: SoalWithImg[] }>(`/api/guru/paket/${paketId}/soal`)
       setSoalExpand(prev => ({ ...prev, [paketId]: res.data }))
       return res.data
     } catch {
@@ -251,6 +260,7 @@ export default function GuruBuatSoalPage() {
       setPakets(listRes.data)
       const updated = listRes.data.find(p => p.id === activePaket.id)
       if (updated) setActivePaket(updated)
+      window.dispatchEvent(new Event(SYNC_EVENT))
     } catch (err: unknown) {
       showToast(err instanceof Error ? err.message : 'Gagal menyimpan soal', 'error')
     } finally { setSaving(false) }
@@ -271,6 +281,7 @@ export default function GuruBuatSoalPage() {
       showToast('Paket berhasil dikirim untuk validasi')
       setKirimId(null)
       load()
+      window.dispatchEvent(new Event(SYNC_EVENT))
     } catch (err: unknown) {
       showToast(err instanceof Error ? err.message : 'Gagal mengirim', 'error')
     } finally { setSaving(false) }
@@ -284,6 +295,7 @@ export default function GuruBuatSoalPage() {
       showToast('Paket berhasil ditarik kembali ke DRAFT')
       setTarikId(null)
       load()
+      window.dispatchEvent(new Event(SYNC_EVENT))
     } catch (err: unknown) {
       showToast(err instanceof Error ? err.message : 'Gagal menarik', 'error')
     } finally { setSaving(false) }
@@ -325,6 +337,7 @@ export default function GuruBuatSoalPage() {
         const existing = await loadSoalPaket(activePaket.id)
         setSoalDibuat(existing)
       }
+      window.dispatchEvent(new Event(SYNC_EVENT))
     } catch (err: unknown) {
       showToast(err instanceof Error ? err.message : 'Gagal menyimpan', 'error')
     } finally { setSaving(false) }
@@ -349,6 +362,7 @@ export default function GuruBuatSoalPage() {
         if (updated) setActivePaket(updated)
       }
       setDeleteSoalPaketId(null)
+      window.dispatchEvent(new Event(SYNC_EVENT))
     } catch (err: unknown) {
       showToast(err instanceof Error ? err.message : 'Gagal menghapus', 'error')
     } finally { setSaving(false) }
