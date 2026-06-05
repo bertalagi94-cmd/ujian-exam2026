@@ -32,7 +32,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   await db.from('siswa_ujian')
     .update({ status: 'SELESAI', waktu_selesai: new Date().toISOString() })
     .eq('sesi_id', sesiId)
-    .eq('status', 'AKTIF')
+    .in('status', ['AKTIF', 'RESET'])
 
   return NextResponse.json({ message: 'Sesi berhasil ditutup' })
 }
