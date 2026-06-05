@@ -124,15 +124,17 @@ export default function SiswaUjianPage() {
   // ── Deteksi keluar fullscreen saat ujian ─────────────────────────────────
   useEffect(() => {
     if (phase !== 'UJIAN') return
-
+    let fsCooldown: ReturnType<typeof setTimeout> | null = null
     function onFSChange() {
       if (!isFullscreen()) {
         if (pelanggaranActiveRef.current) return
+        if (fsCooldown) return
         pelanggaranActiveRef.current = true
         pelanggRef.current++
-        laporPelanggaran('EXIT_FULLSCREEN', `Keluar fullscreen ke-${pelanggRef.current}`)
-        setWarningMsg('⚠ Anda keluar dari mode fullscreen!')
+        laporPelanggaran('EXIT_FULLSCREEN', `Keluar layar penuh ke-${pelanggRef.current}`)
+        setWarningMsg('⚠ Anda keluar dari mode layar penuh!')
         setShowWarningOverlay(true)
+        fsCooldown = setTimeout(() => { fsCooldown = null }, 2000)
       }
     }
 
@@ -145,6 +147,7 @@ export default function SiswaUjianPage() {
       document.removeEventListener('webkitfullscreenchange', onFSChange)
       document.removeEventListener('mozfullscreenchange', onFSChange)
       document.removeEventListener('MSFullscreenChange', onFSChange)
+      if (fsCooldown) clearTimeout(fsCooldown)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase])
@@ -152,18 +155,24 @@ export default function SiswaUjianPage() {
   // ── Anti-cheat: tab switch / visibilitychange ─────────────────────────────
   useEffect(() => {
     if (phase !== 'UJIAN') return
+    // Cooldown mencegah event ganda (visibilitychange + blur keduanya fire sekaligus)
+    let visCooldown: ReturnType<typeof setTimeout> | null = null
     function onVisibilityChange() {
-      if (document.hidden) {
-        if (pelanggaranActiveRef.current) return
-        pelanggaranActiveRef.current = true
-        pelanggRef.current++
-        laporPelanggaran('TAB_SWITCH', `Perpindahan tab ke-${pelanggRef.current}`)
-        setWarningMsg('⚠ Perpindahan tab/aplikasi terdeteksi!')
-        setShowWarningOverlay(true)
-      }
+      if (!document.hidden) return
+      if (pelanggaranActiveRef.current) return
+      if (visCooldown) return
+      pelanggaranActiveRef.current = true
+      pelanggRef.current++
+      laporPelanggaran('TAB_SWITCH', `Berpindah tab/aplikasi ke-${pelanggRef.current}`)
+      setWarningMsg('⚠ Berpindah tab atau aplikasi terdeteksi!')
+      setShowWarningOverlay(true)
+      visCooldown = setTimeout(() => { visCooldown = null }, 2000)
     }
     document.addEventListener('visibilitychange', onVisibilityChange)
-    return () => document.removeEventListener('visibilitychange', onVisibilityChange)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+      if (visCooldown) clearTimeout(visCooldown)
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase])
 
@@ -231,16 +240,23 @@ export default function SiswaUjianPage() {
   // ── Anti-cheat: blokir window blur (pindah aplikasi di HP) ───────────────
   useEffect(() => {
     if (phase !== 'UJIAN') return
+    // Cooldown timer untuk mencegah event blur/visibilitychange terpicu berganda
+    let blurCooldown: ReturnType<typeof setTimeout> | null = null
     function onBlur() {
       if (pelanggaranActiveRef.current) return
+      if (blurCooldown) return // masih dalam cooldown 2 detik
       pelanggaranActiveRef.current = true
       pelanggRef.current++
-      laporPelanggaran('WINDOW_BLUR', `Keluar aplikasi ke-${pelanggRef.current}`)
+      laporPelanggaran('WINDOW_BLUR', `Keluar dari aplikasi ujian ke-${pelanggRef.current}`)
       setWarningMsg('⚠ Anda keluar dari aplikasi ujian!')
       setShowWarningOverlay(true)
+      blurCooldown = setTimeout(() => { blurCooldown = null }, 2000)
     }
     window.addEventListener('blur', onBlur)
-    return () => window.removeEventListener('blur', onBlur)
+    return () => {
+      window.removeEventListener('blur', onBlur)
+      if (blurCooldown) clearTimeout(blurCooldown)
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase])
 
@@ -678,7 +694,6 @@ export default function SiswaUjianPage() {
               value={kodeReset}
               onChange={e => { setKodeReset(e.target.value.toUpperCase()); setKodeResetError('') }}
               onKeyDown={e => e.key === 'Enter' && handleVerifikasiResetDariOverlay()}
-              autoFocus
             />
             <button
               onClick={handleVerifikasiResetDariOverlay}
