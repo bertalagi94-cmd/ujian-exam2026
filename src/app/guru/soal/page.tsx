@@ -1,418 +1,885 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Pencil, Trash2, Search, Eye, Lock, ImagePlus, X, BookOpen, ArrowRight } from 'lucide-react'
-import { Modal, Confirm, StatusBadge, SearchInput, Pagination, EmptyState, Spinner, Toast } from '@/components/ui'
-import { apiRequest } from '@/lib/utils'
-import { Soal, Mapel, Kelas } from '@/types'
-import { useRouter } from 'next/navigation'
+import {
+  Pencil, Trash2, Eye, Lock, ImagePlus, X, BookOpen, Plus,
+  Send, ChevronDown, ChevronUp, Copy, CheckCircle2, RotateCcw
+} from 'lucide-react'
+import { Modal, Confirm, StatusBadge, EmptyState, Spinner, Toast } from '@/components/ui'
+import { apiRequest, formatDateTime } from '@/lib/utils'
+import { PaketSoal, Soal, Kelas } from '@/types'
 
-const PER_PAGE = 15
+// ── Konstanta ────────────────────────────────────────────────────
+const SYNC_EVENT = 'guru-paket-updated'
+const opsiLabels = ['A', 'B', 'C', 'D', 'E']
 
-interface SoalWithMapel extends Soal {
-  nama_mapel?: string
-  gambar_url?: string
-  gambar_a?: string
-  gambar_b?: string
-  gambar_c?: string
-  gambar_d?: string
-  gambar_e?: string
+// ── Tipe lokal ───────────────────────────────────────────────────
+interface SoalWithImg extends Soal {
+  gambar_pertanyaan?: string
+  gambar_opsi_a?: string; gambar_opsi_b?: string
+  gambar_opsi_c?: string; gambar_opsi_d?: string; gambar_opsi_e?: string
+  gambar_a?: string; gambar_b?: string; gambar_c?: string
+  gambar_d?: string; gambar_e?: string
 }
 
-export default function GuruSoalPage() {
-  const router = useRouter()
-  const [soalList, setSoalList] = useState<SoalWithMapel[]>([])
-  const [mapelList, setMapelList] = useState<Mapel[]>([])
-  const [loading, setLoading] = useState(true)
-  const [search, setSearch] = useState('')
-  const [filterStatus, setFilterStatus] = useState('')
-  const [filterMapel, setFilterMapel] = useState('')
-  const [page, setPage] = useState(1)
-  const [total, setTotal] = useState(0)
-  const [viewData, setViewData] = useState<SoalWithMapel | null>(null)
-  const [editData, setEditData] = useState<SoalWithMapel | null>(null)
-  const [deleteId, setDeleteId] = useState<string | null>(null)
-  const [saving, setSaving] = useState(false)
-  const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
-  const [jumlahOpsi, setJumlahOpsi] = useState(4)
+// ── Helper ───────────────────────────────────────────────────────
+function getImgPertanyaan(s: SoalWithImg) {
+  return s.gambar_pertanyaan || (s as unknown as Record<string, string>).gambar_url || ''
+}
+function getImgOpsi(s: SoalWithImg, l: string) {
+  const sr = s as unknown as Record<string, string>
+  return sr[`gambar_opsi_${l}`] || sr[`gambar_${l}`] || ''
+}
 
-  // Image state untuk edit
-  const [imgPertanyaan, setImgPertanyaan] = useState<string>('')
-  const [imgOpsi, setImgOpsi] = useState<Record<string, string>>({})
+// ── Komponen form edit soal (dipakai di dua tempat) ──────────────
+function EditSoalForm({
+  formId, soal, jumlahOpsi, setJumlahOpsi,
+  imgPertanyaan, setImgPertanyaan,
+  imgOpsi, setImgOpsi,
+  onSubmit, uploadingImg, onTriggerUpload,
+}: {
+  formId: string
+  soal: SoalWithImg
+  jumlahOpsi: number
+  setJumlahOpsi: (n: number) => void
+  imgPertanyaan: string
+  setImgPertanyaan: (s: string) => void
+  imgOpsi: Record<string, string>
+  setImgOpsi: (fn: (prev: Record<string, string>) => Record<string, string>) => void
+  onSubmit: (e: React.FormEvent<HTMLFormElement>) => void
+  uploadingImg: string | null
+  onTriggerUpload: (key: string) => void
+}) {
+  return (
+    <form id={formId} onSubmit={onSubmit} className="space-y-4">
+      <div>
+        <label className="label">Teks Pertanyaan *</label>
+        <textarea name="teks" className="textarea" rows={3} required
+          placeholder="Tulis pertanyaan di sini..." defaultValue={soal.teks ?? ''} />
+        <div className="mt-2">
+          {imgPertanyaan ? (
+            <div className="relative inline-block">
+              <img src={imgPertanyaan} alt="Gambar pertanyaan" className="max-h-32 rounded-lg border border-slate-200" />
+              <button type="button" onClick={() => setImgPertanyaan('')}
+                className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center">
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+          ) : (
+            <button type="button" onClick={() => onTriggerUpload('pertanyaan')}
+              className="btn-secondary btn-sm text-xs" disabled={!!uploadingImg}>
+              {uploadingImg === 'pertanyaan' ? <Spinner size="sm" /> : <><ImagePlus className="w-3.5 h-3.5" /> Tambah Gambar</>}
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-3 gap-4">
+        <div>
+          <label className="label">Jumlah Opsi</label>
+          <select className="select" value={jumlahOpsi} onChange={e => setJumlahOpsi(Number(e.target.value))}>
+            <option value={3}>3 Opsi</option><option value={4}>4 Opsi</option><option value={5}>5 Opsi</option>
+          </select>
+        </div>
+        <div>
+          <label className="label">Tingkat Kesulitan</label>
+          <select name="tingkat" className="select" defaultValue={soal.tingkat ?? 'Sedang'}>
+            <option>Mudah</option><option>Sedang</option><option>Sulit</option>
+          </select>
+        </div>
+        <div>
+          <label className="label">Kunci Jawaban *</label>
+          <select name="kunci" className="select" required defaultValue={soal.kunci ?? 'A'}>
+            {opsiLabels.slice(0, jumlahOpsi).map(l => <option key={l} value={l}>{l}</option>)}
+          </select>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <label className="label">Opsi Jawaban</label>
+        {opsiLabels.slice(0, jumlahOpsi).map(label => {
+          const lk = label.toLowerCase()
+          const defaultVal = (soal as unknown as Record<string, string>)[`opsi_${lk}`] ?? ''
+          return (
+            <div key={label} className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="w-7 h-7 rounded-lg bg-slate-100 text-slate-600 font-bold text-xs flex items-center justify-center flex-shrink-0">{label}</span>
+                <input name={`opsi_${lk}`} className="input" placeholder={`Opsi ${label}`} required defaultValue={defaultVal} />
+                <button type="button" onClick={() => onTriggerUpload(lk)}
+                  className="btn-ghost btn-icon btn-sm text-slate-500 flex-shrink-0" disabled={!!uploadingImg}>
+                  {uploadingImg === lk ? <Spinner size="sm" /> : <ImagePlus className="w-3.5 h-3.5" />}
+                </button>
+              </div>
+              {imgOpsi[lk] && (
+                <div className="ml-9 relative inline-block">
+                  <img src={imgOpsi[lk]} alt={`Gambar opsi ${label}`} className="max-h-20 rounded border border-slate-200" />
+                  <button type="button" onClick={() => setImgOpsi(prev => { const n = { ...prev }; delete n[lk]; return n })}
+                    className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center">
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+
+      <div>
+        <label className="label">Pembahasan (opsional)</label>
+        <textarea name="pembahasan" className="textarea" rows={2}
+          placeholder="Penjelasan jawaban yang benar..."
+          defaultValue={soal.pembahasan ?? ''} />
+      </div>
+    </form>
+  )
+}
+
+// ── Komponen modal view soal (read-only) ─────────────────────────
+function ViewSoalModal({ soal, onClose }: { soal: SoalWithImg | null; onClose: () => void }) {
+  if (!soal) return null
+  return (
+    <Modal open={!!soal} onClose={onClose} title="Detail Soal" size="xl">
+      <div className="space-y-4">
+        <div className="alert-info text-xs flex items-center gap-2">
+          <Lock className="w-3.5 h-3.5 flex-shrink-0" />
+          Soal ini sudah dikirim/disetujui — hanya bisa dilihat, tidak bisa diedit atau dihapus.
+        </div>
+        <div>
+          <p className="label mb-1">Pertanyaan</p>
+          <p className="text-sm text-slate-800 leading-relaxed">{soal.teks}</p>
+          {getImgPertanyaan(soal) && (
+            <img src={getImgPertanyaan(soal)} alt="Gambar pertanyaan" className="mt-2 max-h-48 rounded-lg border border-slate-200" />
+          )}
+        </div>
+        <div className="space-y-1.5">
+          <p className="label mb-1">Pilihan Jawaban</p>
+          {opsiLabels.slice(0, soal.jumlah_opsi || 4).map(l => {
+            const lk = l.toLowerCase()
+            const opsiText = (soal as unknown as Record<string, string>)[`opsi_${lk}`]
+            const opsiImg = getImgOpsi(soal, lk)
+            const isKunci = soal.kunci === l
+            return (
+              <div key={l} className={`flex items-start gap-2 text-sm px-3 py-2 rounded-lg ${isKunci ? 'bg-emerald-50 text-emerald-800 font-medium' : 'text-slate-600'}`}>
+                <span className={`w-6 h-6 rounded flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5 ${isKunci ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-500'}`}>{l}</span>
+                <div>
+                  <span>{opsiText}</span>
+                  {opsiImg && <img src={opsiImg} alt={`Gambar opsi ${l}`} className="mt-1 max-h-24 rounded border border-slate-200" />}
+                </div>
+                {isKunci && <span className="ml-auto text-emerald-600 text-xs">✓ Kunci</span>}
+              </div>
+            )
+          })}
+        </div>
+        {soal.pembahasan && (
+          <div>
+            <p className="label mb-1">Pembahasan</p>
+            <p className="text-sm text-slate-700">{soal.pembahasan}</p>
+          </div>
+        )}
+      </div>
+    </Modal>
+  )
+}
+
+// ── Form tambah soal baru ────────────────────────────────────────
+function TambahSoalForm({
+  nomorUrut, onTambah, saving, uploadingImg, onTriggerUpload,
+  imgPertanyaan, setImgPertanyaan, imgOpsi, setImgOpsi,
+  jumlahOpsi, setJumlahOpsi, formRef,
+}: {
+  nomorUrut: number
+  onTambah: (e: React.FormEvent<HTMLFormElement>) => void
+  saving: boolean
+  uploadingImg: string | null
+  onTriggerUpload: (key: string) => void
+  imgPertanyaan: string
+  setImgPertanyaan: (s: string) => void
+  imgOpsi: Record<string, string>
+  setImgOpsi: (fn: (prev: Record<string, string>) => Record<string, string>) => void
+  jumlahOpsi: number
+  setJumlahOpsi: (n: number) => void
+  formRef: React.RefObject<HTMLFormElement>
+}) {
+  return (
+    <div className="card">
+      <div className="flex items-center gap-2 mb-4">
+        <span className="w-8 h-8 rounded-full bg-brand-600 text-white font-bold text-sm flex items-center justify-center flex-shrink-0">
+          {nomorUrut}
+        </span>
+        <h2 className="font-semibold text-slate-800">Soal ke-{nomorUrut}</h2>
+      </div>
+      <form ref={formRef} onSubmit={onTambah} className="space-y-4">
+        <div>
+          <label className="label">Teks Pertanyaan *</label>
+          <textarea name="teks" className="textarea" rows={3} required placeholder="Tulis pertanyaan di sini..." />
+          <div className="mt-2">
+            {imgPertanyaan ? (
+              <div className="relative inline-block">
+                <img src={imgPertanyaan} alt="Gambar pertanyaan" className="max-h-32 rounded-lg border border-slate-200" />
+                <button type="button" onClick={() => setImgPertanyaan('')}
+                  className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center">
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            ) : (
+              <button type="button" onClick={() => onTriggerUpload('tambah_pertanyaan')}
+                className="btn-secondary btn-sm text-xs" disabled={!!uploadingImg}>
+                {uploadingImg === 'tambah_pertanyaan' ? <Spinner size="sm" /> : <><ImagePlus className="w-3.5 h-3.5" /> Tambah Gambar</>}
+              </button>
+            )}
+          </div>
+        </div>
+        <div className="grid grid-cols-3 gap-4">
+          <div>
+            <label className="label">Jumlah Opsi</label>
+            <select className="select" value={jumlahOpsi} onChange={e => setJumlahOpsi(Number(e.target.value))}>
+              <option value={3}>3 Opsi</option><option value={4}>4 Opsi</option><option value={5}>5 Opsi</option>
+            </select>
+          </div>
+          <div>
+            <label className="label">Tingkat Kesulitan</label>
+            <select name="tingkat" className="select" defaultValue="Sedang">
+              <option>Mudah</option><option>Sedang</option><option>Sulit</option>
+            </select>
+          </div>
+          <div>
+            <label className="label">Kunci Jawaban *</label>
+            <select name="kunci" className="select" required defaultValue="A">
+              {opsiLabels.slice(0, jumlahOpsi).map(l => <option key={l} value={l}>{l}</option>)}
+            </select>
+          </div>
+        </div>
+        <div className="space-y-2">
+          <label className="label">Pilihan Jawaban</label>
+          {opsiLabels.slice(0, jumlahOpsi).map(label => {
+            const lk = label.toLowerCase()
+            return (
+              <div key={label} className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="w-7 h-7 rounded-lg bg-slate-100 text-slate-600 font-bold text-xs flex items-center justify-center flex-shrink-0">{label}</span>
+                  <input name={`opsi_${lk}`} className="input" placeholder={`Opsi ${label}`} required />
+                  <button type="button" onClick={() => onTriggerUpload(`tambah_${lk}`)}
+                    className="btn-ghost btn-icon btn-sm text-slate-500 flex-shrink-0" disabled={!!uploadingImg}>
+                    {uploadingImg === `tambah_${lk}` ? <Spinner size="sm" /> : <ImagePlus className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+                {imgOpsi[lk] && (
+                  <div className="ml-9 relative inline-block">
+                    <img src={imgOpsi[lk]} alt={`Gambar opsi ${label}`} className="max-h-20 rounded border border-slate-200" />
+                    <button type="button" onClick={() => setImgOpsi(prev => { const n = { ...prev }; delete n[lk]; return n })}
+                      className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center">
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+        <div>
+          <label className="label">Pembahasan (opsional)</label>
+          <textarea name="pembahasan" className="textarea" rows={2} placeholder="Penjelasan jawaban yang benar..." />
+        </div>
+        <div className="flex gap-3 pt-2">
+          <button type="submit" className="btn-primary" disabled={saving || !!uploadingImg}>
+            {saving ? <Spinner size="sm" /> : <><Plus className="w-4 h-4" /> Simpan & Lanjut ke Soal Berikutnya</>}
+          </button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
+// ── Halaman utama Bank Soal ──────────────────────────────────────
+export default function GuruBankSoalPage() {
+  const [pakets, setPakets] = useState<PaketSoal[]>([])
+  const [allKelas, setAllKelas] = useState<Kelas[]>([])
+  const [loading, setLoading] = useState(true)
+  const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
+
+  // Expand / soal per paket
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [soalMap, setSoalMap] = useState<Record<string, SoalWithImg[]>>({})
+  const [loadingSoal, setLoadingSoal] = useState(false)
+
+  // Mode tambah soal (tambah ke paket yang sudah ada)
+  const [addingToId, setAddingToId] = useState<string | null>(null)
+  const [tambahJumlahOpsi, setTambahJumlahOpsi] = useState(4)
+  const [tambahImgPertanyaan, setTambahImgPertanyaan] = useState('')
+  const [tambahImgOpsi, setTambahImgOpsi] = useState<Record<string, string>>({})
+  const tambahFormRef = useRef<HTMLFormElement>(null)
+
+  // Edit soal
+  const [editSoal, setEditSoal] = useState<SoalWithImg | null>(null)
+  const [editJumlahOpsi, setEditJumlahOpsi] = useState(4)
+  const [editImgPertanyaan, setEditImgPertanyaan] = useState('')
+  const [editImgOpsi, setEditImgOpsi] = useState<Record<string, string>>({})
+  const editFileRef = useRef<HTMLInputElement>(null)
+  const [pendingEditKey, setPendingEditKey] = useState<string | null>(null)
+
+  // View soal (read-only)
+  const [viewSoal, setViewSoal] = useState<SoalWithImg | null>(null)
+
+  // Upload gambar (tambah soal)
+  const tambahFileRef = useRef<HTMLInputElement>(null)
+  const [pendingTambahKey, setPendingTambahKey] = useState<string | null>(null)
   const [uploadingImg, setUploadingImg] = useState<string | null>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const [pendingUploadKey, setPendingUploadKey] = useState<string | null>(null)
+
+  // Kirim & tarik
+  const [kirimId, setKirimId] = useState<string | null>(null)
+  const [tarikId, setTarikId] = useState<string | null>(null)
+
+  // Hapus soal
+  const [deleteSoalId, setDeleteSoalId] = useState<string | null>(null)
+  const [deleteSoalPaketId, setDeleteSoalPaketId] = useState<string | null>(null)
+
+  // Duplicate
+  const [dupId, setDupId] = useState<string | null>(null)
+  const [dupKelas, setDupKelas] = useState('')
+
+  const [saving, setSaving] = useState(false)
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => setToast({ msg, type })
 
-  const load = useCallback(async () => {
+  // ── Fetch paket ────────────────────────────────────────────────
+  const loadPakets = useCallback(async () => {
     setLoading(true)
     try {
-      const params = new URLSearchParams({
-        page: String(page), per_page: String(PER_PAGE),
-        ...(search && { search }),
-        ...(filterStatus && { status: filterStatus }),
-        ...(filterMapel && { mapel_id: filterMapel }),
-      })
-      const res = await apiRequest<{ data: SoalWithMapel[]; total: number }>(`/api/guru/soal?${params}`)
-      setSoalList(res.data)
-      setTotal(res.total)
+      const res = await apiRequest<{ data: PaketSoal[] }>('/api/guru/paket')
+      setPakets(res.data ?? [])
     } finally { setLoading(false) }
-  }, [page, search, filterStatus, filterMapel])
-
-  useEffect(() => { load() }, [load])
-
-  useEffect(() => {
-    const user = localStorage.getItem('user')
-    const guruId = user ? JSON.parse(user).username : ''
-    apiRequest<{ data: Mapel[] }>(`/api/admin/mapel?guru_id=${guruId}`)
-      .then(m => setMapelList(m.data ?? []))
   }, [])
 
-  function openEdit(s: SoalWithMapel) {
-    setEditData(s)
-    setJumlahOpsi(s.jumlah_opsi || 4)
-    setImgPertanyaan(s.gambar_url || '')
-    const opsiImgs: Record<string, string> = {}
-    for (const l of ['a','b','c','d','e']) {
-      const v = s[`gambar_${l}` as keyof SoalWithMapel] as string
-      if (v) opsiImgs[l] = v
-    }
-    setImgOpsi(opsiImgs)
+  useEffect(() => { loadPakets() }, [loadPakets])
+
+  // ── Fetch kelas (untuk dropdown duplicate) ─────────────────────
+  useEffect(() => {
+    apiRequest<{ data: Kelas[] }>('/api/admin/kelas')
+      .then(r => setAllKelas(r.data ?? []))
+      .catch(() => { })
+  }, [])
+
+  // ── Sinkronisasi dengan menu Buat Soal ─────────────────────────
+  useEffect(() => {
+    const handler = () => loadPakets()
+    window.addEventListener(SYNC_EVENT, handler)
+    return () => window.removeEventListener(SYNC_EVENT, handler)
+  }, [loadPakets])
+
+  // ── Fetch soal per paket ───────────────────────────────────────
+  async function loadSoalPaket(paketId: string) {
+    setLoadingSoal(true)
+    try {
+      const res = await apiRequest<{ data: SoalWithImg[] }>(`/api/guru/paket/${paketId}/soal`)
+      setSoalMap(prev => ({ ...prev, [paketId]: res.data ?? [] }))
+      return res.data ?? []
+    } catch {
+      setSoalMap(prev => ({ ...prev, [paketId]: [] }))
+      return []
+    } finally { setLoadingSoal(false) }
   }
 
-  async function uploadImage(key: string, file: File) {
-    setUploadingImg(key)
+  function toggleExpand(paketId: string) {
+    if (expandedId === paketId) {
+      setExpandedId(null)
+      setAddingToId(null)
+    } else {
+      setExpandedId(paketId)
+      loadSoalPaket(paketId)
+    }
+  }
+
+  // ── Upload gambar ──────────────────────────────────────────────
+  async function uploadImage(key: string, file: File, target: 'tambah' | 'edit') {
+    const uploadKey = target === 'tambah' ? `tambah_${key}` : key
+    setUploadingImg(uploadKey)
     try {
-      const formData = new FormData()
-      formData.append('file', file)
+      const fd = new FormData()
+      fd.append('file', file)
       const token = localStorage.getItem('token')
       const res = await fetch('/api/guru/soal/upload', {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
-        body: formData,
+        body: fd,
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Upload gagal')
-      if (key === 'pertanyaan') setImgPertanyaan(data.url)
-      else setImgOpsi(prev => ({ ...prev, [key]: data.url }))
+      if (target === 'tambah') {
+        if (key === 'pertanyaan') setTambahImgPertanyaan(data.url)
+        else setTambahImgOpsi(prev => ({ ...prev, [key]: data.url }))
+      } else {
+        if (key === 'pertanyaan') setEditImgPertanyaan(data.url)
+        else setEditImgOpsi(prev => ({ ...prev, [key]: data.url }))
+      }
     } catch (e: unknown) {
       showToast(e instanceof Error ? e.message : 'Upload gambar gagal', 'error')
     } finally { setUploadingImg(null) }
   }
 
-  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+  function handleTambahFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
-    if (!file || !pendingUploadKey) return
-    uploadImage(pendingUploadKey, file)
+    if (!file || !pendingTambahKey) return
+    // key 'tambah_pertanyaan' → 'pertanyaan'; 'tambah_a' → 'a'
+    const key = pendingTambahKey.replace('tambah_', '')
+    uploadImage(key, file, 'tambah')
     e.target.value = ''
   }
 
-  function triggerUpload(key: string) {
-    setPendingUploadKey(key)
-    setTimeout(() => fileInputRef.current?.click(), 50)
+  function handleEditFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file || !pendingEditKey) return
+    uploadImage(pendingEditKey, file, 'edit')
+    e.target.value = ''
+  }
+
+  function triggerTambahUpload(key: string) {
+    setPendingTambahKey(key)
+    setTimeout(() => tambahFileRef.current?.click(), 50)
+  }
+
+  function triggerEditUpload(key: string) {
+    setPendingEditKey(key)
+    setTimeout(() => editFileRef.current?.click(), 50)
+  }
+
+  // ── Tambah soal ke paket existing ─────────────────────────────
+  async function handleTambahSoal(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    if (!addingToId) return
+    const paket = pakets.find(p => p.id === addingToId)
+    if (!paket) return
+    const fd = new FormData(e.currentTarget)
+    const payload: Record<string, unknown> = Object.fromEntries(fd.entries())
+    payload.jumlah_opsi = String(tambahJumlahOpsi)
+    payload.mapel_id = paket.mapel_id
+    payload.kelas_id = paket.kelas_id
+    payload.paket_id = paket.id
+    payload.gambar_pertanyaan = tambahImgPertanyaan || null
+    for (const l of ['a', 'b', 'c', 'd', 'e']) {
+      payload[`gambar_opsi_${l}`] = tambahImgOpsi[l] || null
+    }
+    setSaving(true)
+    try {
+      await apiRequest('/api/guru/soal', { method: 'POST', body: JSON.stringify(payload) })
+      const soalList = soalMap[addingToId] ?? []
+      showToast(`Soal ke-${soalList.length + 1} berhasil ditambahkan`)
+      tambahFormRef.current?.reset()
+      setTambahJumlahOpsi(4)
+      setTambahImgPertanyaan('')
+      setTambahImgOpsi({})
+      // Refresh soal dalam paket & jumlah di header
+      await loadSoalPaket(addingToId)
+      const updated = await apiRequest<{ data: PaketSoal[] }>('/api/guru/paket')
+      setPakets(updated.data ?? [])
+      // Beritahu menu Buat Soal
+      window.dispatchEvent(new Event(SYNC_EVENT))
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Gagal menyimpan soal', 'error')
+    } finally { setSaving(false) }
+  }
+
+  // ── Edit soal ─────────────────────────────────────────────────
+  function openEdit(s: SoalWithImg) {
+    setEditSoal(s)
+    setEditJumlahOpsi(s.jumlah_opsi || 4)
+    setEditImgPertanyaan(getImgPertanyaan(s))
+    const imgs: Record<string, string> = {}
+    for (const l of ['a', 'b', 'c', 'd', 'e']) {
+      const v = getImgOpsi(s, l)
+      if (v) imgs[l] = v
+    }
+    setEditImgOpsi(imgs)
   }
 
   async function handleSaveEdit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
-    if (!editData?.id) return
+    if (!editSoal?.id) return
     const fd = new FormData(e.currentTarget)
     const payload: Record<string, unknown> = Object.fromEntries(fd.entries())
-    payload.jumlah_opsi = String(jumlahOpsi)
-    payload.gambar_pertanyaan = imgPertanyaan || null
-    for (const l of ['a','b','c','d','e']) {
-      payload[`gambar_opsi_${l}`] = imgOpsi[l] || null
+    payload.jumlah_opsi = String(editJumlahOpsi)
+    payload.gambar_pertanyaan = editImgPertanyaan || null
+    for (const l of ['a', 'b', 'c', 'd', 'e']) {
+      payload[`gambar_opsi_${l}`] = editImgOpsi[l] || null
     }
     setSaving(true)
     try {
-      await apiRequest(`/api/guru/soal/${editData.id}`, { method: 'PUT', body: JSON.stringify(payload) })
+      await apiRequest(`/api/guru/soal/${editSoal.id}`, { method: 'PUT', body: JSON.stringify(payload) })
       showToast('Soal berhasil diperbarui')
-      setEditData(null)
-      load()
+      setEditSoal(null)
+      if (editSoal.paket_id) await loadSoalPaket(editSoal.paket_id as string)
+      window.dispatchEvent(new Event(SYNC_EVENT))
     } catch (err: unknown) {
       showToast(err instanceof Error ? err.message : 'Gagal menyimpan', 'error')
     } finally { setSaving(false) }
   }
 
-  async function handleDelete() {
-    if (!deleteId) return
+  // ── Hapus soal ────────────────────────────────────────────────
+  async function handleDeleteSoal() {
+    if (!deleteSoalId || !deleteSoalPaketId) return
     setSaving(true)
     try {
-      await apiRequest(`/api/guru/soal/${deleteId}`, { method: 'DELETE' })
+      await apiRequest(`/api/guru/soal/${deleteSoalId}`, { method: 'DELETE' })
       showToast('Soal berhasil dihapus')
-      setDeleteId(null)
-      load()
+      setDeleteSoalId(null)
+      await loadSoalPaket(deleteSoalPaketId)
+      const updated = await apiRequest<{ data: PaketSoal[] }>('/api/guru/paket')
+      setPakets(updated.data ?? [])
+      setDeleteSoalPaketId(null)
+      window.dispatchEvent(new Event(SYNC_EVENT))
     } catch (err: unknown) {
       showToast(err instanceof Error ? err.message : 'Gagal menghapus', 'error')
     } finally { setSaving(false) }
   }
 
-  const isReadOnly = (s: SoalWithMapel) => ['DISETUJUI', 'MENUNGGU'].includes(s.status)
-  const tingkatColor: Record<string, string> = { Mudah: 'badge-green', Sedang: 'badge-yellow', Sulit: 'badge-red' }
-  const opsiLabels = ['A', 'B', 'C', 'D', 'E']
+  // ── Kirim paket ───────────────────────────────────────────────
+  async function handleKirim() {
+    if (!kirimId) return
+    setSaving(true)
+    try {
+      await apiRequest(`/api/guru/paket/${kirimId}/kirim`, { method: 'POST' })
+      showToast('Paket berhasil dikirim untuk validasi')
+      setKirimId(null)
+      // Refresh soal agar status berubah
+      if (expandedId === kirimId) await loadSoalPaket(kirimId)
+      await loadPakets()
+      window.dispatchEvent(new Event(SYNC_EVENT))
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Gagal mengirim', 'error')
+    } finally { setSaving(false) }
+  }
 
+  // ── Tarik paket ───────────────────────────────────────────────
+  async function handleTarik() {
+    if (!tarikId) return
+    setSaving(true)
+    try {
+      await apiRequest(`/api/guru/paket/${tarikId}/tarik`, { method: 'POST' })
+      showToast('Paket berhasil ditarik kembali ke DRAFT')
+      setTarikId(null)
+      if (expandedId === tarikId) await loadSoalPaket(tarikId)
+      await loadPakets()
+      window.dispatchEvent(new Event(SYNC_EVENT))
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Gagal menarik', 'error')
+    } finally { setSaving(false) }
+  }
+
+  // ── Duplicate paket ───────────────────────────────────────────
+  async function handleDuplicate() {
+    if (!dupId || !dupKelas) return
+    setSaving(true)
+    try {
+      await apiRequest(`/api/guru/paket/${dupId}/duplicate`, {
+        method: 'POST',
+        body: JSON.stringify({ kelas_id: dupKelas }),
+      })
+      showToast('Paket berhasil diduplikasi ke kelas lain')
+      setDupId(null)
+      setDupKelas('')
+      await loadPakets()
+      window.dispatchEvent(new Event(SYNC_EVENT))
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Gagal menduplikasi', 'error')
+    } finally { setSaving(false) }
+  }
+
+  const isEditable = (status: string) => ['DRAFT', 'DITOLAK'].includes(status)
+  const getNamaKelas = (id: string) => allKelas.find(k => k.id === id)?.nama ?? id
+
+  // ── Render daftar soal dalam expand ───────────────────────────
+  function renderSoalList(soalList: SoalWithImg[], paket: PaketSoal) {
+    if (soalList.length === 0) {
+      return <p className="text-xs text-slate-400 text-center py-4">Belum ada soal dalam paket ini</p>
+    }
+    return soalList.map((s, i) => (
+      <div key={s.id || i} className="flex items-start gap-2 text-sm text-slate-700 bg-white rounded-lg px-3 py-2.5 border border-slate-100">
+        <span className="w-6 h-6 rounded-full bg-brand-100 text-brand-700 font-bold text-xs flex items-center justify-center flex-shrink-0 mt-0.5">
+          {i + 1}
+        </span>
+        <div className="flex-1 min-w-0">
+          <p className="line-clamp-2">{s.teks}</p>
+          {getImgPertanyaan(s) && <span className="text-xs text-brand-500">📷 Ada gambar</span>}
+        </div>
+        <span className="text-xs text-slate-400 flex-shrink-0">Kunci: {s.kunci}</span>
+        <div className="flex items-center gap-1 flex-shrink-0">
+          {isEditable(paket.status) && s.id ? (
+            <>
+              <button onClick={() => openEdit(s)} className="btn-ghost btn-icon btn-sm text-blue-600 hover:bg-blue-50" title="Edit soal">
+                <Pencil className="w-3.5 h-3.5" />
+              </button>
+              <button onClick={() => { setDeleteSoalId(s.id); setDeleteSoalPaketId(paket.id) }}
+                className="btn-ghost btn-icon btn-sm text-red-600 hover:bg-red-50" title="Hapus soal">
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </>
+          ) : s.id ? (
+            <>
+              <button onClick={() => setViewSoal(s)} className="btn-ghost btn-icon btn-sm text-slate-500 hover:bg-slate-100" title="Lihat soal">
+                <Eye className="w-3.5 h-3.5" />
+              </button>
+              <span title="Soal tidak bisa diedit" className="btn-ghost btn-icon btn-sm text-slate-300 cursor-not-allowed">
+                <Lock className="w-3.5 h-3.5" />
+              </span>
+            </>
+          ) : null}
+        </div>
+      </div>
+    ))
+  }
+
+  // ── Kelas yang bisa dipilih untuk duplicate (bukan kelas sendiri) ──
+  function getKelasUntukDuplicate(paketId: string) {
+    const paket = pakets.find(p => p.id === paketId)
+    if (!paket) return allKelas
+    return allKelas.filter(k => k.id !== paket.kelas_id)
+  }
+
+  // ── Render ─────────────────────────────────────────────────────
   return (
     <div className="space-y-6 animate-fade-in">
       {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
-      <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
 
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="page-title">Bank Soal</h1>
-          <p className="page-subtitle">{total} soal tersimpan · Edit atau hapus soal DRAFT di sini</p>
-        </div>
-        {/* Tidak ada tombol Tambah Soal — soal ditambah lewat menu Buat Soal */}
-        <button onClick={() => router.push('/guru/paket')} className="btn-secondary btn-sm">
-          <BookOpen className="w-4 h-4" /> Ke Menu Buat Soal
-          <ArrowRight className="w-3.5 h-3.5" />
-        </button>
+      {/* Hidden file inputs */}
+      <input ref={tambahFileRef} type="file" accept="image/*" className="hidden" onChange={handleTambahFileChange} />
+      <input ref={editFileRef} type="file" accept="image/*" className="hidden" onChange={handleEditFileChange} />
+
+      {/* Header */}
+      <div>
+        <h1 className="page-title">Bank Soal</h1>
+        <p className="page-subtitle">Lihat, edit, tambah soal, dan kirim paket ke admin · Soal dibuat dari menu <strong>Buat Soal</strong></p>
       </div>
 
-      {/* Filters */}
-      <div className="card py-4 flex gap-3 flex-wrap">
-        <SearchInput value={search} onChange={v => { setSearch(v); setPage(1) }}
-          placeholder="Cari teks soal..." className="flex-1 min-w-[200px]" />
-        <select value={filterMapel} onChange={e => { setFilterMapel(e.target.value); setPage(1) }} className="select w-44">
-          <option value="">Semua Mapel</option>
-          {mapelList.map(m => <option key={m.id} value={m.id}>{m.nama}</option>)}
-        </select>
-        <select value={filterStatus} onChange={e => { setFilterStatus(e.target.value); setPage(1) }} className="select w-36">
-          <option value="">Semua Status</option>
-          {['DRAFT', 'MENUNGGU', 'DISETUJUI', 'DITOLAK'].map(s =>
-            <option key={s} value={s}>{s}</option>
-          )}
-        </select>
-      </div>
-
-      {/* Table */}
-      <div className="card p-0 overflow-hidden">
-        <div className="table-wrapper">
-          {loading ? (
-            <div className="flex items-center justify-center py-20"><Spinner size="lg" /></div>
-          ) : soalList.length === 0 ? (
-            <div className="py-16 flex flex-col items-center gap-3 text-center px-6">
-              <BookOpen className="w-10 h-10 text-slate-200" />
-              <p className="text-slate-500 font-medium">Belum ada soal tersimpan</p>
-              <p className="text-slate-400 text-sm">Buat soal melalui menu <strong>Buat Soal</strong> terlebih dahulu</p>
-              <button onClick={() => router.push('/guru/paket')} className="btn-primary btn-sm mt-1">
-                Ke Menu Buat Soal <ArrowRight className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          ) : (
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>#</th>
-                  <th>Pertanyaan</th>
-                  <th>Mapel</th>
-                  <th>Kunci</th>
-                  <th>Tingkat</th>
-                  <th>Status</th>
-                  <th>Aksi</th>
-                </tr>
-              </thead>
-              <tbody>
-                {soalList.map((s, i) => (
-                  <tr key={s.id}>
-                    <td className="text-slate-400 text-xs">{(page - 1) * PER_PAGE + i + 1}</td>
-                    <td className="max-w-[360px]">
-                      <p className="text-sm text-slate-800 line-clamp-2">{s.teks}</p>
-                      {s.gambar_url && <span className="text-xs text-brand-500 mt-1 block">📷 Ada gambar</span>}
-                    </td>
-                    <td className="text-sm text-slate-600 whitespace-nowrap">{s.nama_mapel ?? s.mapel_id}</td>
-                    <td>
-                      <span className="w-7 h-7 rounded-lg bg-brand-100 text-brand-700 font-bold text-sm flex items-center justify-center">
-                        {s.kunci}
-                      </span>
-                    </td>
-                    <td>
-                      <span className={`badge ${tingkatColor[s.tingkat] ?? 'badge-slate'}`}>{s.tingkat}</span>
-                    </td>
-                    <td><StatusBadge status={s.status} /></td>
-                    <td>
-                      <div className="flex items-center gap-1">
-                        {isReadOnly(s) ? (
-                          <>
-                            <button onClick={() => setViewData(s)} className="btn-ghost btn-icon btn-sm text-slate-500 hover:bg-slate-100" title="Lihat soal">
-                              <Eye className="w-3.5 h-3.5" />
-                            </button>
-                            <span title="Soal tidak bisa diedit" className="btn-ghost btn-icon btn-sm text-slate-300 cursor-not-allowed">
-                              <Lock className="w-3.5 h-3.5" />
-                            </span>
-                          </>
-                        ) : (
-                          <>
-                            <button onClick={() => openEdit(s)} className="btn-ghost btn-icon btn-sm text-blue-600 hover:bg-blue-50" title="Edit soal">
-                              <Pencil className="w-3.5 h-3.5" />
-                            </button>
-                            <button onClick={() => setDeleteId(s.id)} className="btn-ghost btn-icon btn-sm text-red-600 hover:bg-red-50" title="Hapus soal">
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
+      {/* Daftar paket */}
+      {loading ? (
+        <div className="flex justify-center py-20"><Spinner size="lg" /></div>
+      ) : pakets.length === 0 ? (
+        <div className="card">
+          <EmptyState message="Belum ada soal. Buat soal terlebih dahulu melalui menu Buat Soal." />
         </div>
-        <div className="px-4 py-2 border-t border-slate-100">
-          <Pagination page={page} totalPages={Math.ceil(total / PER_PAGE)}
-            onPage={setPage} total={total} perPage={PER_PAGE} />
-        </div>
-      </div>
+      ) : (
+        <div className="space-y-3">
+          {pakets.map(p => {
+            const soalList = soalMap[p.id] ?? []
+            const isOpen = expandedId === p.id
+            const canEdit = isEditable(p.status)
 
-      {/* View Modal (read-only) */}
-      <Modal open={!!viewData} onClose={() => setViewData(null)} title="Detail Soal" size="xl">
-        {viewData && (
-          <div className="space-y-4">
-            <div className="alert-info text-xs flex items-center gap-2">
-              <Lock className="w-3.5 h-3.5 flex-shrink-0" />
-              Soal ini sudah dikirim ke admin dan tidak bisa diedit atau dihapus.
-            </div>
-            <div>
-              <p className="label mb-1">Pertanyaan</p>
-              <p className="text-sm text-slate-800 leading-relaxed">{viewData.teks}</p>
-              {viewData.gambar_url && (
-                <img src={viewData.gambar_url} alt="Gambar pertanyaan" className="mt-2 max-h-48 rounded-lg border border-slate-200" />
-              )}
-            </div>
-            <div className="space-y-1.5">
-              <p className="label mb-1">Pilihan Jawaban</p>
-              {opsiLabels.slice(0, viewData.jumlah_opsi).map(l => {
-                const lk = l.toLowerCase()
-                const opsiText = viewData[`opsi_${lk}` as keyof SoalWithMapel] as string
-                const opsiImg = viewData[`gambar_${lk}` as keyof SoalWithMapel] as string
-                const isKunci = viewData.kunci === l
-                return (
-                  <div key={l} className={`flex items-start gap-2 text-sm px-3 py-2 rounded-lg ${isKunci ? 'bg-emerald-50 text-emerald-800 font-medium' : 'text-slate-600'}`}>
-                    <span className={`w-6 h-6 rounded flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5 ${isKunci ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-500'}`}>{l}</span>
-                    <div>
-                      <span>{opsiText}</span>
-                      {opsiImg && <img src={opsiImg} alt={`Gambar opsi ${l}`} className="mt-1 max-h-24 rounded border border-slate-200" />}
+            return (
+              <div key={p.id} className="card p-0 overflow-hidden">
+                {/* Header paket */}
+                <div className="flex items-center gap-4 p-4">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-semibold text-slate-900">{p.nama_mapel ?? p.mapel_id}</span>
+                      <span className="text-slate-400 text-xs">·</span>
+                      <span className="text-sm text-slate-600">Kelas {p.nama_kelas ?? getNamaKelas(p.kelas_id)}</span>
+                      <StatusBadge status={p.status} />
                     </div>
-                    {isKunci && <span className="ml-auto text-emerald-600 text-xs">✓ Kunci</span>}
+                    <div className="text-xs text-slate-400 mt-1">
+                      {p.jumlah_soal} soal · {p.acak === 'YA' ? 'Soal diacak' : 'Urutan tetap'} · {formatDateTime(p.tanggal)}
+                    </div>
+                    {p.catatan && (
+                      <div className="mt-2 text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2 border border-amber-100">
+                        📝 Catatan Admin: {p.catatan}
+                      </div>
+                    )}
+                    {p.status === 'DITOLAK' && (
+                      <div className="mt-1 text-xs text-red-600">Soal ditolak — silakan edit soal lalu kirim ulang</div>
+                    )}
                   </div>
-                )
-              })}
-            </div>
-            {viewData.pembahasan && (
-              <div>
-                <p className="label mb-1">Pembahasan</p>
-                <p className="text-sm text-slate-700">{viewData.pembahasan}</p>
-              </div>
-            )}
-          </div>
-        )}
-      </Modal>
 
-      {/* Edit Modal */}
-      <Modal open={!!editData} onClose={() => setEditData(null)}
-        title="Edit Soal" size="xl"
+                  {/* Tombol aksi paket */}
+                  <div className="flex items-center gap-2 flex-shrink-0 flex-wrap justify-end">
+                    {/* Duplicate — selalu tersedia */}
+                    <button onClick={() => { setDupId(p.id); setDupKelas('') }}
+                      className="btn-secondary btn-sm" title="Duplikasi ke kelas lain">
+                      <Copy className="w-3.5 h-3.5" /> Duplikasi
+                    </button>
+
+                    {/* Kirim */}
+                    {(p.status === 'DRAFT' || p.status === 'DITOLAK') && (
+                      <button onClick={() => setKirimId(p.id)} className="btn-primary btn-sm">
+                        <Send className="w-3.5 h-3.5" /> {p.status === 'DITOLAK' ? 'Kirim Ulang' : 'Kirim'}
+                      </button>
+                    )}
+
+                    {/* Tarik */}
+                    {p.status === 'MENUNGGU' && (
+                      <button onClick={() => setTarikId(p.id)} className="btn-secondary btn-sm">
+                        <RotateCcw className="w-3.5 h-3.5" /> Tarik
+                      </button>
+                    )}
+
+                    {/* Expand */}
+                    <button onClick={() => toggleExpand(p.id)} className="btn-ghost btn-icon btn-sm">
+                      {isOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Expand: daftar soal + tambah soal */}
+                {isOpen && (
+                  <div className="border-t border-slate-100 bg-slate-50">
+                    {/* Daftar soal */}
+                    <div className="p-4 space-y-2">
+                      {loadingSoal && soalList.length === 0
+                        ? <div className="flex justify-center py-4"><Spinner size="sm" /></div>
+                        : renderSoalList(soalList, p)
+                      }
+                    </div>
+
+                    {/* Tombol tambah soal (hanya jika DRAFT/DITOLAK) */}
+                    {canEdit && (
+                      addingToId === p.id ? (
+                        <div className="px-4 pb-4">
+                          <div className="border-t border-slate-200 pt-4">
+                            <div className="flex items-center justify-between mb-3">
+                              <p className="text-sm font-medium text-slate-700">
+                                Tambah Soal ke-{soalList.length + 1}
+                              </p>
+                              <button onClick={() => {
+                                setAddingToId(null)
+                                tambahFormRef.current?.reset()
+                                setTambahJumlahOpsi(4)
+                                setTambahImgPertanyaan('')
+                                setTambahImgOpsi({})
+                              }} className="btn-ghost btn-sm text-slate-400">
+                                <X className="w-3.5 h-3.5" /> Batal Tambah
+                              </button>
+                            </div>
+                            <TambahSoalForm
+                              nomorUrut={soalList.length + 1}
+                              onTambah={handleTambahSoal}
+                              saving={saving}
+                              uploadingImg={uploadingImg}
+                              onTriggerUpload={triggerTambahUpload}
+                              imgPertanyaan={tambahImgPertanyaan}
+                              setImgPertanyaan={setTambahImgPertanyaan}
+                              imgOpsi={tambahImgOpsi}
+                              setImgOpsi={setTambahImgOpsi}
+                              jumlahOpsi={tambahJumlahOpsi}
+                              setJumlahOpsi={setTambahJumlahOpsi}
+                              formRef={tambahFormRef}
+                            />
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="px-4 pb-4">
+                          <button
+                            onClick={() => {
+                              setAddingToId(p.id)
+                              setTambahJumlahOpsi(4)
+                              setTambahImgPertanyaan('')
+                              setTambahImgOpsi({})
+                            }}
+                            className="btn-secondary btn-sm w-full"
+                          >
+                            <Plus className="w-3.5 h-3.5" /> Tambah Soal ke Paket Ini
+                          </button>
+                        </div>
+                      )
+                    )}
+
+                    {/* Info jika tidak bisa tambah */}
+                    {!canEdit && (
+                      <div className="px-4 pb-4">
+                        <div className="text-xs text-slate-400 text-center py-2 flex items-center justify-center gap-1.5">
+                          <Lock className="w-3 h-3" />
+                          {p.status === 'MENUNGGU' ? 'Tarik paket terlebih dahulu untuk menambah atau mengedit soal' : 'Soal tidak bisa diubah setelah disetujui admin'}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Modal Edit Soal */}
+      <Modal open={!!editSoal} onClose={() => setEditSoal(null)} title="Edit Soal" size="xl"
         footer={
           <>
-            <button onClick={() => setEditData(null)} className="btn-secondary" disabled={saving}>Batal</button>
-            <button form="soal-edit-form" type="submit" className="btn-primary" disabled={saving || !!uploadingImg}>
+            <button onClick={() => setEditSoal(null)} className="btn-secondary" disabled={saving}>Batal</button>
+            <button form="edit-soal-form" type="submit" className="btn-primary" disabled={saving || !!uploadingImg}>
               {saving ? <Spinner size="sm" /> : 'Simpan Perubahan'}
             </button>
           </>
         }
       >
-        {editData && (
-          <form id="soal-edit-form" onSubmit={handleSaveEdit} className="space-y-4">
-            <div>
-              <label className="label">Teks Pertanyaan *</label>
-              <textarea name="teks" className="textarea" rows={3} required
-                placeholder="Tulis pertanyaan di sini..."
-                defaultValue={editData.teks ?? ''} />
-              <div className="mt-2">
-                {imgPertanyaan ? (
-                  <div className="relative inline-block">
-                    <img src={imgPertanyaan} alt="Gambar pertanyaan" className="max-h-32 rounded-lg border border-slate-200" />
-                    <button type="button" onClick={() => setImgPertanyaan('')}
-                      className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center">
-                      <X className="w-3 h-3" />
-                    </button>
-                  </div>
-                ) : (
-                  <button type="button" onClick={() => triggerUpload('pertanyaan')}
-                    className="btn-secondary btn-sm text-xs" disabled={!!uploadingImg}>
-                    {uploadingImg === 'pertanyaan' ? <Spinner size="sm" /> : <><ImagePlus className="w-3.5 h-3.5" /> Tambah Gambar</>}
-                  </button>
-                )}
-              </div>
-            </div>
-
-            <div className="grid grid-cols-3 gap-4">
-              <div>
-                <label className="label">Jumlah Opsi</label>
-                <select className="select" value={jumlahOpsi} onChange={e => setJumlahOpsi(Number(e.target.value))}>
-                  <option value={3}>3 Opsi</option>
-                  <option value={4}>4 Opsi</option>
-                  <option value={5}>5 Opsi</option>
-                </select>
-              </div>
-              <div>
-                <label className="label">Tingkat Kesulitan</label>
-                <select name="tingkat" className="select" defaultValue={editData.tingkat ?? 'Sedang'}>
-                  <option>Mudah</option>
-                  <option>Sedang</option>
-                  <option>Sulit</option>
-                </select>
-              </div>
-              <div>
-                <label className="label">Kunci Jawaban *</label>
-                <select name="kunci" className="select" required defaultValue={editData.kunci ?? 'A'}>
-                  {opsiLabels.slice(0, jumlahOpsi).map(l => <option key={l} value={l}>{l}</option>)}
-                </select>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <label className="label">Opsi Jawaban</label>
-              {opsiLabels.slice(0, jumlahOpsi).map(label => {
-                const lk = label.toLowerCase()
-                return (
-                  <div key={label} className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="w-7 h-7 rounded-lg bg-slate-100 text-slate-600 font-bold text-xs flex items-center justify-center flex-shrink-0">
-                        {label}
-                      </span>
-                      <input name={`opsi_${lk}`} className="input" placeholder={`Opsi ${label}`} required
-                        defaultValue={editData[`opsi_${lk}` as keyof Soal] as string ?? ''} />
-                      <button type="button" onClick={() => triggerUpload(lk)}
-                        className="btn-ghost btn-icon btn-sm text-slate-500 flex-shrink-0" disabled={!!uploadingImg}>
-                        {uploadingImg === lk ? <Spinner size="sm" /> : <ImagePlus className="w-3.5 h-3.5" />}
-                      </button>
-                    </div>
-                    {imgOpsi[lk] && (
-                      <div className="ml-9 relative inline-block">
-                        <img src={imgOpsi[lk]} alt={`Gambar opsi ${label}`} className="max-h-20 rounded border border-slate-200" />
-                        <button type="button" onClick={() => setImgOpsi(prev => { const n = {...prev}; delete n[lk]; return n })}
-                          className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center">
-                          <X className="w-3 h-3" />
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-
-            <div>
-              <label className="label">Pembahasan (opsional)</label>
-              <textarea name="pembahasan" className="textarea" rows={2}
-                placeholder="Penjelasan jawaban yang benar..."
-                defaultValue={editData.pembahasan ?? ''} />
-            </div>
-          </form>
+        {editSoal && (
+          <EditSoalForm
+            formId="edit-soal-form"
+            soal={editSoal}
+            jumlahOpsi={editJumlahOpsi}
+            setJumlahOpsi={setEditJumlahOpsi}
+            imgPertanyaan={editImgPertanyaan}
+            setImgPertanyaan={setEditImgPertanyaan}
+            imgOpsi={editImgOpsi}
+            setImgOpsi={setEditImgOpsi}
+            onSubmit={handleSaveEdit}
+            uploadingImg={uploadingImg}
+            onTriggerUpload={triggerEditUpload}
+          />
         )}
       </Modal>
 
-      <Confirm open={!!deleteId} onClose={() => setDeleteId(null)} onConfirm={handleDelete}
-        title="Hapus Soal" message="Soal ini akan dihapus permanen. Lanjutkan?"
+      {/* Modal View Soal */}
+      <ViewSoalModal soal={viewSoal} onClose={() => setViewSoal(null)} />
+
+      {/* Modal Duplicate */}
+      <Modal
+        open={!!dupId}
+        onClose={() => { setDupId(null); setDupKelas('') }}
+        title="Duplikasi Paket ke Kelas Lain"
+        size="sm"
+        footer={
+          <>
+            <button onClick={() => { setDupId(null); setDupKelas('') }} className="btn-secondary" disabled={saving}>Batal</button>
+            <button onClick={handleDuplicate} className="btn-primary" disabled={saving || !dupKelas}>
+              {saving ? <Spinner size="sm" /> : <><Copy className="w-4 h-4" /> Duplikasi</>}
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-slate-600">
+            Semua soal dalam paket ini akan disalin ke paket baru dengan status <strong>DRAFT</strong> untuk kelas yang dipilih.
+          </p>
+          <div>
+            <label className="label">Pilih Kelas Tujuan *</label>
+            <select className="select" value={dupKelas} onChange={e => setDupKelas(e.target.value)}>
+              <option value="">— Pilih kelas —</option>
+              {dupId && getKelasUntukDuplicate(dupId).map(k => (
+                <option key={k.id} value={k.id}>{k.nama}</option>
+              ))}
+            </select>
+          </div>
+          <div className="alert-info text-xs flex items-start gap-2">
+            <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+            Paket yang sudah ada untuk kelas tujuan yang sama tidak bisa dipilih untuk mencegah duplikasi.
+          </div>
+        </div>
+      </Modal>
+
+      {/* Confirm Kirim */}
+      <Confirm open={!!kirimId} onClose={() => setKirimId(null)} onConfirm={handleKirim}
+        title="Kirim Paket Soal"
+        message="Semua soal dalam paket ini akan dikirim ke admin untuk divalidasi. Setelah dikirim, soal tidak bisa diedit atau dihapus sampai admin menentukan keputusan. Lanjutkan?"
+        confirmLabel="Ya, Kirim" variant="primary" loading={saving} />
+
+      {/* Confirm Tarik */}
+      <Confirm open={!!tarikId} onClose={() => setTarikId(null)} onConfirm={handleTarik}
+        title="Tarik Paket Soal"
+        message="Paket akan ditarik kembali ke status DRAFT dan soal-soal bisa diedit kembali. Lanjutkan?"
+        confirmLabel="Ya, Tarik" variant="primary" loading={saving} />
+
+      {/* Confirm Hapus Soal */}
+      <Confirm open={!!deleteSoalId}
+        onClose={() => { setDeleteSoalId(null); setDeleteSoalPaketId(null) }}
+        onConfirm={handleDeleteSoal}
+        title="Hapus Soal"
+        message="Soal ini akan dihapus permanen dari paket. Lanjutkan?"
         confirmLabel="Ya, Hapus" loading={saving} />
     </div>
   )
