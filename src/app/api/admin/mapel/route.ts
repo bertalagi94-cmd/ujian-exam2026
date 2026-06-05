@@ -41,9 +41,23 @@ export async function POST(req: NextRequest) {
   const db = createAdminClient()
   const body = await req.json()
 
+  const namaNormalized = String(body.nama).toUpperCase()
+
+  // Cek duplikasi: nama mapel + guru_id yang sama sudah ada
+  const { data: existing } = body.guru_id
+    ? await db.from('mapel').select('id').eq('nama', namaNormalized).eq('guru_id', body.guru_id).limit(1)
+    : await db.from('mapel').select('id').eq('nama', namaNormalized).is('guru_id', null).limit(1)
+
+  if (existing && existing.length > 0) {
+    return NextResponse.json(
+      { error: `Mata pelajaran "${namaNormalized}" dengan guru yang sama sudah ada dalam daftar.` },
+      { status: 409 }
+    )
+  }
+
   const { error } = await db.from('mapel').insert({
     id: generateId('MPL'),
-    nama: String(body.nama).toUpperCase(),
+    nama: namaNormalized,
     guru_id: body.guru_id || null,
     kelas_list: body.kelas_list || '',
     jumlah_opsi: body.jumlah_opsi || 4,
