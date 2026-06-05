@@ -124,6 +124,14 @@ export default function PengawasDashboard() {
       const map: Record<string, SiswaAktif[]> = {}
       sesiIds.forEach((id, i) => { map[id] = results[i].data ?? [] })
       setSiswaAktifMap(map)
+      // Auto-expand semua sesi yang punya siswa agar nama tampil realtime tanpa klik
+      setExpandedSesi(prev => {
+        const next = new Set(prev)
+        sesiIds.forEach((id, i) => {
+          if ((results[i].data ?? []).length > 0) next.add(id)
+        })
+        return next
+      })
     } catch { /* silent */ }
   }, [])
 
