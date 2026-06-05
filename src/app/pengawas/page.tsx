@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Play, Square, Clock, Copy, CheckCircle, RefreshCw, AlertTriangle, ShieldAlert, Eye } from 'lucide-react'
+import { Play, Square, Clock, Copy, CheckCircle, RefreshCw, AlertTriangle, ShieldAlert, Eye, Users, RotateCcw, LogOut } from 'lucide-react'
 import { PageLoader, StatusBadge, Spinner, Toast, Confirm, Modal } from '@/components/ui'
 import { apiRequest, formatDate, generateKodeSesi } from '@/lib/utils'
 import { Jadwal, SesiUjian, Siswa } from '@/types'
@@ -24,6 +24,25 @@ interface Pelanggaran {
   detail: string
   status: string
   created_at: string
+}
+
+interface SiswaAktif {
+  nis: string
+  nama: string
+  kelas: string
+  status: string
+  waktu_daftar: string
+  waktu_selesai?: string
+  jumlah_pelanggaran: number
+  kode_reset?: string | null
+}
+
+interface ResetResult {
+  dikunci_permanen: boolean
+  kode_reset?: string
+  nama_siswa?: string
+  reset_ke?: number
+  message: string
 }
 
 const JENIS_LABEL: Record<string, { label: string; color: string; icon: string }> = {
@@ -63,9 +82,20 @@ export default function PengawasDashboard() {
   const seenIdsRef = useRef<Set<string>>(new Set())
   const audioCtxRef = useRef<AudioContext | null>(null)
 
+  // Daftar siswa aktif per sesi
+  const [siswaAktifMap, setSiswaAktifMap] = useState<Record<string, SiswaAktif[]>>({})
+  const [expandedSesi, setExpandedSesi] = useState<Set<string>>(new Set())
+
+  // Reset siswa
+  const [resetTarget, setResetTarget] = useState<{ sesiId: string; nis: string; nama: string } | null>(null)
+  const [resetResult, setResetResult] = useState<ResetResult | null>(null)
+  const [resetting, setResetting] = useState(false)
+
+  // Notif pelanggaran baru (popup)
+  const [pelNotif, setPelNotif] = useState<Pelanggaran | null>(null)
+
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => setToast({ msg, type })
 
-  // Bunyi notif ringan saat ada pelanggaran baru
   function playAlert() {
     try {
       if (!audioCtxRef.current) {
@@ -85,18 +115,27 @@ export default function PengawasDashboard() {
     } catch { /* browser mungkin blokir */ }
   }
 
+  const fetchSiswaAktif = useCallback(async (sesiIds: string[]) => {
+    if (!sesiIds.length) return
+    try {
+      const results = await Promise.all(
+        sesiIds.map(id => apiRequest<{ data: SiswaAktif[] }>(`/api/pengawas/sesi/${id}/siswa`))
+      )
+      const map: Record<string, SiswaAktif[]> = {}
+      sesiIds.forEach((id, i) => { map[id] = results[i].data ?? [] })
+      setSiswaAktifMap(map)
+    } catch { /* silent */ }
+  }, [])
+
   const fetchPelanggaran = useCallback(async (sesiIds: string[]) => {
     if (!sesiIds.length) { setPelanggaran([]); return }
     try {
-      // Ambil pelanggaran untuk semua sesi aktif
       const results = await Promise.all(
         sesiIds.map(id => apiRequest<{ data: Pelanggaran[] }>(`/api/pengawas/pelanggaran?sesiId=${id}`))
       )
       const all = results.flatMap(r => r.data ?? [])
-      // Sort terbaru di atas
       all.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
 
-      // Deteksi yang baru masuk
       const incoming = new Set(all.map(p => p.id))
       const brandNew: string[] = []
       incoming.forEach(id => {
@@ -104,10 +143,16 @@ export default function PengawasDashboard() {
       })
 
       if (brandNew.length > 0 && seenIdsRef.current.size > 0) {
-        // Ada pelanggaran baru (bukan load pertama)
         setNewPelIds(prev => new Set([...prev, ...brandNew]))
         if (suara) playAlert()
-        // Hapus highlight setelah 4 detik
+
+        // Tampilkan popup notif untuk pelanggaran terbaru
+        const newest = all.find(p => brandNew.includes(p.id))
+        if (newest) {
+          setPelNotif(newest)
+          setTimeout(() => setPelNotif(null), 8000)
+        }
+
         setTimeout(() => {
           setNewPelIds(prev => {
             const next = new Set(prev)
@@ -135,21 +180,24 @@ export default function PengawasDashboard() {
       const res = await apiRequest<{ data: SesiUjian[] }>('/api/pengawas/sesi?status=SELESAI')
       setSesiSelesai(res.data ?? [])
 
-      // Fetch pelanggaran pertama kali
       await fetchPelanggaran(s.data.map(x => x.id))
+      await fetchSiswaAktif(s.data.map(x => x.id))
     } finally { setLoading(false) }
-  }, [fetchPelanggaran])
+  }, [fetchPelanggaran, fetchSiswaAktif])
 
   useEffect(() => { load() }, [load])
 
-  // Polling pelanggaran setiap 5 detik saat ada sesi aktif
+  // Polling setiap 5 detik
   useEffect(() => {
     if (pollingRef.current) clearInterval(pollingRef.current)
     if (!sesiAktif.length) return
     const ids = sesiAktif.map(s => s.id)
-    pollingRef.current = setInterval(() => fetchPelanggaran(ids), 5000)
+    pollingRef.current = setInterval(async () => {
+      await fetchPelanggaran(ids)
+      await fetchSiswaAktif(ids)
+    }, 5000)
     return () => { if (pollingRef.current) clearInterval(pollingRef.current) }
-  }, [sesiAktif, fetchPelanggaran])
+  }, [sesiAktif, fetchPelanggaran, fetchSiswaAktif])
 
   async function handleMulai() {
     if (!mulaiId) return
@@ -196,15 +244,41 @@ export default function PengawasDashboard() {
     }
   }
 
+  async function handleResetSiswa() {
+    if (!resetTarget) return
+    setResetting(true)
+    try {
+      const res = await apiRequest<ResetResult>(
+        `/api/pengawas/sesi/${resetTarget.sesiId}/reset-siswa`,
+        { method: 'POST', body: JSON.stringify({ nis: resetTarget.nis }) }
+      )
+      setResetResult(res)
+      setResetTarget(null)
+      // Refresh daftar siswa
+      await fetchSiswaAktif(sesiAktif.map(x => x.id))
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Gagal mereset siswa', 'error')
+      setResetTarget(null)
+    } finally { setResetting(false) }
+  }
+
   function copyKode(kode: string) {
     navigator.clipboard.writeText(kode)
     setCopied(kode)
     setTimeout(() => setCopied(null), 2000)
   }
 
+  function toggleExpandSesi(sesiId: string) {
+    setExpandedSesi(prev => {
+      const next = new Set(prev)
+      if (next.has(sesiId)) next.delete(sesiId)
+      else next.add(sesiId)
+      return next
+    })
+  }
+
   const today = new Date().toISOString().slice(0, 10)
 
-  // Kelompokkan pelanggaran per siswa untuk ringkasan
   const ringkasanSiswa = pelanggaran.reduce<Record<string, { nama: string; jumlah: number; terakhir: string }>>((acc, p) => {
     if (!acc[p.nis]) acc[p.nis] = { nama: p.nama_siswa, jumlah: 0, terakhir: p.created_at }
     acc[p.nis].jumlah++
@@ -217,6 +291,26 @@ export default function PengawasDashboard() {
   return (
     <div className="space-y-8 animate-fade-in">
       {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
+
+      {/* Popup notif pelanggaran baru */}
+      {pelNotif && (
+        <div className="fixed top-4 right-4 z-[9998] w-80 bg-white rounded-2xl shadow-2xl border border-red-200 p-4 animate-fade-in">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 bg-red-100 rounded-xl flex items-center justify-center flex-shrink-0">
+              <AlertTriangle className="w-5 h-5 text-red-600" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="font-bold text-slate-900 text-sm">⚠ Pelanggaran Baru!</p>
+              <p className="text-sm font-semibold text-red-600 truncate">{pelNotif.nama_siswa}</p>
+              <p className="text-xs text-slate-500 mt-0.5">
+                {jenisInfo(pelNotif.jenis).icon} {jenisInfo(pelNotif.jenis).label} — Ke-{pelNotif.level}
+              </p>
+              <p className="text-xs text-slate-400 mt-1">{formatWaktuSingkat(pelNotif.created_at)}</p>
+            </div>
+            <button onClick={() => setPelNotif(null)} className="text-slate-300 hover:text-slate-500 text-lg leading-none">×</button>
+          </div>
+        </div>
+      )}
 
       <div>
         <h1 className="page-title">Panel Pengawas</h1>
@@ -237,7 +331,6 @@ export default function PengawasDashboard() {
               )}
             </h2>
             <div className="flex items-center gap-2">
-              {/* Toggle suara */}
               <button
                 onClick={() => setSuara(s => !s)}
                 className={`text-xs px-2.5 py-1 rounded-lg border font-medium transition-colors ${
@@ -245,7 +338,6 @@ export default function PengawasDashboard() {
                     ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                     : 'bg-slate-50 text-slate-400 border-slate-200'
                 }`}
-                title={suara ? 'Matikan suara notif' : 'Aktifkan suara notif'}
               >
                 {suara ? '🔔 Suara On' : '🔕 Suara Off'}
               </button>
@@ -264,20 +356,34 @@ export default function PengawasDashboard() {
           ) : (
             <div className="space-y-3">
               {/* Ringkasan per siswa */}
-              {Object.keys(ringkasanSiswa).length > 1 && (
+              {Object.keys(ringkasanSiswa).length > 0 && (
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 mb-1">
                   {Object.entries(ringkasanSiswa)
                     .sort((a, b) => b[1].jumlah - a[1].jumlah)
-                    .map(([nis, info]) => (
-                      <div key={nis} className={`rounded-xl border px-3 py-2 text-sm ${
-                        info.jumlah >= 3 ? 'bg-red-50 border-red-200' : 'bg-amber-50 border-amber-200'
-                      }`}>
-                        <div className="font-semibold text-slate-800 truncate">{info.nama}</div>
-                        <div className={`text-xs font-bold ${info.jumlah >= 3 ? 'text-red-600' : 'text-amber-600'}`}>
-                          {info.jumlah}× pelanggaran
+                    .map(([nis, info]) => {
+                      // Cari sesiId untuk siswa ini dari pelanggaran
+                      const pel = pelanggaran.find(p => p.nis === nis)
+                      const sesiId = pel?.sesi_id
+                      return (
+                        <div key={nis} className={`rounded-xl border px-3 py-2 text-sm ${
+                          info.jumlah >= 3 ? 'bg-red-50 border-red-200' : 'bg-amber-50 border-amber-200'
+                        }`}>
+                          <div className="font-semibold text-slate-800 truncate">{info.nama}</div>
+                          <div className={`text-xs font-bold ${info.jumlah >= 3 ? 'text-red-600' : 'text-amber-600'}`}>
+                            {info.jumlah}× pelanggaran
+                          </div>
+                          {/* Tombol reset langsung dari ringkasan */}
+                          {sesiId && (
+                            <button
+                              onClick={() => setResetTarget({ sesiId, nis, nama: info.nama })}
+                              className="mt-1.5 w-full text-xs px-2 py-1 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 flex items-center gap-1 justify-center font-medium text-slate-600"
+                            >
+                              <RotateCcw className="w-3 h-3" /> Reset Siswa
+                            </button>
+                          )}
                         </div>
-                      </div>
-                    ))}
+                      )
+                    })}
                 </div>
               )}
 
@@ -298,33 +404,27 @@ export default function PengawasDashboard() {
                           isNew ? 'bg-red-50' : 'bg-white hover:bg-slate-50'
                         }`}
                       >
-                        {/* Nama siswa */}
                         <div className="w-36 flex-shrink-0">
                           <div className="font-semibold text-slate-800 text-sm truncate">{p.nama_siswa}</div>
                           <div className="text-xs text-slate-400 font-mono">{p.nis}</div>
                         </div>
 
-                        {/* Badge jenis */}
                         <span className={`flex-shrink-0 text-xs font-semibold px-2.5 py-1 rounded-full border ${info.color}`}>
                           {info.icon} {info.label}
                         </span>
 
-                        {/* Detail */}
                         <div className="flex-1 min-w-0 text-xs text-slate-500 truncate">{p.detail}</div>
 
-                        {/* Level */}
                         <div className={`flex-shrink-0 text-xs font-bold px-2 py-0.5 rounded-lg ${
                           p.level >= 3 ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'
                         }`}>
                           Ke-{p.level}
                         </div>
 
-                        {/* Waktu */}
                         <div className="flex-shrink-0 text-xs text-slate-400 font-mono">
                           {formatWaktuSingkat(p.created_at)}
                         </div>
 
-                        {/* Indikator baru */}
                         {isNew && (
                           <span className="flex-shrink-0 w-2 h-2 rounded-full bg-red-500 animate-pulse" />
                         )}
@@ -346,39 +446,141 @@ export default function PengawasDashboard() {
             Sesi Sedang Berjalan ({sesiAktif.length})
           </h2>
           <div className="space-y-3">
-            {sesiAktif.map(s => (
-              <div key={s.id} className="card border-l-4 border-emerald-500">
-                <div className="flex items-center justify-between gap-4 flex-wrap">
-                  <div>
-                    <div className="font-semibold text-slate-900">{s.nama_mapel}</div>
-                    <div className="text-sm text-slate-500">Kelas {s.kelas} · {s.jumlah_peserta} peserta</div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <div className="flex items-center gap-2 bg-slate-50 rounded-xl px-4 py-2">
-                      <span className="font-mono text-2xl font-bold text-brand-700 tracking-widest">
-                        {s.kode_sesi}
-                      </span>
+            {sesiAktif.map(s => {
+              const siswaList = siswaAktifMap[s.id] ?? []
+              const isExpanded = expandedSesi.has(s.id)
+              const siswaAktifCount = siswaList.filter(sw => sw.status === 'AKTIF').length
+              const siswaSelesaiCount = siswaList.filter(sw => sw.status === 'SELESAI').length
+              const siswaResetCount = siswaList.filter(sw => sw.status === 'RESET').length
+              const siswaTerkunciCount = siswaList.filter(sw => sw.status === 'TERKUNCI').length
+
+              return (
+                <div key={s.id} className="card border-l-4 border-emerald-500">
+                  <div className="flex items-center justify-between gap-4 flex-wrap">
+                    <div>
+                      <div className="font-semibold text-slate-900">{s.nama_mapel}</div>
+                      <div className="text-sm text-slate-500">Kelas {s.kelas} · {s.jumlah_peserta} peserta</div>
+                    </div>
+                    <div className="flex items-center gap-3 flex-wrap">
+                      {/* Statistik siswa */}
+                      <div className="flex items-center gap-2 text-xs">
+                        <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 rounded-lg font-medium">{siswaAktifCount} aktif</span>
+                        {siswaSelesaiCount > 0 && <span className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded-lg font-medium">{siswaSelesaiCount} selesai</span>}
+                        {siswaResetCount > 0 && <span className="px-2 py-0.5 bg-amber-50 text-amber-700 rounded-lg font-medium">{siswaResetCount} di-reset</span>}
+                        {siswaTerkunciCount > 0 && <span className="px-2 py-0.5 bg-red-50 text-red-700 rounded-lg font-medium">{siswaTerkunciCount} terkunci</span>}
+                      </div>
+                      <div className="flex items-center gap-2 bg-slate-50 rounded-xl px-4 py-2">
+                        <span className="font-mono text-2xl font-bold text-brand-700 tracking-widest">
+                          {s.kode_sesi}
+                        </span>
+                        <button
+                          onClick={() => copyKode(s.kode_sesi)}
+                          className="btn-ghost btn-icon btn-sm"
+                        >
+                          {copied === s.kode_sesi
+                            ? <CheckCircle className="w-4 h-4 text-emerald-500" />
+                            : <Copy className="w-4 h-4 text-slate-400" />
+                          }
+                        </button>
+                      </div>
                       <button
-                        onClick={() => copyKode(s.kode_sesi)}
-                        className="btn-ghost btn-icon btn-sm"
-                        title="Salin kode"
+                        onClick={() => toggleExpandSesi(s.id)}
+                        className="btn-secondary btn-sm"
                       >
-                        {copied === s.kode_sesi
-                          ? <CheckCircle className="w-4 h-4 text-emerald-500" />
-                          : <Copy className="w-4 h-4 text-slate-400" />
-                        }
+                        <Users className="w-3.5 h-3.5" />
+                        {isExpanded ? 'Sembunyikan' : 'Daftar Siswa'}
+                      </button>
+                      <button
+                        onClick={() => setTutupId(s.id)}
+                        className="btn-danger btn-sm"
+                      >
+                        <Square className="w-3.5 h-3.5" /> Tutup Sesi
                       </button>
                     </div>
-                    <button
-                      onClick={() => setTutupId(s.id)}
-                      className="btn-danger btn-sm"
-                    >
-                      <Square className="w-3.5 h-3.5" /> Tutup Sesi
-                    </button>
                   </div>
+
+                  {/* Daftar siswa (expandable) */}
+                  {isExpanded && (
+                    <div className="mt-4 border-t border-slate-100 pt-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <h3 className="text-sm font-semibold text-slate-700">Daftar Siswa dalam Sesi</h3>
+                        <span className="text-xs text-slate-400">{siswaList.length} siswa terdaftar</span>
+                      </div>
+
+                      {siswaList.length === 0 ? (
+                        <p className="text-xs text-slate-400 text-center py-4">Belum ada siswa yang masuk</p>
+                      ) : (
+                        <div className="space-y-1.5 max-h-80 overflow-y-auto">
+                          {siswaList.map(sw => (
+                            <div key={sw.nis} className={`flex items-center gap-3 px-3 py-2 rounded-xl text-sm ${
+                              sw.status === 'TERKUNCI' ? 'bg-red-50 border border-red-100' :
+                              sw.status === 'RESET' ? 'bg-amber-50 border border-amber-100' :
+                              sw.status === 'SELESAI' ? 'bg-slate-50' :
+                              'bg-white border border-slate-100'
+                            }`}>
+                              {/* Nama */}
+                              <div className="flex-1 min-w-0">
+                                <div className="font-medium text-slate-800 truncate">{sw.nama}</div>
+                                <div className="text-xs text-slate-400 font-mono">{sw.nis}</div>
+                              </div>
+
+                              {/* Status badge */}
+                              <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                                sw.status === 'AKTIF' ? 'bg-emerald-100 text-emerald-700' :
+                                sw.status === 'SELESAI' ? 'bg-blue-100 text-blue-700' :
+                                sw.status === 'RESET' ? 'bg-amber-100 text-amber-700' :
+                                'bg-red-100 text-red-700'
+                              }`}>
+                                {sw.status === 'AKTIF' ? '● Sedang Ujian' :
+                                 sw.status === 'SELESAI' ? '✓ Selesai' :
+                                 sw.status === 'RESET' ? '⏳ Menunggu Kode' :
+                                 '🔒 Terkunci'}
+                              </span>
+
+                              {/* Jumlah pelanggaran */}
+                              {sw.jumlah_pelanggaran > 0 && (
+                                <span className={`text-xs font-bold px-2 py-0.5 rounded-lg ${
+                                  sw.jumlah_pelanggaran >= 3 ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'
+                                }`}>
+                                  {sw.jumlah_pelanggaran}× langgar
+                                </span>
+                              )}
+
+                              {/* Kode reset aktif */}
+                              {sw.kode_reset && sw.status === 'RESET' && (
+                                <div className="flex items-center gap-1.5 bg-amber-100 rounded-lg px-2 py-1">
+                                  <span className="font-mono text-xs font-bold text-amber-800">{sw.kode_reset}</span>
+                                  <button onClick={() => copyKode(sw.kode_reset!)} className="text-amber-600 hover:text-amber-800">
+                                    {copied === sw.kode_reset ? <CheckCircle className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                                  </button>
+                                </div>
+                              )}
+
+                              {/* Tombol reset (hanya untuk yang AKTIF dan ada pelanggaran, atau yang sudah RESET) */}
+                              {(sw.status === 'AKTIF' || sw.status === 'RESET') && sw.status !== 'TERKUNCI' && (
+                                <button
+                                  onClick={() => setResetTarget({ sesiId: s.id, nis: sw.nis, nama: sw.nama })}
+                                  className="flex-shrink-0 text-xs px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg hover:bg-amber-50 hover:border-amber-200 flex items-center gap-1 font-medium text-slate-600 hover:text-amber-700 transition-colors"
+                                >
+                                  <RotateCcw className="w-3 h-3" /> Reset
+                                </button>
+                              )}
+
+                              {/* Logout permanen jika sudah terkunci */}
+                              {sw.status === 'TERKUNCI' && (
+                                <div className="flex items-center gap-1 text-xs text-red-600 font-medium">
+                                  <LogOut className="w-3 h-3" /> Di-logout
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         </div>
       )}
@@ -429,7 +631,7 @@ export default function PengawasDashboard() {
         <div>
           <h2 className="font-semibold text-slate-900 mb-1">Ujian Susulan</h2>
           <p className="text-sm text-slate-400 mb-3">
-            Buka kembali akses ujian untuk siswa yang belum hadir. Sistem akan otomatis memeriksa ketersediaan siswa.
+            Buka kembali akses ujian untuk siswa yang belum hadir.
           </p>
           <div className="space-y-2">
             {sesiSelesai.map(s => (
@@ -474,6 +676,7 @@ export default function PengawasDashboard() {
         )}
       </div>
 
+      {/* Confirm dialogs */}
       <Confirm open={!!mulaiId} onClose={() => setMulaiId(null)} onConfirm={handleMulai}
         title="Buka Sesi Ujian"
         message="Sesi ujian akan dibuka dan kode akses akan digenerate. Siswa bisa mulai bergabung setelah sesi dibuka."
@@ -488,6 +691,66 @@ export default function PengawasDashboard() {
         title="Buka Ujian Susulan"
         message="Sistem akan memeriksa apakah ada siswa yang belum mengikuti ujian ini."
         confirmLabel="Cek & Buka" variant="primary" loading={saving} />
+
+      {/* Confirm reset siswa */}
+      <Confirm
+        open={!!resetTarget}
+        onClose={() => setResetTarget(null)}
+        onConfirm={handleResetSiswa}
+        title="Reset Siswa?"
+        message={`Siswa ${resetTarget?.nama} akan di-reset dan harus memasukkan kode 7 digit baru untuk melanjutkan ujian. Jawaban yang sudah dijawab tidak akan hilang. Jika ini adalah reset ke-3, siswa akan di-logout permanen dan nilainya menjadi 0.`}
+        confirmLabel="Reset Siswa"
+        variant="danger"
+        loading={resetting}
+      />
+
+      {/* Modal hasil reset */}
+      {resetResult && (
+        <Modal
+          open={!!resetResult}
+          onClose={() => setResetResult(null)}
+          title={resetResult.dikunci_permanen ? '🔒 Siswa Di-logout Permanen' : '🔑 Kode Reset Siswa'}
+          footer={<button onClick={() => setResetResult(null)} className="btn-primary">Tutup</button>}
+        >
+          <div className="space-y-4">
+            <p className={`text-sm font-medium ${resetResult.dikunci_permanen ? 'text-red-700' : 'text-emerald-700'}`}>
+              {resetResult.message}
+            </p>
+            {!resetResult.dikunci_permanen && resetResult.kode_reset && (
+              <div>
+                <p className="text-xs text-slate-500 mb-2">
+                  Berikan kode ini kepada <strong>{resetResult.nama_siswa}</strong> untuk melanjutkan ujian:
+                </p>
+                <div className="bg-amber-50 border border-amber-200 rounded-xl px-5 py-4 flex items-center justify-between">
+                  <div>
+                    <span className="text-xs text-slate-500">Kode Reset (Reset ke-{resetResult.reset_ke})</span>
+                    <div className="font-mono text-3xl font-bold text-amber-700 tracking-widest mt-1">
+                      {resetResult.kode_reset}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => copyKode(resetResult.kode_reset!)}
+                    className="btn-ghost btn-icon"
+                  >
+                    {copied === resetResult.kode_reset
+                      ? <CheckCircle className="w-5 h-5 text-emerald-500" />
+                      : <Copy className="w-5 h-5 text-slate-400" />
+                    }
+                  </button>
+                </div>
+                <p className="text-xs text-amber-600 mt-2 font-medium">
+                  ⚠ Kode ini hanya berlaku untuk {resetResult.nama_siswa} dan hanya satu kali pakai.
+                </p>
+                {resetResult.reset_ke && resetResult.reset_ke >= 3 && (
+                  <p className="text-xs text-red-600 mt-1 font-semibold">
+                    🚨 Ini adalah reset terakhir. Jika terjadi pelanggaran lagi, siswa akan di-logout permanen.
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        </Modal>
+      )}
 
       {susulanResult && (
         <Modal open={!!susulanResult} onClose={() => setSusulanResult(null)}
