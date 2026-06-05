@@ -65,6 +65,7 @@ export interface Jadwal {
   // joined
   nama_mapel?: string
   nama_pengawas?: string
+  status_soal?: 'BELUM_ADA' | 'DRAFT' | 'MENUNGGU' | 'DITOLAK' | 'DISETUJUI'
 }
 
 export interface PaketSoal {
