@@ -113,7 +113,7 @@ export default function AdminUsersPage() {
         <SearchInput value={search} onChange={setSearch} placeholder="Cari nama atau username..." className="flex-1 min-w-[200px]" />
         <select value={filterRole} onChange={e => setFilterRole(e.target.value)} className="select w-40">
           <option value="">Semua Role</option>
-          {['ADMIN', 'GURU', 'PENGAWAS', 'KEPSEK'].map(r => (
+          {['ADMIN', 'GURU', 'KEPSEK'].map(r => (
             <option key={r} value={r}>{r}</option>
           ))}
         </select>
@@ -204,7 +204,6 @@ export default function AdminUsersPage() {
               <select name="role" className="select" required defaultValue={editData?.role ?? 'GURU'}>
                 <option value="ADMIN">Admin</option>
                 <option value="GURU">Guru</option>
-                <option value="PENGAWAS">Pengawas</option>
                 <option value="KEPSEK">Kepala Sekolah</option>
               </select>
             </div>
