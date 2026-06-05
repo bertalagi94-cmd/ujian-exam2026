@@ -292,11 +292,11 @@ export default function GuruBuatSoalPage() {
   function openEditSoal(s: SoalWithImg) {
     setEditSoal(s)
     setEditJumlahOpsi(s.jumlah_opsi || 4)
-    setEditImgPertanyaan(s.gambar_pertanyaan || (s as Record<string, unknown>).gambar_url as string || '')
+    const sr = s as unknown as Record<string, string>
+    setEditImgPertanyaan(s.gambar_pertanyaan || sr.gambar_url || '')
     const opsiImgs: Record<string, string> = {}
     for (const l of ['a','b','c','d','e']) {
-      const v = (s as Record<string, unknown>)[`gambar_opsi_${l}`] as string
-        || (s as Record<string, unknown>)[`gambar_${l}`] as string
+      const v = sr[`gambar_opsi_${l}`] || sr[`gambar_${l}`]
       if (v) opsiImgs[l] = v
     }
     setEditImgOpsi(opsiImgs)
