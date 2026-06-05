@@ -14,6 +14,7 @@ interface SesiUjianInfo {
   status: 'BERJALAN' | 'SELESAI'
   waktu_mulai: string
   jumlah_peserta: number
+  jumlah_selesai: number
 }
 
 interface JadwalHariIni {
@@ -136,11 +137,13 @@ export default function ModePengawasPage() {
 
   useEffect(() => { load() }, [load])
 
-  // Auto-refresh tiap 60 detik
+  // Auto-refresh: tiap 15 detik jika ada sesi berjalan, tiap 60 detik jika tidak
   useEffect(() => {
-    const t = setInterval(() => load(true), 60000)
+    const hasRunning = jadwal.some(j => j.status === 'BERJALAN' && j.sesi_ujian?.status === 'BERJALAN')
+    const interval = hasRunning ? 15000 : 60000
+    const t = setInterval(() => load(true), interval)
     return () => clearInterval(t)
-  }, [load])
+  }, [load, jadwal])
 
   async function handleMulai(j: JadwalHariIni) {
     setStarting(j.id)
@@ -266,6 +269,7 @@ export default function ModePengawasPage() {
                     <KodeSesiDisplay kode={j.sesi_ujian.kode_sesi} />
                     <div className="border-t border-slate-100 px-4 py-2 flex items-center justify-between text-xs text-slate-400">
                       <span>Peserta masuk: <strong className="text-slate-600">{j.sesi_ujian.jumlah_peserta}</strong></span>
+                      <span>Sudah selesai: <strong className="text-emerald-600">{j.sesi_ujian.jumlah_selesai}</strong></span>
                       <span>Mulai: {new Date(j.sesi_ujian.waktu_mulai).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}</span>
                     </div>
                   </div>
