@@ -14,6 +14,7 @@ interface SesiInfo {
   namaMapel: string
   kelas: string
   durasi: number
+  waktu_mulai: string
   soalList: SoalUjian[]
 }
 
