@@ -122,7 +122,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-
+  const { error } = await db.from('jadwal').insert({
     id: generateId('JDW'),
     tanggal: body.tanggal,
     sesi: body.sesi || 1,
@@ -186,7 +186,7 @@ export async function PUT(req: NextRequest) {
     }
   }
 
-
+  const { error } = await db.from('jadwal').update(update).eq('id', id)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ message: 'Jadwal berhasil diperbarui' })
 }
