@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
-import { Play, Square, Clock, Copy, CheckCircle, RefreshCw } from 'lucide-react'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { Play, Square, Clock, Copy, CheckCircle, RefreshCw, AlertTriangle, ShieldAlert, Eye } from 'lucide-react'
 import { PageLoader, StatusBadge, Spinner, Toast, Confirm, Modal } from '@/components/ui'
 import { apiRequest, formatDate, generateKodeSesi } from '@/lib/utils'
 import { Jadwal, SesiUjian, Siswa } from '@/types'
@@ -12,6 +12,34 @@ interface SusulanResult {
   sesiBaruId?: string
   kodeSesi?: string
   siswa?: Pick<Siswa, 'nis' | 'nama'>[]
+}
+
+interface Pelanggaran {
+  id: string
+  sesi_id: string
+  nis: string
+  nama_siswa: string
+  jenis: string
+  level: number
+  detail: string
+  status: string
+  created_at: string
+}
+
+const JENIS_LABEL: Record<string, { label: string; color: string; icon: string }> = {
+  TAB_SWITCH:      { label: 'Pindah Tab',       color: 'bg-orange-100 text-orange-700 border-orange-200', icon: '🔀' },
+  EXIT_FULLSCREEN: { label: 'Keluar Fullscreen', color: 'bg-red-100 text-red-700 border-red-200',         icon: '⛶' },
+  WINDOW_BLUR:     { label: 'Keluar Aplikasi',   color: 'bg-rose-100 text-rose-700 border-rose-200',      icon: '📵' },
+  COPY_PASTE:      { label: 'Copy/Paste',        color: 'bg-yellow-100 text-yellow-700 border-yellow-200',icon: '📋' },
+}
+
+function jenisInfo(jenis: string) {
+  return JENIS_LABEL[jenis] ?? { label: jenis, color: 'bg-slate-100 text-slate-600 border-slate-200', icon: '⚠' }
+}
+
+function formatWaktuSingkat(iso: string) {
+  const d = new Date(iso)
+  return d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
 
 export default function PengawasDashboard() {
@@ -25,11 +53,74 @@ export default function PengawasDashboard() {
   const [saving, setSaving] = useState(false)
   const [copied, setCopied] = useState<string | null>(null)
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
-
-  // Sesi selesai hari ini (untuk tombol susulan)
   const [sesiSelesai, setSesiSelesai] = useState<SesiUjian[]>([])
 
+  // Pelanggaran
+  const [pelanggaran, setPelanggaran] = useState<Pelanggaran[]>([])
+  const [newPelIds, setNewPelIds] = useState<Set<string>>(new Set())
+  const [suara, setSuara] = useState(true)
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const seenIdsRef = useRef<Set<string>>(new Set())
+  const audioCtxRef = useRef<AudioContext | null>(null)
+
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => setToast({ msg, type })
+
+  // Bunyi notif ringan saat ada pelanggaran baru
+  function playAlert() {
+    try {
+      if (!audioCtxRef.current) {
+        audioCtxRef.current = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)()
+      }
+      const ctx = audioCtxRef.current
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.connect(gain)
+      gain.connect(ctx.destination)
+      osc.frequency.setValueAtTime(880, ctx.currentTime)
+      osc.frequency.setValueAtTime(660, ctx.currentTime + 0.1)
+      gain.gain.setValueAtTime(0.3, ctx.currentTime)
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4)
+      osc.start(ctx.currentTime)
+      osc.stop(ctx.currentTime + 0.4)
+    } catch { /* browser mungkin blokir */ }
+  }
+
+  const fetchPelanggaran = useCallback(async (sesiIds: string[]) => {
+    if (!sesiIds.length) { setPelanggaran([]); return }
+    try {
+      // Ambil pelanggaran untuk semua sesi aktif
+      const results = await Promise.all(
+        sesiIds.map(id => apiRequest<{ data: Pelanggaran[] }>(`/api/pengawas/pelanggaran?sesiId=${id}`))
+      )
+      const all = results.flatMap(r => r.data ?? [])
+      // Sort terbaru di atas
+      all.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+
+      // Deteksi yang baru masuk
+      const incoming = new Set(all.map(p => p.id))
+      const brandNew: string[] = []
+      incoming.forEach(id => {
+        if (!seenIdsRef.current.has(id)) brandNew.push(id)
+      })
+
+      if (brandNew.length > 0 && seenIdsRef.current.size > 0) {
+        // Ada pelanggaran baru (bukan load pertama)
+        setNewPelIds(prev => new Set([...prev, ...brandNew]))
+        if (suara) playAlert()
+        // Hapus highlight setelah 4 detik
+        setTimeout(() => {
+          setNewPelIds(prev => {
+            const next = new Set(prev)
+            brandNew.forEach(id => next.delete(id))
+            return next
+          })
+        }, 4000)
+      }
+
+      brandNew.forEach(id => seenIdsRef.current.add(id))
+      setPelanggaran(all)
+    } catch { /* silent */ }
+  }, [suara])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -41,13 +132,24 @@ export default function PengawasDashboard() {
       setJadwal(j.data)
       setSesiAktif(s.data)
 
-      // Ambil sesi selesai hari ini untuk fitur susulan
       const res = await apiRequest<{ data: SesiUjian[] }>('/api/pengawas/sesi?status=SELESAI')
       setSesiSelesai(res.data ?? [])
+
+      // Fetch pelanggaran pertama kali
+      await fetchPelanggaran(s.data.map(x => x.id))
     } finally { setLoading(false) }
-  }, [])
+  }, [fetchPelanggaran])
 
   useEffect(() => { load() }, [load])
+
+  // Polling pelanggaran setiap 5 detik saat ada sesi aktif
+  useEffect(() => {
+    if (pollingRef.current) clearInterval(pollingRef.current)
+    if (!sesiAktif.length) return
+    const ids = sesiAktif.map(s => s.id)
+    pollingRef.current = setInterval(() => fetchPelanggaran(ids), 5000)
+    return () => { if (pollingRef.current) clearInterval(pollingRef.current) }
+  }, [sesiAktif, fetchPelanggaran])
 
   async function handleMulai() {
     if (!mulaiId) return
@@ -102,6 +204,14 @@ export default function PengawasDashboard() {
 
   const today = new Date().toISOString().slice(0, 10)
 
+  // Kelompokkan pelanggaran per siswa untuk ringkasan
+  const ringkasanSiswa = pelanggaran.reduce<Record<string, { nama: string; jumlah: number; terakhir: string }>>((acc, p) => {
+    if (!acc[p.nis]) acc[p.nis] = { nama: p.nama_siswa, jumlah: 0, terakhir: p.created_at }
+    acc[p.nis].jumlah++
+    if (p.created_at > acc[p.nis].terakhir) acc[p.nis].terakhir = p.created_at
+    return acc
+  }, {})
+
   if (loading) return <PageLoader />
 
   return (
@@ -113,7 +223,122 @@ export default function PengawasDashboard() {
         <p className="page-subtitle">Kelola sesi ujian hari ini</p>
       </div>
 
-      {/* Sesi Aktif */}
+      {/* ── Monitor Pelanggaran Real-Time ── */}
+      {sesiAktif.length > 0 && (
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="font-semibold text-slate-900 flex items-center gap-2">
+              <ShieldAlert className={`w-4 h-4 ${pelanggaran.length > 0 ? 'text-red-500' : 'text-slate-400'}`} />
+              Monitor Pelanggaran
+              {pelanggaran.length > 0 && (
+                <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-red-500 text-white">
+                  {pelanggaran.length}
+                </span>
+              )}
+            </h2>
+            <div className="flex items-center gap-2">
+              {/* Toggle suara */}
+              <button
+                onClick={() => setSuara(s => !s)}
+                className={`text-xs px-2.5 py-1 rounded-lg border font-medium transition-colors ${
+                  suara
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                    : 'bg-slate-50 text-slate-400 border-slate-200'
+                }`}
+                title={suara ? 'Matikan suara notif' : 'Aktifkan suara notif'}
+              >
+                {suara ? '🔔 Suara On' : '🔕 Suara Off'}
+              </button>
+              <span className="text-xs text-slate-400 flex items-center gap-1">
+                <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse inline-block" />
+                Refresh tiap 5 detik
+              </span>
+            </div>
+          </div>
+
+          {pelanggaran.length === 0 ? (
+            <div className="card py-6 flex items-center justify-center gap-3 text-slate-400">
+              <Eye className="w-5 h-5" />
+              <span className="text-sm">Belum ada pelanggaran terdeteksi</span>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {/* Ringkasan per siswa */}
+              {Object.keys(ringkasanSiswa).length > 1 && (
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 mb-1">
+                  {Object.entries(ringkasanSiswa)
+                    .sort((a, b) => b[1].jumlah - a[1].jumlah)
+                    .map(([nis, info]) => (
+                      <div key={nis} className={`rounded-xl border px-3 py-2 text-sm ${
+                        info.jumlah >= 3 ? 'bg-red-50 border-red-200' : 'bg-amber-50 border-amber-200'
+                      }`}>
+                        <div className="font-semibold text-slate-800 truncate">{info.nama}</div>
+                        <div className={`text-xs font-bold ${info.jumlah >= 3 ? 'text-red-600' : 'text-amber-600'}`}>
+                          {info.jumlah}× pelanggaran
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              )}
+
+              {/* Log pelanggaran */}
+              <div className="card p-0 overflow-hidden">
+                <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-100 flex items-center gap-2 text-xs text-slate-500 font-medium">
+                  <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
+                  Log Aktivitas Mencurigakan (terbaru di atas)
+                </div>
+                <div className="divide-y divide-slate-50 max-h-72 overflow-y-auto">
+                  {pelanggaran.map(p => {
+                    const info = jenisInfo(p.jenis)
+                    const isNew = newPelIds.has(p.id)
+                    return (
+                      <div
+                        key={p.id}
+                        className={`flex items-center gap-3 px-4 py-3 transition-colors duration-700 ${
+                          isNew ? 'bg-red-50' : 'bg-white hover:bg-slate-50'
+                        }`}
+                      >
+                        {/* Nama siswa */}
+                        <div className="w-36 flex-shrink-0">
+                          <div className="font-semibold text-slate-800 text-sm truncate">{p.nama_siswa}</div>
+                          <div className="text-xs text-slate-400 font-mono">{p.nis}</div>
+                        </div>
+
+                        {/* Badge jenis */}
+                        <span className={`flex-shrink-0 text-xs font-semibold px-2.5 py-1 rounded-full border ${info.color}`}>
+                          {info.icon} {info.label}
+                        </span>
+
+                        {/* Detail */}
+                        <div className="flex-1 min-w-0 text-xs text-slate-500 truncate">{p.detail}</div>
+
+                        {/* Level */}
+                        <div className={`flex-shrink-0 text-xs font-bold px-2 py-0.5 rounded-lg ${
+                          p.level >= 3 ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'
+                        }`}>
+                          Ke-{p.level}
+                        </div>
+
+                        {/* Waktu */}
+                        <div className="flex-shrink-0 text-xs text-slate-400 font-mono">
+                          {formatWaktuSingkat(p.created_at)}
+                        </div>
+
+                        {/* Indikator baru */}
+                        {isNew && (
+                          <span className="flex-shrink-0 w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Sesi Aktif ── */}
       {sesiAktif.length > 0 && (
         <div>
           <h2 className="font-semibold text-slate-900 mb-3 flex items-center gap-2">
@@ -158,7 +383,7 @@ export default function PengawasDashboard() {
         </div>
       )}
 
-      {/* Jadwal Hari Ini */}
+      {/* ── Jadwal Hari Ini ── */}
       <div>
         <h2 className="font-semibold text-slate-900 mb-3">Jadwal Hari Ini</h2>
         {jadwal.filter(j => j.tanggal === today).length === 0 ? (
@@ -199,7 +424,7 @@ export default function PengawasDashboard() {
         )}
       </div>
 
-      {/* Ujian Susulan — sesi yang sudah selesai hari ini */}
+      {/* ── Ujian Susulan ── */}
       {sesiSelesai.length > 0 && (
         <div>
           <h2 className="font-semibold text-slate-900 mb-1">Ujian Susulan</h2>
@@ -225,7 +450,7 @@ export default function PengawasDashboard() {
         </div>
       )}
 
-      {/* Jadwal Mendatang */}
+      {/* ── Jadwal Mendatang ── */}
       <div>
         <h2 className="font-semibold text-slate-900 mb-3">Jadwal Mendatang</h2>
         {jadwal.filter(j => j.tanggal > today).length === 0 ? (
@@ -249,51 +474,25 @@ export default function PengawasDashboard() {
         )}
       </div>
 
-      {/* Confirm buka sesi */}
-      <Confirm
-        open={!!mulaiId}
-        onClose={() => setMulaiId(null)}
-        onConfirm={handleMulai}
+      <Confirm open={!!mulaiId} onClose={() => setMulaiId(null)} onConfirm={handleMulai}
         title="Buka Sesi Ujian"
         message="Sesi ujian akan dibuka dan kode akses akan digenerate. Siswa bisa mulai bergabung setelah sesi dibuka."
-        confirmLabel="Buka Sesi"
-        variant="primary"
-        loading={saving}
-      />
+        confirmLabel="Buka Sesi" variant="primary" loading={saving} />
 
-      {/* Confirm tutup sesi */}
-      <Confirm
-        open={!!tutupId}
-        onClose={() => setTutupId(null)}
-        onConfirm={handleTutup}
+      <Confirm open={!!tutupId} onClose={() => setTutupId(null)} onConfirm={handleTutup}
         title="Tutup Sesi Ujian"
         message="Sesi ujian akan ditutup. Siswa yang belum menyelesaikan ujian akan otomatis disubmit. Lanjutkan?"
-        confirmLabel="Tutup Sesi"
-        variant="danger"
-        loading={saving}
-      />
+        confirmLabel="Tutup Sesi" variant="danger" loading={saving} />
 
-      {/* Confirm buka susulan */}
-      <Confirm
-        open={!!susulanSesiId}
-        onClose={() => setSusulanSesiId(null)}
-        onConfirm={handleSusulan}
+      <Confirm open={!!susulanSesiId} onClose={() => setSusulanSesiId(null)} onConfirm={handleSusulan}
         title="Buka Ujian Susulan"
-        message="Sistem akan memeriksa apakah ada siswa yang belum mengikuti ujian ini. Jika semua sudah ujian, permintaan akan dibatalkan otomatis."
-        confirmLabel="Cek & Buka"
-        variant="primary"
-        loading={saving}
-      />
+        message="Sistem akan memeriksa apakah ada siswa yang belum mengikuti ujian ini."
+        confirmLabel="Cek & Buka" variant="primary" loading={saving} />
 
-      {/* Modal hasil susulan */}
       {susulanResult && (
-        <Modal
-          open={!!susulanResult}
-          onClose={() => setSusulanResult(null)}
+        <Modal open={!!susulanResult} onClose={() => setSusulanResult(null)}
           title={susulanResult.bisa ? 'Sesi Susulan Dibuka' : 'Ujian Susulan Tidak Diperlukan'}
-          footer={
-            <button onClick={() => setSusulanResult(null)} className="btn-primary">Tutup</button>
-          }
+          footer={<button onClick={() => setSusulanResult(null)} className="btn-primary">Tutup</button>}
         >
           <div className="space-y-3">
             <p className={`text-sm font-medium ${susulanResult.bisa ? 'text-emerald-700' : 'text-slate-600'}`}>
@@ -306,14 +505,10 @@ export default function PengawasDashboard() {
                   <span className="font-mono text-2xl font-bold text-brand-700 tracking-widest">
                     {susulanResult.kodeSesi}
                   </span>
-                  <button
-                    onClick={() => copyKode(susulanResult.kodeSesi!)}
-                    className="btn-ghost btn-icon btn-sm"
-                  >
+                  <button onClick={() => copyKode(susulanResult.kodeSesi!)} className="btn-ghost btn-icon btn-sm">
                     {copied === susulanResult.kodeSesi
                       ? <CheckCircle className="w-4 h-4 text-emerald-500" />
-                      : <Copy className="w-4 h-4 text-slate-400" />
-                    }
+                      : <Copy className="w-4 h-4 text-slate-400" />}
                   </button>
                 </div>
               </div>
