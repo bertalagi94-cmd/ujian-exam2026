@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   Plus, Pencil, Trash2, Calendar, FileText, Download, PackageOpen,
-  CheckCircle, Clock, AlertCircle, XCircle, HelpCircle
+  CheckCircle, Clock, AlertCircle, XCircle, HelpCircle, AlertTriangle
 } from 'lucide-react'
 import { Modal, Confirm, StatusBadge, SearchInput, EmptyState, Spinner, Toast, Pagination } from '@/components/ui'
 import { apiRequest, formatDate } from '@/lib/utils'
@@ -94,6 +94,7 @@ export default function AdminJadwalPage() {
   const [cetakTanggal, setCetakTanggal] = useState('')
   const [tanggalList, setTanggalList] = useState<string[]>([])
   const [downloadingZip, setDownloadingZip] = useState(false)
+  const [soalBelumSiapOpen, setSoalBelumSiapOpen] = useState(false)
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => setToast({ msg, type })
 
@@ -384,6 +385,25 @@ export default function AdminJadwalPage() {
           <button onClick={() => setCetakMassalOpen(true)} className="btn-secondary btn-sm">
             <PackageOpen className="w-4 h-4" /> Download Massal
           </button>
+          {(() => {
+            const belumSiap = jadwal.filter(j => j.status_soal !== 'DISETUJUI')
+            return (
+              <button
+                onClick={() => setSoalBelumSiapOpen(true)}
+                className={`btn-sm flex items-center gap-1.5 font-medium rounded-xl px-3 py-2 border transition-colors ${
+                  belumSiap.length > 0
+                    ? 'bg-amber-50 border-amber-300 text-amber-700 hover:bg-amber-100'
+                    : 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100'
+                }`}
+              >
+                {belumSiap.length > 0
+                  ? <AlertTriangle className="w-4 h-4" />
+                  : <CheckCircle className="w-4 h-4" />
+                }
+                {belumSiap.length > 0 ? `${belumSiap.length} Soal Belum Siap` : 'Semua Soal Siap'}
+              </button>
+            )
+          })()}
           <button onClick={() => { setEditData({}); setSelectedMapelId(''); setModalOpen(true) }} className="btn-primary btn-sm">
             <Plus className="w-4 h-4" /> Tambah Jadwal
           </button>
@@ -685,6 +705,79 @@ export default function AdminJadwalPage() {
       <Confirm open={!!deleteId} onClose={() => setDeleteId(null)} onConfirm={handleDelete}
         title="Hapus Jadwal" message="Jadwal ini akan dihapus permanen. Lanjutkan?"
         confirmLabel="Ya, Hapus" loading={saving} />
+
+      {/* Modal Soal Belum Siap */}
+      <Modal
+        open={soalBelumSiapOpen}
+        onClose={() => setSoalBelumSiapOpen(false)}
+        title="Soal Belum Siap"
+        size="md"
+        footer={
+          <button onClick={() => setSoalBelumSiapOpen(false)} className="btn-primary">Tutup</button>
+        }
+      >
+        {(() => {
+          const belumSiap = jadwal.filter(j => j.status_soal !== 'DISETUJUI')
+          if (belumSiap.length === 0) {
+            return (
+              <div className="flex flex-col items-center justify-center py-10 text-center gap-3">
+                <div className="w-14 h-14 rounded-full bg-emerald-100 flex items-center justify-center">
+                  <CheckCircle className="w-7 h-7 text-emerald-600" />
+                </div>
+                <p className="font-semibold text-slate-700">Semua soal sudah siap!</p>
+                <p className="text-sm text-slate-400">Seluruh jadwal ujian telah memiliki soal yang disetujui.</p>
+              </div>
+            )
+          }
+
+          // Kelompokkan per status
+          const grouped: Record<string, Jadwal[]> = {}
+          for (const j of belumSiap) {
+            const key = j.status_soal ?? 'BELUM_ADA'
+            if (!grouped[key]) grouped[key] = []
+            grouped[key].push(j)
+          }
+
+          const urutan = ['BELUM_ADA', 'DITOLAK', 'DRAFT', 'MENUNGGU']
+          const labelGrup: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
+            BELUM_ADA: { label: 'Belum Ada Soal', color: 'text-slate-600', icon: <HelpCircle className="w-4 h-4" /> },
+            DITOLAK:   { label: 'Soal Ditolak',   color: 'text-red-600',   icon: <XCircle className="w-4 h-4" /> },
+            DRAFT:     { label: 'Masih Draft',     color: 'text-blue-600',  icon: <AlertCircle className="w-4 h-4" /> },
+            MENUNGGU:  { label: 'Menunggu Persetujuan', color: 'text-amber-600', icon: <Clock className="w-4 h-4" /> },
+          }
+
+          return (
+            <div className="space-y-5">
+              <p className="text-sm text-slate-500">
+                Ditemukan <strong className="text-slate-700">{belumSiap.length} jadwal</strong> dengan soal yang belum siap.
+              </p>
+              {urutan.filter(k => grouped[k]?.length).map(key => {
+                const meta = labelGrup[key]
+                const items = grouped[key]
+                return (
+                  <div key={key}>
+                    <div className={`flex items-center gap-2 font-semibold text-sm mb-2 ${meta.color}`}>
+                      {meta.icon} {meta.label} ({items.length})
+                    </div>
+                    <div className="space-y-1.5">
+                      {items.map(j => (
+                        <div key={j.id} className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-100">
+                          <div>
+                            <span className="font-medium text-slate-800 text-sm">{j.nama_mapel ?? j.mapel_id}</span>
+                            <span className="mx-2 text-slate-300">·</span>
+                            <span className="text-xs text-slate-500">Kelas {j.kelas}</span>
+                          </div>
+                          <div className="text-xs text-slate-400 shrink-0">{formatDate(j.tanggal)}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )
+        })()}
+      </Modal>
     </div>
   )
 }
