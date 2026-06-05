@@ -4,51 +4,39 @@ import { requireRole } from '@/lib/auth'
 import { generateId } from '@/lib/utils'
 
 // GET /api/guru/kisi-kisi
-// Mengembalikan semua kisi-kisi di mapel yang diampu guru ini (milik sendiri + rekan)
+// Tampilkan SEMUA kisi-kisi dari semua guru (1 aplikasi = 1 sekolah)
 export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['GURU'])
   if ('error' in auth) return auth.error
   const { user } = auth
   const db = createAdminClient()
 
-  // Ambil mapel yang diampu guru ini (gunakan guru_id = username)
-  const { data: mapelAmpu } = await db
-    .from('mapel')
-    .select('id, nama')
-    .eq('guru_id', user.username)
-
-  if (!mapelAmpu?.length) return NextResponse.json({ data: [] })
-
-  const mapelIds = mapelAmpu.map(m => m.id)
-  const mapelMap = Object.fromEntries(mapelAmpu.map(m => [m.id, m.nama]))
-
-  // Ambil semua kisi-kisi di mapel yang diampu (semua guru, bukan cuma milik sendiri)
   const { data: kisiList, error } = await db
     .from('kisi_kisi')
     .select('*')
-    .in('mapel_id', mapelIds)
     .order('updated_at', { ascending: false })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   if (!kisiList?.length) return NextResponse.json({ data: [] })
 
-  // Lookup kelas dan guru
+  const mapelIds = [...new Set(kisiList.map(k => k.mapel_id))]
   const kelasIds = [...new Set(kisiList.map(k => k.kelas_id))]
   const guruIds = [...new Set(kisiList.map(k => k.guru_id))]
 
-  const [{ data: kelasList }, { data: guruList }] = await Promise.all([
+  const [{ data: mapelList }, { data: kelasList }, { data: guruList }] = await Promise.all([
+    db.from('mapel').select('id, nama').in('id', mapelIds),
     db.from('kelas').select('id, nama').in('id', kelasIds),
     db.from('users').select('username, nama').in('username', guruIds),
   ])
 
-  // Fallback: jika kelas tidak ada di tabel kelas, gunakan id-nya langsung sebagai nama
+  const mapelMap = Object.fromEntries((mapelList ?? []).map(m => [m.id, m.nama]))
   const kelasMap = Object.fromEntries((kelasList ?? []).map(k => [k.id, k.nama]))
   const guruMap = Object.fromEntries((guruList ?? []).map(g => [g.username, g.nama]))
 
   const enriched = kisiList.map(k => ({
     ...k,
     nama_mapel: mapelMap[k.mapel_id] ?? k.mapel_id,
-    nama_kelas: kelasMap[k.kelas_id] ?? k.kelas_id, // fallback ke id jika tidak ada di tabel kelas
+    nama_kelas: kelasMap[k.kelas_id] ?? k.kelas_id,
     nama_guru: guruMap[k.guru_id] ?? k.guru_id,
     is_mine: k.guru_id === user.username,
   }))
@@ -69,7 +57,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'mapel_id, kelas_id, dan konten wajib diisi' }, { status: 400 })
   }
 
-  // Pastikan guru mengampu mapel ini
   const { data: mapel } = await db
     .from('mapel')
     .select('id')
@@ -81,7 +68,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Anda tidak mengampu mapel ini' }, { status: 403 })
   }
 
-  // Cek apakah sudah ada kisi-kisi untuk mapel+kelas ini
   const { data: existing } = await db
     .from('kisi_kisi')
     .select('id')
