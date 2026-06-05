@@ -209,21 +209,6 @@ export function GuruSidebar() {
   )
 }
 
-export function PengawasSidebar() {
-  return (
-    <Sidebar
-      role="PENGAWAS"
-      roleColor="bg-orange-600"
-      roleLabel="Pengawas"
-      navItems={[
-        { label: 'Dashboard', href: '/pengawas', icon: LayoutDashboard },
-        { label: 'Buka Sesi', href: '/pengawas/sesi', icon: Calendar },
-        { label: 'Monitor Ujian', href: '/pengawas/monitor', icon: BarChart3 },
-      ]}
-    />
-  )
-}
-
 export function KepsekSidebar() {
   return (
     <Sidebar
