@@ -377,7 +377,8 @@ export default function SiswaUjianPage() {
 
       if (!res.valid) { setError(res.message ?? 'Kode tidak valid'); return }
       setSesiInfo(res)
-      setSisaWaktu(res.durasi * 60)
+      const terpakai1 = Math.floor((Date.now() - new Date(res.waktu_mulai).getTime()) / 1000)
+      setSisaWaktu(Math.max(0, res.durasi * 60 - terpakai1))
       setPhase('UJIAN')
       setTimeout(() => {
         requestFullscreen(document.documentElement).catch(() => {})
@@ -413,7 +414,8 @@ export default function SiswaUjianPage() {
         })
         if (!sesiRes.valid) { setError(sesiRes.message ?? 'Gagal masuk ujian'); setPhase('KODE'); return }
         setSesiInfo(sesiRes)
-        setSisaWaktu(sesiRes.durasi * 60)
+        const terpakai2 = Math.floor((Date.now() - new Date(sesiRes.waktu_mulai).getTime()) / 1000)
+        setSisaWaktu(Math.max(0, sesiRes.durasi * 60 - terpakai2))
         setPhase('UJIAN')
         setTimeout(() => requestFullscreen(document.documentElement).catch(() => {}), 100)
       } finally { setLoading(false) }
