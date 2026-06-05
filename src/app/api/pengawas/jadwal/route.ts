@@ -4,7 +4,7 @@ import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 
 export async function GET(req: NextRequest) {
-  const auth = requireRole(req, ['PENGAWAS', 'ADMIN'])
+  const auth = requireRole(req, ['GURU', 'ADMIN'])
   if ('error' in auth) return auth.error
   const { user } = auth
 
