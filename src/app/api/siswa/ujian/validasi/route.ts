@@ -134,13 +134,31 @@ export async function POST(req: NextRequest) {
   const shouldAcak = paketData?.acak === 'YA'
 
   let finalSoal
-  if (shouldAcak) {
+  const { data: existingUrutan } = await db
+    .from('siswa_ujian')
+    .select('urutan_soal')
+    .eq('sesi_id', sesi.id)
+    .eq('nis', nis)
+    .single()
+  
+  if (existingUrutan?.urutan_soal?.length) {
+    const urutanMap: Record<string, number> = Object.fromEntries(
+      existingUrutan.urutan_soal.map((id: string, i: number) => [id, i])
+    )
+    finalSoal = [...soalList]
+      .sort((a, b) => (urutanMap[a.id] ?? 0) - (urutanMap[b.id] ?? 0))
+      .map((s, i) => ({ ...s, nomor: i + 1 }))
+  } else if (shouldAcak) {
     const arr = [...soalList]
     for (let i = arr.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1))
       ;[arr[i], arr[j]] = [arr[j], arr[i]]
     }
     finalSoal = arr.map((s, i) => ({ ...s, nomor: i + 1 }))
+    await db.from('siswa_ujian')
+      .update({ urutan_soal: finalSoal.map(s => s.id) })
+      .eq('sesi_id', sesi.id)
+      .eq('nis', nis)
   } else {
     finalSoal = soalList.map((s, i) => ({ ...s, nomor: i + 1 }))
   }
