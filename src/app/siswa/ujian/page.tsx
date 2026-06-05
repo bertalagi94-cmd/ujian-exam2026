@@ -83,6 +83,8 @@ export default function SiswaUjianPage() {
   const syncRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const sesiPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const pelanggRef = useRef(0)
+  // Guard untuk mencegah multiple events (blur+visibilitychange+fullscreenchange) terhitung sebagai pelanggaran berbeda
+  const pelanggaranActiveRef = useRef(false)
   const jawabanRef = useRef<JawabanMap>({})
   const sesiInfoRef = useRef<SesiInfo | null>(null)
   const phaseRef = useRef<Phase>('KODE')
@@ -126,13 +128,16 @@ export default function SiswaUjianPage() {
 
     function onFSChange() {
       if (!isFullscreen()) {
+        // Guard: hanya hitung 1 pelanggaran meski banyak event terpicu bersamaan
+        if (pelanggaranActiveRef.current) return
+        pelanggaranActiveRef.current = true
         pelanggRef.current++
         laporPelanggaran('EXIT_FULLSCREEN', `Keluar fullscreen ke-${pelanggRef.current}`)
-        setWarningMsg('⚠ Anda keluar dari mode fullscreen! Klik tombol di bawah untuk kembali.')
+        setWarningMsg('⚠ Anda keluar dari mode fullscreen!')
         setShowWarningOverlay(true)
       } else {
-        setShowWarningOverlay(false)
-        setWarningMsg('')
+        // Fullscreen kembali aktif (tidak dari tombol kode, tapi jika otomatis)
+        // Jangan tutup overlay di sini — tunggu verifikasi kode
       }
     }
 
@@ -154,9 +159,12 @@ export default function SiswaUjianPage() {
     if (phase !== 'UJIAN') return
     function onVisibilityChange() {
       if (document.hidden) {
+        // Guard: hanya hitung jika tidak sedang dalam pelanggaran yang sudah aktif
+        if (pelanggaranActiveRef.current) return
+        pelanggaranActiveRef.current = true
         pelanggRef.current++
         laporPelanggaran('TAB_SWITCH', `Perpindahan tab ke-${pelanggRef.current}`)
-        setWarningMsg(`⚠ Perpindahan tab/aplikasi terdeteksi! (${pelanggRef.current}x)`)
+        setWarningMsg(`⚠ Perpindahan tab/aplikasi terdeteksi!`)
         setShowWarningOverlay(true)
       }
     }
@@ -230,8 +238,13 @@ export default function SiswaUjianPage() {
   useEffect(() => {
     if (phase !== 'UJIAN') return
     function onBlur() {
+      // Guard: jangan hitung ganda jika fullscreenchange/visibilitychange sudah terpicu
+      if (pelanggaranActiveRef.current) return
+      pelanggaranActiveRef.current = true
       pelanggRef.current++
       laporPelanggaran('WINDOW_BLUR', `Keluar aplikasi ke-${pelanggRef.current}`)
+      setWarningMsg('⚠ Anda keluar dari aplikasi ujian!')
+      setShowWarningOverlay(true)
     }
     window.addEventListener('blur', onBlur)
     return () => window.removeEventListener('blur', onBlur)
@@ -428,9 +441,34 @@ export default function SiswaUjianPage() {
   }
 
   function handleKembaliFullscreen() {
+    // Tetap ada tapi tidak lagi dipanggil langsung dari overlay
     requestFullscreen(document.documentElement).catch(() => {})
     setShowWarningOverlay(false)
     setWarningMsg('')
+  }
+
+  // Verifikasi kode reset dari dalam overlay pelanggaran (saat ujian berlangsung)
+  async function handleVerifikasiResetDariOverlay() {
+    if (!kodeReset.trim()) { setKodeResetError('Masukkan kode reset dari pengawas'); return }
+    const currentSesi = sesiInfoRef.current
+    if (!currentSesi) return
+    setKodeResetLoading(true); setKodeResetError('')
+    try {
+      const res = await apiRequest<{ valid: boolean; message?: string }>('/api/siswa/ujian/verifikasi-reset', {
+        method: 'POST',
+        body: JSON.stringify({ sesiId: currentSesi.sesiId, kodeReset: kodeReset.trim().toUpperCase() }),
+      })
+      if (!res.valid) { setKodeResetError(res.message ?? 'Kode tidak valid'); return }
+      // Kode valid — tutup overlay dan kembali ke fullscreen
+      setKodeReset('')
+      setKodeResetError('')
+      setShowWarningOverlay(false)
+      setWarningMsg('')
+      pelanggaranActiveRef.current = false  // reset guard agar pelanggaran berikutnya bisa terdeteksi
+      requestFullscreen(document.documentElement).catch(() => {})
+    } catch (err: unknown) {
+      setKodeResetError(err instanceof Error ? err.message : 'Gagal memverifikasi kode')
+    } finally { setKodeResetLoading(false) }
   }
 
   const formatWaktu = (detik: number) => {
@@ -628,18 +666,40 @@ export default function SiswaUjianPage() {
             </div>
             <h2 className="text-lg font-bold text-slate-900 mb-2">Pelanggaran Terdeteksi!</h2>
             <p className="text-sm text-slate-600 mb-1">{warningMsg}</p>
-            <p className="text-xs text-red-500 font-medium mb-6">
+            <p className="text-xs text-red-500 font-medium mb-4">
               Pelanggaran ke-{pelanggRef.current} — Aktivitas ini dilaporkan ke pengawas
             </p>
-            <p className="text-xs text-amber-600 font-medium mb-4">
-              ⚠ Pengawas akan memberikan kode 7 digit untuk melanjutkan ujian.
-            </p>
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4 text-left">
+              <p className="text-xs text-amber-700 font-semibold mb-1">⚠ Diperlukan Kode dari Pengawas</p>
+              <p className="text-xs text-amber-600">Hubungi pengawas dan minta kode 7 digit untuk melanjutkan ujian.</p>
+            </div>
+            {kodeResetError && (
+              <div className="alert-error mb-3 text-left text-xs">
+                <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                <span>{kodeResetError}</span>
+              </div>
+            )}
+            <input
+              type="text"
+              className="input text-center text-xl font-mono tracking-widest uppercase mb-3"
+              placeholder="KODE RESET"
+              maxLength={7}
+              value={kodeReset}
+              onChange={e => { setKodeReset(e.target.value.toUpperCase()); setKodeResetError('') }}
+              onKeyDown={e => e.key === 'Enter' && handleVerifikasiResetDariOverlay()}
+              autoFocus
+            />
             <button
-              onClick={handleKembaliFullscreen}
+              onClick={handleVerifikasiResetDariOverlay}
+              disabled={kodeResetLoading}
               className="btn-primary w-full justify-center py-3 text-base"
             >
-              <Maximize className="w-4 h-4" />
-              Kembali ke Ujian (Fullscreen)
+              {kodeResetLoading ? <Spinner size="sm" /> : (
+                <>
+                  <KeyRound className="w-4 h-4" />
+                  Masukkan Kode &amp; Lanjutkan Ujian
+                </>
+              )}
             </button>
           </div>
         </div>
