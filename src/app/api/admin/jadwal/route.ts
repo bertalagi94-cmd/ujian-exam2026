@@ -206,6 +206,57 @@ export async function DELETE(req: NextRequest) {
   const db = createAdminClient()
   const { id } = await req.json()
 
+  // Ambil data jadwal
+  const { data: jadwal } = await db
+    .from('jadwal')
+    .select('id, mapel_id, kelas, status')
+    .eq('id', id)
+    .single()
+
+  if (!jadwal) return NextResponse.json({ error: 'Jadwal tidak ditemukan.' }, { status: 404 })
+
+  // Hanya jadwal SELESAI yang dicek kelengkapan ujian siswa
+  if (jadwal.status === 'SELESAI') {
+
+    // Ambil semua siswa aktif di kelas ini
+    const { data: semuaSiswa } = await db
+      .from('siswa')
+      .select('nis, nama')
+      .eq('kelas', jadwal.kelas)
+      .eq('status', 'AKTIF')
+      .order('nama')
+
+    // Ambil sesi ujian untuk jadwal ini
+    const { data: sesiList } = await db
+      .from('sesi_ujian')
+      .select('id')
+      .eq('mapel_id', jadwal.mapel_id)
+      .eq('kelas', jadwal.kelas)
+
+    const sesiIds = (sesiList ?? []).map((s: any) => s.id)
+
+    // Ambil NIS yang sudah punya nilai
+    let sudahUjianNis: string[] = []
+    if (sesiIds.length > 0) {
+      const { data: nilaiList } = await db
+        .from('nilai')
+        .select('nis')
+        .in('sesi_id', sesiIds)
+      sudahUjianNis = [...new Set((nilaiList ?? []).map((n: any) => n.nis))]
+    }
+
+    // Cari siswa yang belum ujian
+    const belumUjian = (semuaSiswa ?? []).filter((s: any) => !sudahUjianNis.includes(s.nis))
+
+    if (belumUjian.length > 0) {
+      return NextResponse.json({
+        error: 'Hapus ditolak. Masih ada siswa yang belum mengikuti ujian.',
+        belum_ujian: belumUjian,
+      }, { status: 400 })
+    }
+  }
+
+  // Lakukan hapus
   const { error } = await (db as any).from('jadwal').delete().eq('id', id)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ message: 'Jadwal berhasil dihapus' })
