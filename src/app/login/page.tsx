@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { Eye, EyeOff, BookOpen, Lock, User, AlertCircle } from 'lucide-react'
 
@@ -17,6 +17,119 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [siteInfo, setSiteInfo] = useState<SiteInfo>({ namaSekolah: '', kota: '', logoUrl: '' })
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    const resize = () => {
+      canvas.width = canvas.offsetWidth
+      canvas.height = canvas.offsetHeight
+    }
+    resize()
+    window.addEventListener('resize', resize)
+
+    type Bubble = {
+      x: number; y: number; r: number
+      vx: number; vy: number
+      alpha: number; phase: 'alive' | 'popping'
+      popFrame: number
+    }
+
+    const bubbles: Bubble[] = []
+    const MAX = 18
+
+    const spawn = (): Bubble => ({
+      x: Math.random() * canvas.width,
+      y: canvas.height + 40,
+      r: 18 + Math.random() * 38,
+      vx: (Math.random() - 0.5) * 0.6,
+      vy: -(0.4 + Math.random() * 0.7),
+      alpha: 0.12 + Math.random() * 0.18,
+      phase: 'alive',
+      popFrame: 0,
+    })
+
+    for (let i = 0; i < 10; i++) {
+      const b = spawn()
+      b.y = Math.random() * canvas.height
+      bubbles.push(b)
+    }
+
+    let raf: number
+    const draw = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
+
+      if (bubbles.length < MAX && Math.random() < 0.02) bubbles.push(spawn())
+
+      for (let i = bubbles.length - 1; i >= 0; i--) {
+        const b = bubbles[i]
+
+        if (b.phase === 'popping') {
+          b.popFrame++
+          const prog = b.popFrame / 12
+          ctx.beginPath()
+          ctx.arc(b.x, b.y, b.r * (1 + prog * 0.5), 0, Math.PI * 2)
+          ctx.strokeStyle = `rgba(255,255,255,${b.alpha * (1 - prog)})`
+          ctx.lineWidth = 1.5
+          ctx.stroke()
+          if (b.popFrame >= 12) bubbles.splice(i, 1)
+          continue
+        }
+
+        b.x += b.vx
+        b.vy += 0.002
+        b.y += b.vy
+
+        for (let j = i - 1; j >= 0; j--) {
+          const o = bubbles[j]
+          if (o.phase === 'popping') continue
+          const dx = b.x - o.x, dy = b.y - o.y
+          const dist = Math.sqrt(dx * dx + dy * dy)
+          if (dist < b.r + o.r) {
+            b.phase = 'popping'; b.popFrame = 0
+            o.phase = 'popping'; o.popFrame = 0
+            break
+          }
+        }
+
+        if (b.y + b.r < 0 || b.x + b.r < 0 || b.x - b.r > canvas.width) {
+          bubbles.splice(i, 1); continue
+        }
+
+        const grad = ctx.createRadialGradient(b.x - b.r * 0.3, b.y - b.r * 0.3, b.r * 0.1, b.x, b.y, b.r)
+        grad.addColorStop(0, `rgba(255,255,255,${b.alpha * 1.5})`)
+        grad.addColorStop(0.5, `rgba(255,255,255,${b.alpha * 0.4})`)
+        grad.addColorStop(1, `rgba(255,255,255,0)`)
+        ctx.beginPath()
+        ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2)
+        ctx.fillStyle = grad
+        ctx.fill()
+
+        ctx.beginPath()
+        ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2)
+        ctx.strokeStyle = `rgba(255,255,255,${b.alpha * 1.2})`
+        ctx.lineWidth = 1
+        ctx.stroke()
+
+        ctx.beginPath()
+        ctx.arc(b.x - b.r * 0.28, b.y - b.r * 0.32, b.r * 0.18, 0, Math.PI * 2)
+        ctx.fillStyle = `rgba(255,255,255,${b.alpha * 1.8})`
+        ctx.fill()
+      }
+
+      raf = requestAnimationFrame(draw)
+    }
+    draw()
+
+    return () => {
+      cancelAnimationFrame(raf)
+      window.removeEventListener('resize', resize)
+    }
+  }, [])
 
   useEffect(() => {
     fetch('/api/public/pengaturan', { cache: 'no-store' })
@@ -98,13 +211,11 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex bg-gradient-to-br from-brand-950 via-brand-900 to-brand-800">
+    <div className="min-h-screen flex bg-gradient-to-br from-brand-950 via-brand-900 to-brand-800 relative overflow-hidden">
+      {/* bubble animation canvas — full screen background */}
+      <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" style={{ pointerEvents: 'none', zIndex: 0 }} />
       {/* Left — branding */}
-      <div className="hidden lg:flex flex-col justify-between w-1/2 p-12 text-white relative overflow-hidden">
-        {/* decorative circles */}
-        <div className="absolute -top-20 -left-20 w-80 h-80 rounded-full bg-white/5" />
-        <div className="absolute top-1/3 -right-20 w-64 h-64 rounded-full bg-white/5" />
-        <div className="absolute -bottom-20 left-1/4 w-96 h-96 rounded-full bg-white/5" />
+      <div className="hidden lg:flex flex-col justify-between w-1/2 p-12 text-white relative">
 
         {/* Logo + Nama Sekolah */}
         <div className="relative z-10">
@@ -158,7 +269,7 @@ export default function LoginPage() {
       </div>
 
       {/* Right — login form */}
-      <div className="flex-1 flex items-center justify-center p-6">
+      <div className="flex-1 flex items-center justify-center p-6 relative z-10">
         <div className="w-full max-w-sm">
           {/* Mobile: logo + nama sekolah */}
           <div className="lg:hidden flex items-center gap-3 mb-8 justify-center">
