@@ -129,7 +129,7 @@ function CountdownTimer({ jamMulai }: { jamMulai: string }) {
   return (
     <div className="flex items-center gap-1.5 text-xs text-slate-500 bg-slate-50 px-3 py-1.5 rounded-lg">
       <Clock className="w-3.5 h-3.5" />
-      Tombol aktif dalam <strong className="text-slate-700 mx-1">{minsLeft} menit</strong> lagi
+      Dapat dimulai 15 menit sebelum jadwal · aktif dalam <strong className="text-slate-700 mx-1">{minsLeft} menit</strong> lagi
     </div>
   )
 }
