@@ -42,6 +42,7 @@ function ImageUploadButton({ label, url, onUrl, uploadKey, uploading, onTrigger 
 export default function GuruBuatSoalPage() {
   const [pakets, setPakets] = useState<PaketSoal[]>([])
   const [guruMapelList, setGuruMapelList] = useState<Mapel[]>([])
+  const [allMapelList, setAllMapelList] = useState<Mapel[]>([])
   const [allKelasList, setAllKelasList] = useState<Kelas[]>([])
   const [loading, setLoading] = useState(true)
   const [step, setStep] = useState<Step>('list')
@@ -106,9 +107,11 @@ export default function GuruBuatSoalPage() {
     const guruId = user ? JSON.parse(user).username : ''
     Promise.all([
       apiRequest<{ data: Mapel[] }>(`/api/admin/mapel?guru_id=${guruId}`),
+      apiRequest<{ data: Mapel[] }>('/api/admin/mapel'),
       apiRequest<{ data: Kelas[] }>('/api/admin/kelas'),
-    ]).then(([m, k]) => {
+    ]).then(([m, allM, k]) => {
       setGuruMapelList(m.data ?? [])
+      setAllMapelList(allM.data ?? [])
       setAllKelasList(k.data ?? [])
     })
   }, [])
@@ -368,7 +371,7 @@ export default function GuruBuatSoalPage() {
     } finally { setSaving(false) }
   }
 
-  const getNamaMapel = (id: string) => guruMapelList.find(m => m.id === id)?.nama ?? allKelasList.find(k => k.id === id)?.nama ?? id
+  const getNamaMapel = (id: string) => guruMapelList.find(m => m.id === id)?.nama ?? allMapelList.find(m => m.id === id)?.nama ?? id
   const getNamaKelas = (id: string) => allKelasList.find(k => k.id === id)?.nama ?? id
   const isEditable = (status: string) => ['DRAFT', 'DITOLAK'].includes(status)
 
