@@ -11,6 +11,34 @@ export async function POST(req: NextRequest) {
     }
 
     const supabase = createAdminClient()
+    // Cek maintenance mode
+    const { data: mSettings } = await supabase
+      .from('pengaturan')
+      .select('value')
+      .eq('key', 'maintenanceAktif')
+      .single()
+    
+    if (mSettings?.value === 'true') {
+      // Admin tetap bisa login
+      const isAdmin = await supabase
+        .from('users')
+        .select('role')
+        .eq('username', username.trim())
+        .eq('role', 'ADMIN')
+        .single()
+    
+      if (!isAdmin.data) {
+        const { data: pesan } = await supabase
+          .from('pengaturan')
+          .select('value')
+          .eq('key', 'maintenancePesan')
+          .single()
+    
+        return NextResponse.json({
+          error: pesan?.value || 'Sistem sedang dalam perbaikan. Silakan coba beberapa saat lagi.',
+        }, { status: 503 })
+      }
+    }
 
     // Jalankan query users dan siswa BERSAMAAN, tidak perlu tunggu satu per satu
     const [{ data: user }, { data: siswa }] = await Promise.all([
