@@ -231,6 +231,7 @@ interface AnalisisUjianProps {
 
 export default function AnalisisUjianView({ apiPath, showMapelFilter = false }: AnalisisUjianProps) {
   const [mapelList, setMapelList] = useState<MapelItem[]>([])
+  const [adaSesi, setAdaSesi] = useState<boolean | null>(null)
   const [data, setData] = useState<AnalisisSoal[]>([])
   const [sesiTerpilih, setSesiTerpilih] = useState<SesiItem | null>(null)
   const [ringkasan, setRingkasan] = useState<Ringkasan | null>(null)
@@ -242,12 +243,13 @@ export default function AnalisisUjianView({ apiPath, showMapelFilter = false }: 
     open: false, soalTeks: '', opsi: '', opsiTeks: '', siswaList: [], isKunci: false
   })
 
-  // Load awal: ambil daftar mapel
+  // Load awal: ambil daftar mapel yang punya sesi selesai
   const loadMapelList = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await apiRequest<{ mapelList: MapelItem[] }>(`${apiPath}?only_mapel=1`)
+      const res = await apiRequest<{ mapelList: MapelItem[]; adaSesi: boolean }>(`${apiPath}?only_mapel=1`)
       setMapelList(res.mapelList ?? [])
+      setAdaSesi(res.adaSesi ?? false)
     } finally {
       setLoading(false)
     }
@@ -302,93 +304,114 @@ export default function AnalisisUjianView({ apiPath, showMapelFilter = false }: 
         <p className="page-subtitle">Soal diurutkan dari yang paling banyak salah dijawab</p>
       </div>
 
-      {/* Filter */}
-      <div className="card py-4 flex flex-wrap gap-3 items-center">
-        {showMapelFilter && (
-          <select
-            value={filterMapelId}
-            onChange={e => { setFilterMapelId(e.target.value); setData([]) }}
-            className="select w-52"
-          >
-            <option value="">— Pilih Mata Pelajaran —</option>
-            {mapelList.map(m => <option key={m.id} value={m.id}>{m.nama}</option>)}
-          </select>
-        )}
-
-        {data.length > 0 && (
-          <div className="relative flex-1 min-w-[180px]">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
-            <input
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="Cari teks soal..."
-              className="input pl-8 w-full"
-            />
+      {/* Belum ada sesi selesai sama sekali — sembunyikan dropdown, tampilkan pesan */}
+      {adaSesi === false && (
+        <div className="card flex flex-col items-center justify-center py-14 text-center gap-3">
+          <div className="w-14 h-14 rounded-2xl bg-brand-50 flex items-center justify-center">
+            <BarChart3 className="w-7 h-7 text-brand-400" />
           </div>
-        )}
-      </div>
-
-      {/* Loading analisis */}
-      {loadingData && (
-        <div className="card flex items-center justify-center py-12 text-slate-400 gap-2">
-          <div className="w-5 h-5 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
-          <span className="text-sm">Memuat analisis...</span>
+          <div>
+            <p className="text-base font-semibold text-slate-700">Belum ada ujian yang selesai</p>
+            <p className="text-sm text-slate-400 mt-1 max-w-sm">
+              Analisis akan muncul di sini setelah siswa menyelesaikan ujian pertama mereka.
+              Pastikan jadwal ujian sudah dibuat dan sesi ujian telah berjalan.
+            </p>
+          </div>
         </div>
       )}
 
-      {/* Belum pilih mapel */}
-      {!loadingData && showMapelFilter && !filterMapelId && (
-        <div className="card">
-          <EmptyState message="Pilih mata pelajaran di atas untuk melihat analisis hasil jawaban siswa." icon={BarChart3} />
-        </div>
-      )}
-
-      {/* Data kosong */}
-      {!loadingData && (!showMapelFilter || filterMapelId) && data.length === 0 && !loadingData && (
-        <div className="card">
-          <EmptyState message="Belum ada data jawaban untuk mata pelajaran ini." icon={BookOpen} />
-        </div>
-      )}
-
-      {/* Ringkasan */}
-      {!loadingData && ringkasan && data.length > 0 && (
+      {/* Ada sesi selesai — tampilkan filter & konten */}
+      {adaSesi === true && (
         <>
-          {sesiTerpilih && (
-            <div className="card py-3 px-4 bg-brand-50 border border-brand-100 text-sm text-brand-800 flex flex-wrap gap-x-4 gap-y-1">
-              <span className="font-semibold">{sesiTerpilih.nama_mapel}</span>
-              <span>Kelas: {sesiTerpilih.kelas}</span>
-              <span>{formatDateTime(sesiTerpilih.waktu_mulai)}</span>
-              <span>{ringkasan.totalSiswa} peserta</span>
+          {/* Filter */}
+          <div className="card py-4 flex flex-wrap gap-3 items-center">
+            {showMapelFilter && (
+              <select
+                value={filterMapelId}
+                onChange={e => { setFilterMapelId(e.target.value); setData([]) }}
+                className="select w-52"
+              >
+                <option value="">— Pilih Mata Pelajaran —</option>
+                {mapelList.map(m => <option key={m.id} value={m.id}>{m.nama}</option>)}
+              </select>
+            )}
+
+            {data.length > 0 && (
+              <div className="relative flex-1 min-w-[180px]">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                <input
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  placeholder="Cari teks soal..."
+                  className="input pl-8 w-full"
+                />
+              </div>
+            )}
+          </div>
+
+          {/* Loading analisis */}
+          {loadingData && (
+            <div className="card flex items-center justify-center py-12 text-slate-400 gap-2">
+              <div className="w-5 h-5 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+              <span className="text-sm">Memuat analisis...</span>
             </div>
           )}
 
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <StatCard label="Total Soal" value={ringkasan.totalSoal} icon={BookOpen} color="bg-brand-500" />
-            <StatCard label="Rata-rata Benar" value={`${ringkasan.rataPersenBenar}%`} icon={BarChart3} color="bg-emerald-500" />
-            <StatCard label="Soal Mudah" value={ringkasan.soalMudah} icon={CheckCircle} color="bg-emerald-400" />
-            <StatCard label="Soal Sulit" value={ringkasan.soalSulit} icon={AlertTriangle} color="bg-red-500" />
-          </div>
-
-          <div className="flex items-center gap-2 text-xs text-slate-400">
-            <span className="w-2 h-2 rounded-full bg-red-500 inline-block" /> Soal paling banyak salah di atas
-            <span className="ml-3 w-2 h-2 rounded-full bg-emerald-500 inline-block" /> Kunci jawaban
-          </div>
-
-          <div className="space-y-3">
-            {filtered.map((soal, i) => (
-              <SoalCard
-                key={soal.id}
-                soal={soal}
-                rank={i + 1}
-                onLihatSiswa={(opsi) => bukaModalSiswa(soal, opsi)}
-              />
-            ))}
-          </div>
-
-          {filtered.length === 0 && search && (
+          {/* Belum pilih mapel */}
+          {!loadingData && showMapelFilter && !filterMapelId && (
             <div className="card">
-              <EmptyState message={`Tidak ada soal yang cocok dengan "${search}"`} icon={Search} />
+              <EmptyState message="Pilih mata pelajaran di atas untuk melihat analisis hasil jawaban siswa." icon={BarChart3} />
             </div>
+          )}
+
+          {/* Data kosong */}
+          {!loadingData && (!showMapelFilter || filterMapelId) && data.length === 0 && (
+            <div className="card">
+              <EmptyState message="Belum ada data jawaban untuk mata pelajaran ini." icon={BookOpen} />
+            </div>
+          )}
+
+          {/* Ringkasan */}
+          {!loadingData && ringkasan && data.length > 0 && (
+            <>
+              {sesiTerpilih && (
+                <div className="card py-3 px-4 bg-brand-50 border border-brand-100 text-sm text-brand-800 flex flex-wrap gap-x-4 gap-y-1">
+                  <span className="font-semibold">{sesiTerpilih.nama_mapel}</span>
+                  <span>Kelas: {sesiTerpilih.kelas}</span>
+                  <span>{formatDateTime(sesiTerpilih.waktu_mulai)}</span>
+                  <span>{ringkasan.totalSiswa} peserta</span>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <StatCard label="Total Soal" value={ringkasan.totalSoal} icon={BookOpen} color="bg-brand-500" />
+                <StatCard label="Rata-rata Benar" value={`${ringkasan.rataPersenBenar}%`} icon={BarChart3} color="bg-emerald-500" />
+                <StatCard label="Soal Mudah" value={ringkasan.soalMudah} icon={CheckCircle} color="bg-emerald-400" />
+                <StatCard label="Soal Sulit" value={ringkasan.soalSulit} icon={AlertTriangle} color="bg-red-500" />
+              </div>
+
+              <div className="flex items-center gap-2 text-xs text-slate-400">
+                <span className="w-2 h-2 rounded-full bg-red-500 inline-block" /> Soal paling banyak salah di atas
+                <span className="ml-3 w-2 h-2 rounded-full bg-emerald-500 inline-block" /> Kunci jawaban
+              </div>
+
+              <div className="space-y-3">
+                {filtered.map((soal, i) => (
+                  <SoalCard
+                    key={soal.id}
+                    soal={soal}
+                    rank={i + 1}
+                    onLihatSiswa={(opsi) => bukaModalSiswa(soal, opsi)}
+                  />
+                ))}
+              </div>
+
+              {filtered.length === 0 && search && (
+                <div className="card">
+                  <EmptyState message={`Tidak ada soal yang cocok dengan "${search}"`} icon={Search} />
+                </div>
+              )}
+            </>
           )}
         </>
       )}
