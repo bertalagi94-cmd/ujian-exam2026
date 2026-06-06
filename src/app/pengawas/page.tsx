@@ -80,6 +80,7 @@ export default function PengawasDashboard() {
   const [suara, setSuara] = useState(true)
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const seenIdsRef = useRef<Set<string>>(new Set())
+  const seenPelIdsRef = useRef<Set<string>>(new Set())
   const audioCtxRef = useRef<AudioContext | null>(null)
 
   // Daftar siswa aktif per sesi
