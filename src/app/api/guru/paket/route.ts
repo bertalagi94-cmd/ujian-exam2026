@@ -43,8 +43,8 @@ export async function GET(req: NextRequest) {
 
   const enriched = pakets.map(p => ({
     ...p,
-    nama_mapel: mapelMap[p.mapel_id] ?? p.mapel_id,
-    nama_kelas: kelasMap[p.kelas_id] ?? p.kelas_id,
+    nama_mapel: mapelMap[p.mapel_id] ?? undefined,
+    nama_kelas: kelasMap[p.kelas_id] ?? undefined,
     jumlah_soal: countMap[p.id] ?? 0,
   }))
 
