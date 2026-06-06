@@ -9,21 +9,37 @@ export async function GET(req: NextRequest) {
   const db = createAdminClient()
   const { searchParams } = new URL(req.url)
   const filterMapel = searchParams.get('mapel_id') ?? ''
+  const filterKelas = searchParams.get('kelas') ?? ''
   const onlyMapel   = searchParams.get('only_mapel') === '1'
+  const onlyKelas   = searchParams.get('only_kelas') === '1'
   const latest      = searchParams.get('latest') === '1'
+
+  // Jika hanya butuh daftar kelas yang punya sesi SELESAI
+  if (onlyKelas) {
+    const { data: sesiSelesai } = await db
+      .from('sesi_ujian')
+      .select('kelas')
+      .eq('status', 'SELESAI')
+
+    const kelasSet = [...new Set((sesiSelesai ?? []).map(s => s.kelas).filter(Boolean))]
+      .sort((a, b) => a.localeCompare(b, 'id', { numeric: true }))
+    return NextResponse.json({
+      kelasList: kelasSet,
+      adaSesi: kelasSet.length > 0,
+    })
+  }
 
   // Ambil semua mapel
   let mapelQuery = db.from('mapel').select('id, nama, guru_id')
   if (filterMapel) mapelQuery = mapelQuery.eq('id', filterMapel)
   const { data: mapelList } = await mapelQuery.order('nama')
 
-  // Jika hanya butuh daftar mapel (load awal)
+  // Jika hanya butuh daftar mapel (load awal) — bisa difilter per kelas
   if (onlyMapel) {
-    // Hanya tampilkan mapel yang punya minimal satu sesi SELESAI
-    const { data: sesiSelesai } = await db
-      .from('sesi_ujian')
-      .select('mapel_id')
-      .eq('status', 'SELESAI')
+    // Hanya tampilkan mapel yang punya minimal satu sesi SELESAI (untuk kelas yg dipilih)
+    let sesiQuery = db.from('sesi_ujian').select('mapel_id').eq('status', 'SELESAI')
+    if (filterKelas) sesiQuery = sesiQuery.eq('kelas', filterKelas)
+    const { data: sesiSelesai } = await sesiQuery
 
     const mapelIdAda = new Set((sesiSelesai ?? []).map(s => s.mapel_id))
     const filtered   = (mapelList ?? []).filter(m => mapelIdAda.has(m.id))
@@ -38,12 +54,14 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ data: [], mapelList: mapelList ?? [] })
   }
 
-  // Ambil sesi terbaru yang SELESAI untuk mapel ini
-  const { data: sesiList } = await db
+  // Ambil sesi terbaru yang SELESAI untuk mapel ini (bisa difilter per kelas)
+  let sesiQuery2 = db
     .from('sesi_ujian')
     .select('id, mapel_id, kelas, waktu_mulai, waktu_selesai, jumlah_peserta')
     .eq('status', 'SELESAI')
     .eq('mapel_id', filterMapel)
+  if (filterKelas) sesiQuery2 = sesiQuery2.eq('kelas', filterKelas)
+  const { data: sesiList } = await sesiQuery2
     .order('waktu_mulai', { ascending: false })
     .limit(1)
 
