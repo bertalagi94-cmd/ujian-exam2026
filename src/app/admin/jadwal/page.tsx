@@ -867,7 +867,7 @@ export default function AdminJadwalPage() {
                   <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mx-auto mb-3">
                     <AlertTriangle className="w-6 h-6 text-red-600" />
                   </div>
-                  <p className="font-medium text-slate-900">Hapus dibatalkan</p>
+                  <p className="font-medium text-slate-900">Maaf, jadwal tidak bisa dihapus!</p>
                   <p className="text-xs text-slate-500 mt-1">Siswa berikut belum mengikuti ujian</p>
                 </div>
                 <div className="space-y-3 max-h-64 overflow-y-auto mb-4">
