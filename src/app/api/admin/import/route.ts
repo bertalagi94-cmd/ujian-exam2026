@@ -3,17 +3,14 @@ import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 import bcrypt from 'bcryptjs'
 
-// Konversi Excel serial date ke ISO string
 function excelDateToISO(serial: number | string | null | undefined): string | null {
   if (!serial || serial === '' || isNaN(Number(serial))) return null
   const n = Number(serial)
   if (n < 1) return null
-  // Excel epoch: 1 Jan 1900 = serial 1, tapi Excel salah anggap 1900 sebagai leap year
   const date = new Date((n - 25569) * 86400 * 1000)
   return date.toISOString()
 }
 
-// Konversi NIS dari float (8.7486508E7) ke string integer
 function toNIS(val: unknown): string {
   if (!val) return ''
   const n = Number(val)
@@ -21,7 +18,6 @@ function toNIS(val: unknown): string {
   return String(Math.round(n))
 }
 
-// Bersihkan string kosong / "EMPTY" jadi null
 function clean(val: unknown): string | null {
   if (val === null || val === undefined) return null
   const s = String(val).trim()
@@ -29,7 +25,6 @@ function clean(val: unknown): string | null {
   return s
 }
 
-// Konversi kelas dari float (7.0) ke string
 function toKelas(val: unknown): string {
   if (!val) return ''
   const n = Number(val)
@@ -48,7 +43,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Data tidak valid' }, { status: 400 })
     }
 
-    const db = createAdminClient()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const db = createAdminClient() as any
     let inserted = 0
     let skipped = 0
     const errors: string[] = []
@@ -59,8 +55,7 @@ export async function POST(req: NextRequest) {
         const nama = toKelas(r['Nama'])
         if (!id || !nama) { skipped++; continue }
         const { error } = await db.from('kelas').upsert({
-          id,
-          nama,
+          id, nama,
           jurusan: clean(r['Jurusan']) ?? '-',
           wali_kelas: clean(r['WaliKelas']),
           jumlah: r['Jumlah'] ? Number(r['Jumlah']) : 0,
@@ -75,8 +70,7 @@ export async function POST(req: NextRequest) {
         const nama = clean(r['Nama'])
         if (!id || !nama) { skipped++; continue }
         const { error } = await db.from('mapel').upsert({
-          id,
-          nama,
+          id, nama,
           guru_id: clean(r['Guru']),
           kelas: clean(r['Kelas']),
           jumlah_opsi: r['JumlahOpsi'] ? Number(r['JumlahOpsi']) : 4,
@@ -86,18 +80,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // ============================================================
-    // SEBELUM (lambat): hash + upsert satu per satu
-    // else if (tabel === 'users') {
-    //   for (const r of rows) {
-    //     const password_hash = await bcrypt.hash(password, 10)  // sequential!
-    //     await db.from('users').upsert(...)                     // satu per satu!
-    //   }
-    // }
-    // ============================================================
-    
     else if (tabel === 'users') {
-      // Langkah 1: validasi & hash semua password PARALEL (bukan sequential)
       const prepared = await Promise.all(
         rows.map(async (r) => {
           const username = clean(r['Username'])
@@ -115,37 +98,25 @@ export async function POST(req: NextRequest) {
           }
         })
       )
-    
-      // Langkah 2: pisahkan valid vs invalid
-      const valid = prepared.filter(Boolean) as NonNullable<typeof prepared[0]>[]
+      const valid = prepared.filter(Boolean)
       skipped += prepared.length - valid.length
-    
-      // Langkah 3: SATU upsert untuk semua baris sekaligus
       if (valid.length > 0) {
         const { error } = await db.from('users').upsert(valid, { onConflict: 'username' })
-        if (error) {
-          errors.push(`batch users: ${error.message}`)
-          skipped += valid.length
-        } else {
-          inserted += valid.length
-        }
+        if (error) { errors.push(`batch users: ${error.message}`); skipped += valid.length }
+        else inserted += valid.length
       }
     }
-    
+
     else if (tabel === 'siswa') {
-      // Langkah 1: validasi & hash semua password PARALEL
       const prepared = await Promise.all(
         rows.map(async (r) => {
           const nis = toNIS(r['NIS'])
           const nama = clean(r['Nama'])
           const password = clean(r['Password']) || nis
           if (!nis || !nama) return null
-          const tanggalLahir = r['TanggalLahir']
-            ? excelDateToISO(Number(r['TanggalLahir']))
-            : null
+          const tanggalLahir = r['TanggalLahir'] ? excelDateToISO(Number(r['TanggalLahir'])) : null
           return {
-            nis,
-            nama,
+            nis, nama,
             kelas: toKelas(r['Kelas']),
             password_hash: await bcrypt.hash(password, 10),
             status: clean(r['Status']) ?? 'AKTIF',
@@ -156,35 +127,23 @@ export async function POST(req: NextRequest) {
           }
         })
       )
-    
-      // Langkah 2: pisahkan valid vs invalid
-      const valid = prepared.filter(Boolean) as NonNullable<typeof prepared[0]>[]
+      const valid = prepared.filter(Boolean)
       skipped += prepared.length - valid.length
-    
-      // Langkah 3: SATU upsert untuk semua baris sekaligus
       if (valid.length > 0) {
         const { error } = await db.from('siswa').upsert(valid, { onConflict: 'nis' })
-        if (error) {
-          errors.push(`batch siswa: ${error.message}`)
-          skipped += valid.length
-        } else {
-          inserted += valid.length
-        }
+        if (error) { errors.push(`batch siswa: ${error.message}`); skipped += valid.length }
+        else inserted += valid.length
       }
     }
 
     else if (tabel === 'kelas_mapel') {
       for (const r of rows) {
-        // Sheet KELAS_MAPEL tidak punya header nama kolom standar — pakai index posisi
-        // Kolom: ID, KelasID, Kelas(nama), MapelID, Mapel(nama), Status, CreatedAt
         const id = clean(r['ID'] ?? r[0])
         const kelas_id = clean(r['KelasID'] ?? r[1])
         const mapel_id = clean(r['MapelID'] ?? r[3])
         if (!id || !kelas_id || !mapel_id) { skipped++; continue }
         const { error } = await db.from('kelas_mapel').upsert({
-          id,
-          kelas_id,
-          mapel_id,
+          id, kelas_id, mapel_id,
           status: clean(r['Status'] ?? r[5]) ?? 'BELUM',
         }, { onConflict: 'id' })
         if (error) { errors.push(`kelas_mapel ${id}: ${error.message}`); skipped++ } else inserted++
@@ -196,13 +155,10 @@ export async function POST(req: NextRequest) {
         const id = clean(r['ID'])
         if (!id) { skipped++; continue }
         const tanggal = excelDateToISO(Number(r['Tanggal']))
-        // JamMulai/JamSelesai bisa string "07.30" atau decimal (0.3125 = 07:30)
         const parseJam = (v: unknown): string | null => {
           if (!v) return null
           const s = String(v).trim()
-          // Sudah format string jam
           if (/^\d{2}[.:]\d{2}$/.test(s)) return s.replace('.', ':')
-          // Decimal fraction dari Excel
           const n = Number(s)
           if (!isNaN(n) && n < 1) {
             const totalMin = Math.round(n * 24 * 60)
@@ -282,10 +238,10 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({
-      message: `Import selesai`,
+      message: 'Import selesai',
       inserted,
       skipped,
-      errors: errors.slice(0, 20), // max 20 error ditampilkan
+      errors: errors.slice(0, 20),
     })
   } catch (e: unknown) {
     return NextResponse.json(
