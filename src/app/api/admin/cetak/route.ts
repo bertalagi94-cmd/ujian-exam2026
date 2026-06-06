@@ -44,8 +44,12 @@ export async function GET(req: NextRequest) {
     db.from('pengaturan').select('key, value').in('key', ['namaSekolah', 'npsn', 'alamat', 'kota', 'tahunAjaran', 'namaKepsek', 'logoUrl']),
   ])
 
-  const mapelMap    = Object.fromEntries((mapelList    ?? []).map(m => [m.id,       m.nama]))
-  const pengawasMap = Object.fromEntries((pengawasList ?? []).map(p => [p.username, p.nama]))
+  const mapelMap    = Object.fromEntries(
+    ((mapelList ?? []) as { id: string; nama: string }[]).map(m => [m.id, m.nama])
+  )
+  const pengawasMap = Object.fromEntries(
+    ((pengawasList ?? []) as { username: string; nama: string }[]).map(p => [p.username, p.nama])
+  )
   const settingMap  = Object.fromEntries(
     ((pengaturan ?? []) as { key: string; value: string }[]).map(p => [p.key, p.value])
   )
