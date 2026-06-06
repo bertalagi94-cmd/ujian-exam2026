@@ -95,6 +95,8 @@ export default function AdminJadwalPage() {
   const [tanggalList, setTanggalList] = useState<string[]>([])
   const [downloadingZip, setDownloadingZip] = useState(false)
   const [soalBelumSiapOpen, setSoalBelumSiapOpen] = useState(false)
+  const [resetTolak, setResetTolak] = useState<{ nama: string }[]>([])
+  const [resetTolakOpen, setResetTolakOpen] = useState(false)
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => setToast({ msg, type })
 
@@ -159,6 +161,15 @@ export default function AdminJadwalPage() {
       setDeleteId(null)
       load()
     } catch (err: unknown) {
+      try {
+        const parsed = JSON.parse((err as any)?.body ?? '{}')
+        if (parsed.belum_ujian?.length) {
+          setResetTolak(parsed.belum_ujian)
+          setResetTolakOpen(true)
+          setDeleteId(null)
+          return
+        }
+      } catch {}
       showToast(err instanceof Error ? err.message : 'Gagal menghapus', 'error')
     } finally { setSaving(false) }
   }
@@ -705,6 +716,37 @@ export default function AdminJadwalPage() {
       <Confirm open={!!deleteId} onClose={() => setDeleteId(null)} onConfirm={handleDelete}
         title="Hapus Jadwal" message="Jadwal ini akan dihapus permanen. Lanjutkan?"
         confirmLabel="Ya, Hapus" loading={saving} />
+      {resetTolakOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center flex-shrink-0">
+                <AlertTriangle className="w-5 h-5 text-red-600" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-slate-900">Hapus Ditolak</h3>
+                <p className="text-sm text-slate-500">Siswa berikut belum mengikuti ujian</p>
+              </div>
+            </div>
+            <div className="bg-red-50 border border-red-100 rounded-xl p-3 mb-4 max-h-60 overflow-y-auto">
+              {resetTolak.map((s, i) => (
+                <div key={i} className="flex items-center gap-2 py-1.5 border-b border-red-100 last:border-0">
+                  <span className="w-5 h-5 rounded-full bg-red-200 text-red-700 text-xs font-bold flex items-center justify-center flex-shrink-0">
+                    {i + 1}
+                  </span>
+                  <span className="text-sm text-slate-800">{s.nama}</span>
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-slate-500 mb-4">
+              Jadwal baru bisa dihapus setelah <strong>semua siswa</strong> menyelesaikan ujian.
+            </p>
+            <button onClick={() => setResetTolakOpen(false)} className="btn-primary w-full justify-center">
+              Mengerti
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Modal Soal Belum Siap */}
       <Modal
