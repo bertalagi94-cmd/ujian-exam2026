@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import {
-  BarChart3, Users, CheckCircle, AlertTriangle, ChevronDown, ChevronUp,
-  Search, BookOpen, X
+  BarChart3, CheckCircle, AlertTriangle, ChevronDown, ChevronUp,
+  Search, BookOpen
 } from 'lucide-react'
 import { PageLoader, EmptyState, StatCard, Modal } from '@/components/ui'
 import { apiRequest, formatDateTime } from '@/lib/utils'
@@ -26,7 +26,6 @@ interface AnalisisSoal {
   persenSalah: number
   distribusiJumlah: Record<string, number>
   distribusiSiswa: Record<string, SiswaItem[]>
-  tidakMenjawab: SiswaItem[]
 }
 
 interface SesiItem {
@@ -44,10 +43,12 @@ interface MapelItem { id: string; nama: string }
 interface Ringkasan {
   totalSoal: number
   totalSiswa: number
+  totalPeserta: number
   rataPersenBenar: number
   soalMudah: number
   soalSedang: number
   soalSulit: number
+  siswaBelumUjian: SiswaItem[]
 }
 
 interface ModalSiswaState {
@@ -200,23 +201,6 @@ function SoalCard({
             />
           ))}
 
-          {soal.tidakMenjawab.length > 0 && (
-            <div className="flex items-center gap-3 py-2 px-3 rounded-lg bg-slate-50 border border-slate-100 mt-1">
-              <div className="w-7 h-7 rounded-lg flex items-center justify-center bg-slate-300 text-slate-600 flex-shrink-0">
-                <X className="w-3 h-3" />
-              </div>
-              <div className="flex-1 text-xs text-slate-500">Tidak menjawab</div>
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-bold text-slate-600">{soal.tidakMenjawab.length}</span>
-                <button
-                  onClick={() => onLihatSiswa('__tidak_menjawab__')}
-                  className="text-xs px-2 py-0.5 rounded-md bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 transition-colors"
-                >
-                  Lihat
-                </button>
-              </div>
-            </div>
-          )}
         </div>
       )}
     </div>
@@ -280,14 +264,13 @@ export default function AnalisisUjianView({ apiPath, showMapelFilter = false }: 
   useEffect(() => { loadAnalisis(filterMapelId) }, [filterMapelId])
 
   function bukaModalSiswa(soal: AnalisisSoal, opsi: string) {
-    const isTidakMenjawab = opsi === '__tidak_menjawab__'
     setModalSiswa({
       open: true,
       soalTeks: soal.teks,
-      opsi: isTidakMenjawab ? '-' : opsi,
-      opsiTeks: isTidakMenjawab ? 'Tidak menjawab' : (soal.opsi[opsi] ?? ''),
-      siswaList: isTidakMenjawab ? soal.tidakMenjawab : (soal.distribusiSiswa[opsi] ?? []),
-      isKunci: !isTidakMenjawab && opsi === soal.kunci,
+      opsi,
+      opsiTeks: soal.opsi[opsi] ?? '',
+      siswaList: soal.distribusiSiswa[opsi] ?? [],
+      isKunci: opsi === soal.kunci,
     })
   }
 
@@ -374,12 +357,32 @@ export default function AnalisisUjianView({ apiPath, showMapelFilter = false }: 
           {/* Ringkasan */}
           {!loadingData && ringkasan && data.length > 0 && (
             <>
+              {/* Banner siswa belum ujian */}
+              {ringkasan.siswaBelumUjian.length > 0 && (
+                <div className="flex items-start gap-3 px-4 py-3 rounded-xl bg-amber-50 border border-amber-200">
+                  <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <AlertTriangle className="w-4 h-4 text-amber-500" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-amber-800">
+                      {ringkasan.siswaBelumUjian.length} siswa belum ujian
+                    </p>
+                    <p className="text-xs text-amber-600 mt-0.5 leading-relaxed">
+                      {ringkasan.siswaBelumUjian.map(s => s.nama).join(' · ')}
+                    </p>
+                  </div>
+                  <div className="flex-shrink-0 bg-amber-200 text-amber-800 text-xs font-bold px-2 py-1 rounded-lg">
+                    {ringkasan.siswaBelumUjian.length}/{ringkasan.totalPeserta}
+                  </div>
+                </div>
+              )}
+
               {sesiTerpilih && (
                 <div className="card py-3 px-4 bg-brand-50 border border-brand-100 text-sm text-brand-800 flex flex-wrap gap-x-4 gap-y-1">
                   <span className="font-semibold">{sesiTerpilih.nama_mapel}</span>
                   <span>Kelas: {sesiTerpilih.kelas}</span>
                   <span>{formatDateTime(sesiTerpilih.waktu_mulai)}</span>
-                  <span>{ringkasan.totalSiswa} peserta</span>
+                  <span>{ringkasan.totalSiswa} dari {ringkasan.totalPeserta} peserta sudah ujian</span>
                 </div>
               )}
 
