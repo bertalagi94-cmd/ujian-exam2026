@@ -169,15 +169,14 @@ export default function AdminJadwalPage() {
       setDeleteId(null)
       load()
     } catch (err: unknown) {
-      try {
-        const parsed = JSON.parse((err as any)?.body ?? '{}')
-        if (parsed.belum_ujian?.length) {
-          setResetTolak(parsed.belum_ujian)
-          setResetTolakOpen(true)
-          setDeleteId(null)
-          return
-        }
-      } catch {}
+      const errData = (err as any)?.data
+      if (errData?.belum_ujian?.length) {
+        setResetTolak(errData.belum_ujian)
+        setResetTolakOpen(true)
+        setDeleteId(null)
+        setSaving(false)
+        return
+      }
       showToast(err instanceof Error ? err.message : 'Gagal menghapus', 'error')
     } finally { setSaving(false) }
   }
@@ -204,25 +203,23 @@ export default function AdminJadwalPage() {
       showToast(res.message)
       load()
     } catch (err: unknown) {
-      try {
-        const parsed = JSON.parse((err as any)?.body ?? '{}')
-        if (parsed.detail?.length) {
-          const allSiswa: { nama: string; sudah: boolean; kelas: string }[] = []
-          for (const item of parsed.detail) {
-            for (const s of item.siswa) {
-              allSiswa.push({ nama: s.nama, sudah: false, kelas: item.kelas })
-            }
+      const errData = (err as any)?.data
+      if (errData?.detail?.length) {
+        const allSiswa: { nama: string; sudah: boolean; kelas: string }[] = []
+        for (const item of errData.detail) {
+          for (const s of item.siswa) {
+            allSiswa.push({ nama: s.nama, sudah: false, kelas: item.kelas })
           }
-          for (let i = 0; i < allSiswa.length; i++) {
-            await new Promise(r => setTimeout(r, 100 + Math.random() * 80))
-            setScanItems(prev => [...prev, allSiswa[i]])
-            setScanProgress(Math.round(((i + 1) / allSiswa.length) * 100))
-          }
-          setHapusSelesaiDetail(parsed.detail)
-          setScanDone(true)
-          return
         }
-      } catch {}
+        for (let i = 0; i < allSiswa.length; i++) {
+          await new Promise(r => setTimeout(r, 100 + Math.random() * 80))
+          setScanItems(prev => [...prev, allSiswa[i]])
+          setScanProgress(Math.round(((i + 1) / allSiswa.length) * 100))
+        }
+        setHapusSelesaiDetail(errData.detail)
+        setScanDone(true)
+        return
+      }
       setScanOpen(false)
       showToast(err instanceof Error ? err.message : 'Gagal menghapus', 'error')
     } finally {
