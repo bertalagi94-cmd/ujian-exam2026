@@ -8,58 +8,53 @@ export async function GET(req: NextRequest) {
 
   const db = createAdminClient()
   const { searchParams } = new URL(req.url)
-  const sesiId = searchParams.get('sesi_id') ?? ''
   const filterMapel = searchParams.get('mapel_id') ?? ''
+  const onlyMapel   = searchParams.get('only_mapel') === '1'
+  const latest      = searchParams.get('latest') === '1'
 
   // Ambil semua mapel
   let mapelQuery = db.from('mapel').select('id, nama, guru_id')
   if (filterMapel) mapelQuery = mapelQuery.eq('id', filterMapel)
   const { data: mapelList } = await mapelQuery.order('nama')
 
-  const mapelIds = (mapelList ?? []).map(m => m.id)
+  // Jika hanya butuh daftar mapel (load awal)
+  if (onlyMapel) {
+    return NextResponse.json({ mapelList: mapelList ?? [] })
+  }
 
-  // Ambil daftar sesi ujian SELESAI
-  let sesiQuery = db
+  // Harus ada mapel yang dipilih
+  if (!filterMapel) {
+    return NextResponse.json({ data: [], mapelList: mapelList ?? [] })
+  }
+
+  // Ambil sesi terbaru yang SELESAI untuk mapel ini
+  const { data: sesiList } = await db
     .from('sesi_ujian')
     .select('id, mapel_id, kelas, waktu_mulai, waktu_selesai, jumlah_peserta')
     .eq('status', 'SELESAI')
+    .eq('mapel_id', filterMapel)
     .order('waktu_mulai', { ascending: false })
+    .limit(1)
 
-  if (mapelIds.length) sesiQuery = sesiQuery.in('mapel_id', mapelIds)
+  const sesiAll = sesiList?.[0] ?? null
 
-  const { data: sesiList } = await sesiQuery
-
-  if (!sesiId) {
-    const mapelMap = Object.fromEntries((mapelList ?? []).map(m => [m.id, m.nama]))
-    const enrichedSesi = (sesiList ?? []).map(s => ({
-      ...s,
-      nama_mapel: mapelMap[s.mapel_id] ?? s.mapel_id,
-    }))
-    return NextResponse.json({ data: [], sesiList: enrichedSesi, mapelList: mapelList ?? [] })
+  if (!sesiAll) {
+    return NextResponse.json({ data: [], mapelList: mapelList ?? [] })
   }
-
-  // Validasi sesi
-  const { data: sesiAll } = await db
-    .from('sesi_ujian')
-    .select('id, mapel_id, kelas, waktu_mulai, waktu_selesai, jumlah_peserta')
-    .eq('id', sesiId)
-    .single()
-
-  if (!sesiAll) return NextResponse.json({ error: 'Sesi tidak ditemukan' }, { status: 404 })
 
   // Ambil semua jawaban di sesi ini
   const { data: jawabanAll, error: jawabanErr } = await db
     .from('jawaban')
     .select('soal_id, nis, jawaban')
-    .eq('sesi_id', sesiId)
+    .eq('sesi_id', sesiAll.id)
 
   if (jawabanErr) return NextResponse.json({ error: jawabanErr.message }, { status: 500 })
 
   const soalIds = [...new Set((jawabanAll ?? []).map(j => j.soal_id))]
   if (!soalIds.length) {
     const mapelMap = Object.fromEntries((mapelList ?? []).map(m => [m.id, m.nama]))
-    const sesiListEnriched = (sesiList ?? []).map(s => ({ ...s, nama_mapel: mapelMap[s.mapel_id] ?? s.mapel_id }))
-    return NextResponse.json({ data: [], sesiList: sesiListEnriched, mapelList: mapelList ?? [], sesi: sesiAll })
+    const sesiEnriched = { ...sesiAll, nama_mapel: mapelMap[sesiAll.mapel_id] ?? sesiAll.mapel_id }
+    return NextResponse.json({ data: [], mapelList: mapelList ?? [], sesi: sesiEnriched })
   }
 
   const { data: soalList } = await db
@@ -74,7 +69,7 @@ export async function GET(req: NextRequest) {
     .in('nis', nisSet)
 
   const siswaMap = Object.fromEntries((siswaList ?? []).map(s => [s.nis, s.nama]))
-  const soalMap = Object.fromEntries((soalList ?? []).map(s => [s.id, s]))
+  const soalMap  = Object.fromEntries((soalList  ?? []).map(s => [s.id,  s]))
 
   const jawabanBySoal: Record<string, { opsi: string; nis: string }[]> = {}
   for (const j of jawabanAll ?? []) {
@@ -88,20 +83,20 @@ export async function GET(req: NextRequest) {
     const soal = soalMap[soalId]
     if (!soal) return null
 
-    const jawaban = jawabanBySoal[soalId] ?? []
+    const jawaban      = jawabanBySoal[soalId] ?? []
     const totalDijawab = jawaban.length
-    const benar = jawaban.filter(j => j.opsi === soal.kunci).length
-    const salah = totalDijawab - benar
-    const persenBenar = totalDijawab > 0 ? Math.round((benar / totalDijawab) * 100) : 0
-    const persenSalah = totalDijawab > 0 ? 100 - persenBenar : 0
+    const benar        = jawaban.filter(j => j.opsi === soal.kunci).length
+    const salah        = totalDijawab - benar
+    const persenBenar  = totalDijawab > 0 ? Math.round((benar / totalDijawab) * 100) : 0
+    const persenSalah  = totalDijawab > 0 ? 100 - persenBenar : 0
 
     const opsiList = ['A', 'B', 'C', 'D', 'E'].slice(0, soal.jumlah_opsi ?? 4)
     const distribusiJumlah: Record<string, number> = {}
-    const distribusiSiswa: Record<string, { nis: string; nama: string }[]> = {}
+    const distribusiSiswa:  Record<string, { nis: string; nama: string }[]> = {}
 
     for (const o of opsiList) {
       distribusiJumlah[o] = 0
-      distribusiSiswa[o] = []
+      distribusiSiswa[o]  = []
     }
 
     for (const j of jawaban) {
@@ -111,8 +106,8 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const nisMenjawab = new Set(jawaban.map(j => j.nis))
-    const tidakMenjawab = nisSet
+    const nisMenjawab    = new Set(jawaban.map(j => j.nis))
+    const tidakMenjawab  = nisSet
       .filter(n => !nisMenjawab.has(n))
       .map(n => ({ nis: n, nama: siswaMap[n] ?? n }))
 
@@ -122,13 +117,7 @@ export async function GET(req: NextRequest) {
       teks: soal.teks,
       kunci: soal.kunci,
       tingkat: soal.tingkat,
-      opsi: {
-        A: soal.opsi_a,
-        B: soal.opsi_b,
-        C: soal.opsi_c,
-        D: soal.opsi_d,
-        E: soal.opsi_e,
-      },
+      opsi: { A: soal.opsi_a, B: soal.opsi_b, C: soal.opsi_c, D: soal.opsi_d, E: soal.opsi_e },
       opsiList,
       totalDijawab,
       totalSiswa,
@@ -144,27 +133,25 @@ export async function GET(req: NextRequest) {
 
   analisis.sort((a, b) => (b!.persenSalah - a!.persenSalah))
 
-  const dijawab = analisis.filter(a => a!.totalDijawab > 0)
+  const dijawab  = analisis.filter(a => a!.totalDijawab > 0)
   const ringkasan = {
-    totalSoal: analisis.length,
+    totalSoal:      analisis.length,
     totalSiswa,
     rataPersenBenar: dijawab.length
       ? Math.round(dijawab.reduce((s, a) => s + a!.persenBenar, 0) / dijawab.length)
       : 0,
-    soalMudah: dijawab.filter(a => a!.persenBenar >= 70).length,
+    soalMudah:  dijawab.filter(a => a!.persenBenar >= 70).length,
     soalSedang: dijawab.filter(a => a!.persenBenar >= 40 && a!.persenBenar < 70).length,
-    soalSulit: dijawab.filter(a => a!.persenBenar < 40).length,
+    soalSulit:  dijawab.filter(a => a!.persenBenar < 40).length,
   }
 
-  const mapelMap = Object.fromEntries((mapelList ?? []).map(m => [m.id, m.nama]))
-  const sesiListEnriched = (sesiList ?? []).map(s => ({ ...s, nama_mapel: mapelMap[s.mapel_id] ?? s.mapel_id }))
+  const mapelMap   = Object.fromEntries((mapelList ?? []).map(m => [m.id, m.nama]))
   const sesiEnriched = { ...sesiAll, nama_mapel: mapelMap[sesiAll.mapel_id] ?? sesiAll.mapel_id }
 
   return NextResponse.json({
-    data: analisis,
-    sesiList: sesiListEnriched,
+    data:      analisis,
     mapelList: mapelList ?? [],
-    sesi: sesiEnriched,
+    sesi:      sesiEnriched,
     ringkasan,
   })
 }
