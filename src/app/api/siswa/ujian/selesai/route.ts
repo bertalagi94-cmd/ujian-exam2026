@@ -9,11 +9,11 @@ export async function POST(req: NextRequest) {
   const { user } = auth
 
   const db = createAdminClient()
-  const { sesiId, nis, isTimeout } = await req.json()
+  const { sesiId, nis } = await req.json()
 
   if (nis !== user.nis) return NextResponse.json({ error: 'NIS tidak sesuai' }, { status: 403 })
 
-  // Check already submitted
+  // Cek dulu apakah sudah pernah submit — early return
   const { data: nilaiExist } = await db
     .from('nilai')
     .select('id, nilai, grade, benar, total, lulus')
@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
     })
   }
 
-  // Get sesi info
+  // Ambil sesi dulu (butuh mapel_id dan kelas untuk query berikutnya)
   const { data: sesi } = await db
     .from('sesi_ujian')
     .select('mapel_id, kelas')
@@ -40,70 +40,50 @@ export async function POST(req: NextRequest) {
 
   if (!sesi) return NextResponse.json({ error: 'Sesi tidak ditemukan' }, { status: 404 })
 
-  // Get KKM
-  const { data: mapel } = await db
-    .from('mapel')
-    .select('kkm')
-    .eq('id', sesi.mapel_id)
-    .single()
+  // Query mapel, paket, jawaban siswa — semua PARALEL (tidak saling bergantung)
+  const [
+    { data: mapel },
+    { data: paketData },
+    { data: jawabanSiswa },
+  ] = await Promise.all([
+    db.from('mapel').select('kkm').eq('id', sesi.mapel_id).single(),
+    db.from('paket_soal')
+      .select('id, jumlah_soal')
+      .eq('mapel_id', sesi.mapel_id)
+      .eq('kelas_id', sesi.kelas)
+      .eq('status', 'DISETUJUI')
+      .limit(1)
+      .single(),
+    db.from('jawaban').select('soal_id, jawaban').eq('sesi_id', sesiId).eq('nis', nis),
+  ])
+
   const kkm = mapel?.kkm ?? 75
 
-  // FIX 2: Ambil total soal dari paket yang disetujui, bukan dari jawaban yang dikumpul
-  const { data: paketData } = await db
-    .from('paket_soal')
-    .select('id, jumlah_soal')
-    .eq('mapel_id', sesi.mapel_id)
-    .eq('kelas_id', sesi.kelas)
-    .eq('status', 'DISETUJUI')
-    .limit(1)
-    .single()
+  // Hitung jumlah soal & ambil kunci — PARALEL
+  const [{ count: totalSoalCount }, { data: soalKunci }] = await Promise.all([
+    db.from('soal')
+      .select('*', { count: 'exact', head: true })
+      .eq('mapel_id', sesi.mapel_id)
+      .eq('status', 'DISETUJUI')
+      .eq('paket_id', paketData?.id ?? ''),
+    jawabanSiswa?.length
+      ? db.from('soal').select('id, kunci').in('id', jawabanSiswa.map(j => j.soal_id))
+      : Promise.resolve({ data: [] }),
+  ])
 
-  // Hitung total soal yang sebenarnya dari paket
-  const { count: totalSoalCount } = await db
-    .from('soal')
-    .select('*', { count: 'exact', head: true })
-    .eq('mapel_id', sesi.mapel_id)
-    .eq('status', 'DISETUJUI')
-    .eq('paket_id', paketData?.id ?? '')
-
-  // Fallback: gunakan jumlah_soal dari paket, atau count aktual
   const totalSoal = totalSoalCount ?? paketData?.jumlah_soal ?? 0
 
-  // Get all jawaban siswa
-  const { data: jawabanSiswa } = await db
-    .from('jawaban')
-    .select('soal_id, jawaban')
-    .eq('sesi_id', sesiId)
-    .eq('nis', nis)
-
-  if (!jawabanSiswa?.length || totalSoal === 0) {
-    const nilaiData = {
-      id: generateId('NIL'), sesi_id: sesiId, nis, mapel_id: sesi.mapel_id,
-      kelas: sesi.kelas, benar: 0, total: totalSoal, nilai: 0, grade: 'E', lulus: false, kkm,
-      timestamp: new Date().toISOString()
-    }
-    await db.from('nilai').insert(nilaiData)
-    await db.from('siswa_ujian').update({ status: 'SELESAI', waktu_selesai: new Date().toISOString() })
-      .eq('sesi_id', sesiId).eq('nis', nis)
-    return NextResponse.json({ nilai: 0, grade: 'E', benar: 0, total: totalSoal, lulus: false })
-  }
-
-  // Get correct answers
-  const soalIds = jawabanSiswa.map(j => j.soal_id)
-  const { data: soalKunci } = await db
-    .from('soal')
-    .select('id, kunci')
-    .in('id', soalIds)
-
+  // Hitung nilai
   const kunciMap: Record<string, string> = Object.fromEntries(
     (soalKunci ?? []).map(s => [s.id, s.kunci])
   )
-
   let benar = 0
-  // FIX 2: total menggunakan jumlah soal sebenarnya dari paket, bukan hanya yang dijawab
-  const total = totalSoal > 0 ? totalSoal : soalIds.length
-  for (const j of jawabanSiswa) {
-    if (j.jawaban && kunciMap[j.soal_id] === j.jawaban) benar++
+  const total = totalSoal > 0 ? totalSoal : (jawabanSiswa?.length ?? 0)
+
+  if (jawabanSiswa?.length) {
+    for (const j of jawabanSiswa) {
+      if (j.jawaban && kunciMap[j.soal_id] === j.jawaban) benar++
+    }
   }
 
   const nilaiAngka = total > 0 ? Math.round((benar / total) * 100) : 0
@@ -125,11 +105,14 @@ export async function POST(req: NextRequest) {
     timestamp: new Date().toISOString(),
   }
 
-  await db.from('nilai').insert(nilaiData)
-  await db.from('siswa_ujian')
-    .update({ status: 'SELESAI', waktu_selesai: new Date().toISOString() })
-    .eq('sesi_id', sesiId)
-    .eq('nis', nis)
+  // Simpan nilai + update status — PARALEL
+  await Promise.all([
+    db.from('nilai').insert(nilaiData),
+    db.from('siswa_ujian')
+      .update({ status: 'SELESAI', waktu_selesai: new Date().toISOString() })
+      .eq('sesi_id', sesiId)
+      .eq('nis', nis),
+  ])
 
   return NextResponse.json({ nilai: nilaiAngka, grade, benar, total, lulus })
 }
