@@ -77,19 +77,16 @@ function DistribusiOpsi({
     <div className={`flex items-center gap-3 py-2 px-3 rounded-lg transition-colors ${
       isKunci ? 'bg-emerald-50 border border-emerald-200' : 'bg-slate-50 border border-slate-100'
     }`}>
-      {/* Label opsi */}
       <div className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold flex-shrink-0 ${
         isKunci ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-600'
       }`}>
         {opsi}
       </div>
 
-      {/* Teks opsi */}
       <div className="flex-1 min-w-0">
         {teksOpsi && (
           <p className="text-xs text-slate-600 truncate mb-1">{teksOpsi}</p>
         )}
-        {/* Progress bar */}
         <div className="flex items-center gap-2">
           <div className="flex-1 h-2 bg-slate-200 rounded-full overflow-hidden">
             <div
@@ -103,7 +100,6 @@ function DistribusiOpsi({
         </div>
       </div>
 
-      {/* Jumlah + tombol lihat */}
       <div className="flex items-center gap-2 flex-shrink-0">
         <span className={`text-sm font-bold ${isKunci ? 'text-emerald-700' : 'text-slate-700'}`}>
           {jumlah}
@@ -139,12 +135,10 @@ function SoalCard({
 
   return (
     <div className="card overflow-hidden">
-      {/* Header soal */}
       <div
         className="flex items-start gap-3 cursor-pointer select-none"
         onClick={() => setExpanded(e => !e)}
       >
-        {/* Rank badge */}
         <div className={`w-8 h-8 rounded-lg ${rankColor} text-white text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5`}>
           {rank}
         </div>
@@ -152,9 +146,7 @@ function SoalCard({
         <div className="flex-1 min-w-0">
           <p className="text-sm text-slate-800 leading-relaxed line-clamp-2">{soal.teks}</p>
 
-          {/* Stat mini */}
           <div className="flex flex-wrap gap-3 mt-2">
-            {/* % Salah — ini yang jadi dasar urutan */}
             <div className="flex items-center gap-1.5">
               <div className="h-2 w-16 bg-slate-200 rounded-full overflow-hidden">
                 <div
@@ -184,13 +176,11 @@ function SoalCard({
           </div>
         </div>
 
-        {/* Toggle chevron */}
         <button className="p-1 text-slate-400 flex-shrink-0 mt-0.5">
           {expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
         </button>
       </div>
 
-      {/* Detail distribusi (collapsed by default) */}
       {expanded && (
         <div className="mt-4 pt-4 border-t border-slate-100 space-y-2">
           <p className="text-xs text-slate-400 mb-3">
@@ -235,64 +225,57 @@ function SoalCard({
 
 // ── Komponen utama ─────────────────────────────────────
 interface AnalisisUjianProps {
-  apiPath: string          // '/api/guru/analisis-ujian' | '/api/admin/analisis-ujian'
-  showMapelFilter?: boolean // admin: true, guru: false (sudah difilter otomatis)
+  apiPath: string
+  showMapelFilter?: boolean
 }
 
 export default function AnalisisUjianView({ apiPath, showMapelFilter = false }: AnalisisUjianProps) {
-  const [sesiList, setSesiList] = useState<SesiItem[]>([])
   const [mapelList, setMapelList] = useState<MapelItem[]>([])
   const [data, setData] = useState<AnalisisSoal[]>([])
   const [sesiTerpilih, setSesiTerpilih] = useState<SesiItem | null>(null)
   const [ringkasan, setRingkasan] = useState<Ringkasan | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadingData, setLoadingData] = useState(false)
-  const [selectedSesiId, setSelectedSesiId] = useState('')
   const [filterMapelId, setFilterMapelId] = useState('')
   const [search, setSearch] = useState('')
   const [modalSiswa, setModalSiswa] = useState<ModalSiswaState>({
     open: false, soalTeks: '', opsi: '', opsiTeks: '', siswaList: [], isKunci: false
   })
 
-  // Load daftar sesi
-  const loadSesiList = useCallback(async () => {
+  // Load awal: ambil daftar mapel
+  const loadMapelList = useCallback(async () => {
     setLoading(true)
     try {
-      const params = new URLSearchParams(filterMapelId ? { mapel_id: filterMapelId } : {})
-      const res = await apiRequest<{ sesiList: SesiItem[]; mapelList: MapelItem[] }>(
-        `${apiPath}?${params}`
-      )
-      setSesiList(res.sesiList ?? [])
+      const res = await apiRequest<{ mapelList: MapelItem[] }>(`${apiPath}?only_mapel=1`)
       setMapelList(res.mapelList ?? [])
     } finally {
       setLoading(false)
     }
-  }, [apiPath, filterMapelId])
+  }, [apiPath])
 
-  // Load data analisis per sesi
-  const loadAnalisis = useCallback(async (sesiId: string) => {
-    if (!sesiId) { setData([]); setSesiTerpilih(null); setRingkasan(null); return }
+  // Load analisis otomatis dari sesi terbaru berdasarkan mapel
+  const loadAnalisis = useCallback(async (mapelId: string) => {
+    if (!mapelId) { setData([]); setSesiTerpilih(null); setRingkasan(null); return }
     setLoadingData(true)
     try {
-      const params = new URLSearchParams({ sesi_id: sesiId, ...(filterMapelId ? { mapel_id: filterMapelId } : {}) })
+      const params = new URLSearchParams({ mapel_id: mapelId, latest: '1' })
       const res = await apiRequest<{
         data: AnalisisSoal[]
         sesi: SesiItem
         ringkasan: Ringkasan
-        sesiList: SesiItem[]
         mapelList: MapelItem[]
       }>(`${apiPath}?${params}`)
       setData(res.data ?? [])
       setSesiTerpilih(res.sesi ?? null)
       setRingkasan(res.ringkasan ?? null)
-      setSesiList(res.sesiList ?? sesiList)
+      if (res.mapelList?.length) setMapelList(res.mapelList)
     } finally {
       setLoadingData(false)
     }
-  }, [apiPath, filterMapelId])
+  }, [apiPath])
 
-  useEffect(() => { loadSesiList() }, [loadSesiList])
-  useEffect(() => { loadAnalisis(selectedSesiId) }, [selectedSesiId])
+  useEffect(() => { loadMapelList() }, [loadMapelList])
+  useEffect(() => { loadAnalisis(filterMapelId) }, [filterMapelId])
 
   function bukaModalSiswa(soal: AnalisisSoal, opsi: string) {
     const isTidakMenjawab = opsi === '__tidak_menjawab__'
@@ -324,29 +307,13 @@ export default function AnalisisUjianView({ apiPath, showMapelFilter = false }: 
         {showMapelFilter && (
           <select
             value={filterMapelId}
-            onChange={e => { setFilterMapelId(e.target.value); setSelectedSesiId(''); setData([]) }}
+            onChange={e => { setFilterMapelId(e.target.value); setData([]) }}
             className="select w-52"
           >
-            <option value="">Semua Mata Pelajaran</option>
+            <option value="">— Pilih Mata Pelajaran —</option>
             {mapelList.map(m => <option key={m.id} value={m.id}>{m.nama}</option>)}
           </select>
         )}
-
-        <select
-          value={selectedSesiId}
-          onChange={e => setSelectedSesiId(e.target.value)}
-          className="select flex-1 min-w-[260px]"
-          disabled={sesiList.length === 0}
-        >
-          <option value="">
-            {sesiList.length === 0 ? '— Belum ada sesi ujian selesai —' : '— Pilih Sesi Ujian —'}
-          </option>
-          {sesiList.map(s => (
-            <option key={s.id} value={s.id}>
-              {s.nama_mapel} · {s.kelas} · {formatDateTime(s.waktu_mulai)}
-            </option>
-          ))}
-        </select>
 
         {data.length > 0 && (
           <div className="relative flex-1 min-w-[180px]">
@@ -369,17 +336,17 @@ export default function AnalisisUjianView({ apiPath, showMapelFilter = false }: 
         </div>
       )}
 
-      {/* Belum pilih sesi */}
-      {!loadingData && !selectedSesiId && (
+      {/* Belum pilih mapel */}
+      {!loadingData && showMapelFilter && !filterMapelId && (
         <div className="card">
-          <EmptyState message="Pilih sesi ujian di atas untuk melihat analisis hasil jawaban siswa." icon={BarChart3} />
+          <EmptyState message="Pilih mata pelajaran di atas untuk melihat analisis hasil jawaban siswa." icon={BarChart3} />
         </div>
       )}
 
       {/* Data kosong */}
-      {!loadingData && selectedSesiId && data.length === 0 && (
+      {!loadingData && (!showMapelFilter || filterMapelId) && data.length === 0 && !loadingData && (
         <div className="card">
-          <EmptyState message="Belum ada data jawaban untuk sesi ujian ini." icon={BookOpen} />
+          <EmptyState message="Belum ada data jawaban untuk mata pelajaran ini." icon={BookOpen} />
         </div>
       )}
 
@@ -407,7 +374,6 @@ export default function AnalisisUjianView({ apiPath, showMapelFilter = false }: 
             <span className="ml-3 w-2 h-2 rounded-full bg-emerald-500 inline-block" /> Kunci jawaban
           </div>
 
-          {/* Daftar soal */}
           <div className="space-y-3">
             {filtered.map((soal, i) => (
               <SoalCard
