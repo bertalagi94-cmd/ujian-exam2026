@@ -261,3 +261,75 @@ export async function DELETE(req: NextRequest) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ message: 'Jadwal berhasil dihapus' })
 }
+// Hapus semua jadwal SELESAI — dengan cek siswa dulu
+export async function PATCH(req: NextRequest) {
+  const auth = requireRole(req, ['ADMIN'])
+  if ('error' in auth) return auth.error
+
+  const db = createAdminClient()
+
+  // Ambil semua jadwal SELESAI
+  const { data: jadwalSelesai } = await db
+    .from('jadwal')
+    .select('id, mapel_id, kelas')
+    .eq('status', 'SELESAI')
+
+  if (!jadwalSelesai?.length) {
+    return NextResponse.json({ error: 'Tidak ada jadwal dengan status Selesai.' }, { status: 400 })
+  }
+
+  // Cek setiap jadwal apakah semua siswanya sudah ujian
+  const semuaBelumUjian: { jadwal: string; kelas: string; siswa: { nama: string }[] }[] = []
+
+  for (const jadwal of jadwalSelesai) {
+    const { data: semuaSiswa } = await db
+      .from('siswa')
+      .select('nis, nama')
+      .eq('kelas', jadwal.kelas)
+      .eq('status', 'AKTIF')
+      .order('nama')
+
+    if (!semuaSiswa?.length) continue
+
+    const { data: sesiList } = await db
+      .from('sesi_ujian')
+      .select('id')
+      .eq('mapel_id', jadwal.mapel_id)
+      .eq('kelas', jadwal.kelas)
+
+    const sesiIds = (sesiList ?? []).map((s: any) => s.id)
+    let sudahUjianNis: string[] = []
+
+    if (sesiIds.length > 0) {
+      const { data: nilaiList } = await db
+        .from('nilai')
+        .select('nis')
+        .in('sesi_id', sesiIds)
+      sudahUjianNis = [...new Set((nilaiList ?? []).map((n: any) => n.nis))]
+    }
+
+    const belumUjian = semuaSiswa.filter((s: any) => !sudahUjianNis.includes(s.nis))
+    if (belumUjian.length > 0) {
+      semuaBelumUjian.push({
+        jadwal: jadwal.id,
+        kelas: jadwal.kelas,
+        siswa: belumUjian,
+      })
+    }
+  }
+
+  // Jika ada jadwal yang siswanya belum semua ujian, tolak
+  if (semuaBelumUjian.length > 0) {
+    return NextResponse.json({
+      error: 'Hapus dibatalkan. Masih ada siswa yang belum mengikuti ujian.',
+      detail: semuaBelumUjian,
+    }, { status: 400 })
+  }
+
+  // Semua bersih — hapus semua jadwal SELESAI
+  const idList = jadwalSelesai.map((j: any) => j.id)
+  const { error } = await db.from('jadwal').delete().in('id', idList)
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  return NextResponse.json({ message: `${idList.length} jadwal berhasil dihapus.`, jumlah: idList.length })
+}
