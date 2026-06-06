@@ -8,6 +8,7 @@ export async function GET(req: NextRequest) {
 
   const db = createAdminClient()
 
+  // Semua query paralel, termasuk stats agregat via RPC (tidak tarik semua baris)
   const [
     { count: totalSiswa },
     { count: totalGuru },
@@ -16,9 +17,8 @@ export async function GET(req: NextRequest) {
     { count: totalMapel },
     { count: jadwalAktif },
     { count: paketMenunggu },
-    { data: nilaiAll },
+    { data: statsData },                    // rata-rata + per-mapel dihitung di DB
     { data: recentNilai },
-    { data: nilaiMapel },
   ] = await Promise.all([
     db.from('siswa').select('*', { count: 'exact', head: true }).eq('status', 'AKTIF').neq('is_tester', 'YES'),
     db.from('users').select('*', { count: 'exact', head: true }).eq('status', 'AKTIF').neq('is_tester', 'YES'),
@@ -27,17 +27,19 @@ export async function GET(req: NextRequest) {
     db.from('mapel').select('*', { count: 'exact', head: true }),
     db.from('jadwal').select('*', { count: 'exact', head: true }).eq('status', 'AKTIF'),
     db.from('paket_soal').select('*', { count: 'exact', head: true }).eq('status', 'MENUNGGU'),
-    db.from('nilai').select('nilai'),
-    db.from('nilai').select('nis, nilai, grade, lulus, timestamp, mapel_id, kelas').order('timestamp', { ascending: false }).limit(20),
-    db.from('nilai').select('mapel_id, nilai').not('nilai', 'is', null),
+    db.rpc('get_dashboard_stats'),          // AVG & GROUP BY jalan di PostgreSQL
+    db.from('nilai')
+      .select('nis, nilai, grade, lulus, timestamp, mapel_id, kelas')
+      .order('timestamp', { ascending: false })
+      .limit(20),
   ])
 
-  const rataRataNilai = nilaiAll?.length
-    ? Math.round((nilaiAll as { nilai: number }[]).reduce((s, r) => s + (r.nilai || 0), 0) / nilaiAll.length)
-    : 0
+  const stats = (statsData as { rata_rata_nilai: number; nilai_per_mapel: { mapel_id: string; rata: number; total: number }[] } | null)
+  const rataRataNilai = stats?.rata_rata_nilai ?? 0
+  const nilaiPerMapelRaw = stats?.nilai_per_mapel ?? []
 
-  // Enrich recent nilai with names
-  const nisSet = [...new Set((recentNilai ?? []).map(r => r.nis))]
+  // Enrich recent nilai dengan nama siswa & mapel
+  const nisSet   = [...new Set((recentNilai ?? []).map(r => r.nis))]
   const mapelSet = [...new Set((recentNilai ?? []).map(r => r.mapel_id))]
   const [{ data: siswaNames }, { data: mapelNames }] = await Promise.all([
     db.from('siswa').select('nis, nama').in('nis', nisSet),
@@ -52,23 +54,11 @@ export async function GET(req: NextRequest) {
     nama_mapel: mapelMap[r.mapel_id] ?? r.mapel_id,
   }))
 
-  // Aggregate nilai per mapel
-  const mapelAgg: Record<string, { total: number; sum: number }> = {}
-  for (const r of (nilaiMapel ?? []) as { mapel_id: string; nilai: number }[]) {
-    if (!mapelAgg[r.mapel_id]) mapelAgg[r.mapel_id] = { total: 0, sum: 0 }
-    mapelAgg[r.mapel_id].total++
-    mapelAgg[r.mapel_id].sum += r.nilai || 0
-  }
-  const nilaiPerMapel = await Promise.all(
-    Object.entries(mapelAgg)
-      .sort((a, b) => b[1].total - a[1].total)
-      .slice(0, 10)
-      .map(async ([id, agg]) => ({
-        nama: mapelMap[id] ?? id,
-        rata: Math.round(agg.sum / agg.total),
-        total: agg.total,
-      }))
-  )
+  const nilaiPerMapel = nilaiPerMapelRaw.map(x => ({
+    nama: mapelMap[x.mapel_id] ?? x.mapel_id,
+    rata: x.rata,
+    total: x.total,
+  }))
 
   return NextResponse.json({
     stats: {
