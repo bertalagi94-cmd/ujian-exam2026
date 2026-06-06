@@ -39,6 +39,7 @@ interface SesiItem {
 }
 
 interface MapelItem { id: string; nama: string }
+interface KelasItem { nama: string }
 
 interface Ringkasan {
   totalSoal: number
@@ -211,10 +212,14 @@ function SoalCard({
 interface AnalisisUjianProps {
   apiPath: string
   showMapelFilter?: boolean
+  showKelasFilter?: boolean
 }
 
-export default function AnalisisUjianView({ apiPath, showMapelFilter = false }: AnalisisUjianProps) {
+export default function AnalisisUjianView({ apiPath, showMapelFilter = false, showKelasFilter = false }: AnalisisUjianProps) {
+  const [kelasList, setKelasList] = useState<string[]>([])
   const [mapelList, setMapelList] = useState<MapelItem[]>([])
+  const [filterKelas, setFilterKelas] = useState('')
+  const [loadingMapel, setLoadingMapel] = useState(false)
   const [adaSesi, setAdaSesi] = useState<boolean | null>(null)
   const [data, setData] = useState<AnalisisSoal[]>([])
   const [sesiTerpilih, setSesiTerpilih] = useState<SesiItem | null>(null)
@@ -227,16 +232,39 @@ export default function AnalisisUjianView({ apiPath, showMapelFilter = false }: 
     open: false, soalTeks: '', opsi: '', opsiTeks: '', siswaList: [], isKunci: false
   })
 
-  // Load awal: ambil daftar mapel yang punya sesi selesai
-  const loadMapelList = useCallback(async () => {
+  // Load awal: ambil daftar kelas yang punya sesi selesai
+  const loadKelasList = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await apiRequest<{ mapelList: MapelItem[]; adaSesi: boolean }>(`${apiPath}?only_mapel=1`)
-      setMapelList(res.mapelList ?? [])
+      const res = await apiRequest<{ kelasList: string[]; adaSesi: boolean }>(`${apiPath}?only_kelas=1`)
+      setKelasList(res.kelasList ?? [])
       setAdaSesi(res.adaSesi ?? false)
+      // Jika tidak ada filter kelas (non-admin / non-showKelasFilter), langsung load mapel
+      if (!showKelasFilter) {
+        const res2 = await apiRequest<{ mapelList: MapelItem[]; adaSesi: boolean }>(`${apiPath}?only_mapel=1`)
+        setMapelList(res2.mapelList ?? [])
+        setAdaSesi(res2.adaSesi ?? false)
+      }
     } finally {
       setLoading(false)
     }
+  }, [apiPath, showKelasFilter])
+
+  // Load mapel sesuai kelas yang dipilih
+  const loadMapelList = useCallback(async (kelas: string) => {
+    setMapelList([])
+    setFilterMapelId('')
+    setData([])
+    setSesiTerpilih(null)
+    setRingkasan(null)
+    if (!kelas) return
+    setLoadingMapel(true)
+    try {
+      const params = new URLSearchParams({ only_mapel: '1', kelas })
+      const res = await apiRequest<{ mapelList: MapelItem[]; adaSesi: boolean }>(`${apiPath}?${params}`)
+      setMapelList(res.mapelList ?? [])
+    } catch { /* ignore */ }
+    finally { setLoadingMapel(false) }
   }, [apiPath])
 
   // Load analisis otomatis dari sesi terbaru berdasarkan mapel
@@ -245,6 +273,7 @@ export default function AnalisisUjianView({ apiPath, showMapelFilter = false }: 
     setLoadingData(true)
     try {
       const params = new URLSearchParams({ mapel_id: mapelId, latest: '1' })
+      if (filterKelas) params.set('kelas', filterKelas)
       const res = await apiRequest<{
         data: AnalisisSoal[]
         sesi: SesiItem
@@ -260,8 +289,8 @@ export default function AnalisisUjianView({ apiPath, showMapelFilter = false }: 
     }
   }, [apiPath])
 
-  useEffect(() => { loadMapelList() }, [loadMapelList])
-  useEffect(() => { loadAnalisis(filterMapelId) }, [filterMapelId])
+  useEffect(() => { loadKelasList() }, [loadKelasList])
+  useEffect(() => { loadAnalisis(filterMapelId) }, [filterMapelId, filterKelas])
 
   function bukaModalSiswa(soal: AnalisisSoal, opsi: string) {
     setModalSiswa({
@@ -308,11 +337,22 @@ export default function AnalisisUjianView({ apiPath, showMapelFilter = false }: 
         <>
           {/* Filter */}
           <div className="card py-4 flex flex-wrap gap-3 items-center">
+            {showKelasFilter && (
+              <select
+                value={filterKelas}
+                onChange={e => { setFilterKelas(e.target.value); loadMapelList(e.target.value) }}
+                className="select w-44"
+              >
+                <option value="">— Pilih Kelas —</option>
+                {kelasList.map(k => <option key={k} value={k}>{k}</option>)}
+              </select>
+            )}
             {showMapelFilter && (
               <select
                 value={filterMapelId}
                 onChange={e => { setFilterMapelId(e.target.value); setData([]) }}
                 className="select w-52"
+                disabled={showKelasFilter && !filterKelas}
               >
                 <option value="">— Pilih Mata Pelajaran —</option>
                 {mapelList.map(m => <option key={m.id} value={m.id}>{m.nama}</option>)}
@@ -340,8 +380,22 @@ export default function AnalisisUjianView({ apiPath, showMapelFilter = false }: 
             </div>
           )}
 
-          {/* Belum pilih mapel */}
-          {!loadingData && showMapelFilter && !filterMapelId && (
+          {/* Belum pilih kelas */}
+          {!loadingData && showKelasFilter && !filterKelas && (
+            <div className="card">
+              <EmptyState message="Pilih kelas terlebih dahulu untuk melihat daftar mata pelajaran." icon={BarChart3} />
+            </div>
+          )}
+
+          {/* Kelas sudah dipilih tapi belum ada mapel yang diujikan */}
+          {!loadingData && !loadingMapel && showKelasFilter && filterKelas && mapelList.length === 0 && (
+            <div className="card">
+              <EmptyState message={`Kelas ${filterKelas} belum memiliki ujian yang selesai.`} icon={BookOpen} />
+            </div>
+          )}
+
+          {/* Belum pilih mapel — hanya tampil jika ada mapel tersedia */}
+          {!loadingData && !loadingMapel && showMapelFilter && (!showKelasFilter || filterKelas) && mapelList.length > 0 && !filterMapelId && (
             <div className="card">
               <EmptyState message="Pilih mata pelajaran di atas untuk melihat analisis hasil jawaban siswa." icon={BarChart3} />
             </div>
