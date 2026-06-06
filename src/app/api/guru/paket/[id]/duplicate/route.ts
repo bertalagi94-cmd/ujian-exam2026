@@ -64,8 +64,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     .order('created_at')
 
   if (soalSumber && soalSumber.length > 0) {
-    const soalBaru = soalSumber.map((s: Record<string, unknown>) => ({
-      id: generateId('SL'),
+    const soalBaru = soalSumber.map((s: Record<string, unknown>, idx: number) => ({
+      id: `SL_${Date.now()}_${idx}`,
       mapel_id: s.mapel_id,
       kelas_id: kelasTarget,
       guru_id: user.username,
