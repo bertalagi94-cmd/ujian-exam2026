@@ -100,7 +100,9 @@ export function apiRequest<T = unknown>(
         }
         throw new Error('Sesi berakhir, silakan login kembali')
       }
-      throw new Error((data.error as string) || `Request gagal (${res.status})`)
+      const err = new Error((data.error as string) || `Request gagal (${res.status})`) as Error & { data: Record<string, unknown> }
+      err.data = data
+      throw err
     }
 
     return data as T
