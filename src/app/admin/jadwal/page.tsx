@@ -865,12 +865,14 @@ export default function AdminJadwalPage() {
                     <AlertTriangle className="w-6 h-6 text-red-600" />
                   </div>
                   <p className="font-medium text-slate-900">Maaf, jadwal tidak bisa dihapus!</p>
-                  <p className="text-xs text-slate-500 mt-1">Siswa berikut belum mengikuti ujian</p>
+                  <p className="text-xs text-slate-500 mt-1">
+                    <strong className="text-red-600">{hapusSelesaiDetail.reduce((acc, item) => acc + item.siswa.length, 0)} siswa</strong> belum mengikuti ujian
+                  </p>
                 </div>
                 <div className="space-y-3 max-h-64 overflow-y-auto mb-4">
                   {hapusSelesaiDetail.map((item, i) => (
                     <div key={i}>
-                      <p className="text-xs font-medium text-slate-500 mb-1">Kelas {item.kelas}</p>
+                      <p className="text-xs font-medium text-slate-500 mb-1">Kelas {item.kelas} · <span className="text-red-500">{item.siswa.length} siswa belum ujian</span></p>
                       <div className="bg-red-50 border border-red-100 rounded-xl p-2">
                         {item.siswa.map((s, j) => (
                           <div key={j} className="flex items-center gap-2 py-1 border-b border-red-100 last:border-0">
