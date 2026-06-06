@@ -1,11 +1,10 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createAdminClient } from '@/lib/supabase'
+
+export const dynamic = 'force-dynamic'
 
 export async function GET() {
-  const db = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  )
+  const db = createAdminClient()
 
   const { data, error } = await db
     .from('pengaturan')
@@ -17,7 +16,7 @@ export async function GET() {
   }
 
   const result: Record<string, string> = {}
-  data?.forEach(({ key, value }) => { result[key] = value ?? '' })
+  data?.forEach(({ key, value }: { key: string; value: string }) => { result[key] = value ?? '' })
 
   return NextResponse.json({ data: result })
 }
