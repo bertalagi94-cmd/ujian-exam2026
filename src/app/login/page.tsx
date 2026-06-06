@@ -219,7 +219,12 @@ export default function LoginPage() {
 
         {/* Logo + Nama Sekolah */}
         <div className="relative z-10">
-          <div className="flex items-center gap-3 mb-2">
+          <div
+            className="flex items-center gap-3 mb-2 cursor-default w-fit"
+            style={{ transition: 'transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1)' }}
+            onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.transform = 'scale(1.08)' }}
+            onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.transform = 'scale(1)' }}
+          >
             <SchoolLogo size="lg" />
             <div className="min-w-0">
               <p className="font-bold text-xl leading-tight line-clamp-2">
