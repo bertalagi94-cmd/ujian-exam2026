@@ -97,6 +97,10 @@ export default function AdminJadwalPage() {
   const [soalBelumSiapOpen, setSoalBelumSiapOpen] = useState(false)
   const [resetTolak, setResetTolak] = useState<{ nama: string }[]>([])
   const [resetTolakOpen, setResetTolakOpen] = useState(false)
+  const [hapusSelesaiLoading, setHapusSelesaiLoading] = useState(false)
+  const [hapusSelesaiDetail, setHapusSelesaiDetail] = useState<{ kelas: string; siswa: { nama: string }[] }[]>([])
+  const [hapusSelesaiDetailOpen, setHapusSelesaiDetailOpen] = useState(false)
+  const [confirmHapusSelesai, setConfirmHapusSelesai] = useState(false)
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => setToast({ msg, type })
 
@@ -179,6 +183,31 @@ export default function AdminJadwalPage() {
     window.open(url, '_blank')
   }
 
+  async function handleHapusSelesai() {
+    setHapusSelesaiLoading(true)
+    try {
+      const res = await apiRequest<{ message: string; jumlah: number }>(
+        '/api/admin/jadwal', { method: 'PATCH' }
+      )
+      showToast(res.message)
+      setConfirmHapusSelesai(false)
+      load()
+    } catch (err: unknown) {
+      try {
+        const parsed = JSON.parse((err as any)?.body ?? '{}')
+        if (parsed.detail?.length) {
+          setHapusSelesaiDetail(parsed.detail)
+          setHapusSelesaiDetailOpen(true)
+          setConfirmHapusSelesai(false)
+          return
+        }
+      } catch {}
+      showToast(err instanceof Error ? err.message : 'Gagal menghapus', 'error')
+    } finally {
+      setHapusSelesaiLoading(false)
+    }
+  }
+  
   async function generatePDFBlob(j: JadwalCetak, sekolah: Sekolah, mode: 'daftar-hadir' | 'berita-acara'): Promise<Uint8Array> {
     const { jsPDF } = await import('jspdf')
     const doc = new jsPDF({ unit: 'mm', format: 'a4' })
@@ -415,6 +444,15 @@ export default function AdminJadwalPage() {
               </button>
             )
           })()}
+          {jadwal.some(j => j.status === 'SELESAI') && (
+            <button
+              onClick={() => setConfirmHapusSelesai(true)}
+              className="btn-sm flex items-center gap-1.5 font-medium rounded-xl px-3 py-2 border bg-red-50 border-red-200 text-red-700 hover:bg-red-100 transition-colors"
+            >
+              <Trash2 className="w-4 h-4" />
+              Hapus Jadwal Selesai
+            </button>
+          )}
           <button onClick={() => { setEditData({}); setSelectedMapelId(''); setModalOpen(true) }} className="btn-primary btn-sm">
             <Plus className="w-4 h-4" /> Tambah Jadwal
           </button>
@@ -747,7 +785,57 @@ export default function AdminJadwalPage() {
           </div>
         </div>
       )}
-
+      {/* Konfirmasi hapus semua jadwal selesai */}
+      <Confirm
+        open={confirmHapusSelesai}
+        onClose={() => setConfirmHapusSelesai(false)}
+        onConfirm={handleHapusSelesai}
+        title="Hapus Semua Jadwal Selesai?"
+        message="Semua jadwal berstatus SELESAI akan dihapus permanen. Sistem akan mengecek terlebih dahulu apakah semua siswa sudah mengikuti ujian."
+        confirmLabel="Ya, Hapus Semua"
+        variant="danger"
+        loading={hapusSelesaiLoading}
+      />
+      
+      {/* Modal detail siswa belum ujian (hapus massal) */}
+      {hapusSelesaiDetailOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center flex-shrink-0">
+                <AlertTriangle className="w-5 h-5 text-red-600" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-slate-900">Hapus Dibatalkan</h3>
+                <p className="text-sm text-slate-500">Masih ada siswa yang belum ujian</p>
+              </div>
+            </div>
+            <div className="space-y-3 max-h-72 overflow-y-auto mb-4">
+              {hapusSelesaiDetail.map((item, i) => (
+                <div key={i}>
+                  <p className="text-xs font-semibold text-slate-600 mb-1">Kelas {item.kelas}</p>
+                  <div className="bg-red-50 border border-red-100 rounded-xl p-2">
+                    {item.siswa.map((s, j) => (
+                      <div key={j} className="flex items-center gap-2 py-1 border-b border-red-100 last:border-0">
+                        <span className="w-5 h-5 rounded-full bg-red-200 text-red-700 text-xs font-bold flex items-center justify-center flex-shrink-0">
+                          {j + 1}
+                        </span>
+                        <span className="text-sm text-slate-800">{s.nama}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-slate-500 mb-4">
+              Hapus baru bisa dilakukan setelah <strong>semua siswa</strong> menyelesaikan ujian.
+            </p>
+            <button onClick={() => setHapusSelesaiDetailOpen(false)} className="btn-primary w-full justify-center">
+              Mengerti
+            </button>
+          </div>
+        </div>
+      )}
       {/* Modal Soal Belum Siap */}
       <Modal
         open={soalBelumSiapOpen}
