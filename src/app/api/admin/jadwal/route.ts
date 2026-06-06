@@ -12,37 +12,42 @@ export async function GET(req: NextRequest) {
   const status = searchParams.get('status')
   const kelas = searchParams.get('kelas')
 
-  let query = db.from('jadwal').select('*').order('tanggal', { ascending: false }).order('sesi')
+  let query = (db as any).from('jadwal').select('*').order('tanggal', { ascending: false }).order('sesi')
   if (status) query = query.eq('status', status)
   if (kelas) query = query.eq('kelas', kelas)
 
-  const { data, error } = await query
+  const { data: rawData, error } = await query
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  if (!data?.length) return NextResponse.json({ data: [] })
+  if (!rawData?.length) return NextResponse.json({ data: [] })
+
+  const data = rawData as any[]
 
   // Enrich nama_mapel
   const mapelIds = [...new Set(data.map(r => r.mapel_id).filter(Boolean))]
-  const { data: mapelList } = await db.from('mapel').select('id, nama').in('id', mapelIds)
-  const mapelMap = Object.fromEntries((mapelList ?? []).map(m => [m.id, m.nama]))
+  const { data: mapelListRaw } = mapelIds.length > 0 ? await (db as any).from('mapel').select('id, nama').in('id', mapelIds) : { data: [] }
+  const mapelList = (mapelListRaw ?? []) as { id: string; nama: string }[]
+  const mapelMap = Object.fromEntries(mapelList.map(m => [m.id, m.nama]))
 
   // Enrich nama_pengawas
   const pengawasIds = [...new Set(data.map(r => r.pengawas).filter(Boolean))]
   const guruMap: Record<string, string> = {}
   if (pengawasIds.length > 0) {
-    const { data: guruList } = await db.from('users').select('username, nama').in('username', pengawasIds)
-    for (const g of guruList ?? []) guruMap[g.username] = g.nama
+    const { data: guruListRaw } = await (db as any).from('users').select('username, nama').in('username', pengawasIds)
+    const guruList = (guruListRaw ?? []) as { username: string; nama: string }[]
+    for (const g of guruList) guruMap[g.username] = g.nama
   }
 
   // Enrich status_soal: ambil paket_soal terbaru per (mapel_id, kelas_id)
   // kelas di jadwal = nama kelas (string), kelas_id di paket_soal = id kelas
   // Kita perlu mapping nama kelas -> id kelas
   const kelasNamaList = [...new Set(data.map(r => r.kelas).filter(Boolean))]
-  const { data: kelasList } = await db.from('kelas').select('id, nama').in('nama', kelasNamaList)
-  const kelasNamaToId = Object.fromEntries((kelasList ?? []).map(k => [String(k.nama), k.id]))
+  const { data: kelasListRaw } = kelasNamaList.length > 0 ? await (db as any).from('kelas').select('id, nama').in('nama', kelasNamaList) : { data: [] }
+  const kelasList = (kelasListRaw ?? []) as { id: string; nama: string }[]
+  const kelasNamaToId = Object.fromEntries(kelasList.map(k => [String(k.nama), k.id]))
 
   // Ambil semua paket_soal yang relevan
-  const kelasIds = (kelasList ?? []).map(k => k.id)
+  const kelasIds = kelasList.map(k => k.id)
   let paketStatusMap: Record<string, string> = {}
   if (mapelIds.length > 0 && kelasIds.length > 0) {
     const { data: paketList } = await db
@@ -55,7 +60,8 @@ export async function GET(req: NextRequest) {
     // Untuk setiap kombinasi mapel+kelas, ambil status paket terbaru
     // Priority: DISETUJUI > MENUNGGU > DITOLAK > DRAFT
     const statusPriority: Record<string, number> = { DISETUJUI: 4, MENUNGGU: 3, DITOLAK: 2, DRAFT: 1 }
-    for (const p of paketList ?? []) {
+    const typedPaketList = (paketList ?? []) as { mapel_id: string; kelas_id: string; status: string }[]
+    for (const p of typedPaketList) {
       const key = `${p.mapel_id}__${p.kelas_id}`
       const existing = paketStatusMap[key]
       if (!existing || (statusPriority[p.status] ?? 0) > (statusPriority[existing] ?? 0)) {
@@ -109,7 +115,8 @@ export async function POST(req: NextRequest) {
       .eq('pengawas', body.pengawas)
       .eq('tanggal', body.tanggal)
 
-    const bentrok = (jadwalPengawas ?? []).find(j => {
+    const typedJadwalPengawas = (jadwalPengawas ?? []) as { id: string; jam_mulai: string; jam_selesai: string }[]
+    const bentrok = typedJadwalPengawas.find(j => {
       // Overlap jika: mulai baru < selesai lama DAN selesai baru > mulai lama
       return body.jam_mulai < j.jam_selesai && body.jam_selesai > j.jam_mulai
     })
@@ -122,7 +129,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const { error } = await db.from('jadwal').insert({
+  const { error } = await (db as any).from('jadwal').insert({
     id: generateId('JDW'),
     tanggal: body.tanggal,
     sesi: body.sesi || 1,
@@ -174,7 +181,8 @@ export async function PUT(req: NextRequest) {
       .eq('tanggal', update.tanggal)
       .neq('id', id)
 
-    const bentrok = (jadwalPengawas ?? []).find(j => {
+    const typedJadwalPengawas2 = (jadwalPengawas ?? []) as { id: string; jam_mulai: string; jam_selesai: string }[]
+    const bentrok = typedJadwalPengawas2.find(j => {
       return update.jam_mulai < j.jam_selesai && update.jam_selesai > j.jam_mulai
     })
 
@@ -186,7 +194,7 @@ export async function PUT(req: NextRequest) {
     }
   }
 
-  const { error } = await db.from('jadwal').update(update).eq('id', id)
+  const { error } = await (db as any).from('jadwal').update(update).eq('id', id)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ message: 'Jadwal berhasil diperbarui' })
 }
@@ -198,7 +206,7 @@ export async function DELETE(req: NextRequest) {
   const db = createAdminClient()
   const { id } = await req.json()
 
-  const { error } = await db.from('jadwal').delete().eq('id', id)
+  const { error } = await (db as any).from('jadwal').delete().eq('id', id)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ message: 'Jadwal berhasil dihapus' })
 }
