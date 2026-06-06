@@ -86,49 +86,90 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // ============================================================
+    // SEBELUM (lambat): hash + upsert satu per satu
+    // else if (tabel === 'users') {
+    //   for (const r of rows) {
+    //     const password_hash = await bcrypt.hash(password, 10)  // sequential!
+    //     await db.from('users').upsert(...)                     // satu per satu!
+    //   }
+    // }
+    // ============================================================
+    
     else if (tabel === 'users') {
-      for (const r of rows) {
-        const username = clean(r['Username'])
-        const password = clean(r['Password'])
-        const nama = clean(r['Nama'])
-        if (!username || !password || !nama) { skipped++; continue }
-        const password_hash = await bcrypt.hash(password, 10)
-        const { error } = await db.from('users').upsert({
-          username,
-          password_hash,
-          nama,
-          role: clean(r['Role']) ?? 'GURU',
-          mapel_id: clean(r['MapelID']),
-          status: clean(r['Status']) ?? 'AKTIF',
-          is_tester: clean(r['IS_TESTER']) ?? 'NO',
-        }, { onConflict: 'username' })
-        if (error) { errors.push(`user ${username}: ${error.message}`); skipped++ } else inserted++
+      // Langkah 1: validasi & hash semua password PARALEL (bukan sequential)
+      const prepared = await Promise.all(
+        rows.map(async (r) => {
+          const username = clean(r['Username'])
+          const password = clean(r['Password'])
+          const nama = clean(r['Nama'])
+          if (!username || !password || !nama) return null
+          return {
+            username,
+            password_hash: await bcrypt.hash(password, 10),
+            nama,
+            role: clean(r['Role']) ?? 'GURU',
+            mapel_id: clean(r['MapelID']),
+            status: clean(r['Status']) ?? 'AKTIF',
+            is_tester: clean(r['IS_TESTER']) ?? 'NO',
+          }
+        })
+      )
+    
+      // Langkah 2: pisahkan valid vs invalid
+      const valid = prepared.filter(Boolean) as NonNullable<typeof prepared[0]>[]
+      skipped += prepared.length - valid.length
+    
+      // Langkah 3: SATU upsert untuk semua baris sekaligus
+      if (valid.length > 0) {
+        const { error } = await db.from('users').upsert(valid, { onConflict: 'username' })
+        if (error) {
+          errors.push(`batch users: ${error.message}`)
+          skipped += valid.length
+        } else {
+          inserted += valid.length
+        }
       }
     }
-
+    
     else if (tabel === 'siswa') {
-      for (const r of rows) {
-        const nis = toNIS(r['NIS'])
-        const nama = clean(r['Nama'])
-        // Jika kolom Password kosong, gunakan NIS sebagai password default
-        const password = clean(r['Password']) || nis
-        if (!nis || !nama) { skipped++; continue }
-        const password_hash = await bcrypt.hash(password, 10)
-        const tanggalLahir = r['TanggalLahir']
-          ? excelDateToISO(Number(r['TanggalLahir']))
-          : null
-        const { error } = await db.from('siswa').upsert({
-          nis,
-          nama,
-          kelas: toKelas(r['Kelas']),
-          password_hash,
-          status: clean(r['Status']) ?? 'AKTIF',
-          tempat_lahir: clean(r['TempatLahir']),
-          tanggal_lahir: tanggalLahir ? tanggalLahir.split('T')[0] : null,
-          jenis_kelamin: clean(r['JenisKelamin']),
-          is_tester: clean(r['IS_TESTER']) ?? 'NO',
-        }, { onConflict: 'nis' })
-        if (error) { errors.push(`siswa ${nis}: ${error.message}`); skipped++ } else inserted++
+      // Langkah 1: validasi & hash semua password PARALEL
+      const prepared = await Promise.all(
+        rows.map(async (r) => {
+          const nis = toNIS(r['NIS'])
+          const nama = clean(r['Nama'])
+          const password = clean(r['Password']) || nis
+          if (!nis || !nama) return null
+          const tanggalLahir = r['TanggalLahir']
+            ? excelDateToISO(Number(r['TanggalLahir']))
+            : null
+          return {
+            nis,
+            nama,
+            kelas: toKelas(r['Kelas']),
+            password_hash: await bcrypt.hash(password, 10),
+            status: clean(r['Status']) ?? 'AKTIF',
+            tempat_lahir: clean(r['TempatLahir']),
+            tanggal_lahir: tanggalLahir ? tanggalLahir.split('T')[0] : null,
+            jenis_kelamin: clean(r['JenisKelamin']),
+            is_tester: clean(r['IS_TESTER']) ?? 'NO',
+          }
+        })
+      )
+    
+      // Langkah 2: pisahkan valid vs invalid
+      const valid = prepared.filter(Boolean) as NonNullable<typeof prepared[0]>[]
+      skipped += prepared.length - valid.length
+    
+      // Langkah 3: SATU upsert untuk semua baris sekaligus
+      if (valid.length > 0) {
+        const { error } = await db.from('siswa').upsert(valid, { onConflict: 'nis' })
+        if (error) {
+          errors.push(`batch siswa: ${error.message}`)
+          skipped += valid.length
+        } else {
+          inserted += valid.length
+        }
       }
     }
 
