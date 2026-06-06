@@ -189,7 +189,6 @@ export function GuruSidebar() {
     { label: 'Bank Soal', href: '/guru/soal', icon: BookOpen },
     { label: 'Buat Soal', href: '/guru/paket', icon: ClipboardList },
     { label: 'Rekap Nilai', href: '/guru/nilai', icon: BarChart3 },
-    { label: 'Analisis Soal', href: '/guru/analisis', icon: BarChart3 },
     { label: 'Analisis Ujian', href: '/guru/analisis-ujian', icon: BarChart3 },
   ]
 
