@@ -84,7 +84,7 @@ function getMinutesUntilStart(jamMulai: string): number {
   const [h, m] = jamMulai.split(':').map(Number)
   const start = new Date()
   start.setHours(h, m, 0, 0)
-  return Math.floor((start.getTime() - now.getTime()) / 60000)
+  return Math.ceil((start.getTime() - now.getTime()) / 60000)
 }
 
 function isBolehMulai(j: JadwalHariIni): boolean {
