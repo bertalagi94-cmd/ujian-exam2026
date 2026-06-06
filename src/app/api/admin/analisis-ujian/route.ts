@@ -19,7 +19,18 @@ export async function GET(req: NextRequest) {
 
   // Jika hanya butuh daftar mapel (load awal)
   if (onlyMapel) {
-    return NextResponse.json({ mapelList: mapelList ?? [] })
+    // Hanya tampilkan mapel yang punya minimal satu sesi SELESAI
+    const { data: sesiSelesai } = await db
+      .from('sesi_ujian')
+      .select('mapel_id')
+      .eq('status', 'SELESAI')
+
+    const mapelIdAda = new Set((sesiSelesai ?? []).map(s => s.mapel_id))
+    const filtered   = (mapelList ?? []).filter(m => mapelIdAda.has(m.id))
+    return NextResponse.json({
+      mapelList: filtered,
+      adaSesi: mapelIdAda.size > 0,
+    })
   }
 
   // Harus ada mapel yang dipilih
