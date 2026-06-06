@@ -719,7 +719,18 @@ export default function SiswaUjianPage() {
         <div className="card py-3 flex items-center justify-between gap-4">
           <div>
             <div className="font-semibold text-slate-900 text-sm">{sesiInfo?.namaMapel}</div>
-            <div className="text-xs text-slate-400">{totalDijawab}/{soalList.length} terjawab</div>
+            <div className={`text-xs font-medium ${
+              totalDijawab === soalList.length
+                ? 'text-emerald-600'
+                : totalDijawab === 0
+                ? 'text-slate-400'
+                : 'text-amber-500'
+            }`}>
+              {totalDijawab}/{soalList.length} terjawab
+              {totalDijawab < soalList.length && (
+                <span className="ml-1">· {soalList.length - totalDijawab} belum</span>
+              )}
+            </div>
           </div>
           <div className={`flex items-center gap-2 px-4 py-2 rounded-xl font-mono font-bold text-lg ${
             sisaWaktu < 300 ? 'bg-red-50 text-red-600' :
@@ -730,9 +741,26 @@ export default function SiswaUjianPage() {
             {formatWaktu(sisaWaktu)}
           </div>
           <button
-            onClick={() => setConfirmSelesai(true)}
-            className="btn-success btn-sm"
+            onClick={() => {
+              if (totalDijawab < soalList.length) {
+                // Arahkan ke soal pertama yang belum dijawab
+                const idxBelum = soalList.findIndex(s => !jawaban[s.id])
+                if (idxBelum !== -1) setCurrentIdx(idxBelum)
+              } else {
+                setConfirmSelesai(true)
+              }
+            }}
+            className={`btn-sm flex items-center gap-1.5 font-semibold transition-all ${
+              totalDijawab < soalList.length
+                ? 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'
+                : 'btn-success'
+            }`}
             disabled={submitting}
+            title={
+              totalDijawab < soalList.length
+                ? `${soalList.length - totalDijawab} soal belum dijawab`
+                : 'Selesaikan ujian'
+            }
           >
             <Send className="w-3.5 h-3.5" />
             {submitting ? 'Menyimpan...' : 'Selesai'}
@@ -830,7 +858,7 @@ export default function SiswaUjianPage() {
           onClose={() => setConfirmSelesai(false)}
           onConfirm={() => handleSelesai(false)}
           title="Selesaikan Ujian?"
-          message={`Anda baru menjawab ${totalDijawab} dari ${soalList.length} soal. Pastikan semua soal sudah dijawab. Ujian tidak bisa diulang setelah diselesaikan.`}
+          message="Semua soal sudah dijawab. Apakah Anda yakin ingin menyelesaikan ujian? Jawaban tidak dapat diubah setelah diselesaikan."
           confirmLabel="Ya, Selesaikan"
           variant="primary"
           loading={submitting}
