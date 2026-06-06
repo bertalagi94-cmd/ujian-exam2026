@@ -62,7 +62,7 @@ export async function POST(req: NextRequest) {
   // Ambil soal TANPA field kunci dan pembahasan (keamanan)
   let soalQuery = db
     .from('soal')
-    .select('id, paket_id, mapel_id, teks, opsi_a, opsi_b, opsi_c, opsi_d, opsi_e, jumlah_opsi, gambar_url, gambar_a, gambar_b, gambar_c, gambar_d, gambar_e, status')
+    .select('id, paket_id, mapel_id, teks, opsi_a, opsi_b, opsi_c, opsi_d, opsi_e, jumlah_opsi, gambar_pertanyaan, gambar_opsi_a, gambar_opsi_b, gambar_opsi_c, gambar_opsi_d, gambar_opsi_e, status')
     .eq('mapel_id', sesi.mapel_id)
     .eq('status', 'DISETUJUI')
 
