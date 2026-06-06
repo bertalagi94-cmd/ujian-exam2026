@@ -1,5 +1,5 @@
 'use client'
-
+import { useMonitorRealtime } from '@/hooks/useMonitorRealtime'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Play, Square, Clock, Copy, CheckCircle, RefreshCw, AlertTriangle, ShieldAlert, Eye, Users, RotateCcw, LogOut } from 'lucide-react'
 import { PageLoader, StatusBadge, Spinner, Toast, Confirm, Modal } from '@/components/ui'
@@ -196,16 +196,27 @@ export default function PengawasDashboard() {
   useEffect(() => { load() }, [load])
 
   // Polling setiap 5 detik
-  useEffect(() => {
-    if (pollingRef.current) clearInterval(pollingRef.current)
-    if (!sesiAktif.length) return
-    const ids = sesiAktif.map(s => s.id)
-    pollingRef.current = setInterval(async () => {
-      await fetchPelanggaran(ids)
-      await fetchSiswaAktif(ids)
-    }, 5000)
-    return () => { if (pollingRef.current) clearInterval(pollingRef.current) }
-  }, [sesiAktif, fetchPelanggaran, fetchSiswaAktif])
+  // Realtime — tidak perlu polling lagi
+  const sesiIds = sesiAktif.map(s => s.id)
+  
+  useMonitorRealtime({
+    sesiIds,
+    onSiswaChange: (sesiId) => {
+      // Refresh hanya data siswa untuk sesi yang berubah
+      fetchSiswaAktif([sesiId])
+    },
+    onPelanggaran: (data) => {
+      // Notif langsung tanpa nunggu polling
+      if (!seenPelIdsRef.current.has(data.id)) {
+        playAlert()
+        setPelNotif(data as unknown as Pelanggaran)
+        setTimeout(() => setPelNotif(null), 8000)
+        seenPelIdsRef.current.add(data.id)
+      }
+      // Refresh list pelanggaran sesi ini
+      fetchPelanggaran([data.sesi_id])
+    },
+  })
 
   async function handleMulai() {
     if (!mulaiId) return
