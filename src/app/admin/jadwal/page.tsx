@@ -101,6 +101,10 @@ export default function AdminJadwalPage() {
   const [hapusSelesaiDetail, setHapusSelesaiDetail] = useState<{ kelas: string; siswa: { nama: string }[] }[]>([])
   const [hapusSelesaiDetailOpen, setHapusSelesaiDetailOpen] = useState(false)
   const [confirmHapusSelesai, setConfirmHapusSelesai] = useState(false)
+  const [scanOpen, setScanOpen] = useState(false)
+  const [scanItems, setScanItems] = useState<{ nama: string; sudah: boolean; kelas: string }[]>([])
+  const [scanProgress, setScanProgress] = useState(0)
+  const [scanDone, setScanDone] = useState(false)
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => setToast({ msg, type })
 
@@ -184,24 +188,42 @@ export default function AdminJadwalPage() {
   }
 
   async function handleHapusSelesai() {
-    setHapusSelesaiLoading(true)
+    setConfirmHapusSelesai(false)
+    setScanItems([])
+    setScanProgress(0)
+    setScanDone(false)
+    setScanOpen(true)
+  
     try {
       const res = await apiRequest<{ message: string; jumlah: number }>(
         '/api/admin/jadwal', { method: 'PATCH' }
       )
+      setScanDone(true)
+      await new Promise(r => setTimeout(r, 600))
+      setScanOpen(false)
       showToast(res.message)
-      setConfirmHapusSelesai(false)
       load()
     } catch (err: unknown) {
       try {
         const parsed = JSON.parse((err as any)?.body ?? '{}')
         if (parsed.detail?.length) {
+          const allSiswa: { nama: string; sudah: boolean; kelas: string }[] = []
+          for (const item of parsed.detail) {
+            for (const s of item.siswa) {
+              allSiswa.push({ nama: s.nama, sudah: false, kelas: item.kelas })
+            }
+          }
+          for (let i = 0; i < allSiswa.length; i++) {
+            await new Promise(r => setTimeout(r, 100 + Math.random() * 80))
+            setScanItems(prev => [...prev, allSiswa[i]])
+            setScanProgress(Math.round(((i + 1) / allSiswa.length) * 100))
+          }
+          setScanDone(true)
           setHapusSelesaiDetail(parsed.detail)
-          setHapusSelesaiDetailOpen(true)
-          setConfirmHapusSelesai(false)
           return
         }
       } catch {}
+      setScanOpen(false)
       showToast(err instanceof Error ? err.message : 'Gagal menghapus', 'error')
     } finally {
       setHapusSelesaiLoading(false)
@@ -797,42 +819,83 @@ export default function AdminJadwalPage() {
         loading={hapusSelesaiLoading}
       />
       
-      {/* Modal detail siswa belum ujian (hapus massal) */}
-      {hapusSelesaiDetailOpen && (
+      {scanOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center flex-shrink-0">
-                <AlertTriangle className="w-5 h-5 text-red-600" />
-              </div>
-              <div>
-                <h3 className="font-semibold text-slate-900">Hapus Dibatalkan</h3>
-                <p className="text-sm text-slate-500">Masih ada siswa yang belum ujian</p>
-              </div>
-            </div>
-            <div className="space-y-3 max-h-72 overflow-y-auto mb-4">
-              {hapusSelesaiDetail.map((item, i) => (
-                <div key={i}>
-                  <p className="text-xs font-semibold text-slate-600 mb-1">Kelas {item.kelas}</p>
-                  <div className="bg-red-50 border border-red-100 rounded-xl p-2">
-                    {item.siswa.map((s, j) => (
-                      <div key={j} className="flex items-center gap-2 py-1 border-b border-red-100 last:border-0">
-                        <span className="w-5 h-5 rounded-full bg-red-200 text-red-700 text-xs font-bold flex items-center justify-center flex-shrink-0">
-                          {j + 1}
-                        </span>
-                        <span className="text-sm text-slate-800">{s.nama}</span>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden">
+            {!scanDone || !hapusSelesaiDetail.length ? (
+              <div className="p-6">
+                <div className="text-center mb-5">
+                  <div className="relative w-14 h-14 mx-auto mb-3">
+                    <div className="absolute inset-0 rounded-full bg-blue-50 animate-ping opacity-30" />
+                    <div className="absolute inset-0 rounded-full border border-blue-400 animate-pulse" />
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <svg className="w-7 h-7 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                      </svg>
+                    </div>
+                  </div>
+                  <p className="font-medium text-slate-900 text-sm">Memverifikasi data siswa</p>
+                  <p className="text-xs text-slate-500 mt-1">
+                    {scanDone ? 'Selesai' : `Mengecek ${scanItems.length} siswa...`}
+                  </p>
+                </div>
+                <div className="bg-slate-50 rounded-xl h-44 overflow-y-auto relative">
+                  <div className="p-3 font-mono text-xs text-slate-500 leading-relaxed">
+                    {scanItems.map((s, i) => (
+                      <div key={i} className="flex items-center gap-2 py-0.5">
+                        {s.sudah
+                          ? <CheckCircle className="w-3 h-3 text-emerald-500 flex-shrink-0" />
+                          : <XCircle className="w-3 h-3 text-red-500 flex-shrink-0" />
+                        }
+                        <span className={s.sudah ? '' : 'text-red-500 font-medium'}>{s.nama}</span>
+                        {!s.sudah && <span className="ml-auto text-red-400 text-[10px]">belum ujian</span>}
                       </div>
                     ))}
                   </div>
                 </div>
-              ))}
-            </div>
-            <p className="text-xs text-slate-500 mb-4">
-              Hapus baru bisa dilakukan setelah <strong>semua siswa</strong> menyelesaikan ujian.
-            </p>
-            <button onClick={() => setHapusSelesaiDetailOpen(false)} className="btn-primary w-full justify-center">
-              Mengerti
-            </button>
+                <div className="mt-3 flex items-center gap-2">
+                  <div className="flex-1 h-1 bg-slate-100 rounded-full overflow-hidden">
+                    <div className="h-full bg-blue-500 rounded-full transition-all duration-300"
+                      style={{ width: `${scanProgress}%` }} />
+                  </div>
+                  <span className="text-xs text-slate-400 w-8 text-right">{scanProgress}%</span>
+                </div>
+              </div>
+            ) : (
+              <div className="p-6">
+                <div className="text-center mb-4">
+                  <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mx-auto mb-3">
+                    <AlertTriangle className="w-6 h-6 text-red-600" />
+                  </div>
+                  <p className="font-medium text-slate-900">Hapus dibatalkan</p>
+                  <p className="text-xs text-slate-500 mt-1">Siswa berikut belum mengikuti ujian</p>
+                </div>
+                <div className="space-y-3 max-h-64 overflow-y-auto mb-4">
+                  {hapusSelesaiDetail.map((item, i) => (
+                    <div key={i}>
+                      <p className="text-xs font-medium text-slate-500 mb-1">Kelas {item.kelas}</p>
+                      <div className="bg-red-50 border border-red-100 rounded-xl p-2">
+                        {item.siswa.map((s, j) => (
+                          <div key={j} className="flex items-center gap-2 py-1 border-b border-red-100 last:border-0">
+                            <span className="w-5 h-5 rounded-full bg-red-200 text-red-700 text-xs font-bold flex items-center justify-center flex-shrink-0">{j + 1}</span>
+                            <span className="text-sm text-slate-800">{s.nama}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-xs text-slate-500 mb-4 text-center">
+                  Hapus bisa dilakukan setelah <strong>semua siswa</strong> menyelesaikan ujian.
+                </p>
+                <button
+                  onClick={() => { setScanOpen(false); setHapusSelesaiDetail([]) }}
+                  className="btn-primary w-full justify-center"
+                >
+                  Mengerti
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
