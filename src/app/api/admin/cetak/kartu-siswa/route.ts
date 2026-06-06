@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  const settingMap = Object.fromEntries((pengaturan ?? []).map(p => [p.key, p.value]))
+  const settingMap = Object.fromEntries((pengaturan ?? [] as { key: string; value: string }[]).map(p => [p.key, p.value]))
 
   return NextResponse.json({
     siswa: siswaList ?? [],
