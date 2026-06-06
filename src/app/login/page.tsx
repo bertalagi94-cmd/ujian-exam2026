@@ -252,7 +252,21 @@ export default function LoginPage() {
               { n: '⚡', l: 'Cepat' },
               { n: '📊', l: 'Akurat' },
             ].map(({ n, l }) => (
-              <div key={l} className="bg-white/10 backdrop-blur rounded-xl p-4 text-center">
+              <div
+                key={l}
+                className="bg-white/10 backdrop-blur rounded-xl p-4 text-center cursor-default"
+                style={{
+                  transition: 'transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.35s ease',
+                }}
+                onMouseEnter={e => {
+                  (e.currentTarget as HTMLDivElement).style.transform = 'translateY(-18px) scale(1.08)'
+                  ;(e.currentTarget as HTMLDivElement).style.boxShadow = '0 16px 32px rgba(0,0,0,0.25)'
+                }}
+                onMouseLeave={e => {
+                  (e.currentTarget as HTMLDivElement).style.transform = 'translateY(0) scale(1)'
+                  ;(e.currentTarget as HTMLDivElement).style.boxShadow = 'none'
+                }}
+              >
                 <div className="text-2xl">{n}</div>
                 <div className="text-brand-300 text-xs mt-1">{l}</div>
               </div>
