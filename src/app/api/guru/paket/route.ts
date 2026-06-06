@@ -13,7 +13,7 @@ export async function GET(req: NextRequest) {
     .from('paket_soal')
     .select('*')
     .eq('guru_id', user.username)
-    .order('tanggal', { ascending: false })
+    .order('created_at', { ascending: false })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   if (!pakets?.length) return NextResponse.json({ data: [] })
