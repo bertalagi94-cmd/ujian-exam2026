@@ -766,7 +766,14 @@ export default function SiswaUjianPage() {
             <span className="badge-blue font-semibold">Soal {currentIdx + 1}</span>
             <span className="text-slate-400 text-xs">dari {soalList.length}</span>
           </div>
-          <p className="text-slate-800 text-base leading-relaxed mb-6">{soalCurrent.teks}</p>
+          <p className="text-slate-800 text-base leading-relaxed mb-4">{soalCurrent.teks}</p>
+          {(soalCurrent as any).gambar_pertanyaan && (
+            <img
+              src={(soalCurrent as any).gambar_pertanyaan}
+              alt="Gambar soal"
+              className="max-w-full rounded-lg mb-6 border border-slate-200"
+            />
+          )}
 
           <div className="space-y-2">
             {opsiUjian.map(label => {
@@ -783,7 +790,16 @@ export default function SiswaUjianPage() {
                   }`}>
                     {label}
                   </span>
-                  <span className="text-slate-800">{opsiText}</span>
+                  <span className="text-slate-800 flex flex-col gap-1">
+                    {opsiText}
+                    {(soalCurrent as any)[`gambar_opsi_${label.toLowerCase()}`] && (
+                      <img
+                        src={(soalCurrent as any)[`gambar_opsi_${label.toLowerCase()}`]}
+                        alt={`Gambar opsi ${label}`}
+                        className="max-w-xs rounded-lg border border-slate-200 mt-1"
+                      />
+                    )}
+                  </span>
                 </button>
               )
             })}
