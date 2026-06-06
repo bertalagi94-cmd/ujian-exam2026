@@ -73,11 +73,31 @@ export async function GET(req: NextRequest) {
     .select('id, teks, kunci, opsi_a, opsi_b, opsi_c, opsi_d, opsi_e, tingkat, jumlah_opsi')
     .in('id', soalIds)
 
+  // nisSet = siswa yang SUDAH mengerjakan (punya jawaban di sesi ini)
   const nisSet = [...new Set((jawabanAll ?? []).map(j => j.nis))]
+
+  // Ambil semua siswa yang terdaftar di sesi ini (jumlah_peserta dari jadwal/sesi)
+  // Gunakan tabel peserta_sesi jika ada, fallback ke siswa yang punya jawaban
+  const { data: pesertaSesi } = await db
+    .from('peserta_sesi')
+    .select('nis')
+    .eq('sesi_id', sesiAll.id)
+
+  // NIS semua peserta terdaftar (atau fallback ke yang punya jawaban)
+  const semuaNis = pesertaSesi?.length
+    ? pesertaSesi.map(p => p.nis)
+    : nisSet
+
+  // Siswa yang belum ujian = terdaftar tapi tidak punya satu pun jawaban
+  const nisUdahUjian  = new Set(nisSet)
+  const nisBelumUjian = semuaNis.filter(n => !nisUdahUjian.has(n))
+
+  // Ambil nama semua siswa yang relevan
+  const allNis = [...new Set([...nisSet, ...nisBelumUjian])]
   const { data: siswaList } = await db
     .from('siswa')
     .select('nis, nama')
-    .in('nis', nisSet)
+    .in('nis', allNis)
 
   const siswaMap = Object.fromEntries((siswaList ?? []).map(s => [s.nis, s.nama]))
   const soalMap  = Object.fromEntries((soalList  ?? []).map(s => [s.id,  s]))
@@ -88,7 +108,7 @@ export async function GET(req: NextRequest) {
     if (j.jawaban) jawabanBySoal[j.soal_id].push({ opsi: j.jawaban, nis: j.nis })
   }
 
-  const totalSiswa = nisSet.length
+  const totalSiswa = nisSet.length  // hanya yang sudah ujian
 
   const analisis = soalIds.map((soalId, idx) => {
     const soal = soalMap[soalId]
@@ -117,11 +137,6 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const nisMenjawab    = new Set(jawaban.map(j => j.nis))
-    const tidakMenjawab  = nisSet
-      .filter(n => !nisMenjawab.has(n))
-      .map(n => ({ nis: n, nama: siswaMap[n] ?? n }))
-
     return {
       nomor: idx + 1,
       id: soalId,
@@ -138,7 +153,6 @@ export async function GET(req: NextRequest) {
       persenSalah,
       distribusiJumlah,
       distribusiSiswa,
-      tidakMenjawab,
     }
   }).filter(Boolean)
 
@@ -146,17 +160,19 @@ export async function GET(req: NextRequest) {
 
   const dijawab  = analisis.filter(a => a!.totalDijawab > 0)
   const ringkasan = {
-    totalSoal:      analisis.length,
+    totalSoal:        analisis.length,
     totalSiswa,
+    totalPeserta:     semuaNis.length,
     rataPersenBenar: dijawab.length
       ? Math.round(dijawab.reduce((s, a) => s + a!.persenBenar, 0) / dijawab.length)
       : 0,
     soalMudah:  dijawab.filter(a => a!.persenBenar >= 70).length,
     soalSedang: dijawab.filter(a => a!.persenBenar >= 40 && a!.persenBenar < 70).length,
     soalSulit:  dijawab.filter(a => a!.persenBenar < 40).length,
+    siswaBelumUjian: nisBelumUjian.map(n => ({ nis: n, nama: siswaMap[n] ?? n })),
   }
 
-  const mapelMap   = Object.fromEntries((mapelList ?? []).map(m => [m.id, m.nama]))
+  const mapelMap     = Object.fromEntries((mapelList ?? []).map(m => [m.id, m.nama]))
   const sesiEnriched = { ...sesiAll, nama_mapel: mapelMap[sesiAll.mapel_id] ?? sesiAll.mapel_id }
 
   return NextResponse.json({
