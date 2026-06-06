@@ -39,8 +39,10 @@ export async function GET(req: NextRequest) {
   const nilaiPerMapelRaw = stats?.nilai_per_mapel ?? []
 
   // Enrich recent nilai dengan nama siswa & mapel
-  const nisSet   = [...new Set((recentNilai ?? []).map(r => r.nis))]
-  const mapelSet = [...new Set((recentNilai ?? []).map(r => r.mapel_id))]
+  type NilaiRow = { nis: string; nilai: number; grade: string; lulus: boolean; timestamp: string; mapel_id: string; kelas: string }
+  const nilaiRows = (recentNilai ?? []) as NilaiRow[]
+  const nisSet   = [...new Set(nilaiRows.map(r => r.nis))]
+  const mapelSet = [...new Set(nilaiRows.map(r => r.mapel_id))]
   const [{ data: siswaNames }, { data: mapelNames }] = await Promise.all([
     db.from('siswa').select('nis, nama').in('nis', nisSet),
     db.from('mapel').select('id, nama').in('id', mapelSet),
@@ -48,7 +50,7 @@ export async function GET(req: NextRequest) {
   const siswaMap = Object.fromEntries((siswaNames ?? []).map(s => [s.nis, s.nama]))
   const mapelMap = Object.fromEntries((mapelNames ?? []).map(m => [m.id, m.nama]))
 
-  const enrichedNilai = (recentNilai ?? []).map(r => ({
+  const enrichedNilai = nilaiRows.map(r => ({
     ...r,
     nama_siswa: siswaMap[r.nis] ?? r.nis,
     nama_mapel: mapelMap[r.mapel_id] ?? r.mapel_id,
