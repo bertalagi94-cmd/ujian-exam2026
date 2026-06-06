@@ -19,7 +19,7 @@ export default function LoginPage() {
   const [siteInfo, setSiteInfo] = useState<SiteInfo>({ namaSekolah: '', kota: '', logoUrl: '' })
 
   useEffect(() => {
-    fetch('/api/public/pengaturan')
+    fetch('/api/public/pengaturan', { cache: 'no-store' })
       .then(r => r.json())
       .then(json => {
         if (json?.data) setSiteInfo({
@@ -137,12 +137,12 @@ export default function LoginPage() {
           </div>
           <div className="grid grid-cols-3 gap-4">
             {[
-              { n: '122+', l: 'Siswa' },
-              { n: '1800+', l: 'Bank Soal' },
-              { n: '41', l: 'Mata Pelajaran' },
+              { n: '🔒', l: 'Aman' },
+              { n: '⚡', l: 'Cepat' },
+              { n: '📊', l: 'Akurat' },
             ].map(({ n, l }) => (
               <div key={l} className="bg-white/10 backdrop-blur rounded-xl p-4 text-center">
-                <div className="text-2xl font-bold">{n}</div>
+                <div className="text-2xl">{n}</div>
                 <div className="text-brand-300 text-xs mt-1">{l}</div>
               </div>
             ))}
