@@ -47,8 +47,12 @@ export async function GET(req: NextRequest) {
     db.from('siswa').select('nis, nama').in('nis', nisSet),
     db.from('mapel').select('id, nama').in('id', mapelSet),
   ])
-  const siswaMap = Object.fromEntries((siswaNames ?? []).map(s => [s.nis, s.nama]))
-  const mapelMap = Object.fromEntries((mapelNames ?? []).map(m => [m.id, m.nama]))
+  const siswaMap = Object.fromEntries(
+    ((siswaNames ?? []) as { nis: string; nama: string }[]).map(s => [s.nis, s.nama])
+  )
+  const mapelMap = Object.fromEntries(
+    ((mapelNames ?? []) as { id: string; nama: string }[]).map(m => [m.id, m.nama])
+  )
 
   const enrichedNilai = nilaiRows.map(r => ({
     ...r,
