@@ -218,8 +218,8 @@ export default function AdminJadwalPage() {
             setScanItems(prev => [...prev, allSiswa[i]])
             setScanProgress(Math.round(((i + 1) / allSiswa.length) * 100))
           }
-          setScanDone(true)
           setHapusSelesaiDetail(parsed.detail)
+          setScanDone(true)
           return
         }
       } catch {}
