@@ -222,7 +222,7 @@ export default function LoginPage() {
           <div
             className="flex items-center gap-3 mb-2 cursor-default w-fit"
             style={{ transition: 'transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1)' }}
-            onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.transform = 'scale(1.08)' }}
+            onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.transform = 'scale(1.14)' }}
             onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.transform = 'scale(1)' }}
           >
             <SchoolLogo size="lg" />
@@ -242,7 +242,12 @@ export default function LoginPage() {
 
         <div className="relative z-10 space-y-6">
           <div>
-            <h1 className="text-4xl font-bold leading-tight mb-3">
+            <h1
+              className="text-4xl font-bold leading-tight mb-3 cursor-default w-fit"
+              style={{ transition: 'transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1)', display: 'inline-block' }}
+              onMouseEnter={e => { (e.currentTarget as HTMLHeadingElement).style.transform = 'scale(1.06)' }}
+              onMouseLeave={e => { (e.currentTarget as HTMLHeadingElement).style.transform = 'scale(1)' }}
+            >
               Ujian Digital<br />Lebih Mudah & Adil
             </h1>
             <p className="text-brand-300 text-sm leading-relaxed max-w-xs">
@@ -319,7 +324,12 @@ export default function LoginPage() {
 
               <div>
                 <label className="label">Username / NIS</label>
-                <div className="relative">
+                <div
+                  className="relative"
+                  style={{ transition: 'transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1)' }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.transform = 'scale(1.03)' }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.transform = 'scale(1)' }}
+                >
                   <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                   <input
                     type="text"
@@ -335,7 +345,12 @@ export default function LoginPage() {
 
               <div>
                 <label className="label">Password</label>
-                <div className="relative">
+                <div
+                  className="relative"
+                  style={{ transition: 'transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1)' }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.transform = 'scale(1.03)' }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.transform = 'scale(1)' }}
+                >
                   <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                   <input
                     type={showPw ? 'text' : 'password'}
