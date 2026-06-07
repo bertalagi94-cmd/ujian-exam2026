@@ -11,9 +11,8 @@ export async function POST(
   const { user } = auth
   const db = createAdminClient()
   const paketId = params.id
-  const action = params.action // 'kirim' | 'tarik'
+  const action = params.action
 
-  // Verify ownership
   const { data: paket } = await db
     .from('paket_soal')
     .select('guru_id, status, jumlah_soal')
@@ -28,7 +27,6 @@ export async function POST(
     if (!['DRAFT', 'DITOLAK'].includes(paket.status)) {
       return NextResponse.json({ error: 'Paket tidak bisa dikirim' }, { status: 400 })
     }
-    // Count soal in paket
     const { count } = await db
       .from('soal')
       .select('*', { count: 'exact', head: true })
@@ -40,12 +38,12 @@ export async function POST(
 
     const { error } = await db
       .from('paket_soal')
-      .update({ status: 'MENUNGGU', jumlah_soal: count, catatan: null })
+      // notif_dibaca=true karena ini giliran admin yang harus tahu (bukan guru)
+      .update({ status: 'MENUNGGU', jumlah_soal: count, catatan: null, notif_dibaca: true })
       .eq('id', paketId)
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-    // Update all soal status to MENUNGGU
     await db.from('soal').update({ status: 'MENUNGGU' }).eq('paket_id', paketId).eq('status', 'DRAFT')
     return NextResponse.json({ message: 'Paket berhasil dikirim untuk validasi' })
   }
@@ -56,7 +54,7 @@ export async function POST(
     }
     const { error } = await db
       .from('paket_soal')
-      .update({ status: 'DRAFT' })
+      .update({ status: 'DRAFT', notif_dibaca: true })
       .eq('id', paketId)
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
