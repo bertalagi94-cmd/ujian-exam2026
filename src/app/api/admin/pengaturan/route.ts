@@ -23,10 +23,35 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: 'Format tidak valid' }, { status: 400 })
   }
 
-  const updates = settings.map(({ key, value }: { key: string; value: string }) =>
-    db.from('pengaturan').upsert({ key, value, updated_at: new Date().toISOString() }, { onConflict: 'key' })
-  )
+  const errors: string[] = []
 
-  await Promise.all(updates)
+  for (const { key, value } of settings as { key: string; value: string }[]) {
+    // Cek apakah baris sudah ada
+    const { data: existing } = await db
+      .from('pengaturan')
+      .select('key')
+      .eq('key', key)
+      .single()
+
+    if (existing) {
+      // UPDATE jika sudah ada
+      const { error } = await db
+        .from('pengaturan')
+        .update({ value, updated_at: new Date().toISOString() })
+        .eq('key', key)
+      if (error) errors.push(`Gagal update ${key}: ${error.message}`)
+    } else {
+      // INSERT jika belum ada
+      const { error } = await db
+        .from('pengaturan')
+        .insert({ key, value, updated_at: new Date().toISOString() })
+      if (error) errors.push(`Gagal insert ${key}: ${error.message}`)
+    }
+  }
+
+  if (errors.length > 0) {
+    return NextResponse.json({ error: errors.join(', ') }, { status: 500 })
+  }
+
   return NextResponse.json({ message: 'Pengaturan berhasil disimpan' })
 }
