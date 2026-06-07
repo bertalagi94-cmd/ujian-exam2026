@@ -38,7 +38,19 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Jalankan semua query bersamaan (paralel)
+  // ── FIX BUG KELAS_ID ──────────────────────────────────────────────────────
+  // sesi.kelas = nama kelas (string), tapi paket_soal.kelas_id = ID dari tabel kelas
+  // Cari ID kelas berdasarkan nama kelas terlebih dahulu
+  const { data: kelasRow } = await db
+    .from('kelas')
+    .select('id')
+    .eq('nama', String(sesi.kelas))
+    .maybeSingle()
+
+  // Gunakan ID kelas jika ada, fallback ke nama kelas (untuk kelas yg id=nama)
+  const kelasId = kelasRow?.id ?? String(sesi.kelas)
+  // ──────────────────────────────────────────────────────────────────────────
+
   const [
     { data: nilaiAda },
     { data: siswaUjian },
@@ -46,8 +58,9 @@ export async function POST(req: NextRequest) {
     { data: mapel },
   ] = await Promise.all([
     db.from('nilai').select('id').eq('sesi_id', sesi.id).eq('nis', nis).single(),
-    db.from('siswa_ujian').select('status, waktu_mulai').eq('sesi_id', sesi.id).eq('nis', nis).single(),
-    db.from('paket_soal').select('id, acak').eq('mapel_id', sesi.mapel_id).eq('kelas_id', sesi.kelas).eq('status', 'DISETUJUI').limit(1).single(),
+    db.from('siswa_ujian').select('status, waktu_mulai, waktu_mulai_awal').eq('sesi_id', sesi.id).eq('nis', nis).single(),
+    // FIX: gunakan kelasId (ID dari tabel kelas) bukan sesi.kelas (nama kelas)
+    db.from('paket_soal').select('id, acak').eq('mapel_id', sesi.mapel_id).eq('kelas_id', kelasId).eq('status', 'DISETUJUI').limit(1).single(),
     db.from('mapel').select('nama').eq('id', sesi.mapel_id).single(),
   ])
 
@@ -68,17 +81,25 @@ export async function POST(req: NextRequest) {
 
   if (paketData) soalQuery = soalQuery.eq('paket_id', paketData.id)
 
-  // Jalankan ambil soal + register siswa secara bersamaan
+  const now = new Date().toISOString()
+
+  // Simpan waktu_mulai_awal saat pertama masuk (tidak pernah diubah) untuk referensi timer
   const [{ data: soalList }] = await Promise.all([
     soalQuery,
     isNewEntry
-      ? db.from('siswa_ujian').insert({ sesi_id: sesi.id, nis, waktu_daftar: new Date().toISOString(), waktu_mulai: new Date().toISOString(), status: 'AKTIF' })
+      ? db.from('siswa_ujian').insert({
+          sesi_id: sesi.id, nis,
+          waktu_daftar: now,
+          waktu_mulai: now,
+          waktu_mulai_awal: now,   // simpan waktu awal, tidak pernah diubah saat reset
+          status: 'AKTIF',
+        })
       : db.from('siswa_ujian').update({ status: 'AKTIF' }).eq('sesi_id', sesi.id).eq('nis', nis),
   ])
 
-  if (!soalList?.length) return NextResponse.json({ valid: false, message: 'Tidak ada soal tersedia untuk ujian ini.' })
+  if (!soalList?.length) return NextResponse.json({ valid: false, message: 'Tidak ada soal tersedia untuk ujian ini. Pastikan paket soal sudah disetujui.' })
 
-  // Increment jumlah_peserta di background (tidak perlu ditunggu)
+  // Increment jumlah_peserta di background
   if (isNewEntry) {
     db.rpc('increment_jumlah_peserta', { sesi_id_param: sesi.id })
   }
@@ -97,6 +118,9 @@ export async function POST(req: NextRequest) {
     finalSoal = soalList.map((s, i) => ({ ...s, nomor: i + 1 }))
   }
 
+  // Gunakan waktu_mulai_awal sebagai referensi timer — tidak berubah saat reset pelanggaran
+  const waktuMulaiRef = siswaUjian?.waktu_mulai_awal ?? siswaUjian?.waktu_mulai ?? now
+
   return NextResponse.json({
     valid: true,
     sesiId: sesi.id,
@@ -104,7 +128,7 @@ export async function POST(req: NextRequest) {
     namaMapel: mapel?.nama ?? sesi.mapel_id,
     kelas: sesi.kelas,
     durasi: sesi.durasi,
-    waktu_mulai: siswaUjian?.waktu_mulai ?? new Date().toISOString(),
+    waktu_mulai: waktuMulaiRef,
     soalList: finalSoal,
   })
 }
