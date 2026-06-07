@@ -48,12 +48,31 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'NIS, nama, dan kelas wajib diisi' }, { status: 400 })
   }
 
+  const kelasNama = String(kelas).trim()
+
+  // Jika kelas belum ada di tabel kelas, otomatis buat entry baru
+  const { data: kelasExist } = await db
+    .from('kelas')
+    .select('id')
+    .eq('nama', kelasNama)
+    .maybeSingle()
+
+  if (!kelasExist) {
+    await db.from('kelas').insert({
+      id: kelasNama,
+      nama: kelasNama,
+      wali_kelas: null,
+      jurusan: '-',
+      jumlah: 0,
+    })
+  }
+
   const password_hash = await bcrypt.hash(String(nis), 10)
 
   const { error } = await db.from('siswa').insert({
     nis: String(nis),
     nama: String(nama).toUpperCase(),
-    kelas: String(kelas),
+    kelas: kelasNama,
     password_hash,
     jenis_kelamin: jenis_kelamin || null,
     tempat_lahir: tempat_lahir || null,
