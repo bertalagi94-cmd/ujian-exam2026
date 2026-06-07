@@ -477,11 +477,16 @@ export default function SiswaUjianPage() {
     if (!currentSesi) return
     setKodeResetLoading(true); setKodeResetError('')
     try {
-      const res = await apiRequest<{ valid: boolean; message?: string }>('/api/siswa/ujian/verifikasi-reset', {
+      const res = await apiRequest<{ valid: boolean; waktu_mulai?: string; message?: string }>('/api/siswa/ujian/verifikasi-reset', {
         method: 'POST',
         body: JSON.stringify({ sesiId: currentSesi.sesiId, kodeReset: kodeReset.trim().toUpperCase() }),
       })
       if (!res.valid) { setKodeResetError(res.message ?? 'Kode tidak valid'); return }
+      // FIX: hitung sisa waktu dari waktu_mulai_awal (bukan dari sekarang)
+      if (res.waktu_mulai) {
+        const terpakai = Math.floor((Date.now() - new Date(res.waktu_mulai).getTime()) / 1000)
+        setSisaWaktu(Math.max(0, currentSesi.durasi * 60 - terpakai))
+      }
       setKodeReset('')
       setKodeResetError('')
       setShowWarningOverlay(false)
