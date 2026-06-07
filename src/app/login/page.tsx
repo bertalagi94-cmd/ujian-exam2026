@@ -244,8 +244,8 @@ export default function LoginPage() {
           <div>
             <h1
               className="text-4xl font-bold leading-tight mb-3 cursor-default w-fit"
-              style={{ transition: 'transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1)', display: 'inline-block' }}
-              onMouseEnter={e => { (e.currentTarget as HTMLHeadingElement).style.transform = 'scale(1.06)' }}
+              style={{ transition: 'transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1)', display: 'inline-block', transformOrigin: 'left center' }}
+              onMouseEnter={e => { (e.currentTarget as HTMLHeadingElement).style.transform = 'scale(1.08)' }}
               onMouseLeave={e => { (e.currentTarget as HTMLHeadingElement).style.transform = 'scale(1)' }}
             >
               Ujian Digital<br />Lebih Mudah & Adil
@@ -308,7 +308,18 @@ export default function LoginPage() {
             </div>
           </div>
 
-          <div className="bg-white rounded-3xl shadow-card-lg p-8">
+          <div
+            className="bg-white rounded-3xl shadow-card-lg p-8"
+            style={{ transition: 'transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.35s ease' }}
+            onMouseEnter={e => {
+              (e.currentTarget as HTMLDivElement).style.transform = 'scale(1.03)'
+              ;(e.currentTarget as HTMLDivElement).style.boxShadow = '0 32px 64px rgba(0,0,0,0.2)'
+            }}
+            onMouseLeave={e => {
+              (e.currentTarget as HTMLDivElement).style.transform = 'scale(1)'
+              ;(e.currentTarget as HTMLDivElement).style.boxShadow = ''
+            }}
+          >
             <div className="mb-8">
               <h2 className="text-2xl font-bold text-slate-900">Selamat Datang</h2>
               <p className="text-slate-500 text-sm mt-1">Masuk ke akun Anda untuk melanjutkan</p>
