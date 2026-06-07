@@ -4,7 +4,8 @@ import { requireRole } from '@/lib/auth'
 
 // POST /api/siswa/ujian/verifikasi-reset
 // Body: { sesiId: string, kodeReset: string }
-// Siswa memasukkan kode 7 digit dari pengawas untuk melanjutkan ujian
+// Siswa memasukkan kode 7 digit dari pengawas untuk melanjutkan ujian.
+// FIX: waktu_mulai TIDAK direset — timer tetap berjalan dari waktu awal masuk.
 export async function POST(req: NextRequest) {
   const auth = requireRole(req, ['SISWA'])
   if ('error' in auth) return auth.error
@@ -28,10 +29,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ valid: false, message: 'Sesi ujian sudah ditutup.' })
   }
 
-  // Cek status siswa
+  // Cek status siswa + ambil waktu_mulai_awal sekaligus
   const { data: siswaUjian } = await db
     .from('siswa_ujian')
-    .select('status')
+    .select('status, waktu_mulai_awal, waktu_mulai')
     .eq('sesi_id', sesiId)
     .eq('nis', user.nis!)
     .single()
@@ -63,11 +64,19 @@ export async function POST(req: NextRequest) {
     .update({ digunakan: true })
     .eq('id', logReset.id)
 
-  // Aktifkan kembali siswa
+  // FIX: Aktifkan kembali siswa TANPA mengubah waktu_mulai
+  // Timer tetap berjalan dari waktu awal masuk, bukan dari sekarang
   await db.from('siswa_ujian')
-    .update({ status: 'AKTIF', waktu_mulai: new Date().toISOString() })
+    .update({ status: 'AKTIF' })   // ← tidak ada waktu_mulai: new Date() lagi
     .eq('sesi_id', sesiId)
     .eq('nis', user.nis!)
 
-  return NextResponse.json({ valid: true, message: 'Kode benar. Ujian dilanjutkan.' })
+  // Kembalikan waktu_mulai_awal agar client bisa hitung sisa waktu yang benar
+  const waktuMulaiAwal = siswaUjian?.waktu_mulai_awal ?? siswaUjian?.waktu_mulai ?? new Date().toISOString()
+
+  return NextResponse.json({
+    valid: true,
+    waktu_mulai: waktuMulaiAwal,
+    message: 'Kode benar. Ujian dilanjutkan.',
+  })
 }
