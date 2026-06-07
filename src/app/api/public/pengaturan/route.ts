@@ -9,7 +9,7 @@ export async function GET() {
   const { data, error } = await db
     .from('pengaturan')
     .select('key, value')
-    .in('key', ['namaSekolah', 'kota', 'logoUrl'])
+    .in('key', ['namaSekolah', 'kota', 'logoUrl', 'batasPelanggaran'])
 
   if (error) {
     return NextResponse.json({ data: {} })
