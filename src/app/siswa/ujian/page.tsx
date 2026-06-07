@@ -77,8 +77,9 @@ export default function SiswaUjianPage() {
   const [kodeResetLoading, setKodeResetLoading] = useState(false)
   const [pendingResetSesiId, setPendingResetSesiId] = useState<string | null>(null)
 
-  // Logout paksa karena pelanggaran 3x
+  // Logout paksa karena pelanggaran melebihi batas
   const [dikeluarkan, setDikeluarkan] = useState(false)
+  const [batasPelanggaran, setBatasPelanggaran] = useState(3)
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const syncRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -92,6 +93,17 @@ export default function SiswaUjianPage() {
   useEffect(() => { jawabanRef.current = jawaban }, [jawaban])
   useEffect(() => { sesiInfoRef.current = sesiInfo }, [sesiInfo])
   useEffect(() => { phaseRef.current = phase }, [phase])
+
+  // ── Ambil batasPelanggaran dari pengaturan saat mount ─────────────────────
+  useEffect(() => {
+    fetch(`/api/public/pengaturan?t=${Date.now()}`, { cache: 'no-store' })
+      .then(r => r.json())
+      .then(json => {
+        const batas = parseInt(json?.data?.batasPelanggaran ?? '3', 10)
+        if (!isNaN(batas) && batas > 0) setBatasPelanggaran(batas)
+      })
+      .catch(() => {})
+  }, [])
 
   // ── Minta izin blokir notifikasi saat ujian dimulai ───────────────────────
   useEffect(() => {
@@ -592,7 +604,7 @@ export default function SiswaUjianPage() {
           </div>
           <h2 className="text-xl font-bold text-slate-900 mb-2">Ujian Dihentikan</h2>
           <p className="text-sm text-slate-500 mb-4">
-            Anda telah melanggar aturan ujian sebanyak 3 kali. Sistem secara otomatis menghentikan ujian Anda.
+            Anda telah melanggar aturan ujian sebanyak {batasPelanggaran} kali. Sistem secara otomatis menghentikan ujian Anda.
           </p>
           <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 mb-6">
             <p className="text-sm font-semibold text-red-700">Nilai Anda: 0</p>
