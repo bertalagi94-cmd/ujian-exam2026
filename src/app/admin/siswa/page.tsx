@@ -18,6 +18,8 @@ export default function AdminSiswaPage() {
   const [total, setTotal] = useState(0)
   const [modalOpen, setModalOpen] = useState(false)
   const [editData, setEditData] = useState<Partial<Siswa> | null>(null)
+  const [kelasMode, setKelasMode] = useState<'pilih' | 'baru'>('pilih')
+  const [kelasBaruInput, setKelasBaruInput] = useState('')
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [resetId, setResetId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -56,8 +58,8 @@ export default function AdminSiswaPage() {
     apiRequest<{ data: Kelas[] }>('/api/admin/kelas').then(r => setKelas(r.data))
   }, [])
 
-  function openAdd() { setEditData({}); setModalOpen(true) }
-  function openEdit(s: Siswa) { setEditData(s); setModalOpen(true) }
+  function openAdd() { setEditData({}); setKelasMode('pilih'); setKelasBaruInput(''); setModalOpen(true) }
+  function openEdit(s: Siswa) { setEditData(s); setKelasMode('pilih'); setKelasBaruInput(''); setModalOpen(true) }
 
   async function handleSave(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -431,20 +433,47 @@ export default function AdminSiswaPage() {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="label">Kelas *</label>
-              <input
-                list="daftar-kelas"
-                name="kelas"
-                className="input"
-                placeholder="Pilih atau ketik kelas"
-                required
-                defaultValue={editData?.kelas ?? ''}
-                autoComplete="off"
-              />
-              <datalist id="daftar-kelas">
-                {kelas.map(k => (
-                  <option key={k.id} value={k.nama} />
-                ))}
-              </datalist>
+              {kelasMode === 'pilih' ? (
+                <div className="space-y-1.5">
+                  <select
+                    name="kelas"
+                    className="select"
+                    required={kelasMode === 'pilih'}
+                    defaultValue={editData?.kelas ?? ''}
+                  >
+                    <option value="">-- Pilih Kelas --</option>
+                    {kelas.map(k => (
+                      <option key={k.id} value={k.nama}>{k.nama}</option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    className="text-xs text-brand-600 hover:underline"
+                    onClick={() => { setKelasMode('baru'); setKelasBaruInput('') }}
+                  >
+                    + Tambah kelas baru
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  <input
+                    name="kelas"
+                    className="input"
+                    placeholder="Contoh: X-C, XI IPA 2"
+                    required
+                    autoFocus
+                    value={kelasBaruInput}
+                    onChange={e => setKelasBaruInput(e.target.value)}
+                  />
+                  <button
+                    type="button"
+                    className="text-xs text-slate-500 hover:underline"
+                    onClick={() => setKelasMode('pilih')}
+                  >
+                    ← Pilih dari daftar
+                  </button>
+                </div>
+              )}
             </div>
             <div>
               <label className="label">Jenis Kelamin</label>
