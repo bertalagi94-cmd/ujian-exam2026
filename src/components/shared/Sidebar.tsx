@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import {
@@ -15,7 +15,7 @@ interface NavItem {
   label: string
   href: string
   icon: React.ElementType
-  badge?: string
+  badge?: number
 }
 
 interface SidebarProps {
@@ -73,9 +73,9 @@ export function Sidebar({ navItems, role, roleColor, roleLabel }: SidebarProps) 
             >
               <item.icon className="w-4 h-4 flex-shrink-0" />
               <span className="flex-1">{item.label}</span>
-              {item.badge && (
-                <span className="text-xs px-1.5 py-0.5 rounded-full bg-danger-500 text-white font-medium">
-                  {item.badge}
+              {item.badge != null && item.badge > 0 && (
+                <span className="text-xs px-1.5 py-0.5 rounded-full bg-red-500 text-white font-medium min-w-[18px] text-center leading-none">
+                  {item.badge > 99 ? '99+' : item.badge}
                 </span>
               )}
               {!isActive && <ChevronRight className="w-3 h-3 opacity-0 group-hover:opacity-40 transition-opacity" />}
@@ -140,32 +140,67 @@ export function Sidebar({ navItems, role, roleColor, roleLabel }: SidebarProps) 
   )
 }
 
-// Role-specific sidebar configs
+// ── Helper: fetch badge count ─────────────────────────────────────────────────
+function useBadgeCounts(role: 'ADMIN' | 'GURU') {
+  const [counts, setCounts] = useState<Record<string, number>>({})
+
+  const fetch_ = useCallback(() => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
+    if (!token) return
+    fetch('/api/notif', { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.ok ? r.json() : {})
+      .then(d => setCounts(d))
+      .catch(() => {})
+  }, [role])
+
+  useEffect(() => {
+    fetch_()
+    // Refresh setiap 30 detik
+    const id = setInterval(fetch_, 30_000)
+    return () => clearInterval(id)
+  }, [fetch_])
+
+  return counts
+}
+
+// ── Admin Sidebar ─────────────────────────────────────────────────────────────
 export function AdminSidebar() {
+  const counts = useBadgeCounts('ADMIN')
+
+  const navItems: NavItem[] = [
+    { label: 'Dashboard', href: '/admin', icon: LayoutDashboard },
+    { label: 'Data Siswa', href: '/admin/siswa', icon: Users },
+    { label: 'Data Guru', href: '/admin/users', icon: User },
+    { label: 'Kelas', href: '/admin/kelas', icon: School },
+    { label: 'Mata Pelajaran', href: '/admin/mapel', icon: BookOpen },
+    { label: 'Jadwal Ujian', href: '/admin/jadwal', icon: Calendar },
+    {
+      label: 'Validasi Soal',
+      href: '/admin/soal',
+      icon: ClipboardList,
+      badge: counts.validasiSoal || undefined,
+    },
+    { label: 'Rekap Nilai', href: '/admin/nilai', icon: BarChart3 },
+    { label: 'Analisis Ujian', href: '/admin/analisis-ujian', icon: BarChart3 },
+    { label: 'Pengaturan', href: '/admin/pengaturan', icon: Settings },
+  ]
+
   return (
     <Sidebar
       role="ADMIN"
       roleColor="bg-brand-600"
       roleLabel="Administrator"
-      navItems={[
-        { label: 'Dashboard', href: '/admin', icon: LayoutDashboard },
-        { label: 'Data Siswa', href: '/admin/siswa', icon: Users },
-        { label: 'Data Guru', href: '/admin/users', icon: User },
-        { label: 'Kelas', href: '/admin/kelas', icon: School },
-        { label: 'Mata Pelajaran', href: '/admin/mapel', icon: BookOpen },
-        { label: 'Jadwal Ujian', href: '/admin/jadwal', icon: Calendar },
-        { label: 'Validasi Soal', href: '/admin/soal', icon: ClipboardList },
-        { label: 'Rekap Nilai', href: '/admin/nilai', icon: BarChart3 },
-        { label: 'Analisis Ujian', href: '/admin/analisis-ujian', icon: BarChart3 },
-        { label: 'Pengaturan', href: '/admin/pengaturan', icon: Settings },
-      ]}
+      navItems={navItems}
     />
   )
 }
 
+// ── Guru Sidebar ──────────────────────────────────────────────────────────────
 export function GuruSidebar() {
+  const counts = useBadgeCounts('GURU')
   const [isWaliKelas, setIsWaliKelas] = useState(false)
   const [hasPengawasan, setHasPengawasan] = useState(false)
+  const pathname = usePathname()
 
   useEffect(() => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
@@ -183,11 +218,33 @@ export function GuruSidebar() {
       .catch(() => {})
   }, [])
 
+  // Tandai notif sudah dibaca saat guru buka halaman bank soal atau buat soal
+  useEffect(() => {
+    const onSoalPage = pathname?.startsWith('/guru/soal') || pathname?.startsWith('/guru/paket')
+    if (!onSoalPage) return
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
+    if (!token) return
+    fetch('/api/notif', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+    }).catch(() => {})
+  }, [pathname])
+
   const navItems: NavItem[] = [
     { label: 'Dashboard', href: '/guru', icon: LayoutDashboard },
-    { label: 'Kisi-kisi', href: '/guru/kisi-kisi', icon: FileText },  // ← BARU
-    { label: 'Bank Soal', href: '/guru/soal', icon: BookOpen },
-    { label: 'Buat Soal', href: '/guru/paket', icon: ClipboardList },
+    { label: 'Kisi-kisi', href: '/guru/kisi-kisi', icon: FileText },
+    {
+      label: 'Bank Soal',
+      href: '/guru/soal',
+      icon: BookOpen,
+      badge: counts.bankSoal || undefined,
+    },
+    {
+      label: 'Buat Soal',
+      href: '/guru/paket',
+      icon: ClipboardList,
+      badge: counts.bankSoal || undefined,
+    },
     { label: 'Rekap Nilai', href: '/guru/nilai', icon: BarChart3 },
     { label: 'Analisis Ujian', href: '/guru/analisis-ujian', icon: BarChart3 },
   ]
@@ -233,7 +290,7 @@ export function SiswaSidebar() {
       roleLabel="Siswa"
       navItems={[
         { label: 'Beranda', href: '/siswa', icon: LayoutDashboard },
-        { label: 'Kisi-kisi', href: '/siswa/kisi-kisi', icon: FileText },  // ← BARU
+        { label: 'Kisi-kisi', href: '/siswa/kisi-kisi', icon: FileText },
         { label: 'Mulai Ujian', href: '/siswa/ujian', icon: BookOpen },
         { label: 'Nilai Saya', href: '/siswa/nilai', icon: BarChart3 },
         { label: 'Jadwal', href: '/siswa/jadwal', icon: Calendar },
