@@ -11,6 +11,15 @@ export async function POST(req: NextRequest) {
   const db = createAdminClient()
   const { sesiId, jenis, detail } = await req.json()
 
+  // Ambil batasPelanggaran dari tabel pengaturan (default 3 jika tidak ada)
+  const { data: settingData } = await db
+    .from('pengaturan')
+    .select('value')
+    .eq('key', 'batasPelanggaran')
+    .single()
+
+  const batasPelanggaran = parseInt(settingData?.value ?? '3', 10) || 3
+
   // Count existing violations for this siswa in this sesi
   const { count } = await db
     .from('pelanggaran')
@@ -37,10 +46,11 @@ export async function POST(req: NextRequest) {
 
   // Setiap pelanggaran → set status RESET (siswa harus tunggu kode dari pengawas)
   // Pengawas yang memutuskan kapan di-reset dengan memberikan kode 7 digit
-  // Jika sudah 3x pelanggaran → TERKUNCI permanen setelah pengawas melakukan reset ke-3
-  return NextResponse.json({ 
-    perlu_reset: true, 
-    level, 
-    message: `Pelanggaran ke-${level} terdeteksi. Hubungi pengawas untuk mendapatkan kode lanjut ujian.` 
+  // Jika sudah >= batasPelanggaran → TERKUNCI permanen setelah pengawas melakukan reset terakhir
+  return NextResponse.json({
+    perlu_reset: true,
+    level,
+    batasPelanggaran,
+    message: `Pelanggaran ke-${level} terdeteksi. Hubungi pengawas untuk mendapatkan kode lanjut ujian.`,
   })
 }
