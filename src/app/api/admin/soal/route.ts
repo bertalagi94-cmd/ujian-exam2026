@@ -49,18 +49,18 @@ export async function POST(req: NextRequest) {
 
   const db = createAdminClient()
   const { paket_id, action, catatan } = await req.json()
-  // action: 'SETUJUI' | 'TOLAK'
 
   const newStatus = action === 'SETUJUI' ? 'DISETUJUI' : 'DITOLAK'
 
+  // Update paket + set notif_dibaca=false agar guru dapat badge notifikasi
   const { error: paketErr } = await db
     .from('paket_soal')
-    .update({ status: newStatus, catatan: catatan || null })
+    .update({ status: newStatus, catatan: catatan || null, notif_dibaca: false })
     .eq('id', paket_id)
 
   if (paketErr) return NextResponse.json({ error: paketErr.message }, { status: 500 })
 
-  // Update all soal in this paket
+  // Update semua soal dalam paket
   const { error: soalErr } = await db
     .from('soal')
     .update({ status: newStatus })
