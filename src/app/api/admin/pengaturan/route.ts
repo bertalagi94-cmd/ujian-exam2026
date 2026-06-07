@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
+import { revalidatePath } from 'next/cache'
 
 export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['ADMIN'])
@@ -52,6 +53,11 @@ export async function PUT(req: NextRequest) {
   if (errors.length > 0) {
     return NextResponse.json({ error: errors.join(', ') }, { status: 500 })
   }
+
+  // Batalkan cache Next.js agar perubahan langsung tampil
+  revalidatePath('/', 'layout')   // revalidate root layout (generateMetadata)
+  revalidatePath('/login')        // revalidate halaman login
+  revalidatePath('/admin')        // revalidate halaman admin
 
   return NextResponse.json({ message: 'Pengaturan berhasil disimpan' })
 }
