@@ -18,5 +18,11 @@ export async function GET() {
   const result: Record<string, string> = {}
   data?.forEach(({ key, value }: { key: string; value: string }) => { result[key] = value ?? '' })
 
-  return NextResponse.json({ data: result })
+  return NextResponse.json({ data: result }, {
+    headers: {
+      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+      'Pragma': 'no-cache',
+      'Surrogate-Control': 'no-store',
+    }
+  })
 }
