@@ -46,7 +46,8 @@ export async function GET(req: NextRequest) {
   const sesiByJadwal: Record<string, typeof semuaSesi> = {}
   for (const s of semuaSesi ?? []) {
     if (!sesiByJadwal[s.jadwal_id]) sesiByJadwal[s.jadwal_id] = []
-    sesiByJadwal[s.jadwal_id].push(s)
+    const arr = sesiByJadwal[s.jadwal_id]
+    if (arr) arr.push(s)
   }
 
   const jadwalList = semuaJadwal.filter(j => {
