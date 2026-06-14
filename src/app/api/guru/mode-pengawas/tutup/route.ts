@@ -26,10 +26,11 @@ export async function POST(req: NextRequest) {
     await db.from('jadwal').update({ status: 'SELESAI' }).eq('id', sesi.jadwal_id)
   }
 
+  // FIX: tambahkan 'RESET' agar siswa yang sedang di-reset juga ikut diselesaikan
   await db.from('siswa_ujian')
     .update({ status: 'SELESAI', waktu_selesai: new Date().toISOString() })
     .eq('sesi_id', sesiId)
-    .eq('status', 'AKTIF')
+    .in('status', ['AKTIF', 'RESET'])   // ← FIX: was .eq('status', 'AKTIF')
 
   return NextResponse.json({ message: 'Sesi berhasil ditutup' })
 }
