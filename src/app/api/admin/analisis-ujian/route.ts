@@ -54,7 +54,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ data: [], mapelList: mapelList ?? [] })
   }
 
-  // Ambil sesi terbaru yang SELESAI untuk mapel ini (bisa difilter per kelas)
+  // FIX: ambil SEMUA sesi SELESAI untuk mapel ini agar semua sesi bisa dipilih di dropdown.
+  // Sebelumnya .limit(1) menyebabkan hanya sesi terbaru yang tampil — sesi lama tidak bisa dianalisis.
+  // filterKelas sudah memfilter per kelas, jadi hasil tetap relevan.
+  const filterSesiId = searchParams.get('sesi_id') ?? ''
+
   let sesiQuery2 = db
     .from('sesi_ujian')
     .select('id, mapel_id, kelas, waktu_mulai, waktu_selesai, jumlah_peserta')
@@ -63,9 +67,12 @@ export async function GET(req: NextRequest) {
   if (filterKelas) sesiQuery2 = sesiQuery2.eq('kelas', filterKelas)
   const { data: sesiList } = await sesiQuery2
     .order('waktu_mulai', { ascending: false })
-    .limit(1)
+  // .limit(1)  ← DIHAPUS: limit ini menyebabkan sesi lama tidak pernah tampil
 
-  const sesiAll = sesiList?.[0] ?? null
+  // Jika ada sesi_id spesifik (dipilih dari dropdown), gunakan itu; jika tidak, ambil terbaru
+  const sesiAll = filterSesiId
+    ? (sesiList ?? []).find(s => s.id === filterSesiId) ?? sesiList?.[0] ?? null
+    : sesiList?.[0] ?? null
 
   if (!sesiAll) {
     return NextResponse.json({ data: [], mapelList: mapelList ?? [] })
@@ -94,19 +101,20 @@ export async function GET(req: NextRequest) {
   // nisSet = siswa yang SUDAH mengerjakan (punya jawaban di sesi ini)
   const nisSet = [...new Set((jawabanAll ?? []).map(j => j.nis))]
 
-  // Ambil semua siswa yang terdaftar di sesi ini (jumlah_peserta dari jadwal/sesi)
-  // Gunakan tabel peserta_sesi jika ada, fallback ke siswa yang punya jawaban
-  const { data: pesertaSesi } = await db
-    .from('peserta_sesi')
+  // FIX: hapus query ke tabel peserta_sesi yang tidak ada di schema.
+  // Sebelumnya query ini selalu return null/error sehingga "belum ujian" tidak pernah akurat.
+  // Sebagai gantinya, ambil siswa yang tercatat di siswa_ujian untuk sesi ini
+  // (ini adalah sumber data yang benar — diisi saat siswa masuk validasi).
+  const { data: siswaUjianList } = await db
+    .from('siswa_ujian')
     .select('nis')
     .eq('sesi_id', sesiAll.id)
 
-  // NIS semua peserta terdaftar (atau fallback ke yang punya jawaban)
-  const semuaNis = pesertaSesi?.length
-    ? pesertaSesi.map(p => p.nis)
+  const semuaNis = siswaUjianList?.length
+    ? [...new Set(siswaUjianList.map(p => p.nis))]
     : nisSet
 
-  // Siswa yang belum ujian = terdaftar tapi tidak punya satu pun jawaban
+  // Siswa yang belum ujian = terdaftar di siswa_ujian tapi tidak punya satu pun jawaban
   const nisUdahUjian  = new Set(nisSet)
   const nisBelumUjian = semuaNis.filter(n => !nisUdahUjian.has(n))
 
@@ -116,6 +124,7 @@ export async function GET(req: NextRequest) {
     .from('siswa')
     .select('nis, nama')
     .in('nis', allNis)
+    .neq('is_tester', 'YES')  // FIX: exclude siswa tester dari statistik analisis
 
   const siswaMap = Object.fromEntries((siswaList ?? []).map(s => [s.nis, s.nama]))
   const soalMap  = Object.fromEntries((soalList  ?? []).map(s => [s.id,  s]))
@@ -197,6 +206,8 @@ export async function GET(req: NextRequest) {
     data:      analisis,
     mapelList: mapelList ?? [],
     sesi:      sesiEnriched,
+    // FIX: kirim semua sesi SELESAI agar halaman admin bisa render dropdown pilihan sesi
+    sesiList:  (sesiList ?? []).map(s => ({ ...s, nama_mapel: mapelMap[s.mapel_id] ?? s.mapel_id })),
     ringkasan,
   })
 }
