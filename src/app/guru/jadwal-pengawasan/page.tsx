@@ -327,7 +327,7 @@ export default function JadwalPengawasanPage() {
   if (loading) return <PageLoader />
 
   const grouped = groupByMonth(jadwal)
-  const upcoming = jadwal.filter(j => j.status !== 'SELESAI' && !isPast(j.tanggal))
+  const upcoming = jadwal.filter(j => j.status === 'AKTIF' && !isPast(j.tanggal))
   const total = jadwal.length
   const selesai = jadwal.filter(j => j.status === 'SELESAI').length
   const berjalan = jadwal.filter(j => j.status === 'BERJALAN').length
