@@ -40,6 +40,15 @@ export async function POST(req: NextRequest) {
 
   if (!sesi) return NextResponse.json({ error: 'Sesi tidak ditemukan' }, { status: 404 })
 
+  // FIX: sesi.kelas = nama kelas, tapi paket_soal.kelas_id = ID dari tabel kelas
+  // Lookup ID kelas terlebih dahulu
+  const { data: kelasRow } = await db
+    .from('kelas')
+    .select('id')
+    .eq('nama', String(sesi.kelas))
+    .maybeSingle()
+  const kelasId = kelasRow?.id ?? String(sesi.kelas)
+
   // Query mapel, paket, jawaban siswa — semua PARALEL (tidak saling bergantung)
   const [
     { data: mapel },
@@ -50,7 +59,7 @@ export async function POST(req: NextRequest) {
     db.from('paket_soal')
       .select('id, jumlah_soal')
       .eq('mapel_id', sesi.mapel_id)
-      .eq('kelas_id', sesi.kelas)
+      .eq('kelas_id', kelasId)   // ← FIX: pakai kelasId bukan sesi.kelas
       .eq('status', 'DISETUJUI')
       .limit(1)
       .single(),
