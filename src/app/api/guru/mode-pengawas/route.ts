@@ -19,22 +19,47 @@ export async function GET(req: NextRequest) {
 
   const db = createAdminClient()
 
-  // Ambil jadwal hari ini — gunakan gte/lte agar cover format DATE maupun TIMESTAMPTZ
+  // ── 1. Ambil semua jadwal milik guru ini ──────────────────────────────────
   const today = new Date().toISOString().slice(0, 10)
   const todayStart = `${today}T00:00:00`
   const todayEnd   = `${today}T23:59:59`
 
-  const { data: jadwalList, error } = await db
+  const { data: semuaJadwal, error: errJadwal } = await db
     .from('jadwal')
     .select('*')
     .eq('pengawas', user.username)
-    .or(`tanggal.eq.${today},and(tanggal.gte.${todayStart},tanggal.lte.${todayEnd})`)
     .order('sesi')
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  if (!jadwalList?.length) return NextResponse.json({ data: [], sesiAktif: [] })
+  if (errJadwal) return NextResponse.json({ error: errJadwal.message }, { status: 500 })
+  if (!semuaJadwal?.length) return NextResponse.json({ data: [], sesiAktif: [] })
 
-  // Enrich nama mapel & kelas
+  // ── 2. Ambil SEMUA sesi_ujian untuk jadwal guru ini ──────────────────────
+  const semuaJadwalIds = semuaJadwal.map(j => j.id)
+  const { data: semuaSesi } = await db
+    .from('sesi_ujian')
+    .select('*')
+    .in('jadwal_id', semuaJadwalIds)
+    .order('waktu_mulai', { ascending: false })
+
+  // ── 3. Tentukan jadwal mana yang tampil di Mode Pengawas ─────────────────
+  // Tampilkan jadwal jika: (a) jadwalnya hari ini, ATAU (b) ada sesi BERJALAN
+  const sesiByJadwal: Record<string, typeof semuaSesi> = {}
+  for (const s of semuaSesi ?? []) {
+    if (!sesiByJadwal[s.jadwal_id]) sesiByJadwal[s.jadwal_id] = []
+    sesiByJadwal[s.jadwal_id].push(s)
+  }
+
+  const jadwalList = semuaJadwal.filter(j => {
+    const tanggal = j.tanggal?.slice(0, 10) ?? j.tanggal
+    const isHariIni = tanggal === today ||
+      (tanggal >= todayStart && tanggal <= todayEnd)
+    const adaSesiAktif = (sesiByJadwal[j.id] ?? []).some(s => s.status === 'BERJALAN')
+    return isHariIni || adaSesiAktif
+  })
+
+  if (!jadwalList.length) return NextResponse.json({ data: [], sesiAktif: [] })
+
+  // ── 4. Enrich nama mapel & kelas ─────────────────────────────────────────
   const mapelIds = [...new Set(jadwalList.map(j => j.mapel_id).filter(Boolean))]
   const kelasIds = [...new Set(jadwalList.map(j => j.kelas).filter(Boolean))]
   const [{ data: mapelList }, { data: kelasList }] = await Promise.all([
@@ -44,23 +69,16 @@ export async function GET(req: NextRequest) {
   const mapelMap = Object.fromEntries((mapelList ?? []).map(m => [m.id, m.nama]))
   const kelasMap = Object.fromEntries((kelasList ?? []).map(k => [k.id, k.nama]))
 
-  // Ambil SEMUA sesi yang terkait jadwal hari ini (termasuk susulan / is_darurat)
+  // ── 5. Ambil jumlah peserta & selesai dari siswa_ujian ───────────────────
   const jadwalIds = jadwalList.map(j => j.id)
-  const { data: sesiList } = await db
-    .from('sesi_ujian')
-    .select('*')
-    .in('jadwal_id', jadwalIds)
-    .order('waktu_mulai', { ascending: false }) // terbaru dulu
-
-  // Ambil jumlah peserta & selesai dari siswa_ujian (data live, lebih akurat dari jumlah_peserta)
-  const sesiIds = (sesiList ?? []).map(s => s.id)
+  const sesiList = (semuaSesi ?? []).filter(s => jadwalIds.includes(s.jadwal_id))
+  const sesiIds = sesiList.map(s => s.id)
   let siswaUjianMap: Record<string, { total: number; selesai: number }> = {}
   if (sesiIds.length > 0) {
     const { data: siswaUjianList } = await db
       .from('siswa_ujian')
       .select('sesi_id, status')
       .in('sesi_id', sesiIds)
-
     for (const su of siswaUjianList ?? []) {
       if (!siswaUjianMap[su.sesi_id]) siswaUjianMap[su.sesi_id] = { total: 0, selesai: 0 }
       siswaUjianMap[su.sesi_id].total++
@@ -68,11 +86,10 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // ── 6. Enrich tiap jadwal ─────────────────────────────────────────────────
   const enrichedJadwal = jadwalList.map(j => {
-    // Prioritaskan sesi yang BERJALAN (termasuk susulan); jika tidak ada, ambil yang terbaru
-    const sesiUntukJadwal = (sesiList ?? []).filter(s => s.jadwal_id === j.id)
+    const sesiUntukJadwal = (sesiList).filter(s => s.jadwal_id === j.id)
     const sesiTerkait = sesiUntukJadwal.find(s => s.status === 'BERJALAN') ?? sesiUntukJadwal[0] ?? null
-    // Sinkronkan status jadwal dengan status sesi aktual
     let status = j.status
     if (sesiTerkait?.status === 'BERJALAN') status = 'BERJALAN'
     if (sesiTerkait?.status === 'SELESAI' && status !== 'BERJALAN') status = 'SELESAI'
