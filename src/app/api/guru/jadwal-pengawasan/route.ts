@@ -60,7 +60,8 @@ export async function GET(req: NextRequest) {
     // Override status berdasarkan sesi aktual
     let status = j.status
     if (sesi?.status === 'BERJALAN') status = 'BERJALAN'
-    if (sesi?.status === 'SELESAI') status = 'SELESAI'
+    else if (sesi?.status === 'SELESAI') status = 'SELESAI'
+    else if (tanggal < today && status === 'AKTIF') status = 'SELESAI'
 
     return {
       ...j,
