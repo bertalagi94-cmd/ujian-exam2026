@@ -34,7 +34,7 @@ export async function GET(req: NextRequest) {
   const mapelSet = [...new Set(data.map(r => r.mapel_id).filter(Boolean))]
 
   const [{ data: siswaList }, { data: mapelList }] = await Promise.all([
-    db.from('siswa').select('nis, nama').in('nis', nisSet),
+    db.from('siswa').select('nis, nama').in('nis', nisSet).neq('is_tester', 'YES'),  // FIX: exclude tester
     db.from('mapel').select('id, nama').in('id', mapelSet),
   ])
 
