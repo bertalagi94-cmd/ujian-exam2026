@@ -38,18 +38,13 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // ── FIX BUG KELAS_ID ──────────────────────────────────────────────────────
-  // sesi.kelas = nama kelas (string), tapi paket_soal.kelas_id = ID dari tabel kelas
-  // Cari ID kelas berdasarkan nama kelas terlebih dahulu
+  // FIX kelas_id: sesi.kelas = nama kelas, paket_soal.kelas_id = ID dari tabel kelas
   const { data: kelasRow } = await db
     .from('kelas')
     .select('id')
     .eq('nama', String(sesi.kelas))
     .maybeSingle()
-
-  // Gunakan ID kelas jika ada, fallback ke nama kelas (untuk kelas yg id=nama)
   const kelasId = kelasRow?.id ?? String(sesi.kelas)
-  // ──────────────────────────────────────────────────────────────────────────
 
   const [
     { data: nilaiAda },
@@ -59,7 +54,6 @@ export async function POST(req: NextRequest) {
   ] = await Promise.all([
     db.from('nilai').select('id').eq('sesi_id', sesi.id).eq('nis', nis).single(),
     db.from('siswa_ujian').select('status, waktu_mulai, waktu_mulai_awal').eq('sesi_id', sesi.id).eq('nis', nis).single(),
-    // FIX: gunakan kelasId (ID dari tabel kelas) bukan sesi.kelas (nama kelas)
     db.from('paket_soal').select('id, acak').eq('mapel_id', sesi.mapel_id).eq('kelas_id', kelasId).eq('status', 'DISETUJUI').limit(1).single(),
     db.from('mapel').select('nama').eq('id', sesi.mapel_id).single(),
   ])
@@ -83,17 +77,18 @@ export async function POST(req: NextRequest) {
 
   const now = new Date().toISOString()
 
-  // Simpan waktu_mulai_awal saat pertama masuk (tidak pernah diubah) untuk referensi timer
+  // FIX race condition: gunakan upsert dengan ignoreDuplicates
+  // agar submit ganda dari klik 2x tidak menghasilkan 2 row di siswa_ujian
   const [{ data: soalList }] = await Promise.all([
     soalQuery,
     isNewEntry
-      ? db.from('siswa_ujian').insert({
+      ? db.from('siswa_ujian').upsert({   // ← FIX: was insert
           sesi_id: sesi.id, nis,
           waktu_daftar: now,
           waktu_mulai: now,
-          waktu_mulai_awal: now,   // simpan waktu awal, tidak pernah diubah saat reset
+          waktu_mulai_awal: now,
           status: 'AKTIF',
-        })
+        }, { onConflict: 'sesi_id,nis', ignoreDuplicates: true })
       : db.from('siswa_ujian').update({ status: 'AKTIF' }).eq('sesi_id', sesi.id).eq('nis', nis),
   ])
 
@@ -118,7 +113,7 @@ export async function POST(req: NextRequest) {
     finalSoal = soalList.map((s, i) => ({ ...s, nomor: i + 1 }))
   }
 
-  // Gunakan waktu_mulai_awal sebagai referensi timer — tidak berubah saat reset pelanggaran
+  // Gunakan waktu_mulai_awal sebagai referensi timer
   const waktuMulaiRef = siswaUjian?.waktu_mulai_awal ?? siswaUjian?.waktu_mulai ?? now
 
   return NextResponse.json({
