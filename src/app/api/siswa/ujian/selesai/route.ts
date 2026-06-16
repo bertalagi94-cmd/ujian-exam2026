@@ -115,8 +115,11 @@ export async function POST(req: NextRequest) {
   }
 
   // Simpan nilai + update status — PARALEL
+  // FIX: pakai upsert+ignoreDuplicates (bukan insert biasa) supaya kalau ada
+  // race condition (misal klik 2x atau retry jaringan) tidak menghasilkan
+  // error/duplikat baris nilai — konsisten dengan UNIQUE(sesi_id, nis) di skema.
   await Promise.all([
-    db.from('nilai').insert(nilaiData),
+    db.from('nilai').upsert(nilaiData, { onConflict: 'sesi_id,nis', ignoreDuplicates: true }),
     db.from('siswa_ujian')
       .update({ status: 'SELESAI', waktu_selesai: new Date().toISOString() })
       .eq('sesi_id', sesiId)
