@@ -466,7 +466,7 @@ export default function WaliKelasPage() {
               </thead>
               <tbody>
                 {/* Baris siswa selalu ditampilkan */}
-                {(nilaiRekap.length > 0 ? nilaiRekap : siswaList.map(s => ({ nis: s.nis, nama: s.nama }))).map((row, idx) => (
+                {(nilaiRekap.length > 0 ? nilaiRekap : siswaList.map(s => ({ nis: s.nis, nama: s.nama })) as NilaiRow[]).map((row, idx) => (
                   <tr
                     key={row.nis as string}
                     className={`border-b border-slate-50 hover:bg-slate-50 transition-colors ${idx % 2 === 0 ? '' : 'bg-slate-50/30'}`}
