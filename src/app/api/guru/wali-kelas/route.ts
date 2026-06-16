@@ -22,6 +22,10 @@ export async function GET(req: NextRequest) {
   }
 
   const kelasId = kelasWali.id
+  // Kolom `siswa.kelas`, `jadwal.kelas`, dan `nilai.kelas` menyimpan NAMA kelas
+  // (bukan id), sesuai dengan cara insert di admin/siswa/route.ts (kelas: kelasNama).
+  // Gunakan kelasWali.nama agar query menghasilkan data yang benar.
+  const kelasNama = kelasWali.nama
 
   // Ambil semua mapel yang terdaftar di kelas ini (dari kelas_mapel)
   const { data: kelasMapelList } = await db
@@ -37,7 +41,7 @@ export async function GET(req: NextRequest) {
   const { data: siswaList } = await db
     .from('siswa')
     .select('nis, nama, status')
-    .eq('kelas', kelasId)
+    .eq('kelas', kelasNama)   // ← fix: gunakan nama kelas, bukan id
     .eq('status', 'AKTIF')
     .order('nama')
 
@@ -48,7 +52,7 @@ export async function GET(req: NextRequest) {
   const { data: jadwalList } = await db
     .from('jadwal')
     .select('*')
-    .eq('kelas', kelasId)
+    .eq('kelas', kelasNama)   // ← fix: gunakan nama kelas, bukan id
     .in('mapel_id', mapelIds)
     .order('tanggal', { ascending: true })
 
@@ -56,7 +60,7 @@ export async function GET(req: NextRequest) {
   const { data: nilaiList } = await db
     .from('nilai')
     .select('nis, mapel_id, nilai, grade, lulus, sesi_id, timestamp')
-    .eq('kelas', kelasId)
+    .eq('kelas', kelasNama)   // ← fix: gunakan nama kelas, bukan id
     .in('mapel_id', mapelIds)
 
   // Per mapel: hitung sudah berapa yang ujian, belum siapa
