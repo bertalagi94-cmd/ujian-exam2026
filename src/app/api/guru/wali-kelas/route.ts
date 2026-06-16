@@ -33,20 +33,28 @@ export async function GET(req: NextRequest) {
     .select('*')
     .eq('kelas_id', kelasId)
 
-  if (!kelasMapelList || kelasMapelList.length === 0) {
-    return NextResponse.json({ isWaliKelas: true, kelas: kelasWali, mapelList: [], siswaList: [], nilaiRekap: [] })
-  }
-
-  // Ambil semua siswa di kelas ini
+  // Ambil semua siswa di kelas ini — selalu ambil, meski belum ada mapel
   const { data: siswaList } = await db
     .from('siswa')
     .select('nis, nama, status')
-    .eq('kelas', kelasNama)   // ← fix: gunakan nama kelas, bukan id
+    .eq('kelas', kelasNama)
     .eq('status', 'AKTIF')
     .order('nama')
 
+  // Jika belum ada mapel, tetap kembalikan siswa (bukan early return kosong)
+  if (!kelasMapelList || kelasMapelList.length === 0) {
+    const nilaiRekapKosong = (siswaList ?? []).map(s => ({ nis: s.nis, nama: s.nama }))
+    return NextResponse.json({
+      isWaliKelas: true,
+      kelas: kelasWali,
+      mapelList: [],
+      siswaList: siswaList ?? [],
+      nilaiRekap: nilaiRekapKosong,
+    })
+  }
+
   const totalSiswa = siswaList?.length ?? 0
-  const mapelIds = kelasMapelList.map(km => km.mapel_id)
+  const mapelIds = kelasMapelList.map((km: { mapel_id: string }) => km.mapel_id)
 
   // Ambil jadwal ujian untuk kelas ini
   const { data: jadwalList } = await db
