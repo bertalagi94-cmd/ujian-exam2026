@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   Users, BookOpen, CheckCircle, AlertTriangle, Download,
   TrendingUp, Award, XCircle, ChevronDown, ChevronUp,
-  Calendar, RefreshCw, Eye, EyeOff
+  Calendar, RefreshCw, Clock, UserCheck, UserX, BarChart2
 } from 'lucide-react'
 import { apiRequest, formatDate, nilaiColor } from '@/lib/utils'
 import { PageLoader } from '@/components/ui'
@@ -50,18 +50,18 @@ const GRADE_STYLE: Record<string, string> = {
   E: 'bg-red-100 text-red-700 border-red-200',
 }
 
-const STATUS_JADWAL: Record<string, { label: string; cls: string }> = {
-  AKTIF: { label: 'Aktif', cls: 'bg-blue-100 text-blue-700' },
-  BERJALAN: { label: 'Berlangsung', cls: 'bg-amber-100 text-amber-700' },
-  SELESAI: { label: 'Selesai', cls: 'bg-emerald-100 text-emerald-700' },
+const STATUS_JADWAL: Record<string, { label: string; cls: string; dot: string }> = {
+  AKTIF:    { label: 'Aktif',       cls: 'bg-blue-100 text-blue-700',    dot: 'bg-blue-500' },
+  BERJALAN: { label: 'Berlangsung', cls: 'bg-amber-100 text-amber-700',  dot: 'bg-amber-500' },
+  SELESAI:  { label: 'Selesai',     cls: 'bg-emerald-100 text-emerald-700', dot: 'bg-emerald-500' },
 }
 
 export default function WaliKelasPage() {
-  const [data, setData] = useState<WaliKelasData | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [data, setData]             = useState<WaliKelasData | null>(null)
+  const [loading, setLoading]       = useState(true)
   const [expandedBelum, setExpandedBelum] = useState<string | null>(null)
-  const [downloading, setDownloading] = useState(false)
-  const [refreshing, setRefreshing] = useState(false)
+  const [downloading, setDownloading]     = useState(false)
+  const [refreshing, setRefreshing]       = useState(false)
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true)
@@ -83,11 +83,9 @@ export default function WaliKelasPage() {
     if (!data) return
     setDownloading(true)
     try {
-      // Dynamic import xlsx
       const XLSX = await import('xlsx')
       const wb = XLSX.utils.book_new()
 
-      // Sheet "Ringkasan"
       const ringkasanData = data.nilaiRekap.map((row, i) => {
         const r: Record<string, unknown> = { No: i + 1, NIS: row.nis, 'Nama Siswa': row.nama }
         data.mapelList.forEach(mp => {
@@ -104,7 +102,6 @@ export default function WaliKelasPage() {
       const wsRingkasan = XLSX.utils.json_to_sheet(ringkasanData)
       XLSX.utils.book_append_sheet(wb, wsRingkasan, 'Ringkasan Semua Mapel')
 
-      // Sheet per mapel
       data.mapelList.forEach(mp => {
         const sheetData = data.nilaiRekap.map((row, i) => {
           const v = row[mp.mapel_id]
@@ -119,16 +116,14 @@ export default function WaliKelasPage() {
           }
         })
         const ws = XLSX.utils.json_to_sheet(sheetData)
-        // Trim nama mapel max 31 char (Excel limit)
-        const sheetName = mp.nama_mapel.substring(0, 31)
-        XLSX.utils.book_append_sheet(wb, ws, sheetName)
+        XLSX.utils.book_append_sheet(wb, ws, mp.nama_mapel.substring(0, 31))
       })
 
       const kelasNama = data.kelas?.nama ?? 'Kelas'
       XLSX.writeFile(wb, `Rekap_Nilai_${kelasNama.replace(/\s/g, '_')}.xlsx`)
     } catch (e) {
       console.error(e)
-      alert('Gagal membuat file Excel. Pastikan koneksi internet aktif.')
+      alert('Gagal membuat file Excel.')
     } finally {
       setDownloading(false)
     }
@@ -150,16 +145,30 @@ export default function WaliKelasPage() {
     )
   }
 
-  const kelas = data.kelas!
+  const kelas     = data.kelas!
   const mapelList = data.mapelList
   const nilaiRekap = data.nilaiRekap
+  const siswaList  = data.siswaList
 
-  const totalSiswa = data.siswaList.length
-  const totalMapel = mapelList.length
+  const totalSiswa  = siswaList.length
+  const totalMapel  = mapelList.length
   const mapelSelesai = mapelList.filter(m => m.jadwal?.status === 'SELESAI').length
+  const mapelAktif   = mapelList.filter(m => m.jadwal !== null)
+
   const rataRataAll = mapelList.filter(m => m.rataRata !== null).length
-    ? Math.round(mapelList.filter(m => m.rataRata !== null).reduce((s, m) => s + (m.rataRata ?? 0), 0) / mapelList.filter(m => m.rataRata !== null).length)
+    ? Math.round(
+        mapelList.filter(m => m.rataRata !== null)
+          .reduce((s, m) => s + (m.rataRata ?? 0), 0) /
+        mapelList.filter(m => m.rataRata !== null).length
+      )
     : null
+
+  // Mapel yang sudah ada jadwal (sudah diujiankan / akan diujiankan)
+  const mapelDijadwalkan = mapelList.filter(m => m.jadwal !== null)
+  // Siswa yang paling banyak belum ujian (ringkasan cepat)
+  const totalBelumLengkap = siswaList.filter(s =>
+    mapelDijadwalkan.some(m => m.belumUjianSiswa.some(b => b.nis === s.nis))
+  ).length
 
   return (
     <div className="space-y-8 animate-fade-in pb-10">
@@ -193,7 +202,7 @@ export default function WaliKelasPage() {
             className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700 text-sm font-medium transition-colors shadow-sm"
           >
             <Download className="w-4 h-4" />
-            {downloading ? 'Memproses...' : 'Download Excel'}
+            {downloading ? 'Memproses...' : 'Download Excel (Rekap Nilai)'}
           </button>
         </div>
       </div>
@@ -210,13 +219,13 @@ export default function WaliKelasPage() {
           icon={<BookOpen className="w-5 h-5 text-purple-600" />}
           bg="bg-purple-50"
           label="Mata Pelajaran"
-          value={totalMapel}
+          value={totalMapel > 0 ? totalMapel : '—'}
         />
         <StatMini
           icon={<CheckCircle className="w-5 h-5 text-emerald-600" />}
           bg="bg-emerald-50"
           label="Mapel Selesai"
-          value={`${mapelSelesai}/${totalMapel}`}
+          value={totalMapel > 0 ? `${mapelSelesai}/${totalMapel}` : '—'}
         />
         <StatMini
           icon={<TrendingUp className="w-5 h-5 text-amber-600" />}
@@ -226,136 +235,200 @@ export default function WaliKelasPage() {
         />
       </div>
 
-      {/* Ringkasan Mapel Cards */}
+      {/* ── Ringkasan per Mapel yang Dijadwalkan ── */}
       <section>
-        <h2 className="text-base font-bold text-slate-800 mb-4 flex items-center gap-2">
-          <BookOpen className="w-4 h-4 text-emerald-600" />
-          Ringkasan per Mata Pelajaran
-        </h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-          {mapelList.map(mp => {
-            const belumCount = mp.belumUjianSiswa.length
-            const pct = mp.totalSiswa > 0 ? Math.round((mp.sudahUjian / mp.totalSiswa) * 100) : 0
-            const jadwalStatus = mp.jadwal ? STATUS_JADWAL[mp.jadwal.status] ?? STATUS_JADWAL.AKTIF : null
-            const isExpanded = expandedBelum === mp.mapel_id
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-base font-bold text-slate-800 flex items-center gap-2">
+            <BookOpen className="w-4 h-4 text-emerald-600" />
+            Ringkasan per Mata Pelajaran
+          </h2>
+          {totalBelumLengkap > 0 && (
+            <span className="flex items-center gap-1.5 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-full">
+              <AlertTriangle className="w-3.5 h-3.5" />
+              {totalBelumLengkap} siswa belum lengkap nilainya
+            </span>
+          )}
+        </div>
 
-            return (
-              <div
-                key={mp.mapel_id}
-                className="bg-white border border-slate-100 rounded-2xl shadow-sm hover:shadow-md transition-shadow overflow-hidden"
-              >
-                {/* Card Header */}
-                <div className="p-4 pb-3">
-                  <div className="flex items-start justify-between gap-2 mb-3">
-                    <div className="flex-1 min-w-0">
-                      <h3 className="font-bold text-slate-900 text-sm truncate">{mp.nama_mapel}</h3>
-                      {mp.jadwal && (
-                        <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1">
-                          <Calendar className="w-3 h-3" />
-                          {formatDate(mp.jadwal.tanggal)} · Sesi {mp.jadwal.sesi}
-                        </p>
+        {mapelDijadwalkan.length === 0 ? (
+          <div className="bg-white border border-dashed border-slate-200 rounded-2xl p-10 text-center">
+            <div className="w-12 h-12 rounded-xl bg-slate-100 flex items-center justify-center mx-auto mb-3">
+              <Calendar className="w-6 h-6 text-slate-400" />
+            </div>
+            <p className="text-slate-500 text-sm font-medium">Belum ada mata pelajaran yang dijadwalkan</p>
+            <p className="text-slate-400 text-xs mt-1">Kartu akan muncul otomatis saat admin menambahkan jadwal ujian untuk kelas ini</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+            {mapelDijadwalkan.map(mp => {
+              const belumCount   = mp.belumUjianSiswa.length
+              const sudahCount   = mp.sudahUjian
+              const total        = mp.totalSiswa
+              const pct          = total > 0 ? Math.round((sudahCount / total) * 100) : 0
+              const jadwalStatus = mp.jadwal ? STATUS_JADWAL[mp.jadwal.status] ?? STATUS_JADWAL.AKTIF : null
+              const isExpanded   = expandedBelum === mp.mapel_id
+              const isSelesai    = mp.jadwal?.status === 'SELESAI'
+              const lulusCount   = mp.nilaiList.filter(n => n.lulus).length
+              const tidakLulus   = mp.nilaiList.filter(n => !n.lulus).length
+
+              return (
+                <div
+                  key={mp.mapel_id}
+                  className={`bg-white border rounded-2xl shadow-sm hover:shadow-md transition-all overflow-hidden ${
+                    belumCount > 0 ? 'border-amber-200' : 'border-slate-100'
+                  }`}
+                >
+                  {/* Top accent line */}
+                  <div className={`h-1 w-full ${pct === 100 ? 'bg-emerald-500' : pct > 50 ? 'bg-blue-400' : 'bg-amber-400'}`} />
+
+                  {/* Card Header */}
+                  <div className="p-4 pb-3">
+                    <div className="flex items-start justify-between gap-2 mb-3">
+                      <div className="flex-1 min-w-0">
+                        <h3 className="font-bold text-slate-900 text-sm leading-tight">{mp.nama_mapel}</h3>
+                        {mp.jadwal && (
+                          <p className="text-xs text-slate-400 mt-1 flex items-center gap-1">
+                            <Calendar className="w-3 h-3 flex-shrink-0" />
+                            {formatDate(mp.jadwal.tanggal)} · Sesi {mp.jadwal.sesi}
+                            <span className="text-slate-300">·</span>
+                            {mp.jadwal.jam_mulai}–{mp.jadwal.jam_selesai}
+                          </p>
+                        )}
+                      </div>
+                      {jadwalStatus && (
+                        <span className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium flex-shrink-0 ${jadwalStatus.cls}`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${jadwalStatus.dot} inline-block`} />
+                          {jadwalStatus.label}
+                        </span>
                       )}
                     </div>
-                    {jadwalStatus && (
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium flex-shrink-0 ${jadwalStatus.cls}`}>
-                        {jadwalStatus.label}
-                      </span>
-                    )}
-                    {!mp.jadwal && (
-                      <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-slate-100 text-slate-500 flex-shrink-0">
-                        Belum Terjadwal
-                      </span>
-                    )}
+
+                    {/* Progress bar keikutsertaan */}
+                    <div className="space-y-1.5">
+                      <div className="flex justify-between text-xs">
+                        <span className="text-slate-500 flex items-center gap-1">
+                          <UserCheck className="w-3 h-3" />
+                          Peserta ujian
+                        </span>
+                        <span className="font-semibold text-slate-700">{sudahCount}/{total} siswa</span>
+                      </div>
+                      <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                        <div
+                          className={`h-2 rounded-full transition-all duration-500 ${
+                            pct === 100 ? 'bg-emerald-500' : pct > 50 ? 'bg-blue-500' : 'bg-amber-400'
+                          }`}
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                      <div className="flex justify-between text-xs text-slate-400">
+                        <span>{pct}% selesai</span>
+                        {belumCount > 0 && (
+                          <span className="text-amber-600 font-medium">{belumCount} belum ikut</span>
+                        )}
+                      </div>
+                    </div>
                   </div>
 
-                  {/* Progress bar */}
-                  <div className="space-y-1.5">
-                    <div className="flex justify-between text-xs">
-                      <span className="text-slate-500">Sudah ujian</span>
-                      <span className="font-semibold text-slate-700">{mp.sudahUjian}/{mp.totalSiswa} siswa</span>
+                  {/* Divider */}
+                  <div className="border-t border-slate-50 mx-3" />
+
+                  {/* Stats row – hanya jika sudah ada nilai */}
+                  {isSelesai && mp.nilaiList.length > 0 && (
+                    <div className="px-4 py-3 grid grid-cols-3 gap-2">
+                      <div className="text-center">
+                        <div className={`text-base font-bold ${nilaiColor(mp.rataRata ?? 0)}`}>
+                          {mp.rataRata ?? '—'}
+                        </div>
+                        <div className="text-xs text-slate-400 mt-0.5 flex items-center justify-center gap-0.5">
+                          <BarChart2 className="w-3 h-3" />Rata-rata
+                        </div>
+                      </div>
+                      <div className="text-center border-x border-slate-50">
+                        <div className="text-base font-bold text-emerald-600">{lulusCount}</div>
+                        <div className="text-xs text-slate-400 mt-0.5 flex items-center justify-center gap-0.5">
+                          <CheckCircle className="w-3 h-3" />Lulus
+                        </div>
+                      </div>
+                      <div className="text-center">
+                        <div className={`text-base font-bold ${tidakLulus > 0 ? 'text-red-500' : 'text-slate-300'}`}>
+                          {tidakLulus}
+                        </div>
+                        <div className="text-xs text-slate-400 mt-0.5 flex items-center justify-center gap-0.5">
+                          <XCircle className="w-3 h-3" />Tidak Lulus
+                        </div>
+                      </div>
                     </div>
-                    <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                      <div
-                        className={`h-2 rounded-full transition-all duration-500 ${
-                          pct === 100 ? 'bg-emerald-500' : pct > 50 ? 'bg-blue-500' : 'bg-amber-500'
-                        }`}
-                        style={{ width: `${pct}%` }}
-                      />
+                  )}
+
+                  {/* Belum ujian – tombol lihat siapa */}
+                  {belumCount > 0 && (
+                    <div className="px-3 pb-3">
+                      <button
+                        onClick={() => setExpandedBelum(isExpanded ? null : mp.mapel_id)}
+                        className="w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-700 hover:bg-amber-100 transition-colors text-xs font-semibold"
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <AlertTriangle className="w-3.5 h-3.5" />
+                          <span>{belumCount} siswa belum ujian — lihat siapa</span>
+                        </div>
+                        {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                      </button>
+
+                      {isExpanded && (
+                        <div className="mt-2 bg-amber-50 border border-amber-100 rounded-xl overflow-hidden divide-y divide-amber-100">
+                          {mp.belumUjianSiswa.map((s, i) => (
+                            <div key={s.nis} className="flex items-center gap-2.5 px-3 py-2 text-xs">
+                              <div className="w-6 h-6 rounded-full bg-amber-200 flex items-center justify-center font-bold text-amber-800 flex-shrink-0 text-xs">
+                                {i + 1}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="font-semibold text-amber-900 truncate">{s.nama}</div>
+                                <div className="text-amber-600">{s.nis}</div>
+                              </div>
+                              <UserX className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                  </div>
+                  )}
+
+                  {/* Semua sudah ujian */}
+                  {belumCount === 0 && sudahCount > 0 && (
+                    <div className="px-4 pb-3">
+                      <div className="flex items-center gap-1.5 text-xs text-emerald-600 bg-emerald-50 px-3 py-2 rounded-xl">
+                        <CheckCircle className="w-3.5 h-3.5" />
+                        Semua siswa telah mengikuti ujian
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Belum ada peserta */}
+                  {sudahCount === 0 && (
+                    <div className="px-4 pb-3">
+                      <div className="flex items-center gap-1.5 text-xs text-slate-400 bg-slate-50 px-3 py-2 rounded-xl">
+                        <Clock className="w-3.5 h-3.5" />
+                        Belum ada siswa yang mengikuti ujian
+                      </div>
+                    </div>
+                  )}
                 </div>
-
-                {/* Belum ujian notif */}
-                {belumCount > 0 && (
-                  <div className="mx-3 mb-3">
-                    <button
-                      onClick={() => setExpandedBelum(isExpanded ? null : mp.mapel_id)}
-                      className="w-full flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-amber-50 border border-amber-200 text-amber-700 hover:bg-amber-100 transition-colors text-xs font-medium"
-                    >
-                      <div className="flex items-center gap-1.5">
-                        <AlertTriangle className="w-3.5 h-3.5" />
-                        <span>{belumCount} belum ujian — lihat siapa</span>
-                      </div>
-                      {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                    </button>
-
-                    {isExpanded && (
-                      <div className="mt-1.5 bg-amber-50 border border-amber-100 rounded-xl overflow-hidden">
-                        {mp.belumUjianSiswa.map((s, i) => (
-                          <div
-                            key={s.nis}
-                            className={`flex items-center gap-2 px-3 py-2 text-xs ${i !== 0 ? 'border-t border-amber-100' : ''}`}
-                          >
-                            <div className="w-5 h-5 rounded-full bg-amber-200 flex items-center justify-center font-bold text-amber-800 flex-shrink-0">
-                              {s.nama.charAt(0)}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="font-medium text-amber-900 truncate">{s.nama}</div>
-                              <div className="text-amber-600">{s.nis}</div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Rata-rata */}
-                {mp.rataRata !== null && (
-                  <div className="px-4 pb-3 pt-0">
-                    <div className="flex items-center justify-between text-xs bg-slate-50 rounded-xl px-3 py-2">
-                      <span className="text-slate-500 flex items-center gap-1">
-                        <Award className="w-3 h-3" />
-                        Rata-rata kelas
-                      </span>
-                      <span className={`font-bold text-sm ${nilaiColor(mp.rataRata)}`}>{mp.rataRata}</span>
-                    </div>
-                  </div>
-                )}
-
-                {/* Semua sudah ujian */}
-                {belumCount === 0 && mp.sudahUjian > 0 && (
-                  <div className="px-4 pb-3 pt-0">
-                    <div className="flex items-center gap-1.5 text-xs text-emerald-600 bg-emerald-50 px-3 py-2 rounded-xl">
-                      <CheckCircle className="w-3.5 h-3.5" />
-                      Semua siswa telah mengikuti ujian
-                    </div>
-                  </div>
-                )}
-              </div>
-            )
-          })}
-        </div>
+              )
+            })}
+          </div>
+        )}
       </section>
 
-      {/* Tabel Rekap Nilai */}
+      {/* ── Tabel Rekap Nilai – selalu tampil meski kosong ── */}
       <section>
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-base font-bold text-slate-800 flex items-center gap-2">
             <TrendingUp className="w-4 h-4 text-emerald-600" />
             Rekap Nilai Semua Siswa
           </h2>
-          <span className="text-xs text-slate-400 italic">← geser tabel untuk melihat semua mapel</span>
+          <span className="text-xs text-slate-400 italic">
+            ← geser tabel ke kanan untuk melihat semua mapel — nama siswa tetap terlihat
+          </span>
         </div>
 
         <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
@@ -369,25 +442,33 @@ export default function WaliKelasPage() {
                   <th className="text-left px-4 py-3 font-semibold text-slate-600 text-xs uppercase tracking-wider whitespace-nowrap sticky left-8 bg-slate-50 z-10 border-r border-slate-100 min-w-[160px]">
                     Nama Siswa
                   </th>
-                  {mapelList.map(mp => (
-                    <th
-                      key={mp.mapel_id}
-                      className="text-center px-3 py-3 font-semibold text-slate-600 text-xs whitespace-nowrap min-w-[120px]"
-                    >
-                      <div>{mp.nama_mapel}</div>
-                      {mp.jadwal?.tanggal && (
-                        <div className="font-normal text-slate-400 text-xs mt-0.5">
-                          {new Date(mp.jadwal.tanggal).toLocaleDateString('id-ID', { day: '2-digit', month: 'short' })}
-                        </div>
-                      )}
-                    </th>
-                  ))}
+                  {mapelList.length > 0
+                    ? mapelList.map(mp => (
+                        <th
+                          key={mp.mapel_id}
+                          className="text-center px-3 py-3 font-semibold text-slate-600 text-xs whitespace-nowrap min-w-[120px]"
+                        >
+                          <div>{mp.nama_mapel}</div>
+                          {mp.jadwal?.tanggal && (
+                            <div className="font-normal text-slate-400 text-xs mt-0.5">
+                              {new Date(mp.jadwal.tanggal).toLocaleDateString('id-ID', { day: '2-digit', month: 'short' })}
+                            </div>
+                          )}
+                        </th>
+                      ))
+                    : (
+                        <th className="text-center px-3 py-3 font-semibold text-slate-400 text-xs whitespace-nowrap min-w-[200px]">
+                          — Belum ada mata pelajaran —
+                        </th>
+                      )
+                  }
                 </tr>
               </thead>
               <tbody>
-                {nilaiRekap.map((row, idx) => (
+                {/* Baris siswa selalu ditampilkan */}
+                {(nilaiRekap.length > 0 ? nilaiRekap : siswaList.map(s => ({ nis: s.nis, nama: s.nama }))).map((row, idx) => (
                   <tr
-                    key={row.nis}
+                    key={row.nis as string}
                     className={`border-b border-slate-50 hover:bg-slate-50 transition-colors ${idx % 2 === 0 ? '' : 'bg-slate-50/30'}`}
                   >
                     <td className="px-4 py-3 text-slate-400 text-xs sticky left-0 bg-inherit z-10 border-r border-slate-100">
@@ -404,36 +485,45 @@ export default function WaliKelasPage() {
                         </div>
                       </div>
                     </td>
-                    {mapelList.map(mp => {
-                      const v = row[mp.mapel_id]
-                      if (!v || typeof v === 'string') {
-                        return (
-                          <td key={mp.mapel_id} className="px-3 py-3 text-center">
-                            <span className="text-slate-300 text-xs">—</span>
+                    {mapelList.length > 0
+                      ? mapelList.map(mp => {
+                          const v = row[mp.mapel_id]
+                          if (!v || typeof v === 'string') {
+                            return (
+                              <td key={mp.mapel_id} className="px-3 py-3 text-center">
+                                <span className="text-slate-300 text-xs">—</span>
+                              </td>
+                            )
+                          }
+                          const obj = v as { nilai: number; grade: string; lulus: boolean }
+                          return (
+                            <td key={mp.mapel_id} className="px-3 py-3 text-center">
+                              <div className="flex flex-col items-center gap-1">
+                                <span className={`text-sm font-bold ${nilaiColor(obj.nilai)}`}>{obj.nilai}</span>
+                                <span className={`text-xs px-1.5 py-0.5 rounded-full border font-medium ${GRADE_STYLE[obj.grade] ?? 'bg-slate-100 text-slate-600 border-slate-200'}`}>
+                                  {obj.grade}
+                                </span>
+                                <span className={`text-xs ${obj.lulus ? 'text-emerald-500' : 'text-red-500'}`}>
+                                  {obj.lulus ? '✓ Lulus' : '✗ Tidak'}
+                                </span>
+                              </div>
+                            </td>
+                          )
+                        })
+                      : (
+                          <td className="px-3 py-3 text-center">
+                            <span className="text-slate-200 text-xs">—</span>
                           </td>
                         )
-                      }
-                      const obj = v as { nilai: number; grade: string; lulus: boolean }
-                      return (
-                        <td key={mp.mapel_id} className="px-3 py-3 text-center">
-                          <div className="flex flex-col items-center gap-1">
-                            <span className={`text-sm font-bold ${nilaiColor(obj.nilai)}`}>{obj.nilai}</span>
-                            <span className={`text-xs px-1.5 py-0.5 rounded-full border font-medium ${GRADE_STYLE[obj.grade] ?? 'bg-slate-100 text-slate-600 border-slate-200'}`}>
-                              {obj.grade}
-                            </span>
-                            <span className={`text-xs ${obj.lulus ? 'text-emerald-500' : 'text-red-500'}`}>
-                              {obj.lulus ? '✓ Lulus' : '✗ Tidak'}
-                            </span>
-                          </div>
-                        </td>
-                      )
-                    })}
+                    }
                   </tr>
                 ))}
-                {nilaiRekap.length === 0 && (
+
+                {/* Baris kosong hanya jika betul-betul tidak ada siswa sama sekali */}
+                {nilaiRekap.length === 0 && siswaList.length === 0 && (
                   <tr>
                     <td colSpan={mapelList.length + 2} className="text-center py-12 text-slate-400 text-sm">
-                      Belum ada data nilai
+                      Belum ada data siswa
                     </td>
                   </tr>
                 )}
