@@ -53,6 +53,26 @@ function isFullscreen() {
   )
 }
 
+// ── Backup lokal jawaban ──────────────────────────────────────────────────
+// Cadangan di localStorage (selain di server) supaya kalau tab/browser ter-reload
+// tiba-tiba di tengah ujian, jawaban yang BELUM sempat sync ke server tidak hilang
+// total dari sisi siswa — bisa direkonsiliasi ulang saat sesi dibuka kembali.
+function backupKey(sesiId: string, nis: string) {
+  return `ujian_backup_${sesiId}_${nis}`
+}
+function saveBackup(sesiId: string, nis: string, jawaban: JawabanMap) {
+  try { localStorage.setItem(backupKey(sesiId, nis), JSON.stringify(jawaban)) } catch { /* abaikan */ }
+}
+function loadBackup(sesiId: string, nis: string): JawabanMap {
+  try {
+    const raw = localStorage.getItem(backupKey(sesiId, nis))
+    return raw ? JSON.parse(raw) : {}
+  } catch { return {} }
+}
+function clearBackup(sesiId: string, nis: string) {
+  try { localStorage.removeItem(backupKey(sesiId, nis)) } catch { /* abaikan */ }
+}
+
 export default function SiswaUjianPage() {
   const [phase, setPhase] = useState<Phase>('KODE')
   const [kode, setKode] = useState('')
@@ -65,6 +85,20 @@ export default function SiswaUjianPage() {
   const [confirmSelesai, setConfirmSelesai] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [hasilNilai, setHasilNilai] = useState<{ nilai: number; benar: number; total: number; grade: string; lulus: boolean } | null>(null)
+
+  // ── Status sinkronisasi jawaban ke server ─────────────────────────────────
+  // 'idle' = belum ada perubahan yang perlu disinkron
+  // 'syncing' = sedang mencoba kirim ke server
+  // 'synced' = percobaan sync terakhir berhasil dikonfirmasi server
+  // 'error' = sudah dicoba berulang kali (dengan backoff) tapi tetap gagal
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error'>('idle')
+  const [syncErrorMsg, setSyncErrorMsg] = useState('')
+  // Modal pemblokir saat siswa klik "Selesai" tapi verifikasi jumlah jawaban
+  // tersimpan di server TIDAK cocok dengan jumlah yang dijawab di lokal.
+  // Ujian TIDAK akan dinilai sampai ini terverifikasi cocok (atau siswa retry manual berhasil).
+  const [showSyncFailModal, setShowSyncFailModal] = useState(false)
+  const [syncFailInfo, setSyncFailInfo] = useState<{ expected: number; synced: number }>({ expected: 0, synced: 0 })
+  const [manualRetrying, setManualRetrying] = useState(false)
 
   // Fullscreen & anti-cheat state
   const [isFS, setIsFS] = useState(false)
@@ -93,6 +127,27 @@ export default function SiswaUjianPage() {
   useEffect(() => { jawabanRef.current = jawaban }, [jawaban])
   useEffect(() => { sesiInfoRef.current = sesiInfo }, [sesiInfo])
   useEffect(() => { phaseRef.current = phase }, [phase])
+
+  // ── Backup tiap kali jawaban berubah (lihat catatan di backupKey/saveBackup) ──
+  useEffect(() => {
+    if (phase !== 'UJIAN' || !sesiInfo) return
+    const user = JSON.parse(localStorage.getItem('user') ?? '{}')
+    if (user?.nis) saveBackup(sesiInfo.sesiId, user.nis, jawaban)
+  }, [jawaban, phase, sesiInfo])
+
+  // ── Peringatkan siswa jika mencoba menutup/refresh tab saat masih ada
+  // jawaban yang belum terkonfirmasi tersimpan di server ──────────────────
+  useEffect(() => {
+    if (phase !== 'UJIAN') return
+    function onBeforeUnload(e: BeforeUnloadEvent) {
+      if (syncStatus === 'error' || syncStatus === 'syncing') {
+        e.preventDefault()
+        e.returnValue = ''
+      }
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+  }, [phase, syncStatus])
 
   // ── Ambil batasPelanggaran dari pengaturan saat mount ─────────────────────
   useEffect(() => {
@@ -334,19 +389,68 @@ export default function SiswaUjianPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase])
 
-  const syncJawaban = useCallback(async () => {
+  // ── Sync jawaban ke server, dengan retry otomatis ─────────────────────────
+  // PENTING: berbeda dari versi sebelumnya, fungsi ini TIDAK diam-diam menyerah
+  // saat request gagal. Ia mencoba ulang beberapa kali dengan jeda yang makin
+  // panjang (exponential backoff), dan selalu mengembalikan `totalSynced` yang
+  // diambil langsung dari hitungan baris di database (ground truth dari server),
+  // bukan asumsi "fetch tidak error = semua tersimpan". Pemanggil (terutama
+  // handleSelesai) WAJIB memeriksa nilai ini sebelum menganggap ujian selesai.
+  const MAX_SYNC_RETRY = 4
+  const syncJawaban = useCallback(async (): Promise<{ ok: boolean; totalSynced: number }> => {
     const currentSesi = sesiInfoRef.current
     const currentJawaban = jawabanRef.current
-    if (!currentSesi || Object.keys(currentJawaban).length === 0) return
+    if (!currentSesi) return { ok: true, totalSynced: 0 }
+    const entries = Object.entries(currentJawaban)
+
+    setSyncStatus('syncing')
+    for (let attempt = 1; attempt <= MAX_SYNC_RETRY; attempt++) {
+      try {
+        const res = await apiRequest<{ message: string; totalSynced: number }>('/api/siswa/ujian/sync', {
+          method: 'POST',
+          body: JSON.stringify({
+            sesiId: currentSesi.sesiId,
+            jawaban: entries.map(([soal_id, jwb]) => ({ soal_id, jawaban: jwb })),
+          }),
+        })
+        setSyncStatus('synced')
+        setSyncErrorMsg('')
+        return { ok: true, totalSynced: res.totalSynced ?? 0 }
+      } catch (e) {
+        console.warn(`Sync percobaan ke-${attempt} gagal:`, e)
+        if (attempt < MAX_SYNC_RETRY) {
+          // Backoff bertahap: 1.5s, 3s, 4.5s — beri waktu jaringan/server pulih
+          await new Promise(r => setTimeout(r, attempt * 1500))
+        }
+      }
+    }
+    setSyncStatus('error')
+    setSyncErrorMsg('Koneksi tidak stabil — sebagian jawaban gagal tersimpan ke server.')
+    return { ok: false, totalSynced: 0 }
+  }, [])
+
+  // ── Pulihkan jawaban saat masuk/membuka ulang ujian ───────────────────────
+  // Diambil dari server (ground truth) lalu ditimpa dengan backup lokal (kalau ada),
+  // karena backup lokal merepresentasikan pilihan terakhir siswa yang mungkin
+  // belum sempat terkonfirmasi ke server saat tab/koneksi sempat bermasalah.
+  // Ini mencegah siswa "kehilangan" jawaban yang sudah dipilih kalau halaman
+  // ter-reload di tengah ujian.
+  const resumeJawaban = useCallback(async (sesiId: string, nis: string) => {
+    const backup = loadBackup(sesiId, nis)
+    let serverJawaban: JawabanMap = {}
     try {
-      await apiRequest('/api/siswa/ujian/sync', {
-        method: 'POST',
-        body: JSON.stringify({
-          sesiId: currentSesi.sesiId,
-          jawaban: Object.entries(currentJawaban).map(([soal_id, jwb]) => ({ soal_id, jawaban: jwb })),
-        }),
-      })
-    } catch (e) { console.warn('Sync failed:', e) }
+      const res = await apiRequest<{ jawaban: { soal_id: string; jawaban: string }[] }>(
+        `/api/siswa/ujian/sync?sesiId=${sesiId}`
+      )
+      serverJawaban = Object.fromEntries((res.jawaban ?? []).map(j => [j.soal_id, j.jawaban]))
+    } catch (e) {
+      console.warn('Gagal mengambil jawaban tersimpan dari server, pakai backup lokal saja:', e)
+    }
+    const merged: JawabanMap = { ...serverJawaban, ...backup }
+    if (Object.keys(merged).length > 0) {
+      jawabanRef.current = merged
+      setJawaban(merged)
+    }
   }, [])
 
   async function laporPelanggaran(jenis: string, detail: string) {
@@ -390,6 +494,7 @@ export default function SiswaUjianPage() {
 
       if (!res.valid) { setError(res.message ?? 'Kode tidak valid'); return }
       setSesiInfo(res)
+      await resumeJawaban(res.sesiId, user.nis)
       const terpakai1 = Math.floor((Date.now() - new Date(res.waktu_mulai).getTime()) / 1000)
       setSisaWaktu(Math.max(0, res.durasi * 60 - terpakai1))
       setPhase('UJIAN')
@@ -427,6 +532,7 @@ export default function SiswaUjianPage() {
         })
         if (!sesiRes.valid) { setError(sesiRes.message ?? 'Gagal masuk ujian'); setPhase('KODE'); return }
         setSesiInfo(sesiRes)
+        await resumeJawaban(sesiRes.sesiId, user.nis)
         const terpakai2 = Math.floor((Date.now() - new Date(sesiRes.waktu_mulai).getTime()) / 1000)
         setSisaWaktu(Math.max(0, sesiRes.durasi * 60 - terpakai2))
         setPhase('UJIAN')
@@ -441,12 +547,44 @@ export default function SiswaUjianPage() {
     if (submitting) return
     setConfirmSelesai(false)
     setSubmitting(true)
+    // CATATAN: interval auto-sync/timer/polling SENGAJA TIDAK dihentikan di sini.
+    // Kalau verifikasi di bawah gagal, biarkan auto-sync 30 detik dan retry manual
+    // tetap punya kesempatan jalan di background selama modal kegagalan tampil —
+    // baru dihentikan saat benar-benar terkonfirmasi selesai (lihat di bawah).
+
+    const expectedCount = Object.keys(jawabanRef.current).length
+
+    // ── Verifikasi sebelum finalisasi ──────────────────────────────────────
+    // Ini adalah inti perbaikan: JANGAN PERNAH memanggil endpoint penilaian
+    // hanya berdasarkan "sync tidak melempar error". Kita ulangi sync + cek
+    // beberapa ronde, dan baru lanjut menilai kalau jumlah jawaban yang
+    // dikonfirmasi SERVER (totalSynced, dari hitungan baris di DB) sudah
+    // sama dengan jumlah yang dijawab siswa secara lokal.
+    const MAX_VERIFY_ROUNDS = 4
+    let verified = false
+    let totalSynced = 0
+    for (let round = 1; round <= MAX_VERIFY_ROUNDS; round++) {
+      const result = await syncJawaban()
+      totalSynced = result.totalSynced
+      if (result.ok && totalSynced >= expectedCount) { verified = true; break }
+      if (round < MAX_VERIFY_ROUNDS) await new Promise(r => setTimeout(r, 2000))
+    }
+
+    if (!verified) {
+      // Jangan diam-diam lanjut menilai dengan data yang belum lengkap.
+      // Tampilkan ke siswa secara jelas + beri opsi coba lagi manual atau
+      // kembali menjawab dulu sambil menunggu koneksi pulih.
+      setSyncFailInfo({ expected: expectedCount, synced: totalSynced })
+      setShowSyncFailModal(true)
+      setSubmitting(false)
+      return
+    }
+
     clearInterval(timerRef.current!)
     clearInterval(syncRef.current!)
     clearInterval(sesiPollRef.current!)
 
     try {
-      await syncJawaban()
       const user = JSON.parse(localStorage.getItem('user') ?? '{}')
       const currentSesi = sesiInfoRef.current
       const res = await apiRequest<{ nilai: number; benar: number; total: number; grade: string; lulus: boolean }>('/api/siswa/ujian/selesai', {
@@ -459,9 +597,31 @@ export default function SiswaUjianPage() {
       })
       setHasilNilai(res)
       setPhase('SELESAI')
+      if (currentSesi && user?.nis) clearBackup(currentSesi.sesiId, user.nis)
     } catch (err: unknown) {
       console.error(err)
+      // Gagal memanggil endpoint penilaian (bukan sekadar sync jawaban) —
+      // beri kesempatan retry juga, jangan tampilkan layar kosong/diam.
+      setSyncFailInfo({ expected: expectedCount, synced: totalSynced })
+      setShowSyncFailModal(true)
     } finally { setSubmitting(false) }
+  }
+
+  // Dipanggil dari tombol "Coba Lagi" di modal kegagalan sync.
+  async function handleRetrySelesai() {
+    setManualRetrying(true)
+    try {
+      await handleSelesai(false)
+    } finally {
+      setManualRetrying(false)
+      setShowSyncFailModal(false)
+    }
+  }
+
+  // Dipanggil dari tombol "Kembali ke Ujian" — siswa boleh menjawab/menunggu
+  // koneksi pulih dulu, auto-sync di background tetap berjalan seperti biasa.
+  function handleKembaliDariSyncFail() {
+    setShowSyncFailModal(false)
   }
 
   function handleKembaliFullscreen() {
@@ -748,6 +908,16 @@ export default function SiswaUjianPage() {
                 <span className="ml-1">· {soalList.length - totalDijawab} belum</span>
               )}
             </div>
+            <div className={`text-[11px] mt-0.5 flex items-center gap-1 ${
+              syncStatus === 'error' ? 'text-red-600 font-semibold' :
+              syncStatus === 'syncing' ? 'text-amber-500' :
+              syncStatus === 'synced' ? 'text-emerald-600' : 'text-slate-400'
+            }`}>
+              {syncStatus === 'error' && '⚠ Gagal menyimpan ke server, mencoba lagi...'}
+              {syncStatus === 'syncing' && 'Menyimpan ke server...'}
+              {syncStatus === 'synced' && '✓ Tersimpan di server'}
+              {syncStatus === 'idle' && 'Belum ada jawaban yang disimpan'}
+            </div>
           </div>
           <div className={`flex items-center gap-2 px-4 py-2 rounded-xl font-mono font-bold text-lg ${
             sisaWaktu < 300 ? 'bg-red-50 text-red-600' :
@@ -880,6 +1050,53 @@ export default function SiswaUjianPage() {
           variant="primary"
           loading={submitting}
         />
+
+        {/* ── Modal pemblokir: jumlah jawaban yang terkonfirmasi server tidak
+            cocok dengan jumlah yang dijawab siswa secara lokal. Ujian TIDAK
+            dinilai sampai ini terselesaikan — supaya kasus "sebagian jawaban
+            tidak sampai ke server lalu terhitung salah" tidak terjadi lagi. */}
+        {showSyncFailModal && (
+          <div
+            className="fixed inset-0 z-[9999] flex flex-col items-center justify-center p-4"
+            style={{ background: 'rgba(15,23,42,0.97)' }}
+          >
+            <div className="max-w-sm w-full bg-white rounded-2xl p-8 text-center shadow-2xl">
+              <div className="w-16 h-16 bg-amber-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                <AlertTriangle className="w-8 h-8 text-amber-600" />
+              </div>
+              <h2 className="text-lg font-bold text-slate-900 mb-2">Jawaban Belum Semua Tersimpan</h2>
+              <p className="text-sm text-slate-600 mb-3">
+                Koneksi ke server tidak stabil. Baru <strong>{syncFailInfo.synced}</strong> dari{' '}
+                <strong>{syncFailInfo.expected}</strong> jawaban yang terkonfirmasi tersimpan.
+                Ujian <strong>belum akan dinilai</strong> sampai semua jawaban berhasil tersimpan,
+                supaya jawaban Anda tidak ada yang terhitung salah secara tidak adil.
+              </p>
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4 text-left">
+                <p className="text-xs text-amber-700">
+                  Jawaban Anda tetap aman tersimpan sementara di perangkat ini. Coba periksa koneksi
+                  internet, lalu tekan &quot;Coba Lagi&quot;. Anda juga bisa kembali menjawab dulu —
+                  sistem akan terus mencoba menyimpan otomatis di latar belakang.
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleKembaliDariSyncFail}
+                  className="btn-secondary flex-1"
+                  disabled={manualRetrying}
+                >
+                  Kembali ke Ujian
+                </button>
+                <button
+                  onClick={handleRetrySelesai}
+                  className="btn-primary flex-1 flex items-center justify-center gap-2"
+                  disabled={manualRetrying}
+                >
+                  {manualRetrying ? <Spinner size="sm" /> : 'Coba Lagi'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </>
   )
