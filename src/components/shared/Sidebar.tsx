@@ -6,7 +6,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import {
   LayoutDashboard, Users, BookOpen, Calendar, ClipboardList,
   BarChart3, Settings, LogOut, Menu, X, ChevronRight,
-  GraduationCap, School, Bell, User, FileText
+  GraduationCap, School, Bell, User, FileText, Eye
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { AuthUser } from '@/types'
@@ -275,8 +275,9 @@ export function KepsekSidebar() {
       roleLabel="Kepala Sekolah"
       navItems={[
         { label: 'Dashboard', href: '/kepsek', icon: LayoutDashboard },
-        { label: 'Rekap Nilai', href: '/kepsek/nilai', icon: BarChart3 },
-        { label: 'Persetujuan', href: '/kepsek/persetujuan', icon: ClipboardList },
+        { label: 'Jadwal Ujian', href: '/kepsek/jadwal', icon: Calendar },
+        { label: 'Hasil Ujian', href: '/kepsek/nilai', icon: BarChart3 },
+        { label: 'Monitoring Ujian', href: '/kepsek/monitoring', icon: Eye },
       ]}
     />
   )
