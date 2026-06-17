@@ -240,7 +240,7 @@ export default function WaliKelasPage() {
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-base font-bold text-slate-800 flex items-center gap-2">
             <BookOpen className="w-4 h-4 text-emerald-600" />
-            Ringkasan per Mata Pelajaran
+            Daftar Mapel yang sudah ujian
           </h2>
           {totalBelumLengkap > 0 && (
             <span className="flex items-center gap-1.5 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-full">
