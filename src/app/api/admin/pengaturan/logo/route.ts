@@ -29,7 +29,9 @@ export async function POST(req: NextRequest) {
     if (uploadError) throw new Error(uploadError.message)
 
     const { data: urlData } = db.storage.from('assets').getPublicUrl(fileName)
-    const publicUrl = urlData.publicUrl
+    // Tambahkan parameter cache-busting (timestamp) agar browser tidak menampilkan
+    // logo lama dari cache saat logo diganti dengan file berekstensi/nama yang sama.
+    const publicUrl = `${urlData.publicUrl}?v=${Date.now()}`
 
     // Simpan URL ke tabel pengaturan
     await db.from('pengaturan').upsert(
