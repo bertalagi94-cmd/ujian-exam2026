@@ -75,7 +75,7 @@ async function clearTable(
 
     // Tabel dengan PK bukan 'id'
     if (table === 'pengaturan') {
-      const { error } = await (db as any).from('pengaturan').delete().not('key', 'is', null)
+      const { error } = await (db as any).rpc('truncate_pengaturan')
       return error ? `pengaturan: ${error.message}` : null
     }
     if (table === 'siswa') {
