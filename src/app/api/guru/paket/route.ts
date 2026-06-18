@@ -14,6 +14,7 @@ export async function GET(req: NextRequest) {
     .select('*')
     .eq('guru_id', user.username)
     .order('created_at', { ascending: false })
+    .limit(500) // safety limit: cegah query tak terbatas jika paket sudah sangat banyak
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   if (!pakets?.length) return NextResponse.json({ data: [] })
@@ -30,11 +31,13 @@ export async function GET(req: NextRequest) {
   const kelasMap = Object.fromEntries((kelasList ?? []).map(k => [k.id, String(k.nama)]))
 
   // Hitung jumlah_soal real-time dari tabel soal (bukan dari kolom cached)
+  // Ambil hanya paket_id (head count per grup), pakai index idx_soal_paket yang sudah ada
   const paketIds = pakets.map(p => p.id)
   const { data: soalCounts } = await db
     .from('soal')
     .select('paket_id')
     .in('paket_id', paketIds)
+    .limit(20000) // safety limit: cegah query tak terbatas jika soal sudah sangat banyak
 
   const countMap: Record<string, number> = {}
   for (const s of soalCounts ?? []) {
