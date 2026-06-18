@@ -52,6 +52,13 @@ const HAS_CREATED_AT = new Set([
   'kelas', 'pengaturan', 'log_aktivitas', 'log_reset',
 ])
 
+// Mapping tabel ke kolom waktu yang benar sesuai schema
+const TABLE_TIME_COLUMN: Record<string, string> = {
+  nilai: 'timestamp',          // tabel nilai pakai kolom 'timestamp'
+  jawaban: 'updated_at',       // tabel jawaban pakai kolom 'updated_at'
+  siswa_ujian: 'waktu_daftar', // tabel siswa_ujian pakai kolom 'waktu_daftar'
+}
+
 async function clearTable(
   db: ReturnType<typeof import('@/lib/supabase').createAdminClient>,
   table: string
@@ -66,16 +73,17 @@ async function clearTable(
       return error ? `users: ${error.message}` : null
     }
 
-    // Tabel dengan created_at
-    if (HAS_CREATED_AT.has(table)) {
+    // Gunakan kolom waktu yang sesuai per tabel
+    const timeCol = TABLE_TIME_COLUMN[table] ?? (HAS_CREATED_AT.has(table) ? 'created_at' : null)
+    if (timeCol) {
       const { error } = await (db as any)
         .from(table)
         .delete()
-        .gt('created_at', '1970-01-01')
+        .gt(timeCol, '1970-01-01')
       return error ? `${table}: ${error.message}` : null
     }
 
-    // Fallback untuk tabel lain
+    // Fallback untuk tabel lain (pakai PK id)
     const { error } = await (db as any)
       .from(table)
       .delete()
