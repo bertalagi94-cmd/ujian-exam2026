@@ -2,13 +2,285 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { Eye, EyeOff, BookOpen, Lock, User, AlertCircle } from 'lucide-react'
+import {
+  Eye, EyeOff, BookOpen, Lock, User, AlertCircle,
+  X, ChevronDown, ChevronUp, Shield, GraduationCap, Users, UserCheck,
+  BookMarked, LayoutDashboard, ClipboardList, BarChart2, Settings,
+  HelpCircle, AlertTriangle, CheckCircle, Info,
+} from 'lucide-react'
 
 interface SiteInfo {
   namaSekolah: string
   kota: string
   logoUrl: string
 }
+
+// ─── DATA PANDUAN ────────────────────────────────────────────────────────────
+const ROLES = [
+  {
+    id: 'admin',
+    label: 'Admin',
+    color: 'from-violet-500 to-purple-600',
+    bgLight: 'bg-violet-50',
+    border: 'border-violet-200',
+    text: 'text-violet-700',
+    icon: <Shield className="w-5 h-5" />,
+    badge: 'bg-violet-100 text-violet-700',
+    desc: 'Pengelola sistem secara keseluruhan. Memiliki akses penuh ke semua fitur.',
+    steps: [
+      {
+        title: 'Login & Dashboard',
+        icon: <LayoutDashboard className="w-4 h-4" />,
+        detail: 'Login menggunakan username dan password admin. Dashboard menampilkan statistik total siswa, guru, soal, jadwal aktif, dan rata-rata nilai ujian.',
+      },
+      {
+        title: 'Pengaturan Sistem',
+        icon: <Settings className="w-4 h-4" />,
+        detail: 'Isi nama sekolah, NPSN, nama kepala sekolah, alamat, dan upload logo di tab Informasi Sekolah. Atur batas pelanggaran dan jumlah opsi jawaban di tab Pengaturan Ujian.',
+      },
+      {
+        title: 'Kelola Kelas & Mata Pelajaran',
+        icon: <BookMarked className="w-4 h-4" />,
+        detail: 'Buat kelas (contoh: VII-A, VIII-B) dan mata pelajaran terlebih dahulu sebelum menambahkan data lainnya. Ini menjadi fondasi data siswa dan jadwal ujian.',
+      },
+      {
+        title: 'Kelola Siswa & User',
+        icon: <GraduationCap className="w-4 h-4" />,
+        detail: 'Tambah siswa satu per satu atau via import Excel. Buat akun guru, pengawas, dan kepala sekolah di menu Users. Password default bisa di-reset kapan saja.',
+      },
+      {
+        title: 'Jadwal & Monitoring Ujian',
+        icon: <ClipboardList className="w-4 h-4" />,
+        detail: 'Buat jadwal ujian dan tentukan paket soal yang digunakan. Monitor sesi ujian berlangsung secara real-time. Lihat nilai dan analisis hasil ujian di menu Nilai & Analisis.',
+      },
+      {
+        title: 'Backup & Reset',
+        icon: <BarChart2 className="w-4 h-4" />,
+        detail: 'Lakukan backup rutin sebelum tahun ajaran baru atau sebelum reset. Reset data bisa dilakukan per kategori (jawaban saja, siswa, jadwal, dll) atau semua sekaligus.',
+      },
+    ],
+  },
+  {
+    id: 'kepsek',
+    label: 'Kepala Sekolah',
+    color: 'from-blue-500 to-cyan-600',
+    bgLight: 'bg-blue-50',
+    border: 'border-blue-200',
+    text: 'text-blue-700',
+    icon: <UserCheck className="w-5 h-5" />,
+    badge: 'bg-blue-100 text-blue-700',
+    desc: 'Akses monitoring dan laporan. Tidak dapat mengubah data operasional.',
+    steps: [
+      {
+        title: 'Dashboard Kepala Sekolah',
+        icon: <LayoutDashboard className="w-4 h-4" />,
+        detail: 'Lihat ringkasan statistik ujian sekolah: jumlah ujian, rata-rata nilai, tingkat kelulusan, dan perkembangan per mata pelajaran.',
+      },
+      {
+        title: 'Monitoring Ujian',
+        icon: <ClipboardList className="w-4 h-4" />,
+        detail: 'Pantau sesi ujian yang sedang berlangsung secara real-time — siapa yang sudah mengerjakan, siapa yang belum, dan siapa yang terkena pelanggaran.',
+      },
+      {
+        title: 'Laporan Nilai',
+        icon: <BarChart2 className="w-4 h-4" />,
+        detail: 'Akses rekap nilai per kelas, per mata pelajaran, dan per siswa. Lihat analisis distribusi nilai dan persentase kelulusan untuk pengambilan keputusan.',
+      },
+      {
+        title: 'Jadwal Ujian',
+        icon: <BookMarked className="w-4 h-4" />,
+        detail: 'Lihat daftar jadwal ujian yang telah dibuat — tanggal, mata pelajaran, kelas yang terlibat, dan status (belum dimulai / sedang berlangsung / selesai).',
+      },
+    ],
+  },
+  {
+    id: 'guru',
+    label: 'Guru',
+    color: 'from-emerald-500 to-teal-600',
+    bgLight: 'bg-emerald-50',
+    border: 'border-emerald-200',
+    text: 'text-emerald-700',
+    icon: <Users className="w-5 h-5" />,
+    badge: 'bg-emerald-100 text-emerald-700',
+    desc: 'Membuat soal, paket soal, dan memantau ujian mata pelajaran yang diampu.',
+    steps: [
+      {
+        title: 'Bank Soal',
+        icon: <BookMarked className="w-4 h-4" />,
+        detail: 'Buat soal pilihan ganda untuk mata pelajaran yang Anda ampu. Soal bisa diisi teks, ditambah gambar, dan ditentukan kunci jawaban. Soal dapat digunakan ulang di banyak paket.',
+      },
+      {
+        title: 'Paket Soal',
+        icon: <ClipboardList className="w-4 h-4" />,
+        detail: 'Kumpulkan soal menjadi satu paket ujian. Tentukan jumlah soal, urutan tampil (acak/berurutan), dan waktu pengerjaan. Paket perlu divalidasi admin sebelum bisa dipakai.',
+      },
+      {
+        title: 'Kisi-Kisi',
+        icon: <BarChart2 className="w-4 h-4" />,
+        detail: 'Buat dan kelola kisi-kisi soal sebagai panduan pembuatan soal sesuai kompetensi dasar. Kisi-kisi juga bisa diakses siswa sebagai bahan belajar.',
+      },
+      {
+        title: 'Mode Pengawas',
+        icon: <Shield className="w-4 h-4" />,
+        detail: 'Guru yang ditugaskan sebagai pengawas dapat membuka sesi ujian, memantau peserta secara real-time, mencatat pelanggaran, dan menutup sesi.',
+      },
+      {
+        title: 'Nilai & Analisis',
+        icon: <BarChart2 className="w-4 h-4" />,
+        detail: 'Lihat nilai hasil ujian dan analisis butir soal — soal mana yang mudah atau sulit, dan distribusi pilihan jawaban siswa untuk evaluasi kualitas soal.',
+      },
+    ],
+  },
+  {
+    id: 'siswa',
+    label: 'Siswa',
+    color: 'from-orange-500 to-amber-500',
+    bgLight: 'bg-orange-50',
+    border: 'border-orange-200',
+    text: 'text-orange-700',
+    icon: <GraduationCap className="w-5 h-5" />,
+    badge: 'bg-orange-100 text-orange-700',
+    desc: 'Mengikuti ujian online dan melihat nilai hasil ujian.',
+    steps: [
+      {
+        title: 'Login Siswa',
+        icon: <User className="w-4 h-4" />,
+        detail: 'Gunakan NIS (Nomor Induk Siswa) sebagai username. Password default biasanya adalah NIS Anda. Hubungi admin/guru jika lupa password.',
+      },
+      {
+        title: 'Dashboard & Jadwal',
+        icon: <LayoutDashboard className="w-4 h-4" />,
+        detail: 'Lihat jadwal ujian yang akan datang. Ujian hanya bisa diakses sesuai jadwal yang ditetapkan — tidak bisa dikerjakan sebelum atau sesudah waktu yang ditentukan.',
+      },
+      {
+        title: 'Mengerjakan Ujian',
+        icon: <ClipboardList className="w-4 h-4" />,
+        detail: 'Klik "Mulai Ujian" saat jadwal aktif. Kerjakan semua soal dalam waktu yang tersedia. Jawaban tersimpan otomatis. Jangan menutup tab atau berpindah aplikasi karena bisa tercatat sebagai pelanggaran.',
+      },
+      {
+        title: 'Melihat Nilai',
+        icon: <BarChart2 className="w-4 h-4" />,
+        detail: 'Setelah ujian selesai dan nilai diproses, Anda bisa melihat nilai dan status kelulusan di menu Nilai. Kisi-kisi soal juga tersedia sebagai panduan belajar.',
+      },
+    ],
+  },
+]
+
+// ─── DATA Q&A ─────────────────────────────────────────────────────────────────
+const QA_ITEMS = [
+  {
+    category: 'Umum',
+    icon: <Info className="w-4 h-4" />,
+    color: 'text-blue-600',
+    bg: 'bg-blue-50',
+    items: [
+      {
+        q: 'Apa itu SmartExam?',
+        a: 'SmartExam adalah sistem ujian berbasis komputer (CBT) yang dirancang khusus untuk sekolah. Memungkinkan guru membuat soal, menjadwalkan ujian, dan siswa mengerjakan ujian secara online dengan pengawasan real-time.',
+      },
+      {
+        q: 'Browser apa yang direkomendasikan?',
+        a: 'Google Chrome atau Mozilla Firefox versi terbaru. Hindari menggunakan browser lama atau Internet Explorer. Pastikan JavaScript aktif dan koneksi internet stabil selama ujian.',
+      },
+      {
+        q: 'Apakah bisa digunakan di HP?',
+        a: 'Bisa, aplikasi sudah responsif untuk layar HP. Namun untuk pengalaman terbaik terutama saat mengerjakan ujian, disarankan menggunakan laptop atau komputer.',
+      },
+    ],
+  },
+  {
+    category: 'Login & Akun',
+    icon: <Lock className="w-4 h-4" />,
+    color: 'text-violet-600',
+    bg: 'bg-violet-50',
+    items: [
+      {
+        q: 'Saya lupa password, bagaimana cara reset?',
+        a: 'Siswa: minta guru atau admin untuk reset password. Guru/Pengawas/Kepala Sekolah: minta admin untuk reset di menu Users. Admin: hubungi pengelola sistem atau reset melalui database Supabase.',
+      },
+      {
+        q: 'Username saya apa?',
+        a: 'Siswa menggunakan NIS (Nomor Induk Siswa). Guru, Pengawas, dan Kepala Sekolah menggunakan username yang dibuat oleh Admin saat pembuatan akun.',
+      },
+      {
+        q: 'Akun saya terkunci, apa yang harus dilakukan?',
+        a: 'Akun siswa dapat terkunci jika melebihi batas pelanggaran saat ujian (berpindah tab, keluar layar, dll). Hubungi pengawas ruangan atau admin untuk membuka kunci akun.',
+      },
+    ],
+  },
+  {
+    category: 'Saat Ujian',
+    icon: <ClipboardList className="w-4 h-4" />,
+    color: 'text-emerald-600',
+    bg: 'bg-emerald-50',
+    items: [
+      {
+        q: 'Apakah jawaban tersimpan otomatis?',
+        a: 'Ya, setiap jawaban yang dipilih langsung tersimpan ke server secara otomatis. Tidak perlu khawatir jika tiba-tiba koneksi terputus sebentar — jawaban yang sudah dijawab tetap tersimpan.',
+      },
+      {
+        q: 'Apa yang dimaksud dengan pelanggaran?',
+        a: 'Sistem mendeteksi jika siswa berpindah tab, meminimalkan jendela browser, atau mencoba membuka aplikasi lain. Setiap deteksi dihitung sebagai satu pelanggaran. Jika melebihi batas yang ditentukan, akun dikunci otomatis.',
+      },
+      {
+        q: 'Internet saya putus saat ujian, bagaimana?',
+        a: 'Jangan panik. Hubungkan kembali internet secepat mungkin. Jawaban yang sudah dijawab tetap tersimpan. Jika waktu ujian belum habis, Anda bisa melanjutkan setelah koneksi kembali. Beritahu pengawas jika ada kendala teknis.',
+      },
+      {
+        q: 'Saya tidak sengaja menutup tab saat ujian, bagaimana?',
+        a: 'Buka kembali browser dan login ulang, lalu akses kembali halaman ujian. Jika sesi masih aktif, Anda bisa melanjutkan dari soal terakhir. Hal ini akan tercatat sebagai pelanggaran — beritahu pengawas untuk penjelasan.',
+      },
+    ],
+  },
+  {
+    category: 'Skenario Darurat',
+    icon: <AlertTriangle className="w-4 h-4" />,
+    color: 'text-red-600',
+    bg: 'bg-red-50',
+    items: [
+      {
+        q: 'Listrik mati di tengah ujian, apa yang harus dilakukan?',
+        a: 'Beritahu pengawas segera. Pengawas dapat mencatat kejadian dan melaporkan ke admin. Admin bisa memberikan ujian susulan melalui fitur Susulan di menu pengawas/guru. Jawaban sebelum listrik mati tetap tersimpan.',
+      },
+      {
+        q: 'Server error / halaman tidak bisa diakses',
+        a: 'Coba refresh halaman (F5). Jika masih error, tunggu beberapa menit dan coba lagi. Beritahu pengawas dan admin. Admin bisa cek status server di Supabase Dashboard. Pastikan tidak ada proses heavy seperti import data besar yang sedang berjalan.',
+      },
+      {
+        q: 'Siswa tidak muncul di daftar sesi ujian',
+        a: 'Kemungkinan penyebab: (1) siswa belum terdaftar di kelas yang dijadwalkan, (2) kelas siswa tidak sesuai dengan jadwal ujian, (3) siswa baru ditambahkan setelah sesi dibuat. Hubungi admin untuk memverifikasi data siswa dan kelas.',
+      },
+      {
+        q: 'Nilai tidak muncul setelah ujian selesai',
+        a: 'Pastikan siswa benar-benar mengklik "Selesai Ujian", bukan hanya menutup browser. Jika sudah selesai namun nilai belum muncul, coba refresh halaman. Admin atau guru bisa cek di menu Nilai apakah data sudah masuk.',
+      },
+      {
+        q: 'Data sekolah hilang setelah reset',
+        a: 'Jika reset "Semua Data" dilakukan, semua pengaturan termasuk nama sekolah dan logo akan terhapus. Isi kembali pengaturan di menu Pengaturan > tab Informasi Sekolah. Selalu lakukan backup sebelum melakukan reset apapun.',
+      },
+    ],
+  },
+  {
+    category: 'Admin & Teknis',
+    icon: <Settings className="w-4 h-4" />,
+    color: 'text-slate-600',
+    bg: 'bg-slate-50',
+    items: [
+      {
+        q: 'Berapa banyak siswa yang bisa menggunakan sistem bersamaan?',
+        a: 'Bergantung pada paket Supabase yang digunakan. Paket gratis mendukung hingga ratusan koneksi bersamaan. Untuk sekolah besar, pertimbangkan upgrade ke paket berbayar untuk performa optimal.',
+      },
+      {
+        q: 'Bagaimana cara import data siswa massal?',
+        a: 'Gunakan menu Admin > Import. Unduh template Excel yang tersedia, isi data siswa sesuai format (NIS, nama, kelas, dll), lalu upload kembali. Sistem akan memvalidasi dan memasukkan data secara otomatis.',
+      },
+      {
+        q: 'Apakah soal bisa digunakan ulang untuk ujian berikutnya?',
+        a: 'Ya, soal yang sudah dibuat di Bank Soal bisa digunakan di banyak paket ujian berbeda. Paket soal juga bisa diduplikasi untuk ujian susulan atau ujian semester berikutnya.',
+      },
+    ],
+  },
+]
 
 export default function LoginPage() {
   const router = useRouter()
@@ -18,6 +290,12 @@ export default function LoginPage() {
   const [error, setError] = useState('')
   const [siteInfo, setSiteInfo] = useState<SiteInfo>({ namaSekolah: '', kota: '', logoUrl: '' })
   const canvasRef = useRef<HTMLCanvasElement>(null)
+
+  // Modal state
+  const [showGuide, setShowGuide] = useState(false)
+  const [showQA, setShowQA] = useState(false)
+  const [activeRole, setActiveRole] = useState('admin')
+  const [openQA, setOpenQA] = useState<string | null>(null)
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -62,12 +340,10 @@ export default function LoginPage() {
     let raf: number
     const draw = () => {
       ctx.clearRect(0, 0, canvas.width, canvas.height)
-
       if (bubbles.length < MAX && Math.random() < 0.02) bubbles.push(spawn())
 
       for (let i = bubbles.length - 1; i >= 0; i--) {
         const b = bubbles[i]
-
         if (b.phase === 'popping') {
           b.popFrame++
           const prog = b.popFrame / 12
@@ -79,11 +355,9 @@ export default function LoginPage() {
           if (b.popFrame >= 12) bubbles.splice(i, 1)
           continue
         }
-
         b.x += b.vx
         b.vy += 0.002
         b.y += b.vy
-
         for (let j = i - 1; j >= 0; j--) {
           const o = bubbles[j]
           if (o.phase === 'popping') continue
@@ -95,11 +369,9 @@ export default function LoginPage() {
             break
           }
         }
-
         if (b.y + b.r < 0 || b.x + b.r < 0 || b.x - b.r > canvas.width) {
           bubbles.splice(i, 1); continue
         }
-
         const grad = ctx.createRadialGradient(b.x - b.r * 0.3, b.y - b.r * 0.3, b.r * 0.1, b.x, b.y, b.r)
         grad.addColorStop(0, `rgba(255,255,255,${b.alpha * 1.5})`)
         grad.addColorStop(0.5, `rgba(255,255,255,${b.alpha * 0.4})`)
@@ -108,27 +380,20 @@ export default function LoginPage() {
         ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2)
         ctx.fillStyle = grad
         ctx.fill()
-
         ctx.beginPath()
         ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2)
         ctx.strokeStyle = `rgba(255,255,255,${b.alpha * 1.2})`
         ctx.lineWidth = 1
         ctx.stroke()
-
         ctx.beginPath()
         ctx.arc(b.x - b.r * 0.28, b.y - b.r * 0.32, b.r * 0.18, 0, Math.PI * 2)
         ctx.fillStyle = `rgba(255,255,255,${b.alpha * 1.8})`
         ctx.fill()
       }
-
       raf = requestAnimationFrame(draw)
     }
     draw()
-
-    return () => {
-      cancelAnimationFrame(raf)
-      window.removeEventListener('resize', resize)
-    }
+    return () => { cancelAnimationFrame(raf); window.removeEventListener('resize', resize) }
   }, [])
 
   useEffect(() => {
@@ -144,12 +409,19 @@ export default function LoginPage() {
       .catch(() => {})
   }, [])
 
+  // Lock body scroll when modal open
+  useEffect(() => {
+    if (showGuide || showQA) {
+      document.body.style.overflow = 'hidden'
+    } else {
+      document.body.style.overflow = ''
+    }
+    return () => { document.body.style.overflow = '' }
+  }, [showGuide, showQA])
+
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault()
-    if (!form.username || !form.password) {
-      setError('Username dan password wajib diisi')
-      return
-    }
+    if (!form.username || !form.password) { setError('Username dan password wajib diisi'); return }
     setLoading(true)
     setError('')
     try {
@@ -160,22 +432,12 @@ export default function LoginPage() {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Login gagal')
-
       localStorage.setItem('token', data.token)
       localStorage.setItem('user', JSON.stringify({
-        username: data.username,
-        nama: data.nama,
-        role: data.role,
-        nis: data.nis,
-        kelas: data.kelas,
+        username: data.username, nama: data.nama, role: data.role, nis: data.nis, kelas: data.kelas,
       }))
-
       const roleRoutes: Record<string, string> = {
-        ADMIN: '/admin',
-        GURU: '/guru',
-        PENGAWAS: '/pengawas',
-        KEPSEK: '/kepsek',
-        SISWA: '/siswa',
+        ADMIN: '/admin', GURU: '/guru', PENGAWAS: '/pengawas', KEPSEK: '/kepsek', SISWA: '/siswa',
       }
       router.push(roleRoutes[data.role] ?? '/login')
     } catch (err: unknown) {
@@ -186,19 +448,15 @@ export default function LoginPage() {
   }
 
   const displayName = siteInfo.namaSekolah || 'SmartExam'
-  const displayKota = siteInfo.kota || ''
   const year = new Date().getFullYear()
 
-  // Logo component — reused on both desktop & mobile
   function SchoolLogo({ size }: { size: 'sm' | 'lg' }) {
     const dim = size === 'lg' ? 'w-14 h-14' : 'w-10 h-10'
     const iconDim = size === 'lg' ? 'w-7 h-7' : 'w-5 h-5'
     if (siteInfo.logoUrl) {
       return (
         // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={siteInfo.logoUrl}
-          alt={displayName}
+        <img src={siteInfo.logoUrl} alt={displayName}
           className={`${dim} object-contain rounded-xl bg-white/10 p-1 backdrop-blur flex-shrink-0`}
         />
       )
@@ -210,32 +468,23 @@ export default function LoginPage() {
     )
   }
 
+  const activeRoleData = ROLES.find(r => r.id === activeRole) ?? ROLES[0]
+
   return (
     <div className="min-h-screen flex bg-gradient-to-br from-brand-950 via-brand-900 to-brand-800 relative overflow-hidden">
-      {/* colorful mesh glow blobs — adds life to the flat gradient, sits behind everything else */}
+      {/* glow blobs */}
       <div className="absolute inset-0" style={{ pointerEvents: 'none', zIndex: 0 }}>
-        <div
-          className="absolute -top-40 -left-32 w-[560px] h-[560px] rounded-full opacity-40 blur-[110px]"
-          style={{ background: 'radial-gradient(circle, #c026d3, transparent 70%)' }}
-        />
-        <div
-          className="absolute top-1/3 -right-40 w-[640px] h-[640px] rounded-full opacity-30 blur-[120px]"
-          style={{ background: 'radial-gradient(circle, #22d3ee, transparent 70%)' }}
-        />
-        <div
-          className="absolute -bottom-48 left-1/4 w-[520px] h-[520px] rounded-full opacity-30 blur-[100px]"
-          style={{ background: 'radial-gradient(circle, #6366f1, transparent 70%)' }}
-        />
+        <div className="absolute -top-40 -left-32 w-[560px] h-[560px] rounded-full opacity-40 blur-[110px]"
+          style={{ background: 'radial-gradient(circle, #c026d3, transparent 70%)' }} />
+        <div className="absolute top-1/3 -right-40 w-[640px] h-[640px] rounded-full opacity-30 blur-[120px]"
+          style={{ background: 'radial-gradient(circle, #22d3ee, transparent 70%)' }} />
+        <div className="absolute -bottom-48 left-1/4 w-[520px] h-[520px] rounded-full opacity-30 blur-[100px]"
+          style={{ background: 'radial-gradient(circle, #6366f1, transparent 70%)' }} />
       </div>
 
-      {/* decorative vector mesh — bold connected lines + glowing nodes */}
-      <svg
-        className="absolute inset-0 w-full h-full"
-        style={{ pointerEvents: 'none', zIndex: 0 }}
-        viewBox="0 0 1440 900"
-        preserveAspectRatio="xMidYMid slice"
-        xmlns="http://www.w3.org/2000/svg"
-      >
+      {/* mesh lines */}
+      <svg className="absolute inset-0 w-full h-full" style={{ pointerEvents: 'none', zIndex: 0 }}
+        viewBox="0 0 1440 900" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
         <defs>
           <linearGradient id="lnViolet" x1="0%" y1="0%" x2="100%" y2="100%">
             <stop offset="0%" stopColor="#e879f9" stopOpacity="0" />
@@ -259,35 +508,24 @@ export default function LoginPage() {
           </linearGradient>
           <filter id="softGlow" x="-50%" y="-50%" width="200%" height="200%">
             <feGaussianBlur stdDeviation="3.5" result="blur" />
-            <feMerge>
-              <feMergeNode in="blur" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
+            <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
           </filter>
         </defs>
-
-        {/* bold mesh network — top-left zone */}
         <g filter="url(#softGlow)">
           <path d="M -80 140 L 360 60 L 720 190 L 1080 40" stroke="url(#lnViolet)" strokeWidth="2" fill="none" />
           <path d="M 360 60 L 420 320" stroke="url(#lnIndigo)" strokeWidth="1.5" fill="none" />
           <path d="M 720 190 L 660 430" stroke="url(#lnCyan)" strokeWidth="1.5" fill="none" />
           <path d="M -80 260 L 300 340 L 720 190" stroke="url(#lnIndigo)" strokeWidth="1.5" fill="none" />
         </g>
-
-        {/* bold mesh network — bottom-right zone, opposite flow */}
         <g filter="url(#softGlow)">
           <path d="M 1540 760 L 1140 860 L 760 700 L 380 840" stroke="url(#lnCyan)" strokeWidth="2" fill="none" />
           <path d="M 1140 860 L 1080 600" stroke="url(#lnViolet)" strokeWidth="1.5" fill="none" />
           <path d="M 760 700 L 820 470" stroke="url(#lnAmber)" strokeWidth="1.5" fill="none" />
           <path d="M 1540 600 L 1220 540 L 760 700" stroke="url(#lnViolet)" strokeWidth="1.5" fill="none" />
         </g>
-
-        {/* crossing diagonals through the middle for depth */}
         <path d="M -80 500 L 480 380 L 1000 560 L 1540 420" stroke="url(#lnIndigo)" strokeWidth="1.25" fill="none" />
         <path d="M 1180 -60 L 1380 340 L 1160 900" stroke="url(#lnCyan)" strokeWidth="1.25" fill="none" />
         <path d="M 260 -60 L 60 380 L 320 900" stroke="url(#lnViolet)" strokeWidth="1" fill="none" />
-
-        {/* glowing connection nodes */}
         <g filter="url(#softGlow)">
           <circle cx="360" cy="60" r="4" fill="#f0abfc" />
           <circle cx="720" cy="190" r="4.5" fill="#a5b4fc" />
@@ -299,38 +537,28 @@ export default function LoginPage() {
           <circle cx="1220" cy="540" r="3.5" fill="#f0abfc" />
         </g>
       </svg>
-      {/* bubble animation canvas — full screen background */}
+
       <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" style={{ pointerEvents: 'none', zIndex: 0 }} />
+
       {/* Left — branding */}
       <div className="hidden lg:flex flex-col justify-between w-1/2 p-12 text-white relative">
-
-        {/* Logo + Nama Sekolah */}
         <div className="relative z-10">
-          <div
-            className="flex items-center gap-3 mb-2 cursor-default w-fit"
+          <div className="flex items-center gap-3 mb-2 cursor-default w-fit"
             style={{ transition: 'transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1)' }}
             onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.transform = 'scale(1.14)' }}
             onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.transform = 'scale(1)' }}
           >
             <SchoolLogo size="lg" />
             <div className="min-w-0">
-              <p className="font-bold text-xl leading-tight line-clamp-2">
-                {siteInfo.namaSekolah || 'SmartExam'}
-              </p>
-              {!siteInfo.namaSekolah && (
-                <p className="text-brand-300 text-sm">Sistem Ujian Digital Terpercaya</p>
-              )}
-              {siteInfo.namaSekolah && (
-                <p className="text-brand-300 text-sm">Sistem Ujian Digital Terpercaya</p>
-              )}
+              <p className="font-bold text-xl leading-tight line-clamp-2">{displayName}</p>
+              <p className="text-brand-300 text-sm">Sistem Ujian Digital Terpercaya</p>
             </div>
           </div>
         </div>
 
         <div className="relative z-10 space-y-6">
           <div>
-            <h1
-              className="text-4xl font-bold leading-tight mb-3 cursor-default w-fit"
+            <h1 className="text-4xl font-bold leading-tight mb-3 cursor-default w-fit"
               style={{ transition: 'transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1)', display: 'inline-block', transformOrigin: 'left center' }}
               onMouseEnter={e => { (e.currentTarget as HTMLHeadingElement).style.transform = 'scale(1.08)' }}
               onMouseLeave={e => { (e.currentTarget as HTMLHeadingElement).style.transform = 'scale(1)' }}
@@ -338,23 +566,14 @@ export default function LoginPage() {
               Ujian Digital<br />Lebih Mudah & Adil
             </h1>
             <p className="text-brand-300 text-sm leading-relaxed max-w-xs">
-              Sistem CBT modern
-              {siteInfo.namaSekolah ? ` untuk ${siteInfo.namaSekolah}` : ''}
-              {' '}dengan fitur anti-nyontek, penilaian otomatis, dan monitoring real-time.
+              Sistem CBT modern{siteInfo.namaSekolah ? ` untuk ${siteInfo.namaSekolah}` : ''}{' '}
+              dengan fitur anti-nyontek, penilaian otomatis, dan monitoring real-time.
             </p>
           </div>
           <div className="grid grid-cols-3 gap-4">
-            {[
-              { n: '🔒', l: 'Aman' },
-              { n: '⚡', l: 'Cepat' },
-              { n: '📊', l: 'Akurat' },
-            ].map(({ n, l }) => (
-              <div
-                key={l}
-                className="bg-white/10 backdrop-blur rounded-xl p-4 text-center cursor-default"
-                style={{
-                  transition: 'transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.35s ease',
-                }}
+            {[{ n: '🔒', l: 'Aman' }, { n: '⚡', l: 'Cepat' }, { n: '📊', l: 'Akurat' }].map(({ n, l }) => (
+              <div key={l} className="bg-white/10 backdrop-blur rounded-xl p-4 text-center cursor-default"
+                style={{ transition: 'transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.35s ease' }}
                 onMouseEnter={e => {
                   (e.currentTarget as HTMLDivElement).style.transform = 'translateY(-18px) scale(1.08)'
                   ;(e.currentTarget as HTMLDivElement).style.boxShadow = '0 16px 32px rgba(0,0,0,0.25)'
@@ -369,13 +588,26 @@ export default function LoginPage() {
               </div>
             ))}
           </div>
+
+          {/* Tombol panduan di sisi kiri (desktop) */}
+          <div className="flex gap-3 pt-2">
+            <button type="button" onClick={() => setShowGuide(true)}
+              className="flex items-center gap-2 px-4 py-2.5 bg-white/10 hover:bg-white/20 backdrop-blur border border-white/20 rounded-xl text-sm text-white font-medium transition-all hover:scale-105"
+            >
+              <BookMarked className="w-4 h-4" />
+              Panduan Penggunaan
+            </button>
+            <button type="button" onClick={() => setShowQA(true)}
+              className="flex items-center gap-2 px-4 py-2.5 bg-white/10 hover:bg-white/20 backdrop-blur border border-white/20 rounded-xl text-sm text-white font-medium transition-all hover:scale-105"
+            >
+              <HelpCircle className="w-4 h-4" />
+              Q&amp;A
+            </button>
+          </div>
         </div>
 
         <div className="relative z-10 text-brand-400 text-xs">
-          {siteInfo.namaSekolah
-            ? <>{siteInfo.namaSekolah} &copy; {year}</>
-            : <>SmartExam &copy; {year}</>
-          }
+          {siteInfo.namaSekolah ? <>{siteInfo.namaSekolah} &copy; {year}</> : <>SmartExam &copy; {year}</>}
         </div>
       </div>
 
@@ -383,20 +615,15 @@ export default function LoginPage() {
       <div className="flex-1 flex items-center justify-center p-6 relative z-10">
         <div className="w-full max-w-sm">
           {/* Mobile: logo + nama sekolah */}
-          <div className="lg:hidden flex items-center gap-3 mb-8 justify-center">
+          <div className="lg:hidden flex items-center gap-3 mb-6 justify-center">
             <SchoolLogo size="sm" />
             <div className="min-w-0 text-left">
-              <p className="font-bold text-white text-base leading-tight line-clamp-2">
-                {siteInfo.namaSekolah || 'SmartExam'}
-              </p>
-              {!siteInfo.namaSekolah && (
-                <p className="text-brand-300 text-xs">Sistem Ujian Digital Terpercaya</p>
-              )}
+              <p className="font-bold text-white text-base leading-tight line-clamp-2">{displayName}</p>
+              {!siteInfo.namaSekolah && <p className="text-brand-300 text-xs">Sistem Ujian Digital Terpercaya</p>}
             </div>
           </div>
 
-          <div
-            className="bg-white rounded-3xl shadow-card-lg p-8"
+          <div className="bg-white rounded-3xl shadow-card-lg p-8"
             style={{ transition: 'transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.35s ease' }}
             onMouseEnter={e => {
               (e.currentTarget as HTMLDivElement).style.transform = 'scale(1.03)'
@@ -422,45 +649,33 @@ export default function LoginPage() {
 
               <div>
                 <label className="label">Username / NIS</label>
-                <div
-                  className="relative"
+                <div className="relative"
                   style={{ transition: 'transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1)' }}
                   onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.transform = 'scale(1.03)' }}
                   onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.transform = 'scale(1)' }}
                 >
                   <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                  <input
-                    type="text"
-                    className="input pl-10"
-                    placeholder="Masukkan username atau NIS"
-                    value={form.username}
-                    onChange={e => setForm(f => ({ ...f, username: e.target.value }))}
-                    autoComplete="username"
-                    autoFocus
+                  <input type="text" className="input pl-10" placeholder="Masukkan username atau NIS"
+                    value={form.username} onChange={e => setForm(f => ({ ...f, username: e.target.value }))}
+                    autoComplete="username" autoFocus
                   />
                 </div>
               </div>
 
               <div>
                 <label className="label">Password</label>
-                <div
-                  className="relative"
+                <div className="relative"
                   style={{ transition: 'transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1)' }}
                   onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.transform = 'scale(1.03)' }}
                   onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.transform = 'scale(1)' }}
                 >
                   <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                  <input
-                    type={showPw ? 'text' : 'password'}
-                    className="input pl-10 pr-10"
+                  <input type={showPw ? 'text' : 'password'} className="input pl-10 pr-10"
                     placeholder="Masukkan password"
-                    value={form.password}
-                    onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
+                    value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
                     autoComplete="current-password"
                   />
-                  <button
-                    type="button"
-                    onClick={() => setShowPw(v => !v)}
+                  <button type="button" onClick={() => setShowPw(v => !v)}
                     className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
                   >
                     {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -468,11 +683,7 @@ export default function LoginPage() {
                 </div>
               </div>
 
-              <button
-                type="submit"
-                disabled={loading}
-                className="btn-primary w-full justify-center py-3 text-base mt-2"
-              >
+              <button type="submit" disabled={loading} className="btn-primary w-full justify-center py-3 text-base mt-2">
                 {loading ? (
                   <span className="flex items-center gap-2">
                     <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
@@ -482,10 +693,23 @@ export default function LoginPage() {
               </button>
             </form>
 
-            <div className="mt-6 pt-6 border-t border-slate-100">
-              <p className="text-xs text-slate-400 text-center">
-                Lupa password? Hubungi administrator sekolah.
-              </p>
+            <div className="mt-6 pt-5 border-t border-slate-100 space-y-3">
+              <p className="text-xs text-slate-400 text-center">Lupa password? Hubungi administrator sekolah.</p>
+              {/* Tombol panduan di dalam card (mobile & desktop) */}
+              <div className="flex gap-2">
+                <button type="button" onClick={() => setShowGuide(true)}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl border border-slate-200 text-slate-500 hover:text-brand-600 hover:border-brand-300 hover:bg-brand-50 text-xs font-medium transition-all"
+                >
+                  <BookMarked className="w-3.5 h-3.5" />
+                  Panduan
+                </button>
+                <button type="button" onClick={() => setShowQA(true)}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl border border-slate-200 text-slate-500 hover:text-brand-600 hover:border-brand-300 hover:bg-brand-50 text-xs font-medium transition-all"
+                >
+                  <HelpCircle className="w-3.5 h-3.5" />
+                  Q&amp;A / Bantuan
+                </button>
+              </div>
             </div>
           </div>
 
@@ -496,6 +720,217 @@ export default function LoginPage() {
           )}
         </div>
       </div>
+
+      {/* ═══════════════ MODAL: PANDUAN PENGGUNAAN ═══════════════ */}
+      {showGuide && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ backdropFilter: 'blur(8px)', background: 'rgba(15,23,42,0.7)' }}
+          onClick={e => { if (e.target === e.currentTarget) setShowGuide(false) }}
+        >
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
+            {/* Header */}
+            <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between flex-shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-brand-500 to-purple-600 flex items-center justify-center">
+                  <BookMarked className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <h2 className="font-bold text-slate-900 text-lg">Panduan Penggunaan</h2>
+                  <p className="text-xs text-slate-400">SmartExam — Sistem Ujian Digital</p>
+                </div>
+              </div>
+              <button type="button" onClick={() => setShowGuide(false)}
+                className="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="flex flex-1 overflow-hidden">
+              {/* Role sidebar */}
+              <div className="w-44 flex-shrink-0 border-r border-slate-100 py-4 overflow-y-auto">
+                {ROLES.map(role => (
+                  <button key={role.id} type="button"
+                    onClick={() => setActiveRole(role.id)}
+                    className={`w-full flex items-center gap-2.5 px-4 py-3 text-left transition-all text-sm font-medium ${
+                      activeRole === role.id
+                        ? `${role.bgLight} ${role.text} border-r-2 ${role.border.replace('border-', 'border-r-')}`
+                        : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'
+                    }`}
+                  >
+                    <span className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                      activeRole === role.id ? `bg-gradient-to-br ${role.color} text-white` : 'bg-slate-100 text-slate-400'
+                    }`}>
+                      {role.icon}
+                    </span>
+                    {role.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Content */}
+              <div className="flex-1 overflow-y-auto p-6">
+                {/* Role header */}
+                <div className={`rounded-2xl p-5 mb-6 bg-gradient-to-br ${activeRoleData.color} text-white`}>
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
+                      {activeRoleData.icon}
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-lg">{activeRoleData.label}</h3>
+                      <p className="text-white/80 text-sm">{activeRoleData.desc}</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Steps */}
+                <div className="space-y-3">
+                  {activeRoleData.steps.map((step, i) => (
+                    <div key={i} className={`rounded-xl border ${activeRoleData.border} ${activeRoleData.bgLight} p-4`}>
+                      <div className="flex items-start gap-3">
+                        <div className={`w-8 h-8 rounded-lg bg-gradient-to-br ${activeRoleData.color} text-white flex items-center justify-center flex-shrink-0 mt-0.5`}>
+                          {step.icon}
+                        </div>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${activeRoleData.badge}`}>
+                              {i + 1}
+                            </span>
+                            <h4 className={`font-semibold text-sm ${activeRoleData.text}`}>{step.title}</h4>
+                          </div>
+                          <p className="text-sm text-slate-600 leading-relaxed">{step.detail}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Tips footer */}
+                <div className="mt-5 p-4 rounded-xl bg-slate-50 border border-slate-200 flex items-start gap-3">
+                  <CheckCircle className="w-4 h-4 text-emerald-500 flex-shrink-0 mt-0.5" />
+                  <p className="text-xs text-slate-500 leading-relaxed">
+                    Butuh bantuan lebih lanjut? Hubungi administrator sistem atau lihat section <strong>Q&A / Bantuan</strong> untuk pertanyaan yang sering diajukan.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-4 border-t border-slate-100 flex items-center justify-between flex-shrink-0">
+              <p className="text-xs text-slate-400">SmartExam &copy; {year}</p>
+              <div className="flex gap-2">
+                <button type="button" onClick={() => { setShowGuide(false); setShowQA(true) }}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 text-sm font-medium transition-colors"
+                >
+                  <HelpCircle className="w-4 h-4" /> Buka Q&amp;A
+                </button>
+                <button type="button" onClick={() => setShowGuide(false)}
+                  className="px-4 py-2 rounded-xl bg-brand-600 text-white text-sm font-medium hover:bg-brand-700 transition-colors"
+                >
+                  Tutup
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════ MODAL: Q&A ═══════════════ */}
+      {showQA && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ backdropFilter: 'blur(8px)', background: 'rgba(15,23,42,0.7)' }}
+          onClick={e => { if (e.target === e.currentTarget) setShowQA(false) }}
+        >
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
+            {/* Header */}
+            <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between flex-shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center">
+                  <HelpCircle className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <h2 className="font-bold text-slate-900 text-lg">Q&A / Bantuan</h2>
+                  <p className="text-xs text-slate-400">Pertanyaan yang sering diajukan & skenario darurat</p>
+                </div>
+              </div>
+              <button type="button" onClick={() => setShowQA(false)}
+                className="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+              {QA_ITEMS.map((section) => (
+                <div key={section.category}>
+                  {/* Section header */}
+                  <div className={`flex items-center gap-2 px-3 py-2 rounded-xl ${section.bg} mb-3`}>
+                    <span className={section.color}>{section.icon}</span>
+                    <h3 className={`font-semibold text-sm ${section.color}`}>{section.category}</h3>
+                  </div>
+
+                  <div className="space-y-2">
+                    {section.items.map((item, i) => {
+                      const key = `${section.category}-${i}`
+                      const isOpen = openQA === key
+                      return (
+                        <div key={i} className="border border-slate-200 rounded-xl overflow-hidden">
+                          <button type="button"
+                            onClick={() => setOpenQA(isOpen ? null : key)}
+                            className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left hover:bg-slate-50 transition-colors"
+                          >
+                            <span className="text-sm font-medium text-slate-800">{item.q}</span>
+                            {isOpen
+                              ? <ChevronUp className="w-4 h-4 text-slate-400 flex-shrink-0" />
+                              : <ChevronDown className="w-4 h-4 text-slate-400 flex-shrink-0" />
+                            }
+                          </button>
+                          {isOpen && (
+                            <div className={`px-4 pb-4 pt-1 ${section.bg} border-t border-slate-100`}>
+                              <p className="text-sm text-slate-600 leading-relaxed">{item.a}</p>
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              ))}
+
+              {/* Contact admin */}
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
+                <div className="flex items-start gap-3">
+                  <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <h4 className="font-semibold text-amber-800 text-sm mb-1">Masalah tidak terdaftar di sini?</h4>
+                    <p className="text-amber-700 text-sm leading-relaxed">
+                      Segera hubungi <strong>Administrator Sistem</strong> sekolah Anda. Untuk masalah teknis kritis seperti data hilang atau server tidak bisa diakses, administrator perlu menghubungi pengelola sistem untuk penanganan lebih lanjut.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-4 border-t border-slate-100 flex items-center justify-between flex-shrink-0">
+              <p className="text-xs text-slate-400">SmartExam &copy; {year}</p>
+              <div className="flex gap-2">
+                <button type="button" onClick={() => { setShowQA(false); setShowGuide(true) }}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 text-sm font-medium transition-colors"
+                >
+                  <BookMarked className="w-4 h-4" /> Panduan
+                </button>
+                <button type="button" onClick={() => setShowQA(false)}
+                  className="px-4 py-2 rounded-xl bg-brand-600 text-white text-sm font-medium hover:bg-brand-700 transition-colors"
+                >
+                  Tutup
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
