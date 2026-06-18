@@ -19,7 +19,8 @@ export async function POST(req: NextRequest) {
   if ('error' in auth) return auth.error
 
   const db = createAdminClient()
-  const { jadwalId } = await req.json()
+  const { jadwalId, konfirmasi } = await req.json()
+  const isKonfirmasi = konfirmasi === true
 
   if (!jadwalId) return NextResponse.json({ error: 'jadwalId diperlukan' }, { status: 400 })
 
@@ -112,7 +113,16 @@ export async function POST(req: NextRequest) {
     })
   }
 
-  // Buka sesi susulan baru
+  // Mode cek (dry-run): hanya kembalikan preview, JANGAN insert apa pun.
+  if (!isKonfirmasi) {
+    return NextResponse.json({
+      bisa: true,
+      message: `${siswaBelum.length} siswa belum mengikuti ujian.`,
+      siswa: siswaBelum,
+    })
+  }
+
+  // Mode konfirmasi: baru benar-benar buka sesi susulan baru.
   const sesiBaruId = generateId('SES')
   const kodeBaru = generateKode7()
 
