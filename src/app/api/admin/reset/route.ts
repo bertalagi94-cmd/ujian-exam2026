@@ -73,6 +73,16 @@ async function clearTable(
       return error ? `users: ${error.message}` : null
     }
 
+    // Tabel dengan PK bukan 'id'
+    if (table === 'pengaturan') {
+      const { error } = await (db as any).from('pengaturan').delete().not('key', 'is', null)
+      return error ? `pengaturan: ${error.message}` : null
+    }
+    if (table === 'siswa') {
+      const { error } = await (db as any).from('siswa').delete().not('nis', 'is', null)
+      return error ? `siswa: ${error.message}` : null
+    }
+
     // Gunakan kolom waktu yang sesuai per tabel
     const timeCol = TABLE_TIME_COLUMN[table] ?? (HAS_CREATED_AT.has(table) ? 'created_at' : null)
     if (timeCol) {
