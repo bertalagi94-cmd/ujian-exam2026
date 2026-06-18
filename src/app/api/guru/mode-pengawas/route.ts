@@ -24,13 +24,37 @@ export async function GET(req: NextRequest) {
   const todayStart = `${today}T00:00:00`
   const todayEnd   = `${today}T23:59:59`
 
-  const { data: semuaJadwal, error: errJadwal } = await db
+  const { data: semuaJadwalSendiri, error: errJadwal } = await db
     .from('jadwal')
     .select('*')
     .eq('pengawas', user.username)
     .order('sesi')
 
   if (errJadwal) return NextResponse.json({ error: errJadwal.message }, { status: 500 })
+
+  // ── 1b. Tambahan: jadwal yang BUKAN milik guru ini sebagai pengawas asli,
+  // tapi guru ini ditugaskan ADMIN sebagai pengawas sesi SUSULAN-nya
+  // (fitur tambahan: Ujian Susulan dari menu Admin). Pengawas asli & jadwal
+  // aslinya tidak diubah — guru susulan hanya "dipinjamkan" akses pantau.
+  const { data: sesiSusulanSaya } = await db
+    .from('sesi_ujian')
+    .select('jadwal_id, info_json')
+    .eq('status', 'BERJALAN')
+    .contains('info_json', { pengawas_susulan: user.username })
+
+  const jadwalIdSusulanSaya = [...new Set((sesiSusulanSaya ?? []).map(s => s.jadwal_id).filter(Boolean))]
+
+  let jadwalSusulanSaya: typeof semuaJadwalSendiri = []
+  if (jadwalIdSusulanSaya.length > 0) {
+    const sudahAda = new Set((semuaJadwalSendiri ?? []).map(j => j.id))
+    const { data: jadwalTambahan } = await db
+      .from('jadwal')
+      .select('*')
+      .in('id', jadwalIdSusulanSaya.filter(id => !sudahAda.has(id)))
+    jadwalSusulanSaya = jadwalTambahan ?? []
+  }
+
+  const semuaJadwal = [...(semuaJadwalSendiri ?? []), ...jadwalSusulanSaya]
   if (!semuaJadwal?.length) return NextResponse.json({ data: [], sesiAktif: [] })
 
   // ── 2. Ambil SEMUA sesi_ujian untuk jadwal guru ini ──────────────────────
