@@ -59,31 +59,46 @@ export async function POST(req: NextRequest) {
   }
 
   if (!payload?.tables || typeof payload.tables !== 'object') {
-    return NextResponse.json({ error: 'Format backup tidak dikenali. Pastikan file adalah backup SmartExam.' }, { status: 400 })
+    return NextResponse.json(
+      { error: 'Format backup tidak dikenali. Pastikan file adalah backup SmartExam.' },
+      { status: 400 }
+    )
   }
 
   const db = createAdminClient()
   const errors: string[] = []
   const stats: Record<string, number> = {}
 
-  // 1. Hapus semua data yang ada (reverse order)
+  // 1. Hapus semua data (reverse FK order)
   for (const table of DELETE_ORDER) {
     if (!(table in payload.tables)) continue
-    const { error } = await db.from(table).delete().neq('id' as never, '00000000-0000-0000-0000-000000000000' as never).catch(() => ({ error: { message: 'Delete failed' } }))
-    if (error) {
-      // Coba alternatif jika kolom id tidak ada atau berbeda
-      const fallback = await db.from(table).delete().gte('id' as never, 0 as never).catch(() => ({ error }))
-      if (fallback.error) {
-        errors.push(`Gagal hapus ${table}: ${error.message}`)
+    try {
+      const { error } = await db
+        .from(table as never)
+        .delete()
+        .gt('created_at' as never, '1970-01-01' as never)
+
+      if (error) {
+        // Fallback: filter dengan kolom lain yang pasti ada
+        const { error: e2 } = await db
+          .from(table as never)
+          .delete()
+          .not('id' as never, 'is' as never, null as never)
+
+        if (e2) {
+          errors.push(`Gagal hapus ${table}: ${error.message}`)
+        }
       }
+    } catch (e) {
+      errors.push(`Gagal hapus ${table}: ${e instanceof Error ? e.message : 'error'}`)
     }
   }
 
   if (errors.length > 0) {
-    return NextResponse.json({
-      error: 'Gagal membersihkan data lama',
-      details: errors,
-    }, { status: 500 })
+    return NextResponse.json(
+      { error: 'Gagal membersihkan data lama', details: errors },
+      { status: 500 }
+    )
   }
 
   // 2. Insert data dari backup
@@ -94,31 +109,31 @@ export async function POST(req: NextRequest) {
       continue
     }
 
-    // Insert per batch 100 baris
     const BATCH = 100
     let inserted = 0
     for (let i = 0; i < rows.length; i += BATCH) {
       const batch = rows.slice(i, i + BATCH)
-      const { error } = await db.from(table).insert(batch as never[])
-      if (error) {
-        errors.push(`Gagal insert ${table} (batch ${i / BATCH + 1}): ${error.message}`)
+      try {
+        const { error } = await db.from(table as never).insert(batch as never[])
+        if (error) {
+          errors.push(`Gagal insert ${table} (batch ${Math.floor(i / BATCH) + 1}): ${error.message}`)
+          break
+        }
+        inserted += batch.length
+      } catch (e) {
+        errors.push(`Gagal insert ${table}: ${e instanceof Error ? e.message : 'error'}`)
         break
       }
-      inserted += batch.length
     }
     stats[table] = inserted
   }
 
   if (errors.length > 0) {
-    return NextResponse.json({
-      error: 'Restore selesai dengan beberapa error',
-      details: errors,
-      stats,
-    }, { status: 207 })
+    return NextResponse.json(
+      { error: 'Restore selesai dengan beberapa error', details: errors, stats },
+      { status: 207 }
+    )
   }
 
-  return NextResponse.json({
-    message: 'Restore berhasil',
-    stats,
-  })
+  return NextResponse.json({ message: 'Restore berhasil', stats })
 }
