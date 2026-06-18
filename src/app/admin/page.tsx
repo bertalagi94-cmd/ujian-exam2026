@@ -48,9 +48,8 @@ export default function AdminDashboard() {
     }
   }, [])
 
-  useEffect(() => {
-    load()
-    fetch('/api/public/pengaturan', { cache: 'no-store' })
+  const loadSiteInfo = useCallback(() => {
+    fetch('/api/public/pengaturan?t=' + Date.now(), { cache: 'no-store' })
       .then(r => r.json())
       .then(json => {
         if (json?.data) setSiteInfo({
@@ -59,7 +58,14 @@ export default function AdminDashboard() {
         })
       })
       .catch(() => {})
-  }, [load])
+  }, [])
+
+  useEffect(() => {
+    load()
+    loadSiteInfo()
+    window.addEventListener('pengaturan-changed', loadSiteInfo)
+    return () => window.removeEventListener('pengaturan-changed', loadSiteInfo)
+  }, [load, loadSiteInfo])
 
   if (loading) return <PageLoader />
 
