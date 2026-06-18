@@ -111,6 +111,22 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // ── 5b. Nama guru untuk sesi susulan yang diambil-alih admin ─────────────
+  // (dibutuhkan agar pengawas asli melihat NAMA pengawas pengganti, bukan username)
+  const usernameSusulanAktif = [...new Set(
+    (semuaSesi ?? [])
+      .filter(s => s.status === 'BERJALAN' && s.info_json?.dibuka_oleh_admin && s.info_json?.pengawas_susulan)
+      .map(s => s.info_json.pengawas_susulan as string)
+  )]
+  let namaGuruSusulanMap: Record<string, string> = {}
+  if (usernameSusulanAktif.length > 0) {
+    const { data: guruSusulanList } = await db
+      .from('users')
+      .select('username, nama')
+      .in('username', usernameSusulanAktif)
+    namaGuruSusulanMap = Object.fromEntries((guruSusulanList ?? []).map(g => [g.username, g.nama]))
+  }
+
   // ── 6. Enrich tiap jadwal ─────────────────────────────────────────────────
   const enrichedJadwal = jadwalList.map(j => {
     const sesiUntukJadwal = (sesiList).filter(s => s.jadwal_id === j.id)
@@ -119,17 +135,35 @@ export async function GET(req: NextRequest) {
     if (sesiTerkait?.status === 'BERJALAN') status = 'BERJALAN'
     if (sesiTerkait?.status === 'SELESAI' && status !== 'BERJALAN') status = 'SELESAI'
 
+    // Apakah sesi BERJALAN ini sesi susulan yang dibuka admin untuk GURU LAIN
+    // (bukan guru yang sedang membuka mode-pengawas ini)? Jika ya, guru ini
+    // adalah "pengawas asli" yang sesi-nya sudah diambil-alih — dia TIDAK
+    // boleh melihat kode sesi / kontrol / data siswa sesi tersebut, cukup
+    // pesan informatif siapa yang sedang bertugas.
+    const pengawasSusulanUsername: string | undefined = sesiTerkait?.info_json?.dibuka_oleh_admin
+      ? sesiTerkait?.info_json?.pengawas_susulan
+      : undefined
+    const diambilAlih = !!pengawasSusulanUsername && pengawasSusulanUsername !== user.username
+
     return {
       ...j,
       tanggal: j.tanggal?.slice(0, 10) ?? j.tanggal,
       status,
       nama_mapel: mapelMap[j.mapel_id] ?? j.mapel_id,
       nama_kelas: kelasMap[j.kelas] ?? j.kelas,
-      sesi_ujian: sesiTerkait ? {
+      // Jika sesi sudah diambil-alih pengawas lain, jangan kirim detail sesi
+      // (kode sesi, dll) ke pengawas asli — cukup info ringkas untuk pesan.
+      sesi_ujian: sesiTerkait && !diambilAlih ? {
         ...sesiTerkait,
         jumlah_peserta: siswaUjianMap[sesiTerkait.id]?.total ?? sesiTerkait.jumlah_peserta ?? 0,
         jumlah_selesai: siswaUjianMap[sesiTerkait.id]?.selesai ?? 0,
       } : null,
+      diambil_alih_pengawas: diambilAlih
+        ? {
+            username: pengawasSusulanUsername,
+            nama: namaGuruSusulanMap[pengawasSusulanUsername as string] ?? pengawasSusulanUsername,
+          }
+        : null,
     }
   })
 
@@ -157,12 +191,25 @@ export async function POST(req: NextRequest) {
   // Cek apakah sesi sudah ada & berjalan
   const { data: existingSesi } = await db
     .from('sesi_ujian')
-    .select('id, kode_sesi')
+    .select('id, kode_sesi, info_json')
     .eq('jadwal_id', jadwalId)
     .eq('status', 'BERJALAN')
     .single()
 
   if (existingSesi) {
+    // Jika sesi yang berjalan adalah sesi susulan yang diambil-alih ADMIN
+    // untuk guru LAIN, jangan beri kode sesi ke pengawas asli — dia bukan
+    // pengawas yang bertugas pada sesi ini sekarang.
+    const pengawasSusulan = existingSesi.info_json?.dibuka_oleh_admin
+      ? existingSesi.info_json?.pengawas_susulan
+      : undefined
+    if (pengawasSusulan && pengawasSusulan !== user.username) {
+      return NextResponse.json({
+        error: 'Sesi untuk jadwal ini sedang aktif dengan pengawas lain (ditugaskan admin).',
+        diambilAlih: true,
+      }, { status: 409 })
+    }
+
     return NextResponse.json({
       message: 'Sesi sudah berjalan',
       sesiId: existingSesi.id,
