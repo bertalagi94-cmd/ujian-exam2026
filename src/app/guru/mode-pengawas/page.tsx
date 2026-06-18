@@ -31,6 +31,7 @@ interface JadwalHariIni {
   nama_mapel: string
   nama_kelas: string
   sesi_ujian: SesiUjianInfo | null
+  diambil_alih_pengawas: { username: string; nama: string } | null
 }
 
 interface SiswaAktif {
@@ -339,6 +340,7 @@ export default function ModePengawasPage() {
       ) : (
         <div className="space-y-4">
           {jadwal.map(j => {
+            const diambilAlih = !!j.diambil_alih_pengawas
             const isRunning = j.status === 'BERJALAN' && j.sesi_ujian?.status === 'BERJALAN'
             const isDone = j.status === 'SELESAI' || j.sesi_ujian?.status === 'SELESAI'
             const boleh = isBolehMulai(j)
@@ -353,8 +355,8 @@ export default function ModePengawasPage() {
             const terkunciCount = siswaList.filter(s => s.status === 'TERKUNCI').length
 
             return (
-              <div key={j.id} className={`card p-0 overflow-hidden ${isRunning ? 'ring-2 ring-amber-400' : ''}`}>
-                {isRunning && <div className="h-1 bg-gradient-to-r from-amber-400 via-orange-400 to-amber-400 animate-pulse" />}
+              <div key={j.id} className={`card p-0 overflow-hidden ${isRunning || diambilAlih ? 'ring-2 ring-amber-400' : ''}`}>
+                {(isRunning || diambilAlih) && <div className="h-1 bg-gradient-to-r from-amber-400 via-orange-400 to-amber-400 animate-pulse" />}
 
                 <div className="p-5">
                   {/* Top row */}
@@ -368,10 +370,31 @@ export default function ModePengawasPage() {
                         <span className="text-slate-400">{j.durasi} menit</span>
                       </div>
                     </div>
-                    <span className={`text-xs px-2.5 py-1 rounded-full font-semibold flex-shrink-0 ${isRunning ? 'bg-amber-100 text-amber-700' : isDone ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>
-                      {isRunning ? '● Berlangsung' : isDone ? '✓ Selesai' : '◷ Akan Datang'}
+                    <span className={`text-xs px-2.5 py-1 rounded-full font-semibold flex-shrink-0 ${diambilAlih ? 'bg-purple-100 text-purple-700' : isRunning ? 'bg-amber-100 text-amber-700' : isDone ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>
+                      {diambilAlih ? '● Berlangsung' : isRunning ? '● Berlangsung' : isDone ? '✓ Selesai' : '◷ Akan Datang'}
                     </span>
                   </div>
+
+                  {/* Sesi diambil-alih pengawas susulan (ditugaskan admin) */}
+                  {diambilAlih && j.diambil_alih_pengawas && (
+                    <div className="relative overflow-hidden rounded-2xl mb-4 bg-gradient-to-br from-purple-600 via-violet-600 to-indigo-700 p-6 text-center shadow-lg">
+                      <div className="absolute inset-0 opacity-20 pointer-events-none" style={{ backgroundImage: 'radial-gradient(circle at 20% 20%, white 0%, transparent 35%), radial-gradient(circle at 80% 80%, white 0%, transparent 30%)' }} />
+                      <div className="relative flex flex-col items-center gap-2">
+                        <div className="w-12 h-12 rounded-2xl bg-white/15 backdrop-blur flex items-center justify-center mb-1">
+                          <Shield className="w-6 h-6 text-white" />
+                        </div>
+                        <div className="text-[11px] font-bold uppercase tracking-widest text-white/70">Sesi Susulan Aktif</div>
+                        <h4 className="text-lg font-bold text-white leading-snug">
+                          Sesi ini sedang aktif dengan pengawas<br className="hidden sm:block" />
+                          <span className="text-amber-300">{j.diambil_alih_pengawas.nama}</span>
+                        </h4>
+                        <p className="text-xs text-white/70 max-w-sm mt-1">
+                          Ujian susulan untuk jadwal ini ditugaskan oleh admin kepada guru lain.
+                          Anda tidak perlu melakukan apa pun — pantauan &amp; kontrol sesi ditangani oleh pengawas yang bertugas.
+                        </p>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Kode sesi + statistik */}
                   {isRunning && j.sesi_ujian && (
@@ -475,7 +498,7 @@ export default function ModePengawasPage() {
                   )}
 
                   {/* Done info */}
-                  {isDone && (
+                  {isDone && !diambilAlih && (
                     <div className="flex items-center gap-2 text-sm text-emerald-600 bg-emerald-50 px-4 py-3 rounded-xl mb-4">
                       <CheckCircle className="w-4 h-4 flex-shrink-0" />
                       Ujian telah selesai dilaksanakan.
@@ -483,7 +506,7 @@ export default function ModePengawasPage() {
                   )}
 
                   {/* Action buttons */}
-                  {!isDone && (
+                  {!isDone && !diambilAlih && (
                     <div className="flex items-center justify-between gap-3 flex-wrap">
                       {!isRunning && !boleh && <CountdownTimer jamMulai={j.jam_mulai} />}
                       {!isRunning && boleh && (
