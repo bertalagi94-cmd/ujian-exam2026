@@ -142,6 +142,10 @@ export async function POST(req: NextRequest) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
+  // Sinkronkan status jadwal agar admin/kepsek melihat status "Berjalan" selama susulan aktif
+  // (simetris dengan /api/pengawas/sesi/[id]/tutup yang mengembalikannya ke SELESAI saat ditutup)
+  await db.from('jadwal').update({ status: 'BERJALAN' }).eq('id', jadwal.id)
+
   return NextResponse.json({
     bisa: true,
     message: `Sesi susulan dibuka untuk ${siswaBelum.length} siswa.`,
