@@ -35,6 +35,7 @@ interface DashboardData {
 export default function AdminDashboard() {
   const [data, setData] = useState<DashboardData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [siteInfo, setSiteInfo] = useState({ namaSekolah: '', tahunAjaran: '' })
 
   const load = useCallback(async () => {
     try {
@@ -47,7 +48,18 @@ export default function AdminDashboard() {
     }
   }, [])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    load()
+    fetch('/api/public/pengaturan', { cache: 'no-store' })
+      .then(r => r.json())
+      .then(json => {
+        if (json?.data) setSiteInfo({
+          namaSekolah: json.data.namaSekolah ?? '',
+          tahunAjaran: json.data.tahunAjaran ?? '',
+        })
+      })
+      .catch(() => {})
+  }, [load])
 
   if (loading) return <PageLoader />
 
@@ -58,7 +70,11 @@ export default function AdminDashboard() {
       {/* Header */}
       <div>
         <h1 className="page-title">Dashboard Admin</h1>
-        <p className="page-subtitle">MTS Alkhairaat Tatakalai · Tahun Ajaran 2025/2026</p>
+        <p className="page-subtitle">
+          {siteInfo.namaSekolah
+            ? `${siteInfo.namaSekolah}${siteInfo.tahunAjaran ? ' · Tahun Ajaran ' + siteInfo.tahunAjaran : ''}`
+            : 'Dashboard Admin'}
+        </p>
       </div>
 
       {/* Stats Grid */}
