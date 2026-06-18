@@ -40,11 +40,19 @@ export async function GET(req: NextRequest) {
   const selesaiData = data.filter(r => r.status === 'SELESAI')
   const nilaiAggMap: Record<string, number> = {}
   if (selesaiData.length) {
+    const pasangan = [...new Set(selesaiData.map(r => `${r.mapel_id}__${r.kelas}`))]
+    const orFilter = pasangan
+      .map(p => {
+        const idx = p.indexOf('__')
+        const mapelId = p.slice(0, idx)
+        const kelas = p.slice(idx + 2)
+        return `and(mapel_id.eq.${mapelId},kelas.eq.${kelas})`
+      })
+      .join(',')
     const { data: nilaiRows } = await db
       .from('nilai')
       .select('mapel_id, kelas')
-      .in('mapel_id', [...new Set(selesaiData.map(r => r.mapel_id))])
-      .in('kelas', [...new Set(selesaiData.map(r => r.kelas))])
+      .or(orFilter)
     for (const n of ((nilaiRows ?? []) as { mapel_id: string; kelas: string }[])) {
       const key = `${n.mapel_id}__${n.kelas}`
       nilaiAggMap[key] = (nilaiAggMap[key] ?? 0) + 1
