@@ -782,7 +782,18 @@ export default function AdminJadwalPage() {
                     </td>
                     <td className="font-medium text-slate-800">{j.nama_mapel ?? j.mapel_id}</td>
                     <td><span className="badge-blue">{j.kelas}</span></td>
-                    <td className="text-sm text-slate-600">{j.nama_pengawas ?? <span className="text-slate-400 text-xs">-</span>}</td>
+                    <td className="text-sm text-slate-600">
+                      {j.status === 'BERJALAN' && j.is_pengawas_susulan ? (
+                        <div className="flex flex-col gap-0.5">
+                          <span className="font-medium text-slate-700">{j.pengawas_aktif}</span>
+                          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded-md w-fit">
+                            <ClipboardList className="w-3 h-3" /> Susulan
+                          </span>
+                        </div>
+                      ) : (
+                        j.nama_pengawas ?? <span className="text-slate-400 text-xs">-</span>
+                      )}
+                    </td>
                     <td className="text-sm text-slate-600 whitespace-nowrap">{j.jam_mulai} – {j.jam_selesai}</td>
                     <td><StatusBadge status={j.status} /></td>
                     <td><SoalStatusBadge status={j.status_soal} /></td>
@@ -856,7 +867,18 @@ export default function AdminJadwalPage() {
                   <div className="text-slate-500">Waktu</div>
                   <div className="text-slate-700">{j.jam_mulai} – {j.jam_selesai} <span className="text-slate-400">({j.durasi} mnt)</span></div>
                   <div className="text-slate-500">Pengawas</div>
-                  <div className="text-slate-700">{j.nama_pengawas ?? <span className="text-slate-400">-</span>}</div>
+                  <div className="text-slate-700">
+                    {j.status === 'BERJALAN' && j.is_pengawas_susulan ? (
+                      <div className="flex flex-col gap-0.5">
+                        <span className="font-medium">{j.pengawas_aktif}</span>
+                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded-md w-fit">
+                          <ClipboardList className="w-3 h-3" /> Susulan
+                        </span>
+                      </div>
+                    ) : (
+                      j.nama_pengawas ?? <span className="text-slate-400">-</span>
+                    )}
+                  </div>
                 </div>
 
                 {/* Status soal */}
