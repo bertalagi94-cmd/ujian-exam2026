@@ -280,10 +280,10 @@ export default function LoginPage() {
                 {siteInfo.namaSekolah || 'SmartExam'}
               </p>
               {!siteInfo.namaSekolah && (
-                <p className="text-brand-300 text-sm">Computer Based Test System</p>
+                <p className="text-brand-300 text-sm">Sistem Ujian Cerdas, Generasi Hebat</p>
               )}
               {siteInfo.namaSekolah && (
-                <p className="text-brand-300 text-sm">Computer Based Test System</p>
+                <p className="text-brand-300 text-sm">Sistem Ujian Cerdas, Generasi Hebat</p>
               )}
             </div>
           </div>
@@ -352,7 +352,7 @@ export default function LoginPage() {
                 {siteInfo.namaSekolah || 'SmartExam'}
               </p>
               {!siteInfo.namaSekolah && (
-                <p className="text-brand-300 text-xs">Computer Based Test System</p>
+                <p className="text-brand-300 text-xs">Sistem Ujian Cerdas, Generasi Hebat</p>
               )}
             </div>
           </div>
