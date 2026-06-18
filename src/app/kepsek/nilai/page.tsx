@@ -56,19 +56,26 @@ export default function KepsekNilaiPage() {
 
   const mapelOptions = useMemo(() => opsi?.mapelPerKelas[kelas] ?? [], [opsi, kelas])
 
+  // Saat kelas berubah, mapelId untuk kelas lama jadi tidak valid sesaat.
+  // Reset di sini (bukan di effect terpisah) supaya tidak ada render/fetch
+  // dengan kombinasi kelas-baru + mapelId-lama yang salah.
+  const [pendingKelas, setPendingKelas] = useState('')
   useEffect(() => {
-    if (mapelOptions.length) setMapelId(mapelOptions[0].id)
-    else setMapelId('')
-  }, [mapelOptions])
+    if (kelas === pendingKelas) return
+    setPendingKelas(kelas)
+    const validId = mapelOptions.length ? mapelOptions[0].id : ''
+    setMapelId(validId)
+    if (!validId) setResult(null)
+  }, [kelas, pendingKelas, mapelOptions])
 
   const loadResult = useCallback(async () => {
-    if (!kelas || !mapelId) { setResult(null); return }
+    if (!kelas || !mapelId || kelas !== pendingKelas) return
     setLoadingResult(true)
     try {
       const res = await apiRequest<NilaiResponse>(`/api/kepsek/nilai?kelas=${encodeURIComponent(kelas)}&mapel_id=${encodeURIComponent(mapelId)}`)
       setResult(res)
     } finally { setLoadingResult(false) }
-  }, [kelas, mapelId])
+  }, [kelas, mapelId, pendingKelas])
 
   useEffect(() => { loadResult() }, [loadResult])
 
