@@ -70,14 +70,65 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // Enrich pengawas yang BENAR-BENAR aktif sekarang untuk jadwal berstatus
+  // BERJALAN. Pengawas bisa jadi: (a) pengawas asli (jadwal.pengawas) yang
+  // membuka sesi sendiri, atau (b) pengawas susulan yang ditugaskan ADMIN
+  // saat membuka ujian susulan (info_json.pengawas_susulan di sesi_ujian),
+  // yang BISA BEDA dari pengawas asli. nama_pengawas di atas tetap merujuk
+  // pengawas asli (sesuai input menu jadwal) — TIDAK diubah, agar histori
+  // penugasan awal tetap utuh; field baru di bawah ini khusus menjelaskan
+  // siapa yang aktif bertugas SEKARANG.
+  const jadwalIdsBerjalan = data.filter(r => r.status === 'BERJALAN').map(r => r.id)
+  let sesiAktifMap: Record<string, { dibukaOlehAdmin: boolean; pengawasUsername?: string }> = {}
+  if (jadwalIdsBerjalan.length > 0) {
+    const { data: sesiAktifList } = await (db as any)
+      .from('sesi_ujian')
+      .select('jadwal_id, info_json')
+      .in('jadwal_id', jadwalIdsBerjalan)
+      .eq('status', 'BERJALAN')
+    for (const s of (sesiAktifList ?? []) as { jadwal_id: string; info_json?: any }[]) {
+      if (!s.jadwal_id) continue
+      sesiAktifMap[s.jadwal_id] = {
+        dibukaOlehAdmin: !!s.info_json?.dibuka_oleh_admin,
+        pengawasUsername: s.info_json?.dibuka_oleh_admin ? s.info_json?.pengawas_susulan : undefined,
+      }
+    }
+  }
+
+  // Lengkapi nama untuk pengawas susulan (mungkin belum ada di guruMap di atas
+  // karena guruMap hanya diisi dari jadwal.pengawas, bukan dari info_json)
+  const usernameSusulanLain = [...new Set(
+    Object.values(sesiAktifMap)
+      .map(v => v.pengawasUsername)
+      .filter((u): u is string => !!u && !guruMap[u])
+  )]
+  if (usernameSusulanLain.length > 0) {
+    const { data: guruSusulanRaw } = await (db as any).from('users').select('username, nama').in('username', usernameSusulanLain)
+    for (const g of (guruSusulanRaw ?? []) as { username: string; nama: string }[]) guruMap[g.username] = g.nama
+  }
+
   const enriched = data.map(r => {
     const kelasId = kelasNamaToId[String(r.kelas)]
     const soalKey = `${r.mapel_id}__${kelasId}`
+
+    const sesiAktif = sesiAktifMap[r.id]
+    // Default: pengawas aktif = pengawas asli jadwal ini
+    let pengawasAktifUsername: string | null = r.pengawas ?? null
+    let isPengawasSusulan = false
+    if (sesiAktif?.dibukaOlehAdmin && sesiAktif.pengawasUsername) {
+      pengawasAktifUsername = sesiAktif.pengawasUsername
+      isPengawasSusulan = sesiAktif.pengawasUsername !== r.pengawas
+    }
+
     return {
       ...r,
       nama_mapel: mapelMap[r.mapel_id] ?? r.mapel_id,
       nama_pengawas: r.pengawas ? (guruMap[r.pengawas] ?? r.pengawas) : null,
       status_soal: paketStatusMap[soalKey] ?? 'BELUM_ADA',
+      // Hanya relevan ketika status BERJALAN; untuk status lain nilainya
+      // sama dengan pengawas asli / null.
+      pengawas_aktif: pengawasAktifUsername ? (guruMap[pengawasAktifUsername] ?? pengawasAktifUsername) : null,
+      is_pengawas_susulan: isPengawasSusulan,
     }
   })
 
