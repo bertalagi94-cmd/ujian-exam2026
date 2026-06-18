@@ -156,11 +156,15 @@ export function HackerPopup({
     const bx = bg.getContext('2d')!
     const px = pc.getContext('2d')!
 
+    // Assign to const so TypeScript closure doesn't widen type back to null
+    const bgEl: HTMLCanvasElement = bg
+    const pcEl: HTMLCanvasElement = pc
+
     function resize() {
-      bg.width = bg.offsetWidth
-      bg.height = bg.offsetHeight
-      pc.width = pc.offsetWidth
-      pc.height = pc.offsetHeight
+      bgEl.width = bgEl.offsetWidth
+      bgEl.height = bgEl.offsetHeight
+      pcEl.width = pcEl.offsetWidth
+      pcEl.height = pcEl.offsetHeight
     }
     resize()
     window.addEventListener('resize', resize)
@@ -168,12 +172,12 @@ export function HackerPopup({
     // Matrix rain
     const CHAR_W = 14
     const chars = 'アイウエオカキクケコサシスセソタチツテトナニヌ0123456789ABCDEF<>{}[]|/\\;:.?!@#$%^&*'
-    const cols = Math.ceil(bg.width / CHAR_W)
+    const cols = Math.ceil(bgEl.width / CHAR_W)
     const drops = Array.from({ length: cols }, () => Math.random() * -60)
 
     function drawMatrix() {
       bx.fillStyle = 'rgba(4,6,14,0.16)'
-      bx.fillRect(0, 0, bg.width, bg.height)
+      bx.fillRect(0, 0, bgEl.width, bgEl.height)
       bx.font = `13px monospace`
       for (let i = 0; i < drops.length; i++) {
         const ch = chars[Math.floor(Math.random() * chars.length)]
@@ -182,7 +186,7 @@ export function HackerPopup({
         bx.globalAlpha = bright ? 0.85 : 0.25 + Math.random() * 0.3
         bx.fillText(ch, i * CHAR_W, drops[i] * CHAR_W)
         bx.globalAlpha = 1
-        if (drops[i] * CHAR_W > bg.height && Math.random() > 0.975) drops[i] = 0
+        if (drops[i] * CHAR_W > bgEl.height && Math.random() > 0.975) drops[i] = 0
         drops[i]++
       }
     }
@@ -224,8 +228,8 @@ export function HackerPopup({
     const pulses: { x: number; y: number; r: number; maxR: number; life: number; color: string }[] = []
     function addPulse() {
       pulses.push({
-        x: Math.random() * bg.width,
-        y: Math.random() * bg.height,
+        x: Math.random() * bgEl.width,
+        y: Math.random() * bgEl.height,
         r: 0,
         maxR: 70 + Math.random() * 60,
         life: 1,
@@ -254,24 +258,24 @@ export function HackerPopup({
     // Scan lines
     const scanLines = [
       { y: 0, speed: 0.9, color: cfg.accentHex },
-      { y: bg.height * 0.45, speed: 0.55, color: cfg.accentLight },
+      { y: bgEl.height * 0.45, speed: 0.55, color: cfg.accentLight },
     ]
     function drawScanLines() {
       for (const s of scanLines) {
         bx.save()
         bx.globalAlpha = 0.05
         bx.fillStyle = s.color
-        bx.fillRect(0, s.y, bg.width, 2)
+        bx.fillRect(0, s.y, bgEl.width, 2)
         bx.restore()
         s.y += s.speed
-        if (s.y > bg.height) s.y = -2
+        if (s.y > bgEl.height) s.y = -2
       }
     }
 
     // Floating nodes
     const nodes = Array.from({ length: 16 }, () => ({
-      x: Math.random() * bg.width,
-      y: Math.random() * bg.height,
+      x: Math.random() * bgEl.width,
+      y: Math.random() * bgEl.height,
       vx: (Math.random() - 0.5) * 0.45,
       vy: (Math.random() - 0.5) * 0.45,
       r: 1.5 + Math.random() * 3,
@@ -280,8 +284,8 @@ export function HackerPopup({
     function drawNodes() {
       for (const n of nodes) {
         n.x += n.vx; n.y += n.vy
-        if (n.x < 0 || n.x > bg.width) n.vx *= -1
-        if (n.y < 0 || n.y > bg.height) n.vy *= -1
+        if (n.x < 0 || n.x > bgEl.width) n.vx *= -1
+        if (n.y < 0 || n.y > bgEl.height) n.vy *= -1
         bx.save(); bx.globalAlpha = 0.7
         bx.fillStyle = n.color
         bx.beginPath(); bx.arc(n.x, n.y, n.r, 0, Math.PI * 2); bx.fill()
@@ -308,7 +312,7 @@ export function HackerPopup({
         const ang = Math.random() * Math.PI * 2
         const spd = 2 + Math.random() * 5
         bursts.push({
-          x: pc.width / 2, y: pc.height / 2,
+          x: pcEl.width / 2, y: pcEl.height / 2,
           vx: Math.cos(ang) * spd, vy: Math.sin(ang) * spd,
           r: 2 + Math.random() * 3,
           life: 1, decay: 0.013 + Math.random() * 0.018,
@@ -319,7 +323,7 @@ export function HackerPopup({
 
     let burstFired = false
     function drawBursts() {
-      px.clearRect(0, 0, pc.width, pc.height)
+      px.clearRect(0, 0, pcEl.width, pcEl.height)
       for (let i = bursts.length - 1; i >= 0; i--) {
         const b = bursts[i]
         b.x += b.vx; b.y += b.vy; b.vy += 0.07; b.life -= b.decay
