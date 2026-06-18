@@ -84,7 +84,7 @@ function ModalSusulan({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Step 1: Panggil API susulan berdasarkan jadwal_id (tidak perlu sesi_ujian)
+  // Step 1: Panggil API susulan berdasarkan jadwal_id (mode CEK / dry-run — tidak insert apa pun)
   async function cekSiswa() {
     setPhase('checking')
     setErrorMsg(null)
@@ -111,11 +111,42 @@ function ModalSusulan({
         setPhase('empty')
       } else {
         setSiswaBelum(res.siswa ?? [])
-        setKodeSesi(res.kodeSesi ?? null)
+        setKodeSesi(null) // belum ada sesi nyata — baru preview, belum di-insert
         setPhase('confirm')
       }
     } catch (err: unknown) {
       setErrorMsg(err instanceof Error ? err.message : 'Gagal mengecek data susulan')
+      setPhase('confirm')
+    }
+  }
+
+  // Step 2: Dipanggil saat tombol "Ya, Buka Susulan" ditekan — baru di sini sesi benar-benar di-insert.
+  async function bukaSusulan() {
+    setPhase('opening')
+    setErrorMsg(null)
+    try {
+      const res = await apiRequest<SusulanResult>(
+        `/api/guru/susulan`,
+        { method: 'POST', body: JSON.stringify({ jadwalId: jadwal.id, konfirmasi: true }) }
+      )
+      if (res.konflik || res.error) {
+        setErrorMsg(res.error ?? res.message ?? 'Tidak dapat membuka sesi susulan.')
+        setPhase('confirm')
+        return
+      }
+      if (res.sudahBerjalan) {
+        setKodeSesi(res.kodeSesi ?? null)
+        setPhase('opened')
+        return
+      }
+      if (!res.bisa) {
+        setPhase('empty')
+        return
+      }
+      setKodeSesi(res.kodeSesi ?? null)
+      setPhase('opened')
+    } catch (err: unknown) {
+      setErrorMsg(err instanceof Error ? err.message : 'Gagal membuka sesi susulan')
       setPhase('confirm')
     }
   }
@@ -173,6 +204,23 @@ function ModalSusulan({
                 {[0, 1, 2].map(i => (
                   <div key={i} className="w-2 h-2 rounded-full bg-purple-400 animate-bounce" style={{ animationDelay: `${i * 0.15}s` }} />
                 ))}
+              </div>
+            </div>
+          )}
+
+          {/* Opening — sesi sedang benar-benar dibuka (insert berjalan) */}
+          {phase === 'opening' && (
+            <div className="flex flex-col items-center py-8 gap-5">
+              <div className="relative w-24 h-24">
+                <div className="absolute inset-0 rounded-full border-4 border-purple-100" />
+                <div className="absolute inset-0 rounded-full border-4 border-purple-500 border-t-transparent animate-spin" />
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <ClipboardList className="w-8 h-8 text-purple-500" />
+                </div>
+              </div>
+              <div className="text-center">
+                <p className="text-base font-semibold text-slate-800">Membuka Sesi Susulan...</p>
+                <p className="text-sm text-slate-400 mt-1">Mohon tunggu, sesi sedang dibuat</p>
               </div>
             </div>
           )}
@@ -239,7 +287,7 @@ function ModalSusulan({
                       Batal
                     </button>
                     <button
-                      onClick={() => setPhase('opened')}
+                      onClick={bukaSusulan}
                       className="flex-1 px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-sm font-semibold flex items-center justify-center gap-2"
                     >
                       <RotateCcw className="w-4 h-4" />
