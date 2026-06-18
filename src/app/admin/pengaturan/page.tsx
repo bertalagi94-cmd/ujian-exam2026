@@ -74,7 +74,7 @@ export default function AdminPengaturanPage() {
         if (key in merged) merged[key] = value ?? ''
       })
       setValues(merged)
-      if (merged.logoUrl) setLogoPreview(merged.logoUrl)
+      setLogoPreview(merged.logoUrl || '')
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'Gagal memuat data', 'error')
       console.error(e)
