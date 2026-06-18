@@ -45,27 +45,46 @@ const CATEGORY_MAP: Record<ResetCategory, string[]> = {
   ],
 }
 
+// Tabel dengan kolom created_at (bisa filter pakai gt)
+const HAS_CREATED_AT = new Set([
+  'pelanggaran', 'nilai', 'jawaban', 'siswa_ujian', 'sesi_ujian',
+  'soal', 'paket_soal', 'jadwal', 'siswa', 'kelas_mapel', 'mapel',
+  'kelas', 'pengaturan', 'log_aktivitas', 'log_reset',
+])
+
 async function clearTable(
   db: ReturnType<typeof import('@/lib/supabase').createAdminClient>,
   table: string
 ): Promise<string | null> {
-  // Hapus dengan filter created_at (hampir semua tabel punya ini)
-  const { error } = await (db as any)
-    .from(table)
-    .delete()
-    .gt('created_at', '1970-01-01')
+  try {
+    // Tabel users: JANGAN hapus ADMIN — hanya hapus GURU, PENGAWAS, KEPSEK
+    if (table === 'users') {
+      const { error } = await (db as any)
+        .from('users')
+        .delete()
+        .neq('role', 'ADMIN')
+      return error ? `users: ${error.message}` : null
+    }
 
-  if (!error) return null
+    // Tabel dengan created_at
+    if (HAS_CREATED_AT.has(table)) {
+      const { error } = await (db as any)
+        .from(table)
+        .delete()
+        .gt('created_at', '1970-01-01')
+      return error ? `${table}: ${error.message}` : null
+    }
 
-  // Fallback: filter not null pada id
-  const { error: e2 } = await (db as any)
-    .from(table)
-    .delete()
-    .not('id', 'is', null)
+    // Fallback untuk tabel lain
+    const { error } = await (db as any)
+      .from(table)
+      .delete()
+      .not('id', 'is', null)
+    return error ? `${table}: ${error.message}` : null
 
-  if (!e2) return null
-
-  return `${table}: ${error.message}`
+  } catch (e) {
+    return `${table}: ${e instanceof Error ? e.message : 'error'}`
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -91,7 +110,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `Kategori tidak valid: ${invalid.join(', ')}` }, { status: 400 })
   }
 
-  // Kalau ada 'semua', gunakan hanya list semua
   const effectiveCategories = categories.includes('semua')
     ? ['semua' as ResetCategory]
     : categories
@@ -111,15 +129,11 @@ export async function POST(req: NextRequest) {
   const deleted: string[] = []
 
   for (const table of tablesToDelete) {
-    try {
-      const err = await clearTable(db, table)
-      if (err) {
-        errors.push(err)
-      } else {
-        deleted.push(table)
-      }
-    } catch (e) {
-      errors.push(`${table}: ${e instanceof Error ? e.message : 'error'}`)
+    const err = await clearTable(db, table)
+    if (err) {
+      errors.push(err)
+    } else {
+      deleted.push(table)
     }
   }
 
