@@ -80,6 +80,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
+  // Sinkronkan status jadwal agar tampil "Berjalan" selama susulan ini aktif
+  if (sesi.jadwal_id) {
+    await db.from('jadwal').update({ status: 'BERJALAN' }).eq('id', sesi.jadwal_id)
+  }
+
   // Ambil nama siswa yang belum ujian untuk ditampilkan
   const { data: detailSiswa } = await db
     .from('siswa')
