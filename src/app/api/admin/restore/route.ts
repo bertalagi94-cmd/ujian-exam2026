@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 
-// Urutan hapus: balik dari backup agar tidak melanggar FK constraint
+// Urutan hapus: reverse FK agar tidak melanggar constraint
 const DELETE_ORDER = [
   'log_aktivitas',
   'log_reset',
@@ -42,6 +42,37 @@ const INSERT_ORDER = [
   'log_aktivitas',
 ]
 
+// Filter delete per tabel sesuai kolom yang tersedia
+async function clearTable(
+  db: ReturnType<typeof import('@/lib/supabase').createAdminClient>,
+  table: string
+): Promise<string | null> {
+  try {
+    let error: { message: string } | null = null
+
+    if (table === 'users') {
+      // users: hapus semua kecuali ADMIN
+      ;({ error } = await (db as any).from('users').delete().neq('role', 'ADMIN'))
+    } else if (table === 'pengaturan') {
+      // pengaturan: PK = key (TEXT), pakai updated_at
+      ;({ error } = await (db as any).from('pengaturan').delete().not('key', 'is', null))
+    } else if (table === 'siswa') {
+      // siswa: PK = nis (TEXT)
+      ;({ error } = await (db as any).from('siswa').delete().not('nis', 'is', null))
+    } else if (table === 'siswa_ujian' || table === 'jawaban' || table === 'log_reset') {
+      // BIGSERIAL PK — pakai gt 0
+      ;({ error } = await (db as any).from(table).delete().gt('id', 0))
+    } else {
+      // Semua tabel lain punya created_at dan id TEXT
+      ;({ error } = await (db as any).from(table).delete().not('id', 'is', null))
+    }
+
+    return error ? `${table}: ${error.message}` : null
+  } catch (e) {
+    return `${table}: ${e instanceof Error ? e.message : 'error'}`
+  }
+}
+
 export async function POST(req: NextRequest) {
   const auth = requireRole(req, ['ADMIN'])
   if ('error' in auth) return auth.error
@@ -66,42 +97,26 @@ export async function POST(req: NextRequest) {
   }
 
   const db = createAdminClient()
-  const errors: string[] = []
-  const stats: Record<string, number> = {}
+  const deleteErrors: string[] = []
 
-  // 1. Hapus semua data (reverse FK order)
+  // 1. Hapus data lama
   for (const table of DELETE_ORDER) {
     if (!(table in payload.tables)) continue
-    try {
-      const { error } = await db
-        .from(table as never)
-        .delete()
-        .gt('created_at' as never, '1970-01-01' as never)
-
-      if (error) {
-        // Fallback: filter dengan kolom lain yang pasti ada
-        const { error: e2 } = await db
-          .from(table as never)
-          .delete()
-          .not('id' as never, 'is' as never, null as never)
-
-        if (e2) {
-          errors.push(`Gagal hapus ${table}: ${error.message}`)
-        }
-      }
-    } catch (e) {
-      errors.push(`Gagal hapus ${table}: ${e instanceof Error ? e.message : 'error'}`)
-    }
+    const err = await clearTable(db, table)
+    if (err) deleteErrors.push(err)
   }
 
-  if (errors.length > 0) {
+  if (deleteErrors.length > 0) {
     return NextResponse.json(
-      { error: 'Gagal membersihkan data lama', details: errors },
+      { error: 'Gagal membersihkan data lama', details: deleteErrors },
       { status: 500 }
     )
   }
 
   // 2. Insert data dari backup
+  const errors: string[] = []
+  const stats: Record<string, number> = {}
+
   for (const table of INSERT_ORDER) {
     const rows = payload.tables[table]
     if (!rows || !Array.isArray(rows) || rows.length === 0) {
@@ -114,7 +129,7 @@ export async function POST(req: NextRequest) {
     for (let i = 0; i < rows.length; i += BATCH) {
       const batch = rows.slice(i, i + BATCH)
       try {
-        const { error } = await db.from(table as never).insert(batch as never[])
+        const { error } = await (db as any).from(table).insert(batch)
         if (error) {
           errors.push(`Gagal insert ${table} (batch ${Math.floor(i / BATCH) + 1}): ${error.message}`)
           break
