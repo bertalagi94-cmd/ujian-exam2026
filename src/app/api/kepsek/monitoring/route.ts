@@ -31,11 +31,21 @@ export async function GET(req: NextRequest) {
   // Ambil siswa AKTIF untuk semua kelas yang relevan
   const kelasIds = [...new Set(sesiRows.map(s => s.kelas))]
   const mapelIds = [...new Set(sesiRows.map(s => s.mapel_id))]
+  const pasangan = [...new Set(sesiRows.map(s => `${s.mapel_id}__${s.kelas}`))]
+  const orFilterNilai = pasangan
+    .map(p => {
+      const idx = p.indexOf('__')
+      const mapelId = p.slice(0, idx)
+      const kls = p.slice(idx + 2)
+      return `and(mapel_id.eq.${mapelId},kelas.eq.${kls})`
+    })
+    .join(',')
 
-  const [{ data: siswaAll }, { data: mapelList }, { data: nilaiAll }] = await Promise.all([
+  const [{ data: siswaAll }, { data: mapelList }, { data: nilaiAll }, { data: kelasAktifRows }] = await Promise.all([
     db.from('siswa').select('nis, nama, kelas').in('kelas', kelasIds).eq('status', 'AKTIF').neq('is_tester', 'YES'),
     db.from('mapel').select('id, nama').in('id', mapelIds),
-    db.from('nilai').select('nis, kelas, mapel_id').in('kelas', kelasIds).in('mapel_id', mapelIds),
+    db.from('nilai').select('nis, kelas, mapel_id').or(orFilterNilai),
+    db.from('siswa').select('kelas').eq('status', 'AKTIF').neq('is_tester', 'YES'),
   ])
 
   const mapelMap = Object.fromEntries(((mapelList ?? []) as { id: string; nama: string }[]).map(m => [m.id, m.nama]))
@@ -77,7 +87,7 @@ export async function GET(req: NextRequest) {
     }
   }).sort((a, b) => a.kelas.localeCompare(b.kelas) || a.nama_mapel.localeCompare(b.nama_mapel))
 
-  const kelasList = [...new Set((await db.from('siswa').select('kelas').eq('status', 'AKTIF').neq('is_tester', 'YES')).data?.map(s => s.kelas) ?? [])].sort()
+  const kelasList = [...new Set(((kelasAktifRows ?? []) as { kelas: string }[]).map(s => s.kelas))].sort()
 
   return NextResponse.json({ kelasList, data })
 }
