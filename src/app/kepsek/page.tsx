@@ -58,13 +58,15 @@ function formatSisaWaktu(detik: number): string {
 export default function KepsekDashboard() {
   const [data, setData] = useState<KepsekData | null>(null)
   const [loading, setLoading] = useState(true)
-  const [tick, setTick] = useState(0)
+  const [fetchedAt, setFetchedAt] = useState(Date.now())
+  const [nowMs, setNowMs] = useState(Date.now())
   const [showTidakHadir, setShowTidakHadir] = useState(false)
 
   const load = useCallback(async () => {
     try {
       const res = await apiRequest<KepsekData>('/api/kepsek/dashboard')
       setData(res)
+      setFetchedAt(Date.now())
     } finally { setLoading(false) }
   }, [])
 
@@ -78,16 +80,17 @@ export default function KepsekDashboard() {
 
   // Tick tiap detik untuk countdown lokal di sisi klien (tanpa perlu fetch ulang)
   useEffect(() => {
-    const i = setInterval(() => setTick(t => t + 1), 1000)
+    const i = setInterval(() => setNowMs(Date.now()), 1000)
     return () => clearInterval(i)
   }, [])
 
   const sesiLive = useMemo(() => {
+    const elapsedSinceFetch = Math.floor((nowMs - fetchedAt) / 1000)
     return (data?.sedangBerlangsung ?? []).map(s => ({
       ...s,
-      sisaLive: Math.max(0, s.sisaDetik - tick),
+      sisaLive: Math.max(0, s.sisaDetik - elapsedSinceFetch),
     }))
-  }, [data?.sedangBerlangsung, tick])
+  }, [data?.sedangBerlangsung, fetchedAt, nowMs])
 
   if (loading) return <PageLoader />
 
