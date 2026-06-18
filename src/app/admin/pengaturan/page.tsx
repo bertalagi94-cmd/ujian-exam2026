@@ -1,12 +1,32 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Save, Settings, School, Shield, WrenchIcon,
-  ToggleLeft, ToggleRight, Upload, Trash2, Image, AlertTriangle
+  ToggleLeft, ToggleRight, Upload, Trash2, Image, AlertTriangle,
+  Download, FolderOpen, RotateCcw, DatabaseZap, CheckSquare, Square,
 } from 'lucide-react'
 import { Toast, Spinner, Confirm } from '@/components/ui'
 import { apiRequest } from '@/lib/utils'
+
+type ResetCategory = {
+  id: string
+  label: string
+  desc: string
+  danger: 'medium' | 'high' | 'critical'
+}
+
+const RESET_CATEGORIES: ResetCategory[] = [
+  { id: 'jawaban_nilai', label: 'Jawaban & Nilai', desc: 'Hapus semua jawaban siswa, nilai, dan pelanggaran', danger: 'medium' },
+  { id: 'sesi_ujian', label: 'Sesi Ujian', desc: 'Hapus sesi ujian, peserta sesi, jawaban, nilai, dan pelanggaran', danger: 'high' },
+  { id: 'soal_paket', label: 'Soal & Paket Soal', desc: 'Hapus semua soal dan paket soal beserta sesinya', danger: 'high' },
+  { id: 'jadwal', label: 'Jadwal Ujian', desc: 'Hapus semua jadwal beserta soal, sesi, dan nilai', danger: 'high' },
+  { id: 'siswa', label: 'Data Siswa', desc: 'Hapus semua data siswa (jawaban & nilai ikut terhapus)', danger: 'high' },
+  { id: 'kelas_mapel', label: 'Kelas & Mata Pelajaran', desc: 'Hapus kelas, mapel, beserta jadwal dan soal terkait', danger: 'high' },
+  { id: 'users', label: 'Data User', desc: 'Hapus akun guru, pengawas, dan kepala sekolah', danger: 'medium' },
+  { id: 'log', label: 'Log Aktivitas', desc: 'Hapus log aktivitas dan log reset', danger: 'medium' },
+  { id: 'pengaturan', label: 'Pengaturan Sistem', desc: 'Reset konfigurasi sekolah ke kondisi awal', danger: 'medium' },
+]
 
 // Semua key pengaturan yang dikelola
 const DEFAULT_SETTINGS: Record<string, string> = {
@@ -35,6 +55,13 @@ export default function AdminPengaturanPage() {
   const [logoPreview, setLogoPreview] = useState<string>('')
   const [uploadingLogo, setUploadingLogo] = useState(false)
   const [confirmHapusLogo, setConfirmHapusLogo] = useState(false)
+  const [backingUp, setBackingUp] = useState(false)
+  const [restoring, setRestoring] = useState(false)
+  const [resetting, setResetting] = useState(false)
+  const [selectedResets, setSelectedResets] = useState<string[]>([])
+  const [confirmReset, setConfirmReset] = useState(false)
+  const [confirmResetSemua, setConfirmResetSemua] = useState(false)
+  const restoreInputRef = useRef<HTMLInputElement>(null)
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => setToast({ msg, type })
 
@@ -136,6 +163,109 @@ export default function AdminPengaturanPage() {
       setConfirmHapusLogo(false)
     }
   }
+
+  // ── Backup ──────────────────────────────────────────
+  async function handleBackup() {
+    setBackingUp(true)
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
+      const res = await fetch('/api/admin/backup', {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      })
+      if (!res.ok) {
+        const j = await res.json()
+        throw new Error(j.error || 'Backup gagal')
+      }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `smartexam-backup-${new Date().toISOString().slice(0, 10)}.json`
+      a.click()
+      URL.revokeObjectURL(url)
+      showToast('Backup berhasil diunduh')
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Backup gagal', 'error')
+    } finally {
+      setBackingUp(false)
+    }
+  }
+
+  // ── Restore ─────────────────────────────────────────
+  async function handleRestoreFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    e.target.value = ''
+    if (!file.name.endsWith('.json')) {
+      showToast('File harus berformat .json', 'error')
+      return
+    }
+    setRestoring(true)
+    try {
+      const text = await file.text()
+      const parsed = JSON.parse(text)
+      if (!parsed?.tables) throw new Error('File bukan backup SmartExam yang valid')
+      const res = await fetch('/api/admin/restore', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(localStorage.getItem('token') ? { Authorization: `Bearer ${localStorage.getItem('token')}` } : {}),
+        },
+        body: JSON.stringify(parsed),
+      })
+      const json = await res.json()
+      if (!res.ok && res.status !== 207) throw new Error(json.error || 'Restore gagal')
+      showToast(json.message || 'Restore berhasil')
+      await load()
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Restore gagal', 'error')
+    } finally {
+      setRestoring(false)
+    }
+  }
+
+  // ── Reset ────────────────────────────────────────────
+  function toggleReset(id: string) {
+    setSelectedResets(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    )
+  }
+
+  async function doReset(categories: string[]) {
+    setResetting(true)
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
+      const res = await fetch('/api/admin/reset', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ categories }),
+      })
+      const json = await res.json()
+      if (!res.ok && res.status !== 207) throw new Error(json.error || 'Reset gagal')
+      showToast(json.message || 'Reset berhasil')
+      setSelectedResets([])
+      if (categories.includes('semua') || categories.includes('pengaturan')) await load()
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Reset gagal', 'error')
+    } finally {
+      setResetting(false)
+      setConfirmReset(false)
+      setConfirmResetSemua(false)
+    }
+  }
+
+  const dangerColor = (d: ResetCategory['danger']) =>
+    d === 'critical' ? 'border-red-300 bg-red-50' :
+    d === 'high' ? 'border-orange-200 bg-orange-50' :
+    'border-slate-200 bg-slate-50'
+
+  const dangerBadge = (d: ResetCategory['danger']) =>
+    d === 'critical' ? 'bg-red-100 text-red-700' :
+    d === 'high' ? 'bg-orange-100 text-orange-700' :
+    'bg-slate-100 text-slate-600'
 
   const isMaintenance = values.maintenanceAktif === 'true'
 
@@ -464,6 +594,136 @@ export default function AdminPengaturanPage() {
         </div>
       </div>
 
+      {/* ── Backup & Restore ── */}
+      <div className="card space-y-5">
+        <div className="flex items-center gap-2 pb-3 border-b border-slate-100">
+          <DatabaseZap className="w-4 h-4 text-brand-600" />
+          <h2 className="font-semibold text-slate-900">Backup &amp; Restore</h2>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {/* Backup */}
+          <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-3">
+            <div className="flex items-center gap-2">
+              <Download className="w-4 h-4 text-brand-600" />
+              <span className="font-medium text-slate-900 text-sm">Backup Data</span>
+            </div>
+            <p className="text-xs text-slate-500">
+              Unduh seluruh data aplikasi (siswa, soal, jadwal, nilai, pengaturan, dll) ke file JSON. Simpan di tempat aman.
+            </p>
+            <button
+              type="button"
+              onClick={handleBackup}
+              disabled={backingUp}
+              className="btn-primary btn-sm w-full justify-center"
+            >
+              {backingUp ? <><Spinner size="sm" /> Membuat backup…</> : <><Download className="w-4 h-4" /> Unduh Backup</>}
+            </button>
+          </div>
+
+          {/* Restore */}
+          <div className="p-4 rounded-xl border border-amber-200 bg-amber-50 space-y-3">
+            <div className="flex items-center gap-2">
+              <FolderOpen className="w-4 h-4 text-amber-600" />
+              <span className="font-medium text-slate-900 text-sm">Restore Data</span>
+            </div>
+            <p className="text-xs text-slate-500">
+              Pulihkan data dari file backup. <strong className="text-amber-700">Semua data saat ini akan digantikan.</strong> Pastikan Anda telah backup terlebih dahulu.
+            </p>
+            <label className={`btn-sm w-full justify-center cursor-pointer inline-flex items-center gap-1.5 font-medium rounded-lg transition-colors ${restoring ? 'btn-secondary opacity-60 pointer-events-none' : 'bg-amber-500 hover:bg-amber-600 text-white'}`}>
+              {restoring ? <><Spinner size="sm" /> Memulihkan…</> : <><FolderOpen className="w-4 h-4" /> Pilih File Backup</>}
+              <input
+                ref={restoreInputRef}
+                type="file"
+                accept=".json"
+                className="sr-only"
+                onChange={handleRestoreFile}
+                disabled={restoring}
+              />
+            </label>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Reset Data ── */}
+      <div className="card space-y-5 border-2 border-red-100">
+        <div className="flex items-center gap-2 pb-3 border-b border-red-100">
+          <RotateCcw className="w-4 h-4 text-danger-600" />
+          <h2 className="font-semibold text-slate-900">Reset Data</h2>
+          <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700">Tidak dapat dibatalkan</span>
+        </div>
+
+        <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-800">
+          <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+          <span>Pilih kategori data yang ingin direset. Data yang dihapus <strong>tidak bisa dipulihkan</strong> kecuali Anda punya file backup.</span>
+        </div>
+
+        {/* Daftar kategori dengan checkbox */}
+        <div className="space-y-2">
+          {RESET_CATEGORIES.map(cat => {
+            const checked = selectedResets.includes(cat.id)
+            return (
+              <button
+                key={cat.id}
+                type="button"
+                onClick={() => toggleReset(cat.id)}
+                className={`w-full flex items-start gap-3 p-3 rounded-lg border text-left transition-all ${checked ? `${dangerColor(cat.danger)} border-opacity-100` : 'border-slate-200 bg-white hover:bg-slate-50'}`}
+              >
+                <span className="mt-0.5 shrink-0">
+                  {checked
+                    ? <CheckSquare className="w-4 h-4 text-danger-600" />
+                    : <Square className="w-4 h-4 text-slate-300" />
+                  }
+                </span>
+                <span className="flex-1 min-w-0">
+                  <span className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-medium text-slate-900">{cat.label}</span>
+                    <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${dangerBadge(cat.danger)}`}>
+                      {cat.danger === 'high' ? 'Tinggi' : cat.danger === 'critical' ? 'Kritis' : 'Sedang'}
+                    </span>
+                  </span>
+                  <span className="text-xs text-slate-500 mt-0.5 block">{cat.desc}</span>
+                </span>
+              </button>
+            )
+          })}
+        </div>
+
+        {/* Tombol aksi reset */}
+        <div className="flex flex-wrap gap-3 pt-2 border-t border-red-100">
+          <button
+            type="button"
+            onClick={() => {
+              if (selectedResets.length === 0) {
+                showToast('Pilih minimal satu kategori yang ingin direset', 'error')
+                return
+              }
+              setConfirmReset(true)
+            }}
+            disabled={resetting || selectedResets.length === 0}
+            className="btn-sm btn-danger flex-1"
+          >
+            {resetting && confirmReset ? <Spinner size="sm" /> : <RotateCcw className="w-4 h-4" />}
+            Reset yang Dipilih
+            {selectedResets.length > 0 && (
+              <span className="ml-1 px-1.5 py-0.5 rounded-full bg-white/30 text-xs font-bold">
+                {selectedResets.length}
+              </span>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setConfirmResetSemua(true)}
+            disabled={resetting}
+            className="btn-sm border-2 border-red-600 text-red-700 hover:bg-red-600 hover:text-white font-semibold transition-colors rounded-lg px-4 py-2 flex items-center gap-2"
+          >
+            {resetting && confirmResetSemua ? <Spinner size="sm" /> : <AlertTriangle className="w-4 h-4" />}
+            Reset Semua Data
+          </button>
+        </div>
+      </div>
+
       <Confirm
         open={confirmHapusLogo}
         onClose={() => setConfirmHapusLogo(false)}
@@ -472,6 +732,26 @@ export default function AdminPengaturanPage() {
         message="Logo sekolah akan dihapus. Lanjutkan?"
         confirmLabel="Ya, Hapus"
         loading={saving}
+      />
+
+      <Confirm
+        open={confirmReset}
+        onClose={() => setConfirmReset(false)}
+        onConfirm={() => doReset(selectedResets)}
+        title="Konfirmasi Reset Data"
+        message={`Anda akan mereset: ${selectedResets.map(id => RESET_CATEGORIES.find(c => c.id === id)?.label).join(', ')}. Data yang dihapus tidak bisa dipulihkan. Lanjutkan?`}
+        confirmLabel="Ya, Reset Sekarang"
+        loading={resetting}
+      />
+
+      <Confirm
+        open={confirmResetSemua}
+        onClose={() => setConfirmResetSemua(false)}
+        onConfirm={() => doReset(['semua'])}
+        title="⚠️ Reset Semua Data"
+        message="PERHATIAN: Seluruh data aplikasi akan dihapus permanen — siswa, soal, jadwal, nilai, pengaturan, dan semua lainnya. Aplikasi akan kembali seperti baru. Tindakan ini TIDAK BISA DIBATALKAN. Pastikan Anda sudah backup. Lanjutkan?"
+        confirmLabel="Ya, Hapus Semua Data"
+        loading={resetting}
       />
     </div>
   )
