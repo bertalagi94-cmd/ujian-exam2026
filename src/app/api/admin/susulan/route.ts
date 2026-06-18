@@ -154,6 +154,9 @@ export async function POST(req: NextRequest) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
+  // Sinkronkan status jadwal agar tampil "Berjalan" selama susulan ini aktif
+  await db.from('jadwal').update({ status: 'BERJALAN' }).eq('id', jadwal.id)
+
   return NextResponse.json({
     bisa: true,
     message: `Sesi susulan dibuka untuk ${siswaBelum.length} siswa. Pengawas: ${guru.nama}.`,
