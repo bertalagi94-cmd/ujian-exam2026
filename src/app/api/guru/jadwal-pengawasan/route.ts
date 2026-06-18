@@ -10,7 +10,7 @@ export async function GET(req: NextRequest) {
   const db = createAdminClient()
 
   // Ambil semua jadwal yang pengawasnya adalah guru ini
-  const { data: jadwalList, error } = await db
+  const { data: jadwalSendiri, error } = await db
     .from('jadwal')
     .select('*')
     .eq('pengawas', user.username)
@@ -18,6 +18,33 @@ export async function GET(req: NextRequest) {
     .order('sesi')
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // Tambahan: jadwal yang BUKAN milik guru ini sebagai pengawas asli, tapi
+  // guru ini ditugaskan ADMIN sebagai pengawas sesi SUSULAN-nya (fitur Ujian
+  // Susulan dari menu Admin). Jadwal asli & pengawas aslinya tidak diubah —
+  // guru susulan hanya "dipinjamkan" akses agar menu Jadwal Pengawasan /
+  // Mode Pengawas ikut muncul di sidebar-nya.
+  const { data: sesiSusulanSaya } = await db
+    .from('sesi_ujian')
+    .select('jadwal_id')
+    .eq('status', 'BERJALAN')
+    .contains('info_json', { pengawas_susulan: user.username })
+
+  const jadwalIdSusulanSaya = [...new Set((sesiSusulanSaya ?? []).map(s => s.jadwal_id).filter(Boolean))]
+
+  let jadwalSusulanSaya: typeof jadwalSendiri = []
+  if (jadwalIdSusulanSaya.length > 0) {
+    const sudahAda = new Set((jadwalSendiri ?? []).map(j => j.id))
+    const { data: jadwalTambahan } = await db
+      .from('jadwal')
+      .select('*')
+      .in('id', jadwalIdSusulanSaya.filter(id => !sudahAda.has(id)))
+    jadwalSusulanSaya = jadwalTambahan ?? []
+  }
+
+  const jadwalList = [...(jadwalSendiri ?? []), ...jadwalSusulanSaya]
+    .sort((a, b) => (a.tanggal < b.tanggal ? -1 : a.tanggal > b.tanggal ? 1 : (a.sesi ?? 0) - (b.sesi ?? 0)))
+
   if (!jadwalList?.length) return NextResponse.json({ data: [], hasJadwal: false })
 
   // Enrich dengan nama mapel dan nama kelas
