@@ -31,18 +31,28 @@ export async function GET(req: NextRequest) {
   const errors: string[] = []
 
   for (const table of BACKUP_TABLES) {
-    const { data, error } = await db.from(table).select('*').order('id' as never, { ascending: true }).catch(() => ({ data: null, error: { message: 'Query failed' } }))
-    if (error) {
-      // Coba tanpa order jika tidak ada kolom id
-      const fallback = await db.from(table).select('*').catch(() => ({ data: null, error }))
-      if (fallback.error || !fallback.data) {
-        errors.push(`${table}: ${error.message}`)
-        backupData[table] = []
+    try {
+      // Coba dengan order by id
+      const { data, error } = await db
+        .from(table as never)
+        .select('*')
+        .order('id' as never, { ascending: true })
+
+      if (error) {
+        // Coba tanpa order jika kolom id tidak ada
+        const fallback = await db.from(table as never).select('*')
+        if (fallback.error || !fallback.data) {
+          errors.push(`${table}: ${error.message}`)
+          backupData[table] = []
+        } else {
+          backupData[table] = fallback.data as unknown[]
+        }
       } else {
-        backupData[table] = fallback.data
+        backupData[table] = (data ?? []) as unknown[]
       }
-    } else {
-      backupData[table] = data ?? []
+    } catch (e) {
+      errors.push(`${table}: ${e instanceof Error ? e.message : 'Unknown error'}`)
+      backupData[table] = []
     }
   }
 
