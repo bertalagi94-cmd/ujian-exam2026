@@ -3,6 +3,7 @@
 import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { GuruSidebar } from '@/components/shared/Sidebar'
+import { SesiTerlupaPopup } from '@/components/shared/SesiTerlupaPopup'
 
 export default function GuruLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter()
@@ -20,6 +21,7 @@ export default function GuruLayout({ children }: { children: React.ReactNode }) 
       <main className="flex-1 min-w-0 p-6 lg:p-8 pt-16 lg:pt-8">
         {children}
       </main>
+      <SesiTerlupaPopup />
     </div>
   )
 }
