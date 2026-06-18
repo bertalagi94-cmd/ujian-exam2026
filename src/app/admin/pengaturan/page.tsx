@@ -7,6 +7,7 @@ import {
   Download, FolderOpen, RotateCcw, DatabaseZap, CheckSquare, Square,
 } from 'lucide-react'
 import { Toast, Spinner, Confirm } from '@/components/ui'
+import { HackerPopup, HackerPopupType } from '@/components/ui/HackerPopup'
 import { apiRequest } from '@/lib/utils'
 
 type ResetCategory = {
@@ -62,6 +63,14 @@ export default function AdminPengaturanPage() {
   const [confirmReset, setConfirmReset] = useState(false)
   const [confirmResetSemua, setConfirmResetSemua] = useState(false)
   const restoreInputRef = useRef<HTMLInputElement>(null)
+
+  // ── HackerPopup state ────────────────────────────────
+  const [hackerOpen, setHackerOpen] = useState(false)
+  const [hackerType, setHackerType] = useState<HackerPopupType>('backup')
+  const [hackerProgress, setHackerProgress] = useState(0)
+  const [hackerFile, setHackerFile] = useState<string>()
+  const [hackerSize, setHackerSize] = useState<string>()
+  const hackerDoneRef = useRef<() => void>()
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => setToast({ msg, type })
 
@@ -164,9 +173,38 @@ export default function AdminPengaturanPage() {
     }
   }
 
+  // ── Hacker Popup helpers ─────────────────────────────
+  function openHacker(type: HackerPopupType, file?: string, size?: string, onDone?: () => void) {
+    setHackerType(type)
+    setHackerFile(file)
+    setHackerSize(size)
+    setHackerProgress(0)
+    hackerDoneRef.current = onDone
+    setHackerOpen(true)
+  }
+
+  function tickProgress(
+    resolve: () => void,
+    intervalRef: { id?: ReturnType<typeof setInterval> }
+  ) {
+    let pct = 0
+    intervalRef.id = setInterval(() => {
+      pct += Math.random() * 3 + 1
+      if (pct >= 100) { pct = 100 }
+      setHackerProgress(Math.round(pct))
+      if (pct >= 100) {
+        clearInterval(intervalRef.id)
+        resolve()
+      }
+    }, 90)
+  }
+
   // ── Backup ──────────────────────────────────────────
   async function handleBackup() {
     setBackingUp(true)
+    const fileName = `smartexam-backup-${new Date().toISOString().slice(0, 10)}.json`
+    openHacker('backup', fileName)
+
     try {
       const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
       const res = await fetch('/api/admin/backup', {
@@ -177,14 +215,25 @@ export default function AdminPengaturanPage() {
         throw new Error(j.error || 'Backup gagal')
       }
       const blob = await res.blob()
+      const sizeMB = (blob.size / 1024 / 1024).toFixed(1) + ' MB'
+      setHackerFile(fileName)
+      setHackerSize(sizeMB)
+
+      // Animate remaining progress, then trigger download
+      await new Promise<void>(resolve => {
+        const ref: { id?: ReturnType<typeof setInterval> } = {}
+        tickProgress(resolve, ref)
+      })
+
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `smartexam-backup-${new Date().toISOString().slice(0, 10)}.json`
+      a.download = fileName
       a.click()
       URL.revokeObjectURL(url)
       showToast('Backup berhasil diunduh')
     } catch (err: unknown) {
+      setHackerOpen(false)
       showToast(err instanceof Error ? err.message : 'Backup gagal', 'error')
     } finally {
       setBackingUp(false)
@@ -200,12 +249,16 @@ export default function AdminPengaturanPage() {
       showToast('File harus berformat .json', 'error')
       return
     }
+    const sizeMB = (file.size / 1024 / 1024).toFixed(1) + ' MB'
     setRestoring(true)
+    openHacker('restore', file.name, sizeMB)
+
     try {
       const text = await file.text()
       const parsed = JSON.parse(text)
       if (!parsed?.tables) throw new Error('File bukan backup SmartExam yang valid')
-      const res = await fetch('/api/admin/restore', {
+
+      const resPromise = fetch('/api/admin/restore', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -213,11 +266,22 @@ export default function AdminPengaturanPage() {
         },
         body: JSON.stringify(parsed),
       })
-      const json = await res.json()
-      if (!res.ok && res.status !== 207) throw new Error(json.error || 'Restore gagal')
+
+      // Animate progress + wait for API concurrently
+      const [apiRes] = await Promise.all([
+        resPromise,
+        new Promise<void>(resolve => {
+          const ref: { id?: ReturnType<typeof setInterval> } = {}
+          tickProgress(resolve, ref)
+        }),
+      ])
+
+      const json = await apiRes.json()
+      if (!apiRes.ok && apiRes.status !== 207) throw new Error(json.error || 'Restore gagal')
       showToast(json.message || 'Restore berhasil')
       await load()
     } catch (err: unknown) {
+      setHackerOpen(false)
       showToast(err instanceof Error ? err.message : 'Restore gagal', 'error')
     } finally {
       setRestoring(false)
@@ -232,10 +296,13 @@ export default function AdminPengaturanPage() {
   }
 
   async function doReset(categories: string[]) {
+    const label = categories.includes('semua') ? 'Semua Data' : `${categories.length} kategori`
     setResetting(true)
+    openHacker('reset', label)
+
     try {
       const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
-      const res = await fetch('/api/admin/reset', {
+      const resPromise = fetch('/api/admin/reset', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -243,12 +310,22 @@ export default function AdminPengaturanPage() {
         },
         body: JSON.stringify({ categories }),
       })
+
+      const [res] = await Promise.all([
+        resPromise,
+        new Promise<void>(resolve => {
+          const ref: { id?: ReturnType<typeof setInterval> } = {}
+          tickProgress(resolve, ref)
+        }),
+      ])
+
       const json = await res.json()
       if (!res.ok && res.status !== 207) throw new Error(json.error || 'Reset gagal')
       showToast(json.message || 'Reset berhasil')
       setSelectedResets([])
       if (categories.includes('semua') || categories.includes('pengaturan')) await load()
     } catch (err: unknown) {
+      setHackerOpen(false)
       showToast(err instanceof Error ? err.message : 'Reset gagal', 'error')
     } finally {
       setResetting(false)
@@ -752,6 +829,19 @@ export default function AdminPengaturanPage() {
         message="PERHATIAN: Seluruh data aplikasi akan dihapus permanen — siswa, soal, jadwal, nilai, pengaturan, dan semua lainnya. Aplikasi akan kembali seperti baru. Tindakan ini TIDAK BISA DIBATALKAN. Pastikan Anda sudah backup. Lanjutkan?"
         confirmLabel="Ya, Hapus Semua Data"
         loading={resetting}
+      />
+
+      {/* ── Hacker Popup – screen lock saat backup/restore/reset ── */}
+      <HackerPopup
+        open={hackerOpen}
+        type={hackerType}
+        fileName={hackerFile}
+        fileSize={hackerSize}
+        progress={hackerProgress}
+        onDone={() => {
+          setHackerOpen(false)
+          hackerDoneRef.current?.()
+        }}
       />
     </div>
   )
