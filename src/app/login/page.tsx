@@ -282,6 +282,25 @@ const QA_ITEMS = [
   },
 ]
 
+function SchoolLogo({ size, siteInfo }: { size: 'sm' | 'lg'; siteInfo: SiteInfo }) {
+  const dim = size === 'lg' ? 'w-14 h-14' : 'w-10 h-10'
+  const iconDim = size === 'lg' ? 'w-7 h-7' : 'w-5 h-5'
+  const displayName = siteInfo.namaSekolah || 'SmartExam'
+  if (siteInfo.logoUrl) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img src={siteInfo.logoUrl} alt={displayName}
+        className={`${dim} object-contain rounded-xl bg-white/10 p-1 backdrop-blur flex-shrink-0`}
+      />
+    )
+  }
+  return (
+    <div className={`${dim} bg-white/20 rounded-xl flex items-center justify-center backdrop-blur flex-shrink-0`}>
+      <BookOpen className={`${iconDim} text-white`} />
+    </div>
+  )
+}
+
 export default function LoginPage() {
   const router = useRouter()
   const [form, setForm] = useState({ username: '', password: '' })
@@ -450,24 +469,6 @@ export default function LoginPage() {
   const displayName = siteInfo.namaSekolah || 'SmartExam'
   const year = new Date().getFullYear()
 
-  function SchoolLogo({ size }: { size: 'sm' | 'lg' }) {
-    const dim = size === 'lg' ? 'w-14 h-14' : 'w-10 h-10'
-    const iconDim = size === 'lg' ? 'w-7 h-7' : 'w-5 h-5'
-    if (siteInfo.logoUrl) {
-      return (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={siteInfo.logoUrl} alt={displayName}
-          className={`${dim} object-contain rounded-xl bg-white/10 p-1 backdrop-blur flex-shrink-0`}
-        />
-      )
-    }
-    return (
-      <div className={`${dim} bg-white/20 rounded-xl flex items-center justify-center backdrop-blur flex-shrink-0`}>
-        <BookOpen className={`${iconDim} text-white`} />
-      </div>
-    )
-  }
-
   const activeRoleData = ROLES.find(r => r.id === activeRole) ?? ROLES[0]
 
   return (
@@ -548,7 +549,7 @@ export default function LoginPage() {
             onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.transform = 'scale(1.14)' }}
             onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.transform = 'scale(1)' }}
           >
-            <SchoolLogo size="lg" />
+            <SchoolLogo size="lg" siteInfo={siteInfo} />
             <div className="min-w-0">
               <p className="font-bold text-xl leading-tight line-clamp-2">{displayName}</p>
               <p className="text-brand-300 text-sm">Sistem Ujian Digital Terpercaya</p>
@@ -616,7 +617,7 @@ export default function LoginPage() {
         <div className="w-full max-w-sm">
           {/* Mobile: logo + nama sekolah */}
           <div className="lg:hidden flex items-center gap-3 mb-6 justify-center">
-            <SchoolLogo size="sm" />
+            <SchoolLogo size="sm" siteInfo={siteInfo} />
             <div className="min-w-0 text-left">
               <p className="font-bold text-white text-base leading-tight line-clamp-2">{displayName}</p>
               {!siteInfo.namaSekolah && <p className="text-brand-300 text-xs">Sistem Ujian Digital Terpercaya</p>}
