@@ -212,7 +212,23 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen flex bg-gradient-to-br from-brand-950 via-brand-900 to-brand-800 relative overflow-hidden">
-      {/* decorative vector lines — sits above the plain gradient, below the bubbles */}
+      {/* colorful mesh glow blobs — adds life to the flat gradient, sits behind everything else */}
+      <div className="absolute inset-0" style={{ pointerEvents: 'none', zIndex: 0 }}>
+        <div
+          className="absolute -top-40 -left-32 w-[560px] h-[560px] rounded-full opacity-40 blur-[110px]"
+          style={{ background: 'radial-gradient(circle, #c026d3, transparent 70%)' }}
+        />
+        <div
+          className="absolute top-1/3 -right-40 w-[640px] h-[640px] rounded-full opacity-30 blur-[120px]"
+          style={{ background: 'radial-gradient(circle, #22d3ee, transparent 70%)' }}
+        />
+        <div
+          className="absolute -bottom-48 left-1/4 w-[520px] h-[520px] rounded-full opacity-30 blur-[100px]"
+          style={{ background: 'radial-gradient(circle, #6366f1, transparent 70%)' }}
+        />
+      </div>
+
+      {/* decorative vector mesh — bold connected lines + glowing nodes */}
       <svg
         className="absolute inset-0 w-full h-full"
         style={{ pointerEvents: 'none', zIndex: 0 }}
@@ -221,45 +237,67 @@ export default function LoginPage() {
         xmlns="http://www.w3.org/2000/svg"
       >
         <defs>
-          <linearGradient id="lineFade1" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="#a5b4fc" stopOpacity="0" />
-            <stop offset="50%" stopColor="#a5b4fc" stopOpacity="0.35" />
-            <stop offset="100%" stopColor="#a5b4fc" stopOpacity="0" />
+          <linearGradient id="lnViolet" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="#e879f9" stopOpacity="0" />
+            <stop offset="50%" stopColor="#e879f9" stopOpacity="0.65" />
+            <stop offset="100%" stopColor="#e879f9" stopOpacity="0" />
           </linearGradient>
-          <linearGradient id="lineFade2" x1="0%" y1="100%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor="#fbbf24" stopOpacity="0" />
-            <stop offset="50%" stopColor="#fbbf24" stopOpacity="0.22" />
-            <stop offset="100%" stopColor="#fbbf24" stopOpacity="0" />
+          <linearGradient id="lnCyan" x1="0%" y1="100%" x2="100%" y2="0%">
+            <stop offset="0%" stopColor="#22d3ee" stopOpacity="0" />
+            <stop offset="50%" stopColor="#67e8f9" stopOpacity="0.55" />
+            <stop offset="100%" stopColor="#22d3ee" stopOpacity="0" />
           </linearGradient>
-          <linearGradient id="lineFade3" x1="0%" y1="0%" x2="100%" y2="0%">
+          <linearGradient id="lnIndigo" x1="0%" y1="0%" x2="100%" y2="0%">
             <stop offset="0%" stopColor="#818cf8" stopOpacity="0" />
-            <stop offset="50%" stopColor="#c7d2fe" stopOpacity="0.3" />
+            <stop offset="50%" stopColor="#c7d2fe" stopOpacity="0.5" />
             <stop offset="100%" stopColor="#818cf8" stopOpacity="0" />
           </linearGradient>
+          <linearGradient id="lnAmber" x1="0%" y1="100%" x2="100%" y2="0%">
+            <stop offset="0%" stopColor="#fbbf24" stopOpacity="0" />
+            <stop offset="50%" stopColor="#fcd34d" stopOpacity="0.45" />
+            <stop offset="100%" stopColor="#fbbf24" stopOpacity="0" />
+          </linearGradient>
+          <filter id="softGlow" x="-50%" y="-50%" width="200%" height="200%">
+            <feGaussianBlur stdDeviation="3.5" result="blur" />
+            <feMerge>
+              <feMergeNode in="blur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
         </defs>
 
-        {/* diagonal sweep — top-left to mid-right */}
-        <path d="M -100 120 L 600 40 L 1540 260" stroke="url(#lineFade1)" strokeWidth="1.5" fill="none" />
-        <path d="M -100 200 L 560 110 L 1540 340" stroke="url(#lineFade1)" strokeWidth="1" fill="none" />
-        <path d="M -100 60 L 640 -10 L 1540 180" stroke="url(#lineFade1)" strokeWidth="1" fill="none" />
+        {/* bold mesh network — top-left zone */}
+        <g filter="url(#softGlow)">
+          <path d="M -80 140 L 360 60 L 720 190 L 1080 40" stroke="url(#lnViolet)" strokeWidth="2" fill="none" />
+          <path d="M 360 60 L 420 320" stroke="url(#lnIndigo)" strokeWidth="1.5" fill="none" />
+          <path d="M 720 190 L 660 430" stroke="url(#lnCyan)" strokeWidth="1.5" fill="none" />
+          <path d="M -80 260 L 300 340 L 720 190" stroke="url(#lnIndigo)" strokeWidth="1.5" fill="none" />
+        </g>
 
-        {/* amber accent sweep — lower portion, opposite direction */}
-        <path d="M -100 780 L 480 880 L 1100 700 L 1540 800" stroke="url(#lineFade2)" strokeWidth="1.5" fill="none" />
-        <path d="M -100 860 L 520 940 L 1140 780 L 1540 880" stroke="url(#lineFade2)" strokeWidth="1" fill="none" />
+        {/* bold mesh network — bottom-right zone, opposite flow */}
+        <g filter="url(#softGlow)">
+          <path d="M 1540 760 L 1140 860 L 760 700 L 380 840" stroke="url(#lnCyan)" strokeWidth="2" fill="none" />
+          <path d="M 1140 860 L 1080 600" stroke="url(#lnViolet)" strokeWidth="1.5" fill="none" />
+          <path d="M 760 700 L 820 470" stroke="url(#lnAmber)" strokeWidth="1.5" fill="none" />
+          <path d="M 1540 600 L 1220 540 L 760 700" stroke="url(#lnViolet)" strokeWidth="1.5" fill="none" />
+        </g>
 
-        {/* fine horizontal-ish lines crossing the middle for texture */}
-        <path d="M -100 480 L 420 430 L 980 510 L 1540 460" stroke="url(#lineFade3)" strokeWidth="1" fill="none" />
-        <path d="M -100 560 L 460 600 L 1020 540 L 1540 590" stroke="url(#lineFade3)" strokeWidth="0.75" fill="none" />
+        {/* crossing diagonals through the middle for depth */}
+        <path d="M -80 500 L 480 380 L 1000 560 L 1540 420" stroke="url(#lnIndigo)" strokeWidth="1.25" fill="none" />
+        <path d="M 1180 -60 L 1380 340 L 1160 900" stroke="url(#lnCyan)" strokeWidth="1.25" fill="none" />
+        <path d="M 260 -60 L 60 380 L 320 900" stroke="url(#lnViolet)" strokeWidth="1" fill="none" />
 
-        {/* subtle long diagonal accents on the right side, near the form */}
-        <path d="M 1000 -50 L 1340 300 L 1180 900" stroke="url(#lineFade1)" strokeWidth="1" fill="none" />
-        <path d="M 1100 -50 L 1460 380 L 1300 900" stroke="url(#lineFade3)" strokeWidth="0.75" fill="none" />
-
-        {/* a few small accent dots along the lines for a "connected nodes" feel */}
-        <circle cx="600" cy="40" r="2.5" fill="#c7d2fe" opacity="0.4" />
-        <circle cx="1100" cy="700" r="2" fill="#fbbf24" opacity="0.35" />
-        <circle cx="420" cy="430" r="2" fill="#c7d2fe" opacity="0.3" />
-        <circle cx="1340" cy="300" r="2.5" fill="#a5b4fc" opacity="0.4" />
+        {/* glowing connection nodes */}
+        <g filter="url(#softGlow)">
+          <circle cx="360" cy="60" r="4" fill="#f0abfc" />
+          <circle cx="720" cy="190" r="4.5" fill="#a5b4fc" />
+          <circle cx="420" cy="320" r="3" fill="#c7d2fe" />
+          <circle cx="660" cy="430" r="3.5" fill="#67e8f9" />
+          <circle cx="1140" cy="860" r="4" fill="#67e8f9" />
+          <circle cx="760" cy="700" r="4.5" fill="#f0abfc" />
+          <circle cx="820" cy="470" r="3" fill="#fcd34d" />
+          <circle cx="1220" cy="540" r="3.5" fill="#f0abfc" />
+        </g>
       </svg>
       {/* bubble animation canvas — full screen background */}
       <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" style={{ pointerEvents: 'none', zIndex: 0 }} />
@@ -280,10 +318,10 @@ export default function LoginPage() {
                 {siteInfo.namaSekolah || 'SmartExam'}
               </p>
               {!siteInfo.namaSekolah && (
-                <p className="text-brand-300 text-sm">Sistem Ujian Cerdas, Generasi Hebat</p>
+                <p className="text-brand-300 text-sm">Sistem Ujian Digital Terpercaya</p>
               )}
               {siteInfo.namaSekolah && (
-                <p className="text-brand-300 text-sm">Sistem Ujian Cerdas, Generasi Hebat</p>
+                <p className="text-brand-300 text-sm">Sistem Ujian Digital Terpercaya</p>
               )}
             </div>
           </div>
@@ -352,7 +390,7 @@ export default function LoginPage() {
                 {siteInfo.namaSekolah || 'SmartExam'}
               </p>
               {!siteInfo.namaSekolah && (
-                <p className="text-brand-300 text-xs">Sistem Ujian Cerdas, Generasi Hebat</p>
+                <p className="text-brand-300 text-xs">Sistem Ujian Digital Terpercaya</p>
               )}
             </div>
           </div>
