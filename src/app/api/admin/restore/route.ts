@@ -118,10 +118,20 @@ export async function POST(req: NextRequest) {
   const stats: Record<string, number> = {}
 
   for (const table of INSERT_ORDER) {
-    const rows = payload.tables[table]
+    let rows = payload.tables[table]
     if (!rows || !Array.isArray(rows) || rows.length === 0) {
       stats[table] = 0
       continue
+    }
+
+    // Tabel users: skip row ADMIN karena tidak dihapus saat clear,
+    // sehingga tidak akan terjadi duplicate key yang menghentikan seluruh insert
+    if (table === 'users') {
+      rows = rows.filter((r: any) => r.role !== 'ADMIN')
+      if (rows.length === 0) {
+        stats[table] = 0
+        continue
+      }
     }
 
     const BATCH = 100
