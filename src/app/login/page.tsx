@@ -132,7 +132,7 @@ export default function LoginPage() {
   }, [])
 
   useEffect(() => {
-    fetch('/api/public/pengaturan', { cache: 'no-store' })
+    fetch('/api/public/pengaturan?t=' + Date.now(), { cache: 'no-store' })
       .then(r => r.json())
       .then(json => {
         if (json?.data) setSiteInfo({
