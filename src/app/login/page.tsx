@@ -212,6 +212,55 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen flex bg-gradient-to-br from-brand-950 via-brand-900 to-brand-800 relative overflow-hidden">
+      {/* decorative vector lines — sits above the plain gradient, below the bubbles */}
+      <svg
+        className="absolute inset-0 w-full h-full"
+        style={{ pointerEvents: 'none', zIndex: 0 }}
+        viewBox="0 0 1440 900"
+        preserveAspectRatio="xMidYMid slice"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <defs>
+          <linearGradient id="lineFade1" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="#a5b4fc" stopOpacity="0" />
+            <stop offset="50%" stopColor="#a5b4fc" stopOpacity="0.35" />
+            <stop offset="100%" stopColor="#a5b4fc" stopOpacity="0" />
+          </linearGradient>
+          <linearGradient id="lineFade2" x1="0%" y1="100%" x2="100%" y2="0%">
+            <stop offset="0%" stopColor="#fbbf24" stopOpacity="0" />
+            <stop offset="50%" stopColor="#fbbf24" stopOpacity="0.22" />
+            <stop offset="100%" stopColor="#fbbf24" stopOpacity="0" />
+          </linearGradient>
+          <linearGradient id="lineFade3" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stopColor="#818cf8" stopOpacity="0" />
+            <stop offset="50%" stopColor="#c7d2fe" stopOpacity="0.3" />
+            <stop offset="100%" stopColor="#818cf8" stopOpacity="0" />
+          </linearGradient>
+        </defs>
+
+        {/* diagonal sweep — top-left to mid-right */}
+        <path d="M -100 120 L 600 40 L 1540 260" stroke="url(#lineFade1)" strokeWidth="1.5" fill="none" />
+        <path d="M -100 200 L 560 110 L 1540 340" stroke="url(#lineFade1)" strokeWidth="1" fill="none" />
+        <path d="M -100 60 L 640 -10 L 1540 180" stroke="url(#lineFade1)" strokeWidth="1" fill="none" />
+
+        {/* amber accent sweep — lower portion, opposite direction */}
+        <path d="M -100 780 L 480 880 L 1100 700 L 1540 800" stroke="url(#lineFade2)" strokeWidth="1.5" fill="none" />
+        <path d="M -100 860 L 520 940 L 1140 780 L 1540 880" stroke="url(#lineFade2)" strokeWidth="1" fill="none" />
+
+        {/* fine horizontal-ish lines crossing the middle for texture */}
+        <path d="M -100 480 L 420 430 L 980 510 L 1540 460" stroke="url(#lineFade3)" strokeWidth="1" fill="none" />
+        <path d="M -100 560 L 460 600 L 1020 540 L 1540 590" stroke="url(#lineFade3)" strokeWidth="0.75" fill="none" />
+
+        {/* subtle long diagonal accents on the right side, near the form */}
+        <path d="M 1000 -50 L 1340 300 L 1180 900" stroke="url(#lineFade1)" strokeWidth="1" fill="none" />
+        <path d="M 1100 -50 L 1460 380 L 1300 900" stroke="url(#lineFade3)" strokeWidth="0.75" fill="none" />
+
+        {/* a few small accent dots along the lines for a "connected nodes" feel */}
+        <circle cx="600" cy="40" r="2.5" fill="#c7d2fe" opacity="0.4" />
+        <circle cx="1100" cy="700" r="2" fill="#fbbf24" opacity="0.35" />
+        <circle cx="420" cy="430" r="2" fill="#c7d2fe" opacity="0.3" />
+        <circle cx="1340" cy="300" r="2.5" fill="#a5b4fc" opacity="0.4" />
+      </svg>
       {/* bubble animation canvas — full screen background */}
       <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" style={{ pointerEvents: 'none', zIndex: 0 }} />
       {/* Left — branding */}
