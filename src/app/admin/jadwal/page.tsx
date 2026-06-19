@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   Plus, Pencil, Trash2, Calendar, FileText, Download, PackageOpen,
   CheckCircle, Clock, AlertCircle, XCircle, HelpCircle, AlertTriangle,
-  ClipboardList, RotateCcw, Copy, X, UserX
+  ClipboardList, RotateCcw, Copy, X, UserX, BarChart3
 } from 'lucide-react'
 import { Modal, Confirm, StatusBadge, SearchInput, EmptyState, Spinner, Toast, Pagination } from '@/components/ui'
 import { apiRequest, formatDate } from '@/lib/utils'
@@ -369,6 +369,34 @@ export default function AdminJadwalPage() {
   const [scanDone, setScanDone] = useState(false)
   const [susulanTarget, setSusulanTarget] = useState<Jadwal | null>(null)
 
+  const [rangkumanOpen, setRangkumanOpen] = useState(false)
+  const [rangkumanLoading, setRangkumanLoading] = useState(false)
+  const [rangkumanData, setRangkumanData] = useState<{
+    belum_dijadwalkan: { mapel_id: string; nama_mapel: string; kelas: string }[]
+    belum_ada_soal: { mapel_id: string; nama_mapel: string; kelas: string; status_soal: string }[]
+    guru_belum_mengawas: { username: string; nama: string }[]
+  } | null>(null)
+  const [rangkumanSection, setRangkumanSection] = useState<'jadwal' | 'soal' | 'guru'>('jadwal')
+
+  async function bukaRangkuman() {
+    setRangkumanOpen(true)
+    setRangkumanSection('jadwal')
+    setRangkumanLoading(true)
+    try {
+      const res = await apiRequest<{
+        belum_dijadwalkan: { mapel_id: string; nama_mapel: string; kelas: string }[]
+        belum_ada_soal: { mapel_id: string; nama_mapel: string; kelas: string; status_soal: string }[]
+        guru_belum_mengawas: { username: string; nama: string }[]
+      }>('/api/admin/jadwal/rangkuman')
+      setRangkumanData(res)
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Gagal memuat rangkuman', 'error')
+      setRangkumanOpen(false)
+    } finally {
+      setRangkumanLoading(false)
+    }
+  }
+
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => setToast({ msg, type })
 
   const load = useCallback(async () => {
@@ -704,6 +732,9 @@ export default function AdminJadwalPage() {
           <p className="page-subtitle">{jadwal.length} jadwal terdaftar</p>
         </div>
         <div className="flex gap-2 flex-wrap">
+          <button onClick={bukaRangkuman} className="btn-sm flex items-center gap-1.5 font-medium rounded-xl px-3 py-2 border bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100 transition-colors">
+            <BarChart3 className="w-4 h-4" /> Rangkuman
+          </button>
           <button onClick={() => setCetakMassalOpen(true)} className="btn-secondary btn-sm">
             <PackageOpen className="w-4 h-4" /> Download Massal
           </button>
@@ -1206,6 +1237,134 @@ export default function AdminJadwalPage() {
           </div>
         </div>
       )}
+      {/* Modal Rangkuman */}
+      <Modal
+        open={rangkumanOpen}
+        onClose={() => setRangkumanOpen(false)}
+        title="Rangkuman Kesiapan Ujian"
+        size="lg"
+        footer={
+          <button onClick={() => setRangkumanOpen(false)} className="btn-primary">Tutup</button>
+        }
+      >
+        {rangkumanLoading ? (
+          <div className="flex justify-center py-16"><Spinner size="lg" /></div>
+        ) : !rangkumanData ? (
+          <div className="py-10 text-center text-sm text-slate-400">Gagal memuat data.</div>
+        ) : (
+          <div className="space-y-4">
+            {/* Tabs */}
+            <div className="flex gap-2 flex-wrap">
+              <button
+                onClick={() => setRangkumanSection('jadwal')}
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold border transition-colors ${
+                  rangkumanSection === 'jadwal' ? 'bg-amber-100 border-amber-300 text-amber-800' : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100'
+                }`}
+              >
+                <Calendar className="w-3.5 h-3.5" /> Belum Dijadwalkan ({rangkumanData.belum_dijadwalkan.length})
+              </button>
+              <button
+                onClick={() => setRangkumanSection('soal')}
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold border transition-colors ${
+                  rangkumanSection === 'soal' ? 'bg-blue-100 border-blue-300 text-blue-800' : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100'
+                }`}
+              >
+                <FileText className="w-3.5 h-3.5" /> Belum Ada Soal ({rangkumanData.belum_ada_soal.length})
+              </button>
+              <button
+                onClick={() => setRangkumanSection('guru')}
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold border transition-colors ${
+                  rangkumanSection === 'guru' ? 'bg-purple-100 border-purple-300 text-purple-800' : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100'
+                }`}
+              >
+                <UserX className="w-3.5 h-3.5" /> Guru Belum Mengawas ({rangkumanData.guru_belum_mengawas.length})
+              </button>
+            </div>
+
+            {/* Konten Tab */}
+            <div className="max-h-96 overflow-y-auto">
+              {rangkumanSection === 'jadwal' && (
+                rangkumanData.belum_dijadwalkan.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-10 text-center gap-3">
+                    <div className="w-14 h-14 rounded-full bg-emerald-100 flex items-center justify-center">
+                      <CheckCircle className="w-7 h-7 text-emerald-600" />
+                    </div>
+                    <p className="font-semibold text-slate-700">Semua mapel & kelas sudah terjadwal!</p>
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    <p className="text-sm text-slate-500 mb-2">
+                      <strong className="text-slate-700">{rangkumanData.belum_dijadwalkan.length} kombinasi</strong> mapel &amp; kelas belum memiliki jadwal ujian.
+                    </p>
+                    {rangkumanData.belum_dijadwalkan.map((item, i) => (
+                      <div key={i} className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl bg-amber-50 border border-amber-100">
+                        <span className="font-medium text-slate-800 text-sm">{item.nama_mapel}</span>
+                        <span className="text-xs text-slate-500 bg-white border border-amber-200 rounded-full px-2 py-0.5">Kelas {item.kelas}</span>
+                      </div>
+                    ))}
+                  </div>
+                )
+              )}
+
+              {rangkumanSection === 'soal' && (
+                rangkumanData.belum_ada_soal.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-10 text-center gap-3">
+                    <div className="w-14 h-14 rounded-full bg-emerald-100 flex items-center justify-center">
+                      <CheckCircle className="w-7 h-7 text-emerald-600" />
+                    </div>
+                    <p className="font-semibold text-slate-700">Semua mapel & kelas sudah punya soal disetujui!</p>
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    <p className="text-sm text-slate-500 mb-2">
+                      <strong className="text-slate-700">{rangkumanData.belum_ada_soal.length} kombinasi</strong> mapel &amp; kelas belum memiliki soal yang disetujui.
+                    </p>
+                    {rangkumanData.belum_ada_soal.map((item, i) => (
+                      <div key={i} className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl bg-blue-50 border border-blue-100">
+                        <div>
+                          <span className="font-medium text-slate-800 text-sm">{item.nama_mapel}</span>
+                          <span className="mx-2 text-slate-300">·</span>
+                          <span className="text-xs text-slate-500">Kelas {item.kelas}</span>
+                        </div>
+                        <SoalStatusBadge status={item.status_soal} />
+                      </div>
+                    ))}
+                  </div>
+                )
+              )}
+
+              {rangkumanSection === 'guru' && (
+                rangkumanData.guru_belum_mengawas.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-10 text-center gap-3">
+                    <div className="w-14 h-14 rounded-full bg-emerald-100 flex items-center justify-center">
+                      <CheckCircle className="w-7 h-7 text-emerald-600" />
+                    </div>
+                    <p className="font-semibold text-slate-700">Semua guru sudah pernah ditugaskan mengawas!</p>
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    <p className="text-sm text-slate-500 mb-2">
+                      <strong className="text-slate-700">{rangkumanData.guru_belum_mengawas.length} guru</strong> belum pernah mendapat penugasan jadwal mengawas.
+                    </p>
+                    {rangkumanData.guru_belum_mengawas.map((g, i) => (
+                      <div key={i} className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-purple-50 border border-purple-100">
+                        <div className="w-7 h-7 rounded-full bg-purple-100 text-purple-700 text-xs font-bold flex items-center justify-center flex-shrink-0">
+                          {i + 1}
+                        </div>
+                        <div>
+                          <p className="font-medium text-slate-800 text-sm">{g.nama}</p>
+                          <p className="text-xs text-slate-400">{g.username}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )
+              )}
+            </div>
+          </div>
+        )}
+      </Modal>
+
       {/* Modal Soal Belum Siap */}
       <Modal
         open={soalBelumSiapOpen}
