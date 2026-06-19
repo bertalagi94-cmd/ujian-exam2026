@@ -602,7 +602,7 @@ export default function GuruBankSoalPage() {
         </div>
         <span className="text-xs text-slate-400 flex-shrink-0">Kunci: {s.kunci}</span>
         <div className="flex items-center gap-1 flex-shrink-0">
-          {isEditable(paket.status) && s.id ? (
+          {isEditable(s.status ?? paket.status) && s.id ? (
             <>
               <button onClick={() => openEdit(s)} className="btn-ghost btn-icon btn-sm text-blue-600 hover:bg-blue-50" title="Edit soal">
                 <Pencil className="w-3.5 h-3.5" />
