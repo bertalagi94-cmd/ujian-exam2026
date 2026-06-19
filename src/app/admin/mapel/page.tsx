@@ -275,7 +275,7 @@ export default function AdminMapelPage() {
               </div>
             )}
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="label">Jumlah Opsi Jawaban</label>
               <select name="jumlah_opsi" className="select" defaultValue={editData?.jumlah_opsi ?? 4}>
