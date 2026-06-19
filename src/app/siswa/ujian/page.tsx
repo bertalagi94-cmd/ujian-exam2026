@@ -801,7 +801,7 @@ export default function SiswaUjianPage() {
           </h2>
           <p className="text-sm text-slate-500 mb-6">{sesiInfo?.namaMapel}</p>
 
-          <div className="grid grid-cols-3 gap-4 mb-6">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
             <div className="bg-slate-50 rounded-xl p-4">
               <div className="text-3xl font-bold text-slate-900">{hasilNilai.nilai}</div>
               <div className="text-xs text-slate-400 mt-1">Nilai</div>
