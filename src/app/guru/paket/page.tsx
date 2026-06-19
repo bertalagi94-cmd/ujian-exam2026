@@ -64,6 +64,7 @@ export default function GuruBuatSoalPage() {
   const [deleteSoalId, setDeleteSoalId] = useState<string | null>(null)
   const [deleteSoalPaketId, setDeleteSoalPaketId] = useState<string | null>(null)
   const [viewSoal, setViewSoal] = useState<SoalWithImg | null>(null)
+  const [hapusPaketId, setHapusPaketId] = useState<string | null>(null)
 
   // Setup state
   const [setupMapel, setSetupMapel] = useState('')
@@ -368,6 +369,20 @@ export default function GuruBuatSoalPage() {
       window.dispatchEvent(new Event(SYNC_EVENT))
     } catch (err: unknown) {
       showToast(err instanceof Error ? err.message : 'Gagal menghapus', 'error')
+    } finally { setSaving(false) }
+  }
+
+  async function handleHapusPaket() {
+    if (!hapusPaketId) return
+    setSaving(true)
+    try {
+      await apiRequest(`/api/guru/paket/${hapusPaketId}`, { method: 'DELETE' })
+      showToast('Paket soal berhasil dihapus')
+      setHapusPaketId(null)
+      load()
+      window.dispatchEvent(new Event(SYNC_EVENT))
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Gagal menghapus paket', 'error')
     } finally { setSaving(false) }
   }
 
@@ -685,6 +700,15 @@ export default function GuruBuatSoalPage() {
                       <Send className="w-3.5 h-3.5" /> {p.status === 'DITOLAK' ? 'Kirim Ulang' : 'Kirim'}
                     </button>
                   )}
+                  {(p.status === 'DRAFT' || p.status === 'DITOLAK') && (
+                    <button
+                      onClick={() => setHapusPaketId(p.id)}
+                      className="btn-ghost btn-icon btn-sm text-red-500 hover:bg-red-50"
+                      title="Hapus paket soal"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
                   {p.status === 'MENUNGGU' && (
                     <button onClick={() => setTarikId(p.id)} className="btn-secondary btn-sm">
                       <RotateCcw className="w-3.5 h-3.5" /> Tarik
@@ -785,6 +809,11 @@ export default function GuruBuatSoalPage() {
         onConfirm={handleDeleteSoal} title="Hapus Soal"
         message="Soal ini akan dihapus permanen. Lanjutkan?"
         confirmLabel="Ya, Hapus" loading={saving} />
+
+      <Confirm open={!!hapusPaketId} onClose={() => setHapusPaketId(null)} onConfirm={handleHapusPaket}
+        title="Hapus Paket Soal"
+        message="Seluruh soal dalam paket ini akan ikut terhapus secara permanen. Tindakan ini tidak bisa dibatalkan. Lanjutkan?"
+        confirmLabel="Ya, Hapus Paket" loading={saving} />
     </div>
   )
 
