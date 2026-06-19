@@ -337,6 +337,9 @@ export default function GuruBankSoalPage() {
   const [dupId, setDupId] = useState<string | null>(null)
   const [dupKelas, setDupKelas] = useState('')
 
+  // Hapus paket
+  const [hapusPaketId, setHapusPaketId] = useState<string | null>(null)
+
   const [saving, setSaving] = useState(false)
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => setToast({ msg, type })
@@ -583,6 +586,21 @@ export default function GuruBankSoalPage() {
     } finally { setSaving(false) }
   }
 
+  // ── Hapus paket ───────────────────────────────────────────────
+  async function handleHapusPaket() {
+    if (!hapusPaketId) return
+    setSaving(true)
+    try {
+      await apiRequest(`/api/guru/paket/${hapusPaketId}`, { method: 'DELETE' })
+      showToast('Paket soal berhasil dihapus')
+      setHapusPaketId(null)
+      await loadPakets()
+      window.dispatchEvent(new Event(SYNC_EVENT))
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Gagal menghapus paket', 'error')
+    } finally { setSaving(false) }
+  }
+
   const isEditable = (status: string) => ['DRAFT', 'DITOLAK'].includes(status)
   const getNamaKelas = (id: string) => allKelas.find(k => k.id === id)?.nama ?? id
 
@@ -702,6 +720,17 @@ export default function GuruBankSoalPage() {
                     {(p.status === 'DRAFT' || p.status === 'DITOLAK') && (
                       <button onClick={() => setKirimId(p.id)} className="btn-primary btn-sm">
                         <Send className="w-3.5 h-3.5" /> {p.status === 'DITOLAK' ? 'Kirim Ulang' : 'Kirim'}
+                      </button>
+                    )}
+
+                    {/* Hapus paket */}
+                    {(p.status === 'DRAFT' || p.status === 'DITOLAK') && (
+                      <button
+                        onClick={() => setHapusPaketId(p.id)}
+                        className="btn-ghost btn-icon btn-sm text-red-500 hover:bg-red-50"
+                        title="Hapus paket soal"
+                      >
+                        <Trash2 className="w-4 h-4" />
                       </button>
                     )}
 
@@ -884,6 +913,12 @@ export default function GuruBankSoalPage() {
         title="Hapus Soal"
         message="Soal ini akan dihapus permanen dari paket. Lanjutkan?"
         confirmLabel="Ya, Hapus" loading={saving} />
+
+      {/* Confirm Hapus Paket */}
+      <Confirm open={!!hapusPaketId} onClose={() => setHapusPaketId(null)} onConfirm={handleHapusPaket}
+        title="Hapus Paket Soal"
+        message="Seluruh soal dalam paket ini akan ikut terhapus secara permanen. Tindakan ini tidak bisa dibatalkan. Lanjutkan?"
+        confirmLabel="Ya, Hapus Paket" loading={saving} />
     </div>
   )
 }
