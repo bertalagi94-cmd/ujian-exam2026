@@ -216,11 +216,27 @@ export default function AdminUsersPage() {
             </div>
           </div>
           <div>
-            <label className="label">Mata Pelajaran (untuk Guru)</label>
-            <select name="mapel_id" className="select" defaultValue={editData?.mapel_id ?? ''}>
-              <option value="">- Tidak ada -</option>
-              {mapelList.map(m => <option key={m.id} value={m.id}>{m.nama}</option>)}
-            </select>
+            <label className="label">Mata Pelajaran &amp; Kelas yang Diampu</label>
+            {editData?.username ? (
+              <div className="flex flex-wrap gap-1.5 border border-slate-200 rounded-lg px-3 py-2.5 bg-slate-50 min-h-[42px]">
+                {mapelList.filter(m => m.guru_id === editData?.username).length === 0 ? (
+                  <span className="text-xs text-slate-400">Belum mengampu mapel apa pun</span>
+                ) : (
+                  mapelList.filter(m => m.guru_id === editData?.username).map(m => (
+                    <span key={m.id} className="badge-blue text-xs">
+                      {m.nama}{m.kelas_list ? ` (${m.kelas_list})` : ''}
+                    </span>
+                  ))
+                )}
+              </div>
+            ) : (
+              <p className="text-xs text-slate-400 border border-slate-200 rounded-lg px-3 py-2.5 bg-slate-50">
+                Bisa diatur setelah pengguna ini dibuat, lewat menu Mata Pelajaran.
+              </p>
+            )}
+            <p className="text-xs text-slate-400 mt-1">
+              Diatur dari menu <span className="font-medium">Mata Pelajaran</span> (pilih guru pengampu di sana), bukan di sini — agar tidak ada data ganda yang bisa tidak sinkron.
+            </p>
           </div>
           {!editData?.username && (
             <div>
