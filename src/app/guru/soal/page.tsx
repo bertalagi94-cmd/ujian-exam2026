@@ -685,6 +685,9 @@ export default function GuruBankSoalPage() {
                     {p.status === 'DITOLAK' && (
                       <div className="mt-1 text-xs text-red-600">Soal ditolak — silakan edit soal lalu kirim ulang</div>
                     )}
+                    {p.status === 'MENUNGGU' && p.catatan && (
+                      <div className="mt-1 text-xs text-amber-600">Persetujuan dibatalkan admin — klik <strong>Tarik</strong> untuk mengedit soal lalu kirim ulang</div>
+                    )}
                   </div>
 
                   {/* Tombol aksi paket */}
