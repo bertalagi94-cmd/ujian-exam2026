@@ -61,6 +61,23 @@ export async function POST(req: NextRequest) {
   const db = createAdminClient()
   const body = await req.json()
 
+  // Cegah guru membuat paket soal ganda untuk mapel + kelas yang sama
+  const { data: existing, error: checkError } = await db
+    .from('paket_soal')
+    .select('id')
+    .eq('guru_id', user.username)
+    .eq('mapel_id', body.mapel_id)
+    .eq('kelas_id', body.kelas_id)
+    .limit(1)
+
+  if (checkError) return NextResponse.json({ error: checkError.message }, { status: 500 })
+  if (existing && existing.length > 0) {
+    return NextResponse.json(
+      { error: 'Paket soal untuk mapel dan kelas ini sudah ada. Silakan lanjutkan mengisi soal pada paket yang sudah dibuat.' },
+      { status: 409 }
+    )
+  }
+
   const { error } = await db.from('paket_soal').insert({
     id: generateId('PKT'),
     mapel_id: body.mapel_id,
