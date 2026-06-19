@@ -79,7 +79,7 @@ export default function AdminNilaiPage() {
 
       {/* Summary row */}
       {filtered.length > 0 && (
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           {[
             { label: 'Rata-rata Nilai', value: rata, color: nilaiColor(rata) },
             { label: 'Siswa Lulus', value: `${lulus}/${filtered.length}`, color: 'text-emerald-600' },
@@ -96,7 +96,7 @@ export default function AdminNilaiPage() {
       {/* Filters */}
       <div className="card py-4 flex gap-3 flex-wrap">
         <SearchInput value={search} onChange={setSearch} placeholder="Cari nama siswa..." className="flex-1 min-w-[200px]" />
-        <select value={filterMapel} onChange={e => { setFilterMapel(e.target.value); setPage(1) }} className="select w-44">
+        <select value={filterMapel} onChange={e => { setFilterMapel(e.target.value); setPage(1) }} className="select w-full sm:w-44">
           <option value="">Semua Mapel</option>
           {mapelList.map(m => <option key={m.id} value={m.id}>{m.nama}</option>)}
         </select>
