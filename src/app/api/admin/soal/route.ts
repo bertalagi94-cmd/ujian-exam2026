@@ -50,7 +50,11 @@ export async function POST(req: NextRequest) {
   const db = createAdminClient()
   const { paket_id, action, catatan } = await req.json()
 
-  const newStatus = action === 'SETUJUI' ? 'DISETUJUI' : 'DITOLAK'
+  let newStatus: string
+  if (action === 'SETUJUI') newStatus = 'DISETUJUI'
+  else if (action === 'TOLAK') newStatus = 'DITOLAK'
+  else if (action === 'BATAL_SETUJUI') newStatus = 'MENUNGGU'
+  else return NextResponse.json({ error: 'Action tidak valid' }, { status: 400 })
 
   // Update paket + set notif_dibaca=false agar guru dapat badge notifikasi
   const { error: paketErr } = await db
@@ -68,5 +72,6 @@ export async function POST(req: NextRequest) {
 
   if (soalErr) return NextResponse.json({ error: soalErr.message }, { status: 500 })
 
-  return NextResponse.json({ message: `Paket berhasil ${newStatus === 'DISETUJUI' ? 'disetujui' : 'ditolak'}` })
+  const pesanStatus = newStatus === 'DISETUJUI' ? 'disetujui' : newStatus === 'DITOLAK' ? 'ditolak' : 'dikembalikan ke menunggu'
+  return NextResponse.json({ message: `Paket berhasil ${pesanStatus}` })
 }
