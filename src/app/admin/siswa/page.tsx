@@ -320,7 +320,7 @@ export default function AdminSiswaPage() {
         <select
           value={filterKelas}
           onChange={e => { setFilterKelas(e.target.value); setPage(1) }}
-          className="select w-40"
+          className="select w-full sm:w-40"
         >
           <option value="">Semua Kelas</option>
           {kelas.map(k => (
@@ -430,7 +430,7 @@ export default function AdminSiswaPage() {
             <label className="label">Nama Lengkap *</label>
             <input name="nama" className="input" placeholder="Nama lengkap siswa" required defaultValue={editData?.nama} />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="label">Kelas *</label>
               {kelasMode === 'pilih' ? (
@@ -484,7 +484,7 @@ export default function AdminSiswaPage() {
               </select>
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="label">Tempat Lahir</label>
               <input name="tempat_lahir" className="input" defaultValue={editData?.tempat_lahir ?? ''} />
