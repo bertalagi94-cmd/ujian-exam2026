@@ -53,7 +53,7 @@ export async function POST(req: NextRequest) {
   let newStatus: string
   if (action === 'SETUJUI') newStatus = 'DISETUJUI'
   else if (action === 'TOLAK') newStatus = 'DITOLAK'
-  else if (action === 'BATAL_SETUJUI') newStatus = 'MENUNGGU'
+  else if (action === 'BATAL_SETUJUI') newStatus = 'DRAFT'
   else return NextResponse.json({ error: 'Action tidak valid' }, { status: 400 })
 
   // Update paket + set notif_dibaca=false agar guru dapat badge notifikasi
@@ -72,6 +72,6 @@ export async function POST(req: NextRequest) {
 
   if (soalErr) return NextResponse.json({ error: soalErr.message }, { status: 500 })
 
-  const pesanStatus = newStatus === 'DISETUJUI' ? 'disetujui' : newStatus === 'DITOLAK' ? 'ditolak' : 'dikembalikan ke menunggu'
+  const pesanStatus = newStatus === 'DISETUJUI' ? 'disetujui' : newStatus === 'DITOLAK' ? 'ditolak' : 'dikembalikan ke draft'
   return NextResponse.json({ message: `Paket berhasil ${pesanStatus}` })
 }
