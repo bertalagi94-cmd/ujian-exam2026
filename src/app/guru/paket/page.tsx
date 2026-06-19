@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Plus, Send, RotateCcw, ChevronDown, ChevronUp, Trash2, ImagePlus, X, ArrowLeft, CheckCircle2, Pencil, Eye, Lock } from 'lucide-react'
+import { Plus, ChevronDown, ChevronUp, Trash2, ImagePlus, X, ArrowLeft, CheckCircle2, Pencil, Eye, Lock } from 'lucide-react'
 import { Modal, Confirm, StatusBadge, EmptyState, Spinner, Toast } from '@/components/ui'
 import { apiRequest, formatDateTime } from '@/lib/utils'
 import { PaketSoal, Mapel, Kelas, Soal } from '@/types'
@@ -48,8 +48,6 @@ export default function GuruBuatSoalPage() {
   const [step, setStep] = useState<Step>('list')
   const [activePaket, setActivePaket] = useState<PaketSoal | null>(null)
   const [soalDibuat, setSoalDibuat] = useState<SoalWithImg[]>([])
-  const [kirimId, setKirimId] = useState<string | null>(null)
-  const [tarikId, setTarikId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
   const [expandedId, setExpandedId] = useState<string | null>(null)
@@ -64,7 +62,6 @@ export default function GuruBuatSoalPage() {
   const [deleteSoalId, setDeleteSoalId] = useState<string | null>(null)
   const [deleteSoalPaketId, setDeleteSoalPaketId] = useState<string | null>(null)
   const [viewSoal, setViewSoal] = useState<SoalWithImg | null>(null)
-  const [hapusPaketId, setHapusPaketId] = useState<string | null>(null)
 
   // Setup state
   const [setupMapel, setSetupMapel] = useState('')
@@ -277,34 +274,6 @@ export default function GuruBuatSoalPage() {
     load()
   }
 
-  async function handleKirim() {
-    if (!kirimId) return
-    setSaving(true)
-    try {
-      await apiRequest(`/api/guru/paket/${kirimId}/kirim`, { method: 'POST' })
-      showToast('Paket berhasil dikirim untuk validasi')
-      setKirimId(null)
-      load()
-      window.dispatchEvent(new Event(SYNC_EVENT))
-    } catch (err: unknown) {
-      showToast(err instanceof Error ? err.message : 'Gagal mengirim', 'error')
-    } finally { setSaving(false) }
-  }
-
-  async function handleTarik() {
-    if (!tarikId) return
-    setSaving(true)
-    try {
-      await apiRequest(`/api/guru/paket/${tarikId}/tarik`, { method: 'POST' })
-      showToast('Paket berhasil ditarik kembali ke DRAFT')
-      setTarikId(null)
-      load()
-      window.dispatchEvent(new Event(SYNC_EVENT))
-    } catch (err: unknown) {
-      showToast(err instanceof Error ? err.message : 'Gagal menarik', 'error')
-    } finally { setSaving(false) }
-  }
-
   // ── Edit soal dari expand list ──
   function openEditSoal(s: SoalWithImg) {
     setEditSoal(s)
@@ -369,20 +338,6 @@ export default function GuruBuatSoalPage() {
       window.dispatchEvent(new Event(SYNC_EVENT))
     } catch (err: unknown) {
       showToast(err instanceof Error ? err.message : 'Gagal menghapus', 'error')
-    } finally { setSaving(false) }
-  }
-
-  async function handleHapusPaket() {
-    if (!hapusPaketId) return
-    setSaving(true)
-    try {
-      await apiRequest(`/api/guru/paket/${hapusPaketId}`, { method: 'DELETE' })
-      showToast('Paket soal berhasil dihapus')
-      setHapusPaketId(null)
-      load()
-      window.dispatchEvent(new Event(SYNC_EVENT))
-    } catch (err: unknown) {
-      showToast(err instanceof Error ? err.message : 'Gagal menghapus paket', 'error')
     } finally { setSaving(false) }
   }
 
@@ -652,7 +607,7 @@ export default function GuruBuatSoalPage() {
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="page-title">Buat Soal</h1>
-          <p className="page-subtitle">Kelola soal yang telah dibuat dan kirim ke admin untuk disetujui</p>
+          <p className="page-subtitle">Kelola paket soal yang telah dibuat · Kirim ke admin melalui menu <strong>Bank Soal</strong></p>
         </div>
         <button onClick={() => setStep('setup')} className="btn-primary btn-sm">
           <Plus className="w-4 h-4" /> Buat Soal Baru
@@ -693,25 +648,6 @@ export default function GuruBuatSoalPage() {
                   {p.status === 'DRAFT' && (
                     <button onClick={() => lanjutkanPaket(p)} className="btn-secondary btn-sm">
                       <Plus className="w-3.5 h-3.5" /> Lanjutkan
-                    </button>
-                  )}
-                  {(p.status === 'DRAFT' || p.status === 'DITOLAK') && (
-                    <button onClick={() => setKirimId(p.id)} className="btn-primary btn-sm">
-                      <Send className="w-3.5 h-3.5" /> {p.status === 'DITOLAK' ? 'Kirim Ulang' : 'Kirim'}
-                    </button>
-                  )}
-                  {(p.status === 'DRAFT' || p.status === 'DITOLAK') && (
-                    <button
-                      onClick={() => setHapusPaketId(p.id)}
-                      className="btn-ghost btn-icon btn-sm text-red-500 hover:bg-red-50"
-                      title="Hapus paket soal"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  )}
-                  {p.status === 'MENUNGGU' && (
-                    <button onClick={() => setTarikId(p.id)} className="btn-secondary btn-sm">
-                      <RotateCcw className="w-3.5 h-3.5" /> Tarik
                     </button>
                   )}
                   <button
@@ -795,25 +731,11 @@ export default function GuruBuatSoalPage() {
         )}
       </Modal>
 
-      <Confirm open={!!kirimId} onClose={() => setKirimId(null)} onConfirm={handleKirim}
-        title="Kirim Soal untuk Validasi"
-        message="Soal akan dikirim ke admin untuk divalidasi. Setelah dikirim, soal tidak bisa lagi diedit atau dihapus sampai disetujui atau ditolak. Lanjutkan?"
-        confirmLabel="Ya, Kirim" variant="primary" loading={saving} />
-
-      <Confirm open={!!tarikId} onClose={() => setTarikId(null)} onConfirm={handleTarik}
-        title="Tarik Soal"
-        message="Soal akan ditarik kembali ke status DRAFT dan bisa diedit. Lanjutkan?"
-        confirmLabel="Ya, Tarik" variant="primary" loading={saving} />
-
       <Confirm open={!!deleteSoalId} onClose={() => { setDeleteSoalId(null); setDeleteSoalPaketId(null) }}
         onConfirm={handleDeleteSoal} title="Hapus Soal"
         message="Soal ini akan dihapus permanen. Lanjutkan?"
         confirmLabel="Ya, Hapus" loading={saving} />
 
-      <Confirm open={!!hapusPaketId} onClose={() => setHapusPaketId(null)} onConfirm={handleHapusPaket}
-        title="Hapus Paket Soal"
-        message="Seluruh soal dalam paket ini akan ikut terhapus secara permanen. Tindakan ini tidak bisa dibatalkan. Lanjutkan?"
-        confirmLabel="Ya, Hapus Paket" loading={saving} />
     </div>
   )
 
