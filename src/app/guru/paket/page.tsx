@@ -391,7 +391,7 @@ export default function GuruBuatSoalPage() {
         </div>
         <span className="text-xs text-slate-400 flex-shrink-0">Kunci: {s.kunci}</span>
         <div className="flex items-center gap-1 flex-shrink-0">
-          {isEditable(paketStatus) && s.id ? (
+          {isEditable(s.status ?? paketStatus) && s.id ? (
             <>
               <button
                 onClick={() => openEditSoal(s)}
