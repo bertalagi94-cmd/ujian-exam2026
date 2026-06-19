@@ -75,7 +75,7 @@ export default function GuruDashboard() {
         <StatCard label="Ditolak" value={stats?.soalDitolak ?? 0} icon={XCircle} color="bg-red-500" />
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <StatCard label="Total Paket" value={stats?.totalPaket ?? 0} icon={ClipboardList} color="bg-purple-500" />
         <StatCard label="Rekap Nilai" value={stats?.totalNilai ?? 0} icon={BarChart3} color="bg-cyan-500" />
         <StatCard label="Rata-rata Nilai" value={stats?.rataRataNilai ?? 0} icon={TrendingUp} color="bg-indigo-500" />
