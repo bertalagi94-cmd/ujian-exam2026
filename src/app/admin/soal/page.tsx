@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { CheckCircle, XCircle, Eye, BookOpen } from 'lucide-react'
+import { CheckCircle, XCircle, Eye, BookOpen, RotateCcw } from 'lucide-react'
 import { Modal, StatusBadge, EmptyState, Spinner, Toast, Badge } from '@/components/ui'
 import { apiRequest, formatDateTime } from '@/lib/utils'
 import { PaketSoal, Soal } from '@/types'
@@ -15,7 +15,7 @@ export default function AdminSoalPage() {
   const [loadingSoal, setLoadingSoal] = useState(false)
   const [catatanTolak, setCatatanTolak] = useState('')
   const [actionId, setActionId] = useState<string | null>(null)
-  const [actionType, setActionType] = useState<'SETUJUI' | 'TOLAK' | null>(null)
+  const [actionType, setActionType] = useState<'SETUJUI' | 'TOLAK' | 'BATAL_SETUJUI' | null>(null)
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
 
@@ -48,7 +48,13 @@ export default function AdminSoalPage() {
         method: 'POST',
         body: JSON.stringify({ paket_id: actionId, action: actionType, catatan: catatanTolak }),
       })
-      showToast(`Paket berhasil ${actionType === 'SETUJUI' ? 'disetujui' : 'ditolak'}`)
+      showToast(
+        actionType === 'SETUJUI'
+          ? 'Paket berhasil disetujui'
+          : actionType === 'TOLAK'
+          ? 'Paket berhasil ditolak'
+          : 'Persetujuan berhasil dibatalkan'
+      )
       setActionId(null)
       setActionType(null)
       setCatatanTolak('')
@@ -140,6 +146,15 @@ export default function AdminSoalPage() {
                       </button>
                     </>
                   )}
+                  {activeTab === 'DISETUJUI' && (
+                    <button
+                      onClick={() => { setActionId(p.id); setActionType('BATAL_SETUJUI'); setCatatanTolak('') }}
+                      className="btn-sm border border-amber-400 text-amber-700 bg-amber-50 hover:bg-amber-100 transition-colors flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium"
+                      disabled={saving}
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" /> Batalkan Persetujuan
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -190,7 +205,13 @@ export default function AdminSoalPage() {
       <Modal
         open={!!actionId && !!actionType}
         onClose={() => { setActionId(null); setActionType(null) }}
-        title={actionType === 'SETUJUI' ? 'Setujui Paket Soal' : 'Tolak Paket Soal'}
+        title={
+          actionType === 'SETUJUI'
+            ? 'Setujui Paket Soal'
+            : actionType === 'TOLAK'
+            ? 'Tolak Paket Soal'
+            : 'Batalkan Persetujuan'
+        }
         size="sm"
         footer={
           <>
@@ -198,10 +219,22 @@ export default function AdminSoalPage() {
               className="btn-secondary" disabled={saving}>Batal</button>
             <button
               onClick={handleAction}
-              className={actionType === 'SETUJUI' ? 'btn-success' : 'btn-danger'}
+              className={
+                actionType === 'SETUJUI'
+                  ? 'btn-success'
+                  : actionType === 'TOLAK'
+                  ? 'btn-danger'
+                  : 'border border-amber-400 text-amber-700 bg-amber-50 hover:bg-amber-100 transition-colors rounded-lg px-4 py-2 text-sm font-medium'
+              }
               disabled={saving}
             >
-              {saving ? <Spinner size="sm" /> : (actionType === 'SETUJUI' ? 'Ya, Setujui' : 'Ya, Tolak')}
+              {saving ? <Spinner size="sm" /> : (
+                actionType === 'SETUJUI'
+                  ? 'Ya, Setujui'
+                  : actionType === 'TOLAK'
+                  ? 'Ya, Tolak'
+                  : 'Ya, Batalkan'
+              )}
             </button>
           </>
         }
@@ -216,6 +249,20 @@ export default function AdminSoalPage() {
               value={catatanTolak}
               onChange={e => setCatatanTolak(e.target.value)}
             />
+          </div>
+        ) : actionType === 'BATAL_SETUJUI' ? (
+          <div className="space-y-3">
+            <p className="text-sm text-slate-600">
+              Paket soal ini akan dikembalikan ke status <span className="font-semibold text-amber-600">Menunggu Validasi</span>. Berikan alasan pembatalan:
+            </p>
+            <textarea
+              className="textarea"
+              rows={3}
+              placeholder="Alasan pembatalan persetujuan..."
+              value={catatanTolak}
+              onChange={e => setCatatanTolak(e.target.value)}
+            />
+            <p className="text-xs text-slate-400">Alasan ini akan dikirimkan sebagai catatan ke guru.</p>
           </div>
         ) : (
           <p className="text-sm text-slate-600">
