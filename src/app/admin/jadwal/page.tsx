@@ -744,7 +744,7 @@ export default function AdminJadwalPage() {
       <div className="card py-4 flex gap-3 flex-wrap">
         <SearchInput value={search} onChange={v => { setSearch(v); setPage(1) }}
           placeholder="Cari mata pelajaran..." className="flex-1 min-w-[200px]" />
-        <select value={filterStatus} onChange={e => { setFilterStatus(e.target.value); setPage(1) }} className="select w-40">
+        <select value={filterStatus} onChange={e => { setFilterStatus(e.target.value); setPage(1) }} className="select w-full sm:w-40">
           <option value="">Semua Status</option>
           {['AKTIF', 'BERJALAN', 'SELESAI'].map(s => (
             <option key={s} value={s}>{s}</option>
@@ -995,7 +995,7 @@ export default function AdminJadwalPage() {
         }
       >
         <form id="jadwal-form" onSubmit={handleSave} className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="label">Tanggal *</label>
               <input name="tanggal" type="date" className="input" required defaultValue={editData?.tanggal?.slice(0, 10)} />
@@ -1024,7 +1024,7 @@ export default function AdminJadwalPage() {
               {kelasList.map(k => <option key={k.id} value={k.nama}>{k.nama}</option>)}
             </select>
           </div>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
               <label className="label">Jam Mulai *</label>
               <input name="jam_mulai" type="time" className="input" required defaultValue={editData?.jam_mulai} />
