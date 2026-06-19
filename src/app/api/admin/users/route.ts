@@ -10,7 +10,7 @@ export async function GET(req: NextRequest) {
   const db = createAdminClient()
   const { data, error } = await db
     .from('users')
-    .select('username, nama, role, mapel_id, last_login, status, is_tester')
+    .select('username, nama, role, last_login, status, is_tester')
     .neq('is_tester', 'YES')
     .order('nama')
 
@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
 
   const db = createAdminClient()
   const body = await req.json()
-  const { username, nama, role, password, mapel_id, status } = body
+  const { username, nama, role, password, status } = body
 
   if (!username || !nama || !role || !password) {
     return NextResponse.json({ error: 'Username, nama, role, dan password wajib diisi' }, { status: 400 })
@@ -37,7 +37,6 @@ export async function POST(req: NextRequest) {
     nama: String(nama).toUpperCase(),
     role,
     password_hash,
-    mapel_id: mapel_id || null,
     status: status ?? 'AKTIF',
   })
 
