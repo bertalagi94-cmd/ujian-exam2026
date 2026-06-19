@@ -111,7 +111,7 @@ export default function AdminUsersPage() {
       {/* Filters */}
       <div className="card py-4 flex gap-3 flex-wrap">
         <SearchInput value={search} onChange={setSearch} placeholder="Cari nama atau username..." className="flex-1 min-w-[200px]" />
-        <select value={filterRole} onChange={e => setFilterRole(e.target.value)} className="select w-40">
+        <select value={filterRole} onChange={e => setFilterRole(e.target.value)} className="select w-full sm:w-40">
           <option value="">Semua Role</option>
           {['ADMIN', 'GURU', 'KEPSEK'].map(r => (
             <option key={r} value={r}>{r}</option>
@@ -198,7 +198,7 @@ export default function AdminUsersPage() {
             <label className="label">Nama Lengkap *</label>
             <input name="nama" className="input" required defaultValue={editData?.nama} />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="label">Role *</label>
               <select name="role" className="select" required defaultValue={editData?.role ?? 'GURU'}>
