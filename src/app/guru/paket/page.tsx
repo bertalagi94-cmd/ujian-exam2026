@@ -469,7 +469,7 @@ export default function GuruBuatSoalPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
                 <label className="label">Jumlah Opsi</label>
                 <select className="select" value={jumlahOpsi} onChange={e => setJumlahOpsi(Number(e.target.value))}>
@@ -816,7 +816,7 @@ export default function GuruBuatSoalPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div>
             <label className="label">Jumlah Opsi</label>
             <select className="select" value={editJumlahOpsi} onChange={e => setEditJumlahOpsi(Number(e.target.value))}>
