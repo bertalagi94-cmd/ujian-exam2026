@@ -253,7 +253,7 @@ export default function AdminSoalPage() {
         ) : actionType === 'BATAL_SETUJUI' ? (
           <div className="space-y-3">
             <p className="text-sm text-slate-600">
-              Paket soal ini akan dikembalikan ke status <span className="font-semibold text-amber-600">Menunggu Validasi</span>. Berikan alasan pembatalan:
+              Paket soal ini akan dikembalikan ke status <span className="font-semibold text-slate-600">Draft</span>. Berikan alasan pembatalan:
             </p>
             <textarea
               className="textarea"
