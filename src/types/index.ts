@@ -4,7 +4,6 @@ export interface User {
   username: string
   nama: string
   role: Role
-  mapel_id?: string
   last_login?: string
   status: string
   is_tester?: string
