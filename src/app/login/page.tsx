@@ -582,45 +582,6 @@ export default function LoginPage() {
               dengan fitur anti-nyontek, penilaian otomatis, dan monitoring real-time.
             </p>
           </div>
-
-          <div className="grid grid-cols-3 gap-4 max-w-md">
-            {[
-              { n: '🔒', l: 'Aman', from: 'from-fuchsia-500/30', to: 'to-violet-500/10', ring: 'ring-fuchsia-300/30' },
-              { n: '⚡', l: 'Cepat', from: 'from-amber-400/30', to: 'to-orange-400/10', ring: 'ring-amber-300/30' },
-              { n: '📊', l: 'Akurat', from: 'from-cyan-400/30', to: 'to-sky-500/10', ring: 'ring-cyan-300/30' },
-            ].map(({ n, l, from, to, ring }) => (
-              <div key={l} className={`bg-gradient-to-br ${from} ${to} backdrop-blur rounded-2xl p-3.5 text-center cursor-default ring-1 ${ring} shadow-sm`}
-                style={{ transition: 'transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.35s ease' }}
-                onMouseEnter={e => {
-                  (e.currentTarget as HTMLDivElement).style.transform = 'translateY(-10px) scale(1.06)'
-                  ;(e.currentTarget as HTMLDivElement).style.boxShadow = '0 16px 32px rgba(0,0,0,0.25)'
-                }}
-                onMouseLeave={e => {
-                  (e.currentTarget as HTMLDivElement).style.transform = 'translateY(0) scale(1)'
-                  ;(e.currentTarget as HTMLDivElement).style.boxShadow = 'none'
-                }}
-              >
-                <div className="text-2xl">{n}</div>
-                <div className="text-white/90 text-xs mt-1 font-medium">{l}</div>
-              </div>
-            ))}
-          </div>
-
-          {/* Tombol panduan di sisi kiri (desktop) */}
-          <div className="flex gap-3">
-            <button type="button" onClick={() => setShowGuide(true)}
-              className="flex items-center gap-2 px-4 py-2.5 bg-white/10 hover:bg-white/20 backdrop-blur border border-white/20 rounded-2xl text-sm text-white font-medium transition-all hover:scale-105"
-            >
-              <BookMarked className="w-4 h-4" />
-              Panduan Penggunaan
-            </button>
-            <button type="button" onClick={() => setShowQA(true)}
-              className="flex items-center gap-2 px-4 py-2.5 bg-white/10 hover:bg-white/20 backdrop-blur border border-white/20 rounded-2xl text-sm text-white font-medium transition-all hover:scale-105"
-            >
-              <HelpCircle className="w-4 h-4" />
-              Q&amp;A
-            </button>
-          </div>
         </div>
 
         <div className="relative z-10 text-brand-400 text-xs mt-auto">
@@ -726,6 +687,20 @@ export default function LoginPage() {
                   <HelpCircle className="w-3.5 h-3.5" />
                   Q&amp;A / Bantuan
                 </button>
+              </div>
+
+              {/* Highlight fitur — dipindah dari panel kiri agar tidak menutupi ilustrasi */}
+              <div className="grid grid-cols-3 gap-2 pt-1">
+                {[
+                  { n: '🔒', l: 'Aman', from: 'from-fuchsia-50', to: 'to-violet-50', ring: 'ring-fuchsia-200', text: 'text-fuchsia-600' },
+                  { n: '⚡', l: 'Cepat', from: 'from-amber-50', to: 'to-orange-50', ring: 'ring-amber-200', text: 'text-amber-600' },
+                  { n: '📊', l: 'Akurat', from: 'from-cyan-50', to: 'to-sky-50', ring: 'ring-cyan-200', text: 'text-cyan-600' },
+                ].map(({ n, l, from, to, ring, text }) => (
+                  <div key={l} className={`bg-gradient-to-br ${from} ${to} rounded-xl py-2.5 text-center ring-1 ${ring}`}>
+                    <div className="text-lg">{n}</div>
+                    <div className={`text-[11px] mt-0.5 font-semibold ${text}`}>{l}</div>
+                  </div>
+                ))}
               </div>
             </div>
           </div>
