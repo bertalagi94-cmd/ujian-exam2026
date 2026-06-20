@@ -317,41 +317,54 @@ export default function LoginPage() {
   const [openQA, setOpenQA] = useState<string | null>(null)
 
   // ── Drape animation state (desktop only) ──────────────────────────────────
-  const [draped, setDraped] = useState(false)   // true = form terbuka
-  const [everOpened, setEverOpened] = useState(false)
+  // 'closed' | 'opening' | 'open' | 'closing'
+  const [drapeState, setDrapeState] = useState<'closed' | 'opening' | 'open' | 'closing'>('closed')
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const formAreaRef = useRef<HTMLDivElement>(null)
-  const isMobile = typeof window !== 'undefined' && window.innerWidth < 1024
+  const drapeAnimRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const isMobileCheck = () => typeof window !== 'undefined' && window.innerWidth < 1024
 
   const openDrape = () => {
-    if (isMobile) return
-    setDraped(true)
-    setEverOpened(true)
+    if (isMobileCheck()) return
+    setDrapeState(prev => {
+      if (prev === 'open' || prev === 'opening') return prev
+      if (drapeAnimRef.current) clearTimeout(drapeAnimRef.current)
+      drapeAnimRef.current = setTimeout(() => setDrapeState('open'), 720)
+      return 'opening'
+    })
     resetIdleTimer()
   }
 
   const closeDrape = () => {
-    if (isMobile) return
-    setDraped(false)
-    if (idleTimerRef.current) clearTimeout(idleTimerRef.current)
+    if (isMobileCheck()) return
+    setDrapeState(prev => {
+      if (prev === 'closed' || prev === 'closing') return prev
+      if (drapeAnimRef.current) clearTimeout(drapeAnimRef.current)
+      if (idleTimerRef.current) clearTimeout(idleTimerRef.current)
+      drapeAnimRef.current = setTimeout(() => setDrapeState('closed'), 480)
+      return 'closing'
+    })
   }
 
   const resetIdleTimer = () => {
-    if (isMobile) return
+    if (isMobileCheck()) return
     if (idleTimerRef.current) clearTimeout(idleTimerRef.current)
     idleTimerRef.current = setTimeout(() => {
-      setDraped(false)
+      closeDrape()
     }, 10000)
   }
 
-  // Reset idle timer on any input activity inside the form
   const handleFormActivity = () => {
-    if (draped) resetIdleTimer()
+    resetIdleTimer()
   }
+
+  const draped = drapeState === 'open' || drapeState === 'opening'
 
   useEffect(() => {
     return () => {
       if (idleTimerRef.current) clearTimeout(idleTimerRef.current)
+      if (drapeAnimRef.current) clearTimeout(drapeAnimRef.current)
     }
   }, [])
 
@@ -728,35 +741,27 @@ export default function LoginPage() {
             className="hidden lg:block"
             onMouseEnter={openDrape}
           >
-            {/* Tombol "Login Disini" — selalu terlihat */}
-            <div
-              className="relative flex justify-center"
-              style={{ zIndex: 2 }}
-            >
+            {/* Tombol "Login Disini" — lebih besar, gradient bergerak */}
+            <div className="relative flex justify-center" style={{ zIndex: 2 }}>
               <button
                 type="button"
                 onClick={openDrape}
-                className="group flex items-center gap-2 px-6 py-3 rounded-2xl text-white/80 hover:text-white font-semibold text-sm tracking-wide select-none"
+                className="btn-login-drape group flex items-center gap-3 px-10 py-4 rounded-2xl text-white font-bold text-base tracking-wide select-none cursor-pointer"
                 style={{
-                  background: draped
-                    ? 'rgba(255,255,255,0.18)'
-                    : 'rgba(255,255,255,0.10)',
-                  backdropFilter: 'blur(12px)',
-                  border: '1px solid rgba(255,255,255,0.25)',
-                  boxShadow: draped
-                    ? '0 8px 32px rgba(0,0,0,0.25)'
-                    : '0 4px 20px rgba(0,0,0,0.15)',
-                  transition: 'all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)',
+                  boxShadow: '0 4px 24px rgba(139,92,246,0.4), 0 2px 8px rgba(0,0,0,0.2)',
+                  letterSpacing: '0.04em',
                 }}
               >
-                <Lock className="w-4 h-4 opacity-70 group-hover:opacity-100 transition-opacity" />
+                <Lock className="w-5 h-5 opacity-90" />
                 <span>Login Disini</span>
                 <span
                   style={{
                     display: 'inline-block',
                     transform: draped ? 'rotate(180deg)' : 'rotate(0deg)',
-                    transition: 'transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1)',
-                    opacity: 0.7,
+                    transition: 'transform 0.55s cubic-bezier(0.34, 1.56, 0.64, 1)',
+                    fontSize: '18px',
+                    lineHeight: 1,
+                    opacity: 0.85,
                   }}
                 >
                   ▾
@@ -764,44 +769,35 @@ export default function LoginPage() {
               </button>
             </div>
 
-            {/* Kain yang terurai ke bawah */}
-            <div
-              style={{
-                overflow: 'hidden',
-                maxHeight: draped ? '700px' : '0px',
-                opacity: draped ? 1 : 0,
-                transformOrigin: 'top center',
-                transform: draped
-                  ? 'scaleY(1) translateY(0px)'
-                  : 'scaleY(0.6) translateY(-20px)',
-                transition: draped
-                  ? 'max-height 0.75s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.5s ease, transform 0.65s cubic-bezier(0.16, 1, 0.3, 1)'
-                  : 'max-height 0.6s cubic-bezier(0.7, 0, 1, 0.6), opacity 0.35s ease, transform 0.5s ease',
-                marginTop: '-1px',
-                position: 'relative',
-                zIndex: 1,
-              }}
-              onMouseEnter={resetIdleTimer}
-              onMouseMove={handleFormActivity}
-            >
-              {/* Lip / jahitan atas kain */}
-              <div style={{
-                height: '6px',
-                background: 'linear-gradient(to right, rgba(192,132,252,0.6), rgba(99,102,241,0.6), rgba(34,211,238,0.6))',
-                borderRadius: '0 0 0 0',
-                marginBottom: '-1px',
-              }} />
-
+            {/* Kain yang terurai ke bawah — pakai clip-path animation */}
+            {drapeState !== 'closed' && (
               <div
-                className="bg-white rounded-b-3xl shadow-2xl p-8"
+                key={drapeState === 'opening' ? 'open' : drapeState}
+                className={drapeState === 'closing' ? 'drape-close' : 'drape-open'}
                 style={{
-                  boxShadow: '0 32px 80px rgba(0,0,0,0.3), 0 0 0 1px rgba(255,255,255,0.05)',
+                  transformOrigin: 'top center',
+                  marginTop: '-1px',
+                  position: 'relative',
+                  zIndex: 1,
                 }}
+                onMouseEnter={resetIdleTimer}
+                onMouseMove={handleFormActivity}
               >
-                {/* Indikator idle */}
-                {draped && (
-                  <div className="mb-5 flex items-center gap-2 justify-end">
-                    <span className="text-[10px] text-slate-400">Auto-tutup dalam 10 detik jika tidak ada aktivitas</span>
+                {/* Jahitan atas kain — gradient animasi */}
+                <div style={{
+                  height: '5px',
+                  background: 'linear-gradient(90deg, #a855f7, #6366f1, #22d3ee, #6366f1, #a855f7)',
+                  backgroundSize: '300% 100%',
+                  animation: 'gradientShift 4s ease infinite',
+                }} />
+
+                <div
+                  className="bg-white rounded-b-3xl p-8"
+                  style={{ boxShadow: '0 32px 80px rgba(0,0,0,0.28), 0 0 0 1px rgba(255,255,255,0.04)' }}
+                >
+                  {/* Bar indikator idle + tutup */}
+                  <div className="mb-4 flex items-center gap-2 justify-end">
+                    <span className="text-[10px] text-slate-400">Auto-tutup dalam 10 detik tanpa aktivitas</span>
                     <button
                       type="button"
                       onClick={closeDrape}
@@ -810,100 +806,99 @@ export default function LoginPage() {
                       <X className="w-3 h-3" />
                     </button>
                   </div>
-                )}
 
-                <div className="mb-6">
-                  <h2 className="text-2xl font-bold text-slate-900">Selamat Datang</h2>
-                  <p className="text-slate-500 text-sm mt-1">Masuk ke akun Anda untuk melanjutkan</p>
-                </div>
-
-                <form onSubmit={handleLogin} className="space-y-5" onInput={handleFormActivity} onChange={handleFormActivity}>
-                  {error && (
-                    <div className="alert-error">
-                      <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-                      <span>{error}</span>
-                    </div>
-                  )}
-
-                  <div>
-                    <label className="label">Username / NIS</label>
-                    <div className="relative"
-                      style={{ transition: 'transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1)' }}
-                      onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.transform = 'scale(1.03)' }}
-                      onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.transform = 'scale(1)' }}
-                    >
-                      <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                      <input type="text" className="input pl-10" placeholder="Masukkan username atau NIS"
-                        value={form.username}
-                        onChange={e => { setForm(f => ({ ...f, username: e.target.value })); resetIdleTimer() }}
-                        autoComplete="username"
-                      />
-                    </div>
+                  <div className="mb-6">
+                    <h2 className="text-2xl font-bold text-slate-900">Selamat Datang</h2>
+                    <p className="text-slate-500 text-sm mt-1">Masuk ke akun Anda untuk melanjutkan</p>
                   </div>
 
-                  <div>
-                    <label className="label">Password</label>
-                    <div className="relative"
-                      style={{ transition: 'transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1)' }}
-                      onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.transform = 'scale(1.03)' }}
-                      onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.transform = 'scale(1)' }}
-                    >
-                      <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                      <input type={showPw ? 'text' : 'password'} className="input pl-10 pr-10"
-                        placeholder="Masukkan password"
-                        value={form.password}
-                        onChange={e => { setForm(f => ({ ...f, password: e.target.value })); resetIdleTimer() }}
-                        autoComplete="current-password"
-                      />
-                      <button type="button" onClick={() => { setShowPw(v => !v); resetIdleTimer() }}
-                        className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  <form onSubmit={handleLogin} className="space-y-5" onInput={handleFormActivity} onChange={handleFormActivity}>
+                    {error && (
+                      <div className="alert-error">
+                        <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                        <span>{error}</span>
+                      </div>
+                    )}
+
+                    <div>
+                      <label className="label">Username / NIS</label>
+                      <div className="relative"
+                        style={{ transition: 'transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1)' }}
+                        onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.transform = 'scale(1.03)' }}
+                        onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.transform = 'scale(1)' }}
                       >
-                        {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                        <input type="text" className="input pl-10" placeholder="Masukkan username atau NIS"
+                          value={form.username}
+                          onChange={e => { setForm(f => ({ ...f, username: e.target.value })); resetIdleTimer() }}
+                          autoComplete="username"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="label">Password</label>
+                      <div className="relative"
+                        style={{ transition: 'transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1)' }}
+                        onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.transform = 'scale(1.03)' }}
+                        onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.transform = 'scale(1)' }}
+                      >
+                        <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                        <input type={showPw ? 'text' : 'password'} className="input pl-10 pr-10"
+                          placeholder="Masukkan password"
+                          value={form.password}
+                          onChange={e => { setForm(f => ({ ...f, password: e.target.value })); resetIdleTimer() }}
+                          autoComplete="current-password"
+                        />
+                        <button type="button" onClick={() => { setShowPw(v => !v); resetIdleTimer() }}
+                          className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                        >
+                          {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
+                    </div>
+
+                    <button type="submit" disabled={loading} className="btn-primary w-full justify-center py-3 text-base mt-2">
+                      {loading ? (
+                        <span className="flex items-center gap-2">
+                          <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                          Masuk...
+                        </span>
+                      ) : 'Masuk'}
+                    </button>
+                  </form>
+
+                  <div className="mt-6 pt-5 border-t border-slate-100 space-y-3">
+                    <p className="text-xs text-slate-400 text-center">Lupa password? Hubungi administrator sekolah.</p>
+                    <div className="flex gap-2">
+                      <button type="button" onClick={() => { setShowGuide(true); resetIdleTimer() }}
+                        className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl border border-slate-200 text-slate-500 hover:text-brand-600 hover:border-brand-300 hover:bg-brand-50 text-xs font-medium transition-all"
+                      >
+                        <BookMarked className="w-3.5 h-3.5" /> Panduan
+                      </button>
+                      <button type="button" onClick={() => { setShowQA(true); resetIdleTimer() }}
+                        className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl border border-slate-200 text-slate-500 hover:text-brand-600 hover:border-brand-300 hover:bg-brand-50 text-xs font-medium transition-all"
+                      >
+                        <HelpCircle className="w-3.5 h-3.5" /> Q&amp;A / Bantuan
                       </button>
                     </div>
-                  </div>
-
-                  <button type="submit" disabled={loading} className="btn-primary w-full justify-center py-3 text-base mt-2">
-                    {loading ? (
-                      <span className="flex items-center gap-2">
-                        <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                        Masuk...
-                      </span>
-                    ) : 'Masuk'}
-                  </button>
-                </form>
-
-                <div className="mt-6 pt-5 border-t border-slate-100 space-y-3">
-                  <p className="text-xs text-slate-400 text-center">Lupa password? Hubungi administrator sekolah.</p>
-                  <div className="flex gap-2">
-                    <button type="button" onClick={() => { setShowGuide(true); resetIdleTimer() }}
-                      className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl border border-slate-200 text-slate-500 hover:text-brand-600 hover:border-brand-300 hover:bg-brand-50 text-xs font-medium transition-all"
-                    >
-                      <BookMarked className="w-3.5 h-3.5" /> Panduan
-                    </button>
-                    <button type="button" onClick={() => { setShowQA(true); resetIdleTimer() }}
-                      className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl border border-slate-200 text-slate-500 hover:text-brand-600 hover:border-brand-300 hover:bg-brand-50 text-xs font-medium transition-all"
-                    >
-                      <HelpCircle className="w-3.5 h-3.5" /> Q&amp;A / Bantuan
-                    </button>
-                  </div>
-                  <div className="grid grid-cols-3 gap-2 pt-1">
-                    {[
-                      { n: '🔒', l: 'Aman', from: 'from-fuchsia-50', to: 'to-violet-50', ring: 'ring-fuchsia-200', text: 'text-fuchsia-600' },
-                      { n: '⚡', l: 'Cepat', from: 'from-amber-50', to: 'to-orange-50', ring: 'ring-amber-200', text: 'text-amber-600' },
-                      { n: '📊', l: 'Akurat', from: 'from-cyan-50', to: 'to-sky-50', ring: 'ring-cyan-200', text: 'text-cyan-600' },
-                    ].map(({ n, l, from, to, ring, text }) => (
-                      <div key={l} className={`bg-gradient-to-br ${from} ${to} rounded-xl py-2.5 text-center ring-1 ${ring}`}>
-                        <div className="text-lg">{n}</div>
-                        <div className={`text-[11px] mt-0.5 font-semibold ${text}`}>{l}</div>
-                      </div>
-                    ))}
+                    <div className="grid grid-cols-3 gap-2 pt-1">
+                      {[
+                        { n: '🔒', l: 'Aman', from: 'from-fuchsia-50', to: 'to-violet-50', ring: 'ring-fuchsia-200', text: 'text-fuchsia-600' },
+                        { n: '⚡', l: 'Cepat', from: 'from-amber-50', to: 'to-orange-50', ring: 'ring-amber-200', text: 'text-amber-600' },
+                        { n: '📊', l: 'Akurat', from: 'from-cyan-50', to: 'to-sky-50', ring: 'ring-cyan-200', text: 'text-cyan-600' },
+                      ].map(({ n, l, from, to, ring, text }) => (
+                        <div key={l} className={`bg-gradient-to-br ${from} ${to} rounded-xl py-2.5 text-center ring-1 ${ring}`}>
+                          <div className="text-lg">{n}</div>
+                          <div className={`text-[11px] mt-0.5 font-semibold ${text}`}>{l}</div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
+            )}
           </div>
-
           {(siteInfo.namaSekolah || siteInfo.kota) && (
             <p className="text-center text-brand-300/60 text-xs mt-6 hidden lg:block">
               {[siteInfo.namaSekolah, siteInfo.kota].filter(Boolean).join(' · ')}
