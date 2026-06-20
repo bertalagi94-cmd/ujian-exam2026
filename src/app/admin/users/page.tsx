@@ -198,6 +198,16 @@ export default function AdminUsersPage() {
             <label className="label">Nama Lengkap *</label>
             <input name="nama" className="input" required defaultValue={editData?.nama} />
           </div>
+          <div>
+            <label className="label">Nomor WhatsApp</label>
+            <input
+              name="no_hp"
+              className="input"
+              placeholder="contoh: 6281234567890"
+              defaultValue={editData?.no_hp ?? ''}
+            />
+            <p className="text-xs text-slate-400 mt-1">Format internasional tanpa tanda "+", dipakai untuk notifikasi pengingat WA.</p>
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="label">Role *</label>
