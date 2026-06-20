@@ -7,6 +7,7 @@ export interface User {
   last_login?: string
   status: string
   is_tester?: string
+  no_hp?: string | null
 }
 
 export interface Siswa {
