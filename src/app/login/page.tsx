@@ -548,8 +548,8 @@ export default function LoginPage() {
           src="/images/siswa-sekolah.webp"
           alt=""
           aria-hidden="true"
-          className="absolute -bottom-6 left-0 w-[55vw] max-w-[700px] min-w-[380px] h-auto select-none"
-          style={{ zIndex: 1, pointerEvents: 'none' }}
+          className="absolute -bottom-6 left-0 w-[55vw] max-w-[700px] min-w-[380px] h-auto select-none transition-transform duration-500 ease-out hover:animate-float hover:scale-[1.03] hover:drop-shadow-2xl"
+          style={{ zIndex: 1 }}
         />
 
         {/* Semua konten teks dikelompokkan & dikunci di area atas agar tidak tertutup ilustrasi */}
