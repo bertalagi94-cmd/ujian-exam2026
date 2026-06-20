@@ -543,6 +543,15 @@ export default function LoginPage() {
 
       {/* Left — branding */}
       <div className="hidden lg:flex flex-col justify-between w-1/2 p-12 text-white relative">
+        {/* Ilustrasi siswa — gambar statis di public/images, posisi & ukuran diatur via CSS */}
+        <img
+          src="/images/siswa-sekolah.webp"
+          alt=""
+          aria-hidden="true"
+          className="absolute -bottom-6 left-0 w-[55vw] max-w-[700px] min-w-[380px] h-auto select-none"
+          style={{ zIndex: 1, pointerEvents: 'none' }}
+        />
+
         <div className="relative z-10">
           <div className="flex items-center gap-3 mb-2 cursor-default w-fit"
             style={{ transition: 'transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1)' }}
