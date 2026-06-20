@@ -13,6 +13,7 @@ const BACKUP_TABLES = [
   'jadwal',
   'paket_soal',
   'soal',
+  'kisi_kisi',
   'sesi_ujian',
   'siswa_ujian',
   'jawaban',
