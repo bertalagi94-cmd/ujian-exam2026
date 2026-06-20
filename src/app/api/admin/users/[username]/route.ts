@@ -10,12 +10,13 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
   if ('error' in auth) return auth.error
 
   const db = createAdminClient()
-  const { nama, role, status } = await req.json()
+  const { nama, role, status, no_hp } = await req.json()
 
   const { error } = await db.from('users').update({
     nama: nama ? String(nama).toUpperCase() : undefined,
     role: role || undefined,
     status: status || undefined,
+    no_hp: no_hp !== undefined ? (no_hp ? String(no_hp).trim() : null) : undefined,
   }).eq('username', params.username)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
