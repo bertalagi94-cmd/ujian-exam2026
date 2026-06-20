@@ -20,10 +20,10 @@ type ResetCategory = {
 const RESET_CATEGORIES: ResetCategory[] = [
   { id: 'jawaban_nilai', label: 'Jawaban & Nilai', desc: 'Hapus semua jawaban siswa, nilai, dan pelanggaran', danger: 'medium' },
   { id: 'sesi_ujian', label: 'Sesi Ujian', desc: 'Hapus sesi ujian, peserta sesi, jawaban, nilai, dan pelanggaran', danger: 'high' },
-  { id: 'soal_paket', label: 'Soal & Paket Soal', desc: 'Hapus semua soal dan paket soal beserta sesinya', danger: 'high' },
-  { id: 'jadwal', label: 'Jadwal Ujian', desc: 'Hapus semua jadwal beserta soal, sesi, dan nilai', danger: 'high' },
+  { id: 'soal_paket', label: 'Soal & Paket Soal', desc: 'Hapus semua soal, kisi-kisi, dan paket soal beserta sesinya', danger: 'high' },
+  { id: 'jadwal', label: 'Jadwal Ujian', desc: 'Hapus semua jadwal beserta soal, kisi-kisi, sesi, dan nilai', danger: 'high' },
   { id: 'siswa', label: 'Data Siswa', desc: 'Hapus semua data siswa (jawaban & nilai ikut terhapus)', danger: 'high' },
-  { id: 'kelas_mapel', label: 'Kelas & Mata Pelajaran', desc: 'Hapus kelas, mapel, beserta jadwal dan soal terkait', danger: 'high' },
+  { id: 'kelas_mapel', label: 'Kelas & Mata Pelajaran', desc: 'Hapus kelas, mapel, beserta jadwal, kisi-kisi, dan soal terkait', danger: 'high' },
   { id: 'users', label: 'Data User', desc: 'Hapus akun guru, pengawas, dan kepala sekolah', danger: 'medium' },
   { id: 'log', label: 'Log Aktivitas', desc: 'Hapus log aktivitas dan log reset', danger: 'medium' },
   { id: 'pengaturan', label: 'Pengaturan Sistem', desc: 'Reset konfigurasi sekolah ke kondisi awal', danger: 'medium' },
