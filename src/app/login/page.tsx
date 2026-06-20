@@ -316,6 +316,45 @@ export default function LoginPage() {
   const [activeRole, setActiveRole] = useState('admin')
   const [openQA, setOpenQA] = useState<string | null>(null)
 
+  // ── Drape animation state (desktop only) ──────────────────────────────────
+  const [draped, setDraped] = useState(false)   // true = form terbuka
+  const [everOpened, setEverOpened] = useState(false)
+  const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const formAreaRef = useRef<HTMLDivElement>(null)
+  const isMobile = typeof window !== 'undefined' && window.innerWidth < 1024
+
+  const openDrape = () => {
+    if (isMobile) return
+    setDraped(true)
+    setEverOpened(true)
+    resetIdleTimer()
+  }
+
+  const closeDrape = () => {
+    if (isMobile) return
+    setDraped(false)
+    if (idleTimerRef.current) clearTimeout(idleTimerRef.current)
+  }
+
+  const resetIdleTimer = () => {
+    if (isMobile) return
+    if (idleTimerRef.current) clearTimeout(idleTimerRef.current)
+    idleTimerRef.current = setTimeout(() => {
+      setDraped(false)
+    }, 10000)
+  }
+
+  // Reset idle timer on any input activity inside the form
+  const handleFormActivity = () => {
+    if (draped) resetIdleTimer()
+  }
+
+  useEffect(() => {
+    return () => {
+      if (idleTimerRef.current) clearTimeout(idleTimerRef.current)
+    }
+  }, [])
+
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
@@ -592,121 +631,281 @@ export default function LoginPage() {
       {/* Right — login form */}
       <div className="flex-1 flex items-center justify-center p-6 relative z-10">
         <div className="w-full max-w-sm">
-          {/* Mobile: logo + nama sekolah */}
-          <div className="lg:hidden flex items-center gap-3 mb-6 justify-center">
-            <SchoolLogo size="sm" siteInfo={siteInfo} />
-            <div className="min-w-0 text-left">
-              <p className="font-bold text-white text-base leading-tight line-clamp-2">{displayName}</p>
-              {!siteInfo.namaSekolah && <p className="text-brand-300 text-xs">Sistem Ujian Digital Terpercaya</p>}
+
+          {/* ── MOBILE: tampilan biasa seperti semula ── */}
+          <div className="lg:hidden">
+            {/* Mobile: logo + nama sekolah */}
+            <div className="flex items-center gap-3 mb-6 justify-center">
+              <SchoolLogo size="sm" siteInfo={siteInfo} />
+              <div className="min-w-0 text-left">
+                <p className="font-bold text-white text-base leading-tight line-clamp-2">{displayName}</p>
+                {!siteInfo.namaSekolah && <p className="text-brand-300 text-xs">Sistem Ujian Digital Terpercaya</p>}
+              </div>
+            </div>
+
+            <div className="bg-white rounded-3xl shadow-card-lg p-8">
+              <div className="mb-8">
+                <h2 className="text-2xl font-bold text-slate-900">Selamat Datang</h2>
+                <p className="text-slate-500 text-sm mt-1">Masuk ke akun Anda untuk melanjutkan</p>
+              </div>
+
+              <form onSubmit={handleLogin} className="space-y-5">
+                {error && (
+                  <div className="alert-error">
+                    <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                    <span>{error}</span>
+                  </div>
+                )}
+                <div>
+                  <label className="label">Username / NIS</label>
+                  <div className="relative">
+                    <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <input type="text" className="input pl-10" placeholder="Masukkan username atau NIS"
+                      value={form.username} onChange={e => setForm(f => ({ ...f, username: e.target.value }))}
+                      autoComplete="username" autoFocus
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="label">Password</label>
+                  <div className="relative">
+                    <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <input type={showPw ? 'text' : 'password'} className="input pl-10 pr-10"
+                      placeholder="Masukkan password"
+                      value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
+                      autoComplete="current-password"
+                    />
+                    <button type="button" onClick={() => setShowPw(v => !v)}
+                      className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                    >
+                      {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+                <button type="submit" disabled={loading} className="btn-primary w-full justify-center py-3 text-base mt-2">
+                  {loading ? (
+                    <span className="flex items-center gap-2">
+                      <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      Masuk...
+                    </span>
+                  ) : 'Masuk'}
+                </button>
+              </form>
+
+              <div className="mt-6 pt-5 border-t border-slate-100 space-y-3">
+                <p className="text-xs text-slate-400 text-center">Lupa password? Hubungi administrator sekolah.</p>
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => setShowGuide(true)}
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl border border-slate-200 text-slate-500 hover:text-brand-600 hover:border-brand-300 hover:bg-brand-50 text-xs font-medium transition-all"
+                  >
+                    <BookMarked className="w-3.5 h-3.5" /> Panduan
+                  </button>
+                  <button type="button" onClick={() => setShowQA(true)}
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl border border-slate-200 text-slate-500 hover:text-brand-600 hover:border-brand-300 hover:bg-brand-50 text-xs font-medium transition-all"
+                  >
+                    <HelpCircle className="w-3.5 h-3.5" /> Q&amp;A / Bantuan
+                  </button>
+                </div>
+                <div className="grid grid-cols-3 gap-2 pt-1">
+                  {[
+                    { n: '🔒', l: 'Aman', from: 'from-fuchsia-50', to: 'to-violet-50', ring: 'ring-fuchsia-200', text: 'text-fuchsia-600' },
+                    { n: '⚡', l: 'Cepat', from: 'from-amber-50', to: 'to-orange-50', ring: 'ring-amber-200', text: 'text-amber-600' },
+                    { n: '📊', l: 'Akurat', from: 'from-cyan-50', to: 'to-sky-50', ring: 'ring-cyan-200', text: 'text-cyan-600' },
+                  ].map(({ n, l, from, to, ring, text }) => (
+                    <div key={l} className={`bg-gradient-to-br ${from} ${to} rounded-xl py-2.5 text-center ring-1 ${ring}`}>
+                      <div className="text-lg">{n}</div>
+                      <div className={`text-[11px] mt-0.5 font-semibold ${text}`}>{l}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
 
-          <div className="bg-white rounded-3xl shadow-card-lg p-8"
-            style={{ transition: 'transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.35s ease' }}
-            onMouseEnter={e => {
-              (e.currentTarget as HTMLDivElement).style.transform = 'scale(1.03)'
-              ;(e.currentTarget as HTMLDivElement).style.boxShadow = '0 32px 64px rgba(0,0,0,0.2)'
-            }}
-            onMouseLeave={e => {
-              (e.currentTarget as HTMLDivElement).style.transform = 'scale(1)'
-              ;(e.currentTarget as HTMLDivElement).style.boxShadow = ''
-            }}
+          {/* ── DESKTOP: efek kain terurai ── */}
+          <div
+            ref={formAreaRef}
+            className="hidden lg:block"
+            onMouseEnter={openDrape}
           >
-            <div className="mb-8">
-              <h2 className="text-2xl font-bold text-slate-900">Selamat Datang</h2>
-              <p className="text-slate-500 text-sm mt-1">Masuk ke akun Anda untuk melanjutkan</p>
+            {/* Tombol "Login Disini" — selalu terlihat */}
+            <div
+              className="relative flex justify-center"
+              style={{ zIndex: 2 }}
+            >
+              <button
+                type="button"
+                onClick={openDrape}
+                className="group flex items-center gap-2 px-6 py-3 rounded-2xl text-white/80 hover:text-white font-semibold text-sm tracking-wide select-none"
+                style={{
+                  background: draped
+                    ? 'rgba(255,255,255,0.18)'
+                    : 'rgba(255,255,255,0.10)',
+                  backdropFilter: 'blur(12px)',
+                  border: '1px solid rgba(255,255,255,0.25)',
+                  boxShadow: draped
+                    ? '0 8px 32px rgba(0,0,0,0.25)'
+                    : '0 4px 20px rgba(0,0,0,0.15)',
+                  transition: 'all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)',
+                }}
+              >
+                <Lock className="w-4 h-4 opacity-70 group-hover:opacity-100 transition-opacity" />
+                <span>Login Disini</span>
+                <span
+                  style={{
+                    display: 'inline-block',
+                    transform: draped ? 'rotate(180deg)' : 'rotate(0deg)',
+                    transition: 'transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1)',
+                    opacity: 0.7,
+                  }}
+                >
+                  ▾
+                </span>
+              </button>
             </div>
 
-            <form onSubmit={handleLogin} className="space-y-5">
-              {error && (
-                <div className="alert-error">
-                  <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-                  <span>{error}</span>
-                </div>
-              )}
+            {/* Kain yang terurai ke bawah */}
+            <div
+              style={{
+                overflow: 'hidden',
+                maxHeight: draped ? '700px' : '0px',
+                opacity: draped ? 1 : 0,
+                transformOrigin: 'top center',
+                transform: draped
+                  ? 'scaleY(1) translateY(0px)'
+                  : 'scaleY(0.6) translateY(-20px)',
+                transition: draped
+                  ? 'max-height 0.75s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.5s ease, transform 0.65s cubic-bezier(0.16, 1, 0.3, 1)'
+                  : 'max-height 0.6s cubic-bezier(0.7, 0, 1, 0.6), opacity 0.35s ease, transform 0.5s ease',
+                marginTop: '-1px',
+                position: 'relative',
+                zIndex: 1,
+              }}
+              onMouseEnter={resetIdleTimer}
+              onMouseMove={handleFormActivity}
+            >
+              {/* Lip / jahitan atas kain */}
+              <div style={{
+                height: '6px',
+                background: 'linear-gradient(to right, rgba(192,132,252,0.6), rgba(99,102,241,0.6), rgba(34,211,238,0.6))',
+                borderRadius: '0 0 0 0',
+                marginBottom: '-1px',
+              }} />
 
-              <div>
-                <label className="label">Username / NIS</label>
-                <div className="relative"
-                  style={{ transition: 'transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1)' }}
-                  onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.transform = 'scale(1.03)' }}
-                  onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.transform = 'scale(1)' }}
-                >
-                  <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                  <input type="text" className="input pl-10" placeholder="Masukkan username atau NIS"
-                    value={form.username} onChange={e => setForm(f => ({ ...f, username: e.target.value }))}
-                    autoComplete="username" autoFocus
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="label">Password</label>
-                <div className="relative"
-                  style={{ transition: 'transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1)' }}
-                  onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.transform = 'scale(1.03)' }}
-                  onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.transform = 'scale(1)' }}
-                >
-                  <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                  <input type={showPw ? 'text' : 'password'} className="input pl-10 pr-10"
-                    placeholder="Masukkan password"
-                    value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
-                    autoComplete="current-password"
-                  />
-                  <button type="button" onClick={() => setShowPw(v => !v)}
-                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                  >
-                    {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-              </div>
-
-              <button type="submit" disabled={loading} className="btn-primary w-full justify-center py-3 text-base mt-2">
-                {loading ? (
-                  <span className="flex items-center gap-2">
-                    <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    Masuk...
-                  </span>
-                ) : 'Masuk'}
-              </button>
-            </form>
-
-            <div className="mt-6 pt-5 border-t border-slate-100 space-y-3">
-              <p className="text-xs text-slate-400 text-center">Lupa password? Hubungi administrator sekolah.</p>
-              {/* Tombol panduan di dalam card (mobile & desktop) */}
-              <div className="flex gap-2">
-                <button type="button" onClick={() => setShowGuide(true)}
-                  className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl border border-slate-200 text-slate-500 hover:text-brand-600 hover:border-brand-300 hover:bg-brand-50 text-xs font-medium transition-all"
-                >
-                  <BookMarked className="w-3.5 h-3.5" />
-                  Panduan
-                </button>
-                <button type="button" onClick={() => setShowQA(true)}
-                  className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl border border-slate-200 text-slate-500 hover:text-brand-600 hover:border-brand-300 hover:bg-brand-50 text-xs font-medium transition-all"
-                >
-                  <HelpCircle className="w-3.5 h-3.5" />
-                  Q&amp;A / Bantuan
-                </button>
-              </div>
-
-              {/* Highlight fitur — dipindah dari panel kiri agar tidak menutupi ilustrasi */}
-              <div className="grid grid-cols-3 gap-2 pt-1">
-                {[
-                  { n: '🔒', l: 'Aman', from: 'from-fuchsia-50', to: 'to-violet-50', ring: 'ring-fuchsia-200', text: 'text-fuchsia-600' },
-                  { n: '⚡', l: 'Cepat', from: 'from-amber-50', to: 'to-orange-50', ring: 'ring-amber-200', text: 'text-amber-600' },
-                  { n: '📊', l: 'Akurat', from: 'from-cyan-50', to: 'to-sky-50', ring: 'ring-cyan-200', text: 'text-cyan-600' },
-                ].map(({ n, l, from, to, ring, text }) => (
-                  <div key={l} className={`bg-gradient-to-br ${from} ${to} rounded-xl py-2.5 text-center ring-1 ${ring}`}>
-                    <div className="text-lg">{n}</div>
-                    <div className={`text-[11px] mt-0.5 font-semibold ${text}`}>{l}</div>
+              <div
+                className="bg-white rounded-b-3xl shadow-2xl p-8"
+                style={{
+                  boxShadow: '0 32px 80px rgba(0,0,0,0.3), 0 0 0 1px rgba(255,255,255,0.05)',
+                }}
+              >
+                {/* Indikator idle */}
+                {draped && (
+                  <div className="mb-5 flex items-center gap-2 justify-end">
+                    <span className="text-[10px] text-slate-400">Auto-tutup dalam 10 detik jika tidak ada aktivitas</span>
+                    <button
+                      type="button"
+                      onClick={closeDrape}
+                      className="w-5 h-5 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
                   </div>
-                ))}
+                )}
+
+                <div className="mb-6">
+                  <h2 className="text-2xl font-bold text-slate-900">Selamat Datang</h2>
+                  <p className="text-slate-500 text-sm mt-1">Masuk ke akun Anda untuk melanjutkan</p>
+                </div>
+
+                <form onSubmit={handleLogin} className="space-y-5" onInput={handleFormActivity} onChange={handleFormActivity}>
+                  {error && (
+                    <div className="alert-error">
+                      <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                      <span>{error}</span>
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="label">Username / NIS</label>
+                    <div className="relative"
+                      style={{ transition: 'transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1)' }}
+                      onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.transform = 'scale(1.03)' }}
+                      onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.transform = 'scale(1)' }}
+                    >
+                      <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                      <input type="text" className="input pl-10" placeholder="Masukkan username atau NIS"
+                        value={form.username}
+                        onChange={e => { setForm(f => ({ ...f, username: e.target.value })); resetIdleTimer() }}
+                        autoComplete="username"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="label">Password</label>
+                    <div className="relative"
+                      style={{ transition: 'transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1)' }}
+                      onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.transform = 'scale(1.03)' }}
+                      onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.transform = 'scale(1)' }}
+                    >
+                      <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                      <input type={showPw ? 'text' : 'password'} className="input pl-10 pr-10"
+                        placeholder="Masukkan password"
+                        value={form.password}
+                        onChange={e => { setForm(f => ({ ...f, password: e.target.value })); resetIdleTimer() }}
+                        autoComplete="current-password"
+                      />
+                      <button type="button" onClick={() => { setShowPw(v => !v); resetIdleTimer() }}
+                        className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                      >
+                        {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <button type="submit" disabled={loading} className="btn-primary w-full justify-center py-3 text-base mt-2">
+                    {loading ? (
+                      <span className="flex items-center gap-2">
+                        <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        Masuk...
+                      </span>
+                    ) : 'Masuk'}
+                  </button>
+                </form>
+
+                <div className="mt-6 pt-5 border-t border-slate-100 space-y-3">
+                  <p className="text-xs text-slate-400 text-center">Lupa password? Hubungi administrator sekolah.</p>
+                  <div className="flex gap-2">
+                    <button type="button" onClick={() => { setShowGuide(true); resetIdleTimer() }}
+                      className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl border border-slate-200 text-slate-500 hover:text-brand-600 hover:border-brand-300 hover:bg-brand-50 text-xs font-medium transition-all"
+                    >
+                      <BookMarked className="w-3.5 h-3.5" /> Panduan
+                    </button>
+                    <button type="button" onClick={() => { setShowQA(true); resetIdleTimer() }}
+                      className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl border border-slate-200 text-slate-500 hover:text-brand-600 hover:border-brand-300 hover:bg-brand-50 text-xs font-medium transition-all"
+                    >
+                      <HelpCircle className="w-3.5 h-3.5" /> Q&amp;A / Bantuan
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 pt-1">
+                    {[
+                      { n: '🔒', l: 'Aman', from: 'from-fuchsia-50', to: 'to-violet-50', ring: 'ring-fuchsia-200', text: 'text-fuchsia-600' },
+                      { n: '⚡', l: 'Cepat', from: 'from-amber-50', to: 'to-orange-50', ring: 'ring-amber-200', text: 'text-amber-600' },
+                      { n: '📊', l: 'Akurat', from: 'from-cyan-50', to: 'to-sky-50', ring: 'ring-cyan-200', text: 'text-cyan-600' },
+                    ].map(({ n, l, from, to, ring, text }) => (
+                      <div key={l} className={`bg-gradient-to-br ${from} ${to} rounded-xl py-2.5 text-center ring-1 ${ring}`}>
+                        <div className="text-lg">{n}</div>
+                        <div className={`text-[11px] mt-0.5 font-semibold ${text}`}>{l}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </div>
             </div>
           </div>
 
           {(siteInfo.namaSekolah || siteInfo.kota) && (
-            <p className="text-center text-brand-300/60 text-xs mt-6">
+            <p className="text-center text-brand-300/60 text-xs mt-6 hidden lg:block">
               {[siteInfo.namaSekolah, siteInfo.kota].filter(Boolean).join(' · ')}
             </p>
           )}
