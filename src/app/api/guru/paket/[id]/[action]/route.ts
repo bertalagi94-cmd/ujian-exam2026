@@ -39,7 +39,11 @@ export async function POST(
     const { error } = await db
       .from('paket_soal')
       // notif_dibaca=true karena ini giliran admin yang harus tahu (bukan guru)
-      .update({ status: 'MENUNGGU', jumlah_soal: count, catatan: null, notif_dibaca: true })
+      // tanggal diupdate ke waktu kirim saat ini, supaya timestamp "Dikirim" di
+      // halaman validasi admin selalu menunjukkan pengiriman TERAKHIR, bukan
+      // waktu pembuatan draft pertama kali (relevan untuk kasus kirim ulang
+      // setelah paket sebelumnya ditolak).
+      .update({ status: 'MENUNGGU', jumlah_soal: count, catatan: null, notif_dibaca: true, tanggal: new Date().toISOString() })
       .eq('id', paketId)
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
