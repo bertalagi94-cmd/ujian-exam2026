@@ -542,7 +542,7 @@ export default function LoginPage() {
       <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" style={{ pointerEvents: 'none', zIndex: 0 }} />
 
       {/* Left — branding */}
-      <div className="hidden lg:flex flex-col justify-between w-1/2 p-12 text-white relative">
+      <div className="hidden lg:flex flex-col w-1/2 p-12 text-white relative">
         {/* Ilustrasi siswa — gambar statis di public/images, posisi & ukuran diatur via CSS */}
         <img
           src="/images/siswa-sekolah.webp"
@@ -552,8 +552,9 @@ export default function LoginPage() {
           style={{ zIndex: 1, pointerEvents: 'none' }}
         />
 
-        <div className="relative z-10">
-          <div className="flex items-center gap-3 mb-2 cursor-default w-fit"
+        {/* Semua konten teks dikelompokkan & dikunci di area atas agar tidak tertutup ilustrasi */}
+        <div className="relative z-10 space-y-7">
+          <div className="flex items-center gap-3 cursor-default w-fit"
             style={{ transition: 'transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1)' }}
             onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.transform = 'scale(1.14)' }}
             onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.transform = 'scale(1)' }}
@@ -564,28 +565,34 @@ export default function LoginPage() {
               <p className="text-brand-300 text-sm">Sistem Ujian Digital Terpercaya</p>
             </div>
           </div>
-        </div>
 
-        <div className="relative z-10 space-y-6">
           <div>
             <h1 className="text-4xl font-bold leading-tight mb-3 cursor-default w-fit"
               style={{ transition: 'transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1)', display: 'inline-block', transformOrigin: 'left center' }}
               onMouseEnter={e => { (e.currentTarget as HTMLHeadingElement).style.transform = 'scale(1.08)' }}
               onMouseLeave={e => { (e.currentTarget as HTMLHeadingElement).style.transform = 'scale(1)' }}
             >
-              Ujian Digital<br />Lebih Mudah & Adil
+              Ujian Digital<br />
+              <span className="bg-gradient-to-r from-fuchsia-300 via-violet-300 to-cyan-300 bg-clip-text text-transparent">
+                Lebih Mudah & Adil
+              </span>
             </h1>
             <p className="text-brand-300 text-sm leading-relaxed max-w-xs">
               Sistem CBT modern{siteInfo.namaSekolah ? ` untuk ${siteInfo.namaSekolah}` : ''}{' '}
               dengan fitur anti-nyontek, penilaian otomatis, dan monitoring real-time.
             </p>
           </div>
-          <div className="grid grid-cols-3 gap-4">
-            {[{ n: '🔒', l: 'Aman' }, { n: '⚡', l: 'Cepat' }, { n: '📊', l: 'Akurat' }].map(({ n, l }) => (
-              <div key={l} className="bg-white/10 backdrop-blur rounded-xl p-4 text-center cursor-default"
+
+          <div className="grid grid-cols-3 gap-4 max-w-md">
+            {[
+              { n: '🔒', l: 'Aman', from: 'from-fuchsia-500/30', to: 'to-violet-500/10', ring: 'ring-fuchsia-300/30' },
+              { n: '⚡', l: 'Cepat', from: 'from-amber-400/30', to: 'to-orange-400/10', ring: 'ring-amber-300/30' },
+              { n: '📊', l: 'Akurat', from: 'from-cyan-400/30', to: 'to-sky-500/10', ring: 'ring-cyan-300/30' },
+            ].map(({ n, l, from, to, ring }) => (
+              <div key={l} className={`bg-gradient-to-br ${from} ${to} backdrop-blur rounded-2xl p-3.5 text-center cursor-default ring-1 ${ring} shadow-sm`}
                 style={{ transition: 'transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.35s ease' }}
                 onMouseEnter={e => {
-                  (e.currentTarget as HTMLDivElement).style.transform = 'translateY(-18px) scale(1.08)'
+                  (e.currentTarget as HTMLDivElement).style.transform = 'translateY(-10px) scale(1.06)'
                   ;(e.currentTarget as HTMLDivElement).style.boxShadow = '0 16px 32px rgba(0,0,0,0.25)'
                 }}
                 onMouseLeave={e => {
@@ -594,21 +601,21 @@ export default function LoginPage() {
                 }}
               >
                 <div className="text-2xl">{n}</div>
-                <div className="text-brand-300 text-xs mt-1">{l}</div>
+                <div className="text-white/90 text-xs mt-1 font-medium">{l}</div>
               </div>
             ))}
           </div>
 
           {/* Tombol panduan di sisi kiri (desktop) */}
-          <div className="flex gap-3 pt-2">
+          <div className="flex gap-3">
             <button type="button" onClick={() => setShowGuide(true)}
-              className="flex items-center gap-2 px-4 py-2.5 bg-white/10 hover:bg-white/20 backdrop-blur border border-white/20 rounded-xl text-sm text-white font-medium transition-all hover:scale-105"
+              className="flex items-center gap-2 px-4 py-2.5 bg-white/10 hover:bg-white/20 backdrop-blur border border-white/20 rounded-2xl text-sm text-white font-medium transition-all hover:scale-105"
             >
               <BookMarked className="w-4 h-4" />
               Panduan Penggunaan
             </button>
             <button type="button" onClick={() => setShowQA(true)}
-              className="flex items-center gap-2 px-4 py-2.5 bg-white/10 hover:bg-white/20 backdrop-blur border border-white/20 rounded-xl text-sm text-white font-medium transition-all hover:scale-105"
+              className="flex items-center gap-2 px-4 py-2.5 bg-white/10 hover:bg-white/20 backdrop-blur border border-white/20 rounded-2xl text-sm text-white font-medium transition-all hover:scale-105"
             >
               <HelpCircle className="w-4 h-4" />
               Q&amp;A
@@ -616,7 +623,7 @@ export default function LoginPage() {
           </div>
         </div>
 
-        <div className="relative z-10 text-brand-400 text-xs">
+        <div className="relative z-10 text-brand-400 text-xs mt-auto">
           {siteInfo.namaSekolah ? <>{siteInfo.namaSekolah} &copy; {year}</> : <>SmartExam &copy; {year}</>}
         </div>
       </div>
