@@ -1,11 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
+import { cachedFetch } from '@/lib/cache'
 
-export async function GET(req: NextRequest) {
-  const auth = requireRole(req, ['ADMIN'])
-  if ('error' in auth) return auth.error
-
+async function fetchDashboardData() {
   const db = createAdminClient()
 
   // Semua query paralel, termasuk stats agregat via RPC (tidak tarik semua baris)
@@ -66,7 +64,7 @@ export async function GET(req: NextRequest) {
     total: x.total,
   }))
 
-  return NextResponse.json({
+  return {
     stats: {
       totalSiswa: totalSiswa ?? 0,
       totalGuru: totalGuru ?? 0,
@@ -79,5 +77,15 @@ export async function GET(req: NextRequest) {
     },
     recentNilai: enrichedNilai,
     nilaiPerMapel,
-  })
+  }
+}
+
+export async function GET(req: NextRequest) {
+  const auth = requireRole(req, ['ADMIN'])
+  if ('error' in auth) return auth.error
+
+  // Cache 30 dtk — dashboard tidak perlu real-time tiap detik.
+  // Hemat 9+ query DB per refresh yang sering terjadi saat admin buka halaman berulang.
+  const data = await cachedFetch('admin:dashboard', 30, fetchDashboardData)
+  return NextResponse.json(data)
 }
