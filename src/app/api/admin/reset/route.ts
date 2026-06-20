@@ -18,10 +18,10 @@ export type ResetCategory =
 const CATEGORY_MAP: Record<ResetCategory, string[]> = {
   jawaban_nilai: ['pelanggaran', 'nilai', 'jawaban'],
   sesi_ujian: ['pelanggaran', 'nilai', 'jawaban', 'siswa_ujian', 'sesi_ujian'],
-  soal_paket: ['pelanggaran', 'nilai', 'jawaban', 'siswa_ujian', 'sesi_ujian', 'soal', 'paket_soal'],
-  jadwal: ['pelanggaran', 'nilai', 'jawaban', 'siswa_ujian', 'sesi_ujian', 'soal', 'paket_soal', 'jadwal'],
+  soal_paket: ['pelanggaran', 'nilai', 'jawaban', 'siswa_ujian', 'sesi_ujian', 'soal', 'kisi_kisi', 'paket_soal'],
+  jadwal: ['pelanggaran', 'nilai', 'jawaban', 'siswa_ujian', 'sesi_ujian', 'soal', 'kisi_kisi', 'paket_soal', 'jadwal'],
   siswa: ['pelanggaran', 'nilai', 'jawaban', 'siswa_ujian', 'siswa'],
-  kelas_mapel: ['pelanggaran', 'nilai', 'jawaban', 'siswa_ujian', 'sesi_ujian', 'soal', 'paket_soal', 'jadwal', 'kelas_mapel', 'mapel', 'kelas'],
+  kelas_mapel: ['pelanggaran', 'nilai', 'jawaban', 'siswa_ujian', 'sesi_ujian', 'soal', 'kisi_kisi', 'paket_soal', 'jadwal', 'kelas_mapel', 'mapel', 'kelas'],
   users: ['users'],
   log: ['log_aktivitas', 'log_reset'],
   pengaturan: ['pengaturan'],
@@ -34,6 +34,7 @@ const CATEGORY_MAP: Record<ResetCategory, string[]> = {
     'siswa_ujian',
     'sesi_ujian',
     'soal',
+    'kisi_kisi',
     'paket_soal',
     'jadwal',
     'users',
@@ -57,6 +58,7 @@ const TABLE_TIME_COLUMN: Record<string, string> = {
   nilai: 'timestamp',          // tabel nilai pakai kolom 'timestamp'
   jawaban: 'updated_at',       // tabel jawaban pakai kolom 'updated_at'
   siswa_ujian: 'waktu_daftar', // tabel siswa_ujian pakai kolom 'waktu_daftar'
+  kisi_kisi: 'updated_at',     // tabel kisi_kisi pakai kolom 'updated_at' (tidak ada created_at)
 }
 
 async function clearTable(
