@@ -328,13 +328,36 @@ export default function LoginPage() {
   // 'wave' = melambai-lambai memanggil untuk login
   const [mascotMood, setMascotMood] = useState<'idle' | 'sad' | 'wave'>('idle')
   const mascotTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const mascotCycleRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const mascotHoveredRef = useRef(false)
+
+  // Mood cycle: idle(10s) → sad(10s) → wave(10s) → kembali idle, dst.
+  const MOOD_CYCLE: Array<'idle' | 'sad' | 'wave'> = ['idle', 'sad', 'wave']
+  const mascotCycleIndexRef = useRef(0)
+
+  const startMascotCycle = () => {
+    if (mascotCycleRef.current) clearInterval(mascotCycleRef.current)
+    mascotCycleIndexRef.current = 0
+    setMascotMood('idle')
+    mascotCycleRef.current = setInterval(() => {
+      if (mascotHoveredRef.current) return
+      mascotCycleIndexRef.current = (mascotCycleIndexRef.current + 1) % MOOD_CYCLE.length
+      setMascotMood(MOOD_CYCLE[mascotCycleIndexRef.current])
+    }, 10000)
+  }
+
+  const stopMascotCycle = () => {
+    if (mascotCycleRef.current) { clearInterval(mascotCycleRef.current); mascotCycleRef.current = null }
+  }
 
   const handleMascotEnter = () => {
+    mascotHoveredRef.current = true
     if (mascotTimerRef.current) clearTimeout(mascotTimerRef.current)
     setMascotMood('sad')
     mascotTimerRef.current = setTimeout(() => setMascotMood('wave'), 550)
   }
   const handleMascotLeave = () => {
+    mascotHoveredRef.current = false
     if (mascotTimerRef.current) clearTimeout(mascotTimerRef.current)
     setMascotMood('idle')
   }
@@ -343,6 +366,7 @@ export default function LoginPage() {
 
   const openDrape = () => {
     if (isMobileCheck()) return
+    stopMascotCycle()
     setDrapeState(prev => {
       if (prev === 'open' || prev === 'opening') return prev
       if (drapeAnimRef.current) clearTimeout(drapeAnimRef.current)
@@ -358,7 +382,10 @@ export default function LoginPage() {
       if (prev === 'closed' || prev === 'closing') return prev
       if (drapeAnimRef.current) clearTimeout(drapeAnimRef.current)
       if (idleTimerRef.current) clearTimeout(idleTimerRef.current)
-      drapeAnimRef.current = setTimeout(() => setDrapeState('closed'), 480)
+      drapeAnimRef.current = setTimeout(() => {
+        setDrapeState('closed')
+        startMascotCycle()
+      }, 480)
       return 'closing'
     })
   }
@@ -378,10 +405,14 @@ export default function LoginPage() {
   const draped = drapeState === 'open' || drapeState === 'opening'
 
   useEffect(() => {
+    startMascotCycle()
     return () => {
       if (idleTimerRef.current) clearTimeout(idleTimerRef.current)
       if (drapeAnimRef.current) clearTimeout(drapeAnimRef.current)
+      if (mascotTimerRef.current) clearTimeout(mascotTimerRef.current)
+      stopMascotCycle()
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
@@ -760,7 +791,12 @@ export default function LoginPage() {
             {/* Tombol "Login Disini" — lebih besar, gradient bergerak */}
             <div
               className="relative flex justify-center"
-              style={{ zIndex: 2 }}
+              style={{
+                zIndex: 2,
+                opacity: drapeState === 'closed' ? 1 : 0,
+                pointerEvents: drapeState === 'closed' ? 'auto' : 'none',
+                transition: 'opacity 0.3s ease',
+              }}
               onMouseEnter={handleMascotEnter}
               onMouseLeave={handleMascotLeave}
             >
