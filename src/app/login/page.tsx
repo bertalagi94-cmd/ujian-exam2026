@@ -665,54 +665,55 @@ export default function LoginPage() {
       {/* ── Jam WITA — sudut kanan atas ── */}
       {witaTime.time && (
         <div
-          className="absolute top-4 right-5 z-20 hidden lg:flex items-center gap-2.5 select-none"
+          className="absolute top-4 right-5 z-20 hidden lg:flex items-center gap-3 select-none"
           style={{
-            background: 'linear-gradient(135deg, rgba(15,10,40,0.72) 0%, rgba(30,20,80,0.68) 100%)',
-            backdropFilter: 'blur(14px)',
-            WebkitBackdropFilter: 'blur(14px)',
-            border: '1px solid rgba(167,139,250,0.28)',
-            borderRadius: '14px',
-            padding: '7px 14px 7px 11px',
-            boxShadow: '0 2px 18px rgba(99,102,241,0.22), 0 0 0 1px rgba(255,255,255,0.04)',
+            background: 'linear-gradient(135deg, rgba(10,5,35,0.85) 0%, rgba(45,15,100,0.80) 100%)',
+            backdropFilter: 'blur(16px)',
+            WebkitBackdropFilter: 'blur(16px)',
+            border: '1.5px solid rgba(192,132,252,0.45)',
+            borderRadius: '16px',
+            padding: '10px 18px 10px 14px',
+            boxShadow: '0 4px 24px rgba(139,92,246,0.35), 0 0 0 1px rgba(255,255,255,0.06), inset 0 1px 0 rgba(255,255,255,0.08)',
           }}
         >
-          {/* Ikon jam kecil */}
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
-            <circle cx="12" cy="12" r="9.5" stroke="#a78bfa" strokeWidth="1.8" />
-            <path d="M12 7v5.5l3.5 2" stroke="#c4b5fd" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+          {/* Ikon jam */}
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
+            <circle cx="12" cy="12" r="9.5" stroke="#c084fc" strokeWidth="2" />
+            <path d="M12 7v5.5l3.5 2" stroke="#e879f9" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
 
           {/* Hari & tanggal */}
-          <span style={{ fontSize: '11.5px', color: '#c4b5fd', fontWeight: 500, letterSpacing: '0.01em', lineHeight: 1 }}>
+          <span style={{ fontSize: '14px', color: '#ddd6fe', fontWeight: 600, letterSpacing: '0.02em', lineHeight: 1 }}>
             {witaTime.day}, {witaTime.date}
           </span>
 
           {/* Divider */}
-          <span style={{ width: '1px', height: '14px', background: 'rgba(167,139,250,0.35)', flexShrink: 0 }} />
+          <span style={{ width: '1.5px', height: '18px', background: 'rgba(192,132,252,0.4)', flexShrink: 0, borderRadius: '2px' }} />
 
           {/* Jam */}
           <span style={{
-            fontSize: '13px',
-            fontWeight: 700,
-            letterSpacing: '0.06em',
+            fontSize: '17px',
+            fontWeight: 800,
+            letterSpacing: '0.08em',
             color: '#f0abfc',
             fontVariantNumeric: 'tabular-nums',
             lineHeight: 1,
-            textShadow: '0 0 8px rgba(240,171,252,0.5)',
+            textShadow: '0 0 12px rgba(240,171,252,0.7), 0 0 24px rgba(217,70,239,0.4)',
           }}>
             {witaTime.time}
           </span>
 
           {/* Badge WITA */}
           <span style={{
-            fontSize: '9px',
+            fontSize: '10.5px',
             fontWeight: 700,
-            letterSpacing: '0.08em',
-            color: '#7c3aed',
-            background: 'rgba(167,139,250,0.18)',
-            borderRadius: '6px',
-            padding: '2px 5px',
-            lineHeight: 1.2,
+            letterSpacing: '0.1em',
+            color: '#f5d0fe',
+            background: 'linear-gradient(135deg, rgba(139,92,246,0.5), rgba(217,70,239,0.4))',
+            borderRadius: '7px',
+            padding: '3px 7px',
+            lineHeight: 1.3,
+            border: '1px solid rgba(192,132,252,0.3)',
           }}>
             WITA
           </span>
