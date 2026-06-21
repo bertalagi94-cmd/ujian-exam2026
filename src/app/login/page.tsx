@@ -323,6 +323,22 @@ export default function LoginPage() {
   const formAreaRef = useRef<HTMLDivElement>(null)
   const drapeAnimRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // ── Maskot "Login Disini" (desktop only) ───────────────────────────────────
+  // 'idle' = senyum santai · 'sad' = sedih sesaat saat kursor mendekat ·
+  // 'wave' = melambai-lambai memanggil untuk login
+  const [mascotMood, setMascotMood] = useState<'idle' | 'sad' | 'wave'>('idle')
+  const mascotTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const handleMascotEnter = () => {
+    if (mascotTimerRef.current) clearTimeout(mascotTimerRef.current)
+    setMascotMood('sad')
+    mascotTimerRef.current = setTimeout(() => setMascotMood('wave'), 550)
+  }
+  const handleMascotLeave = () => {
+    if (mascotTimerRef.current) clearTimeout(mascotTimerRef.current)
+    setMascotMood('idle')
+  }
+
   const isMobileCheck = () => typeof window !== 'undefined' && window.innerWidth < 1024
 
   const openDrape = () => {
@@ -742,7 +758,57 @@ export default function LoginPage() {
             onMouseEnter={openDrape}
           >
             {/* Tombol "Login Disini" — lebih besar, gradient bergerak */}
-            <div className="relative flex justify-center" style={{ zIndex: 2 }}>
+            <div
+              className="relative flex justify-center"
+              style={{ zIndex: 2 }}
+              onMouseEnter={handleMascotEnter}
+              onMouseLeave={handleMascotLeave}
+            >
+              {/* ── Maskot di atas tombol ── */}
+              <div className="absolute -top-16 left-1/2 -translate-x-1/2" style={{ zIndex: 3 }}>
+                <svg
+                  width="64" height="64" viewBox="0 0 64 64"
+                  className={mascotMood === 'idle' ? 'mascot-bounce' : ''}
+                >
+                  {/* Kepala */}
+                  <circle cx="32" cy="32" r="26" fill="#fde68a" stroke="#f59e0b" strokeWidth="2" />
+
+                  {/* Mata */}
+                  {mascotMood === 'sad' ? (
+                    <>
+                      <path d="M19 26 q4 -5 9 0" stroke="#7c2d12" strokeWidth="2.5" fill="none" strokeLinecap="round" />
+                      <path d="M36 26 q4 -5 9 0" stroke="#7c2d12" strokeWidth="2.5" fill="none" strokeLinecap="round" />
+                    </>
+                  ) : (
+                    <>
+                      <circle cx="23" cy="28" r="2.6" fill="#7c2d12" />
+                      <circle cx="41" cy="28" r="2.6" fill="#7c2d12" />
+                    </>
+                  )}
+
+                  {/* Mulut */}
+                  {mascotMood === 'sad' ? (
+                    <path d="M22 42 q10 -8 20 0" stroke="#7c2d12" strokeWidth="2.5" fill="none" strokeLinecap="round" />
+                  ) : (
+                    <path d="M22 36 q10 8 20 0" stroke="#7c2d12" strokeWidth="2.5" fill="none" strokeLinecap="round" />
+                  )}
+
+                  {/* Tangan melambai */}
+                  <g
+                    className={mascotMood === 'wave' ? 'mascot-wave' : ''}
+                    style={{
+                      transformOrigin: '50px 38px',
+                      opacity: mascotMood === 'wave' ? 1 : 0,
+                      transition: 'opacity 0.2s ease',
+                    }}
+                  >
+                    <circle cx="50" cy="38" r="2" fill="#7c2d12" />
+                    <path d="M50 38 L58 24" stroke="#f59e0b" strokeWidth="5" strokeLinecap="round" />
+                    <circle cx="58" cy="24" r="4.5" fill="#fde68a" stroke="#f59e0b" strokeWidth="2" />
+                  </g>
+                </svg>
+              </div>
+
               <button
                 type="button"
                 onClick={openDrape}
