@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
 
   const [
     { data: nilaiAda },
-    { data: siswaUjian },
+    { data: siswaUjian, error: siswaUjianError },
     { data: paketData },
     { data: mapel },
   ] = await Promise.all([
@@ -57,6 +57,19 @@ export async function POST(req: NextRequest) {
     db.from('paket_soal').select('id, acak').eq('mapel_id', sesi.mapel_id).eq('kelas_id', kelasId).eq('status', 'DISETUJUI').limit(1).single(),
     db.from('mapel').select('nama').eq('id', sesi.mapel_id).single(),
   ])
+
+  // FIX: .single() mengembalikan error (PGRST116) kalau baris belum ada
+  // sama sekali — itu wajar untuk siswa baru. Tapi error LAIN (misal kolom
+  // tidak ada di skema, koneksi gagal, dst) harus dianggap kegagalan nyata,
+  // bukan "siswa belum pernah masuk". Kalau ini dibiarkan tanpa cek, error
+  // semacam itu membuat siswa dianggap selalu "entry baru" tanpa pernah
+  // benar-benar tersimpan di siswa_ujian (lihat riwayat bug LOADTEST).
+  if (siswaUjianError && siswaUjianError.code !== 'PGRST116') {
+    return NextResponse.json(
+      { valid: false, message: 'Gagal memeriksa status ujian Anda. Coba lagi beberapa saat.' },
+      { status: 500 }
+    )
+  }
 
   if (nilaiAda) return NextResponse.json({ valid: false, message: 'Anda sudah menyelesaikan ujian ini.' })
   if (siswaUjian?.status === 'TERKUNCI') return NextResponse.json({ valid: false, message: 'Akun Anda dikunci permanen oleh pengawas karena pelanggaran berulang. Nilai Anda 0.' })
@@ -79,7 +92,7 @@ export async function POST(req: NextRequest) {
 
   // FIX race condition: gunakan upsert dengan ignoreDuplicates
   // agar submit ganda dari klik 2x tidak menghasilkan 2 row di siswa_ujian
-  const [{ data: soalList }] = await Promise.all([
+  const [{ data: soalList }, siswaUjianWriteResult] = await Promise.all([
     soalQuery,
     isNewEntry
       ? db.from('siswa_ujian').upsert({   // ← FIX: was insert
@@ -91,6 +104,17 @@ export async function POST(req: NextRequest) {
         }, { onConflict: 'sesi_id,nis', ignoreDuplicates: true })
       : db.from('siswa_ujian').update({ status: 'AKTIF' }).eq('sesi_id', sesi.id).eq('nis', nis),
   ])
+
+  // FIX: kalau penulisan ke siswa_ujian gagal, JANGAN tetap balas valid:true.
+  // Sebelumnya error di sini diabaikan total — siswa tetap bisa mulai ujian
+  // padahal baris siswa_ujian-nya tidak pernah tersimpan, sehingga monitoring
+  // pengawas selalu kosong dan timer/anti-kecurangan tidak punya data.
+  if (siswaUjianWriteResult.error) {
+    return NextResponse.json(
+      { valid: false, message: 'Gagal mendaftarkan Anda ke sesi ujian. Coba lagi beberapa saat.' },
+      { status: 500 }
+    )
+  }
 
   if (!soalList?.length) return NextResponse.json({ valid: false, message: 'Tidak ada soal tersedia untuk ujian ini. Pastikan paket soal sudah disetujui.' })
 
