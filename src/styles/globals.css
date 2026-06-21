@@ -283,3 +283,20 @@
 .btn-login-drape:active {
   transform: scale(0.97);
 }
+
+/* ── Maskot "Login Disini" ──────────────────────────────────────────── */
+@keyframes mascotBounce {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-4px); }
+}
+.mascot-bounce {
+  animation: mascotBounce 2.2s ease-in-out infinite;
+}
+@keyframes mascotWave {
+  0%, 100% { transform: rotate(0deg); }
+  25%      { transform: rotate(-22deg); }
+  75%      { transform: rotate(18deg); }
+}
+.mascot-wave {
+  animation: mascotWave 0.45s ease-in-out infinite;
+}
