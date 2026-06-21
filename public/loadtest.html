@@ -199,8 +199,11 @@
         <select id="cfg-max-siswa">
           <option value="50">50</option>
           <option value="100">100</option>
-          <option value="150" selected>150</option>
-          <option value="200">200</option>
+          <option value="150">150</option>
+          <option value="200" selected>200</option>
+          <option value="300">300</option>
+          <option value="400">400</option>
+          <option value="500">500</option>
         </select>
       </div>
       <div class="field">
@@ -296,12 +299,18 @@ const state = {
   baseUrl: '',
   adminToken: null,
   guruToken: null,
+  kepsekUsername: null,
+  kepsekToken: null,
+  pengawasUsername: null,
+  pengawasToken: null,
+  baselineSiswaAktif: null,
   runId: null,           // contoh: LOADTEST_1750500000000
   kelasNama: null,
   guruUsername: null,
   mapelId: null,
   mapelNama: null,
   paketId: null,
+  firstSoalId: null,      // id salah satu soal di paket — dipakai tes admin/guru soal by id
   jadwalId: null,
   sesiId: null,
   kodeSesi: null,
@@ -378,6 +387,62 @@ async function api(method, path, body, token) {
 }
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// Smoke-test satu endpoint: catat OK/gagal secara konsisten ke log + bug list.
+// Dipakai khusus untuk endpoint "fitur lain" yang tidak butuh assertion rumit
+// — cukup pastikan tidak error dan strukturnya seperti yang diharapkan.
+async function checkEndpoint(label, method, path, body, token) {
+  const r = await api(method, path, body, token);
+  if (r.ok) {
+    log(`✓ ${label}: OK`, 'ok');
+  } else {
+    recordBug(`${label} gagal dimuat`, JSON.stringify(r.data ?? r.error), `${method} ${path}`);
+  }
+  return r;
+}
+
+// Untuk skenario yang SEHARUSNYA ditolak aplikasi (password salah, kode sesi
+// salah, akses lintas-kelas, role tidak sesuai, dst). Beda dengan checkEndpoint:
+// di sini SUKSES justru berarti ada BUG (lubang validasi/otorisasi).
+// opts.checkValidFalse: untuk endpoint yang selalu balas HTTP 200 tapi punya
+// field `valid:false` di body sebagai cara menolak (gaya umum di app ini).
+async function expectRejected(label, method, path, body, token, opts = {}) {
+  const r = await api(method, path, body, token);
+  const ditolakDenganBenar = opts.checkValidFalse
+    ? (r.data && r.data.valid === false)
+    : !r.ok;
+  if (ditolakDenganBenar) {
+    log(`✓ ${label}: ditolak dengan benar`, 'ok');
+  } else {
+    recordBug(
+      `${label} — SEHARUSNYA DITOLAK tapi malah diterima aplikasi`,
+      `Status HTTP: ${r.status}. Body: ${JSON.stringify(r.data)}`,
+      `${method} ${path}`
+    );
+  }
+  return r;
+}
+
+// Untuk operasi yang BOLEH dipanggil berulang (idempotent) dan HARUS
+// menghasilkan data yang konsisten setiap kali, misal submit ujian dua kali.
+async function expectIdempotent(label, method, path, body, token, compareFields) {
+  const r1 = await api(method, path, body, token);
+  const r2 = await api(method, path, body, token);
+  if (!r1.ok || !r2.ok) {
+    recordBug(`${label} — gagal saat diuji idempotensi`, `Panggilan 1: ${JSON.stringify(r1.data)}. Panggilan 2: ${JSON.stringify(r2.data)}`, `${method} ${path}`);
+    return;
+  }
+  const beda = compareFields.filter(f => JSON.stringify(r1.data?.[f]) !== JSON.stringify(r2.data?.[f]));
+  if (beda.length > 0) {
+    recordBug(
+      `${label} — hasil berubah saat dipanggil 2x (tidak idempotent)`,
+      `Field yang berbeda: ${beda.join(', ')}. Panggilan 1: ${JSON.stringify(r1.data)}. Panggilan 2: ${JSON.stringify(r2.data)}`,
+      `${method} ${path}`
+    );
+  } else {
+    log(`✓ ${label}: konsisten saat dipanggil 2x (idempotent)`, 'ok');
+  }
+}
 
 // ---------- UI: phase track ----------
 function renderPhaseTrack(activeKey, doneKeys = [], failedKey = null) {
@@ -685,15 +750,7 @@ async function phaseApprove() {
   state.jadwalId = myJadwal.id;
   log(`Jadwal dibuat: ${state.jadwalId}`, 'ok');
 
-  // CATATAN TEMUAN: endpoint buka sesi (POST /api/pengawas/sesi) hanya
-  // mengizinkan role PENGAWAS dan ADMIN — TIDAK GURU. Tapi endpoint
-  // monitoring (GET .../siswa) dan tutup sesi (POST .../tutup) hanya
-  // mengizinkan GURU dan ADMIN — TIDAK PENGAWAS. Ini inkonsistensi role
-  // di aplikasi: seseorang dengan role PENGAWAS murni tidak bisa
-  // memonitor/menutup sesi yang baru dia buka sendiri. Untuk skrip ini,
-  // ADMIN dipakai konsisten di ketiga endpoint agar testing bisa lanjut;
-  // baris ini juga sudah dicatat sebagai bug terpisah di laporan akhir.
-  setAction('Membuka sesi ujian (sebagai admin — lihat catatan inkonsistensi role di laporan)…');
+  setAction('Membuka sesi ujian (sebagai admin)…');
   state.kodeSesi = `LT${Date.now().toString().slice(-6)}`;
   const sesiRes = await api('POST', '/api/pengawas/sesi', {
     jadwalId: state.jadwalId,
@@ -704,11 +761,6 @@ async function phaseApprove() {
     throw new Error('Sesi ujian gagal dibuka.');
   }
   state.sesiId = sesiRes.data.sesiId;
-  recordBug(
-    'Inkonsistensi role pada endpoint sesi ujian (ditemukan otomatis)',
-    'POST /api/pengawas/sesi hanya mengizinkan role PENGAWAS dan ADMIN. Tapi GET /api/pengawas/sesi/[id]/siswa (monitoring) dan POST /api/pengawas/sesi/[id]/tutup (tutup sesi) hanya mengizinkan GURU dan ADMIN — TIDAK PENGAWAS. Akibatnya: pengguna dengan role PENGAWAS murni bisa membuka sesi tapi tidak bisa memonitor atau menutup sesi yang dia buka sendiri. Disarankan menambahkan PENGAWAS ke daftar role yang diizinkan di kedua endpoint tersebut.',
-    'Konsistensi role: PENGAWAS vs GURU vs ADMIN'
-  );
   log(`Sesi ujian dibuka. Kode sesi: ${state.kodeSesi}`, 'ok');
 }
 
@@ -716,9 +768,16 @@ async function phaseApprove() {
 // FASE 4 — RAMP-UP: buat siswa & login bertahap (20 -> target)
 // =====================================================================
 async function phaseRamp() {
-  const maxSiswa = parseInt(document.getElementById('cfg-max-siswa').value) || 150;
-  const steps = [20, 50, 100, 150, 200].filter(s => s <= maxSiswa);
+  const maxSiswa = parseInt(document.getElementById('cfg-max-siswa').value) || 200;
+  const steps = [20, 50, 100, 150, 200, 300, 400, 500].filter(s => s <= maxSiswa);
   if (steps[steps.length - 1] !== maxSiswa) steps.push(maxSiswa);
+
+  // Tangkap baseline dashboard SEBELUM siswa testing dibuat, untuk nanti
+  // dibandingkan di fase edge-case — supaya ketahuan kalau data testing
+  // ikut "mencemari" angka statistik dashboard sekolah asli selama test
+  // berjalan (sebelum cleanup dijalankan).
+  const baseline = await api('GET', '/api/admin/dashboard', undefined, state.adminToken);
+  state.baselineSiswaAktif = baseline.data?.totalSiswa ?? null;
 
   const { batchSize, delayBetweenBatches } = getSpeedConfig();
   let createdSoFar = 0;
@@ -863,14 +922,91 @@ async function phaseExam() {
 }
 
 // =====================================================================
-// FASE 6 — FITUR LAIN (monitoring pengawas, dashboard admin/kepsek/guru)
+// FASE 6 — FITUR LAIN (dashboard semua peran, fitur pengawas, kisi-kisi,
+// rekap nilai, notifikasi, endpoint publik, dan mini-flow reset siswa
+// akibat pelanggaran). Endpoint yang DESTRUKTIF/BERAT (backup, restore,
+// reset database, import massal, cetak PDF, duplikasi paket) SENGAJA
+// tidak dipanggil otomatis di sini — lihat catatan di akhir fase.
 // =====================================================================
 async function phaseFeatures() {
-  setAction('Menguji dashboard admin…');
-  const dashAdmin = await api('GET', '/api/admin/dashboard', undefined, state.adminToken);
-  if (!dashAdmin.ok) recordBug('Dashboard admin gagal dimuat', JSON.stringify(dashAdmin.data), 'GET /api/admin/dashboard');
-  else log('Dashboard admin: OK', 'ok');
+  const siswaUji = state.siswaList.find(s => s.token); // 1 siswa contoh untuk endpoint sisi siswa
 
+  // ---------- 6a. Dashboard tiap peran ----------
+  setAction('Menguji dashboard tiap peran (admin/guru/siswa)…');
+  await checkEndpoint('Dashboard admin', 'GET', '/api/admin/dashboard', undefined, state.adminToken);
+  await checkEndpoint('Dashboard guru', 'GET', '/api/guru/dashboard', undefined, state.guruToken);
+  if (siswaUji) await checkEndpoint('Dashboard siswa', 'GET', '/api/siswa/dashboard', undefined, siswaUji.token);
+
+  // ---------- 6b. Buat akun KEPSEK testing untuk uji endpoint kepala sekolah ----------
+  setAction('Membuat akun kepsek testing…');
+  state.kepsekUsername = `${state.runId}_kepsek`;
+  const kepsekRes = await api('POST', '/api/admin/users', {
+    username: state.kepsekUsername,
+    nama: `KEPSEK LOADTEST ${state.runId}`,
+    role: 'KEPSEK',
+    password: 'LoadTest123!',
+    status: 'AKTIF',
+  }, state.adminToken);
+  if (kepsekRes.ok) {
+    const kepsekLogin = await api('POST', '/api/auth/login', { username: state.kepsekUsername, password: 'LoadTest123!' });
+    if (kepsekLogin.ok) {
+      state.kepsekToken = kepsekLogin.data.token;
+      log('Akun kepsek testing dibuat & login OK', 'ok');
+      setAction('Menguji dashboard & laporan kepsek…');
+      await checkEndpoint('Dashboard kepsek', 'GET', '/api/kepsek/dashboard', undefined, state.kepsekToken);
+      await checkEndpoint('Jadwal kepsek', 'GET', '/api/kepsek/jadwal', undefined, state.kepsekToken);
+      await checkEndpoint('Monitoring kepsek', 'GET', '/api/kepsek/monitoring', undefined, state.kepsekToken);
+      await checkEndpoint('Rekap nilai kepsek', 'GET', `/api/kepsek/nilai?mapel_id=${state.mapelId}`, undefined, state.kepsekToken);
+    } else {
+      recordBug('Login kepsek testing gagal', JSON.stringify(kepsekLogin.data), 'POST /api/auth/login');
+    }
+  } else {
+    recordBug('Gagal membuat akun kepsek testing', JSON.stringify(kepsekRes.data), 'POST /api/admin/users');
+  }
+
+  // ---------- 6c. Mini-flow: pelanggaran siswa → reset oleh pengawas → verifikasi kode ----------
+  // Dilakukan dengan 1 siswa KHUSUS (bukan siswa yang dipakai di simulasi
+  // ujian massal) agar tidak mengacaukan status/nilai 200 siswa yang sudah
+  // submit normal. Harus dijalankan SELAGI sesi masih BERJALAN.
+  setAction('Menguji alur pelanggaran → reset siswa → verifikasi kode…');
+  const nisReset = `${state.runId}_RESETFLOW`;
+  const buatSiswaReset = await api('POST', '/api/admin/siswa', {
+    nis: nisReset, nama: 'SISWA LOADTEST RESETFLOW', kelas: state.kelasNama, jenis_kelamin: 'LAKI-LAKI',
+  }, state.adminToken);
+  if (buatSiswaReset.ok) {
+    state.siswaList.push({ nis: nisReset, password: nisReset });
+    const loginReset = await api('POST', '/api/auth/login', { username: nisReset, password: nisReset });
+    if (loginReset.ok) {
+      const tokenReset = loginReset.data.token;
+      const masuk = await api('POST', '/api/siswa/ujian/validasi', { kodeSesi: state.kodeSesi, nis: nisReset }, tokenReset);
+      if (masuk.ok && masuk.data?.valid) {
+        const lapor = await checkEndpoint('Lapor pelanggaran (sisi siswa)', 'POST', '/api/siswa/ujian/pelanggaran',
+          { sesiId: state.sesiId, jenis: 'TES_OTOMATIS', detail: 'Dipicu otomatis oleh load test' }, tokenReset);
+        if (lapor.ok) {
+          const reset = await checkEndpoint('Reset siswa (sisi pengawas)', 'POST', `/api/pengawas/sesi/${state.sesiId}/reset-siswa`,
+            { nis: nisReset }, state.guruToken);
+          if (reset.ok && reset.data?.kode_reset) {
+            await checkEndpoint('Verifikasi kode reset (sisi siswa)', 'POST', '/api/siswa/ujian/verifikasi-reset',
+              { sesiId: state.sesiId, kodeReset: reset.data.kode_reset }, tokenReset);
+          } else if (reset.ok) {
+            log('Reset siswa OK tapi tidak ada kode_reset (mungkin langsung dikunci permanen) — verifikasi kode dilewati', 'warn');
+          }
+        }
+      } else {
+        recordBug('Siswa khusus uji reset gagal masuk ujian', JSON.stringify(masuk.data), 'POST /api/siswa/ujian/validasi');
+      }
+      // Cek status sesi dari sisi siswa (polling) sebelum sesi ditutup
+      await checkEndpoint('Cek status sesi (polling siswa)', 'GET', `/api/siswa/ujian/cek-sesi?sesiId=${state.sesiId}`, undefined, tokenReset);
+      // Selesaikan ujian siswa ini juga, supaya datanya konsisten & ikut tercakup saat cleanup
+      await api('POST', '/api/siswa/ujian/selesai', { sesiId: state.sesiId, nis: nisReset }, tokenReset);
+    } else {
+      recordBug('Login siswa khusus uji reset gagal', JSON.stringify(loginReset.data), 'POST /api/auth/login');
+    }
+  } else {
+    recordBug('Gagal membuat siswa khusus uji alur reset', JSON.stringify(buatSiswaReset.data), 'POST /api/admin/siswa');
+  }
+
+  // ---------- 6d. Monitoring pengawas real-time ----------
   setAction('Menguji monitoring pengawas real-time…');
   const monitor = await api('GET', `/api/pengawas/sesi/${state.sesiId}/siswa`, undefined, state.guruToken);
   const monitorCount = monitor.data?.data?.length ?? 0;
@@ -887,20 +1023,214 @@ async function phaseFeatures() {
     log(`Monitoring pengawas: OK (${monitorCount} siswa terlihat)`, 'ok');
   }
 
-  setAction('Menguji rekap nilai guru…');
-  const nilaiGuru = await api('GET', `/api/guru/nilai?mapel_id=${state.mapelId}`, undefined, state.guruToken);
-  if (!nilaiGuru.ok) recordBug('Rekap nilai guru gagal dimuat', JSON.stringify(nilaiGuru.data), 'GET /api/guru/nilai');
-  else log('Rekap nilai guru: OK', 'ok');
+  // ---------- 6e. Fitur pengawas lainnya ----------
+  setAction('Menguji jadwal & log pelanggaran pengawas…');
+  await checkEndpoint('Jadwal pengawas', 'GET', '/api/pengawas/jadwal', undefined, state.guruToken);
+  await checkEndpoint('Log pelanggaran pengawas', 'GET', `/api/pengawas/pelanggaran?sesiId=${state.sesiId}`, undefined, state.guruToken);
 
-  setAction('Menguji analisis ujian admin…');
-  const analisis = await api('GET', `/api/admin/analisis-ujian?sesi_id=${state.sesiId}`, undefined, state.adminToken);
-  if (!analisis.ok) recordBug('Analisis ujian gagal dimuat', JSON.stringify(analisis.data), 'GET /api/admin/analisis-ujian');
-  else log('Analisis ujian admin: OK', 'ok');
+  // ---------- 6f. Rekap nilai & analisis ----------
+  setAction('Menguji rekap nilai & analisis ujian…');
+  await checkEndpoint('Rekap nilai guru', 'GET', `/api/guru/nilai?mapel_id=${state.mapelId}`, undefined, state.guruToken);
+  await checkEndpoint('Analisis ujian admin', 'GET', `/api/admin/analisis-ujian?sesi_id=${state.sesiId}`, undefined, state.adminToken);
+  await checkEndpoint('Analisis ujian guru', 'GET', `/api/guru/analisis-ujian?sesi_id=${state.sesiId}`, undefined, state.guruToken);
+  await checkEndpoint('Rekap nilai admin', 'GET', `/api/admin/nilai?mapel_id=${state.mapelId}`, undefined, state.adminToken);
 
+  // ---------- 6g. Kisi-kisi, paket soal, jadwal pengawasan guru ----------
+  setAction('Menguji fitur kisi-kisi, paket soal, & jadwal pengawasan guru…');
+  await checkEndpoint('Kisi-kisi admin', 'GET', '/api/admin/kisi-kisi', undefined, state.adminToken);
+  await checkEndpoint('Kisi-kisi guru', 'GET', '/api/guru/kisi-kisi', undefined, state.guruToken);
+  await checkEndpoint('Mapel & kelas yang diampu guru', 'GET', '/api/guru/kisi-kisi/mapel-ampu', undefined, state.guruToken);
+  await checkEndpoint('Wali kelas guru', 'GET', '/api/guru/wali-kelas', undefined, state.guruToken);
+  await checkEndpoint('Jadwal pengawasan guru', 'GET', '/api/guru/jadwal-pengawasan', undefined, state.guruToken);
+  await checkEndpoint('Sesi terlupa (guru)', 'GET', '/api/guru/sesi-terlupa', undefined, state.guruToken);
+  await checkEndpoint('Daftar soal dalam paket (guru)', 'GET', `/api/guru/paket/${state.paketId}/soal`, undefined, state.guruToken);
+  await checkEndpoint('Daftar soal dalam paket (admin)', 'GET', `/api/admin/soal/${state.paketId}/soal`, undefined, state.adminToken);
+  await checkEndpoint('Rangkuman kesiapan jadwal (admin)', 'GET', '/api/admin/jadwal/rangkuman', undefined, state.adminToken);
+
+  // ---------- 6h. Notifikasi & data referensi siswa ----------
+  setAction('Menguji notifikasi & data referensi siswa…');
+  await checkEndpoint('Notifikasi admin', 'GET', '/api/notif', undefined, state.adminToken);
+  await checkEndpoint('Notifikasi guru', 'GET', '/api/notif', undefined, state.guruToken);
+  await checkEndpoint('Daftar pengguna (admin)', 'GET', '/api/admin/users', undefined, state.adminToken);
+  await checkEndpoint('Daftar kelas (admin)', 'GET', '/api/admin/kelas', undefined, state.adminToken);
+  if (siswaUji) {
+    await checkEndpoint('Jadwal siswa', 'GET', '/api/siswa/jadwal', undefined, siswaUji.token);
+    await checkEndpoint('Kisi-kisi siswa', 'GET', '/api/siswa/kisi-kisi', undefined, siswaUji.token);
+    await checkEndpoint('Nilai siswa', 'GET', '/api/siswa/nilai', undefined, siswaUji.token);
+  }
+
+  // ---------- 6i. Endpoint publik (tanpa token) ----------
+  setAction('Menguji endpoint publik (tanpa login)…');
+  await checkEndpoint('Pengaturan publik (tanpa token)', 'GET', '/api/public/pengaturan', undefined, undefined);
+
+  // ---------- 6j. Akun PENGAWAS asli — bukan guru — untuk verifikasi role sungguhan ----------
+  setAction('Membuat akun PENGAWAS asli untuk verifikasi role…');
+  state.pengawasUsername = `${state.runId}_pengawas`;
+  const pengawasRes = await api('POST', '/api/admin/users', {
+    username: state.pengawasUsername,
+    nama: `PENGAWAS LOADTEST ${state.runId}`,
+    role: 'PENGAWAS',
+    password: 'LoadTest123!',
+    status: 'AKTIF',
+  }, state.adminToken);
+  if (pengawasRes.ok) {
+    const pengawasLogin = await api('POST', '/api/auth/login', { username: state.pengawasUsername, password: 'LoadTest123!' });
+    if (pengawasLogin.ok) {
+      state.pengawasToken = pengawasLogin.data.token;
+      // Dipakai NYATA dengan token role PENGAWAS murni — bukan guru/admin —
+      // supaya benar-benar membuktikan role ini punya akses, bukan cuma
+      // berdasar baca kode.
+      await checkEndpoint('Monitoring siswa (token PENGAWAS asli)', 'GET', `/api/pengawas/sesi/${state.sesiId}/siswa`, undefined, state.pengawasToken);
+      await checkEndpoint('Jadwal pengawas (token PENGAWAS asli)', 'GET', '/api/pengawas/jadwal', undefined, state.pengawasToken);
+      await checkEndpoint('Log pelanggaran (token PENGAWAS asli)', 'GET', `/api/pengawas/pelanggaran?sesiId=${state.sesiId}`, undefined, state.pengawasToken);
+    } else {
+      recordBug('Login akun PENGAWAS testing gagal', JSON.stringify(pengawasLogin.data), 'POST /api/auth/login');
+    }
+  } else {
+    recordBug('Gagal membuat akun PENGAWAS testing', JSON.stringify(pengawasRes.data), 'POST /api/admin/users');
+  }
+
+  // ---------- 6k. Cross-check konsistensi angka antar endpoint ----------
+  setAction('Memeriksa konsistensi angka antar endpoint…');
+  const soalCountTarget = parseInt(document.getElementById('cfg-soal-count').value) || 200;
+  const dashGuru = await api('GET', '/api/guru/dashboard', undefined, state.guruToken);
+  if (dashGuru.ok && typeof dashGuru.data?.totalSoal === 'number' && dashGuru.data.totalSoal !== soalCountTarget) {
+    recordBug(
+      'guru/dashboard.totalSoal tidak sesuai jumlah soal yang sebenarnya dibuat',
+      `Diharapkan ${soalCountTarget} soal (sesuai konfigurasi & log "X/${soalCountTarget} soal berhasil dibuat"), tapi guru/dashboard melaporkan totalSoal=${dashGuru.data.totalSoal}.`,
+      'GET /api/guru/dashboard'
+    );
+  } else if (dashGuru.ok) {
+    log(`✓ guru/dashboard.totalSoal konsisten (${dashGuru.data.totalSoal})`, 'ok');
+  }
+
+  // ---------- 6l. Skenario "kesalahan pengguna" & batas otorisasi (selagi sesi MASIH BERJALAN) ----------
+  setAction('Menguji skenario kesalahan pengguna & batas otorisasi…');
+
+  // a) Kode sesi yang salah/ngarang harus ditolak, bukan malah diterima
+  await expectRejected(
+    'Validasi ujian dengan kode sesi yang salah',
+    'POST', '/api/siswa/ujian/validasi',
+    { kodeSesi: 'NGARANG999', nis: state.siswaList[0]?.nis },
+    state.siswaList[0]?.token,
+    { checkValidFalse: true }
+  );
+
+  // b) Siswa dari KELAS LAIN mencoba masuk ke sesi ujian kelas testing kita
+  //    — harus ditolak karena kelasnya tidak cocok dengan sesi.
+  const kelasLain = `${state.runId}_LAINKELAS`;
+  const nisLainKelas = `${state.runId}_LINTASKELAS`;
+  const buatSiswaLain = await api('POST', '/api/admin/siswa', {
+    nis: nisLainKelas, nama: 'SISWA LOADTEST LINTAS KELAS', kelas: kelasLain, jenis_kelamin: 'PEREMPUAN',
+  }, state.adminToken);
+  if (buatSiswaLain.ok) {
+    const loginLain = await api('POST', '/api/auth/login', { username: nisLainKelas, password: nisLainKelas });
+    if (loginLain.ok) {
+      await expectRejected(
+        'Siswa dari kelas lain mencoba masuk ke sesi ujian kelas testing',
+        'POST', '/api/siswa/ujian/validasi',
+        { kodeSesi: state.kodeSesi, nis: nisLainKelas },
+        loginLain.data.token,
+        { checkValidFalse: true }
+      );
+    }
+  }
+
+  // c) Submit ujian DUA KALI oleh siswa yang sama — harus konsisten (idempotent),
+  //    bukan menghasilkan nilai berbeda atau baris nilai ganda.
+  const siswaSelesai = state.siswaList.find(s => s.token);
+  if (siswaSelesai) {
+    await expectIdempotent(
+      'Submit ujian 2x oleh siswa yang sama',
+      'POST', '/api/siswa/ujian/selesai',
+      { sesiId: state.sesiId, nis: siswaSelesai.nis },
+      siswaSelesai.token,
+      ['nilai', 'grade', 'benar', 'total', 'lulus']
+    );
+  }
+
+  // d) Login dengan password SALAH harus ditolak
+  await expectRejected('Login admin dengan password salah', 'POST', '/api/auth/login',
+    { username: document.getElementById('cfg-admin-user').value.trim(), password: 'PASSWORD_SALAH_SENGAJA' }, undefined);
+
+  // e) Login dengan username yang TIDAK ADA harus ditolak
+  await expectRejected('Login dengan username yang tidak ada', 'POST', '/api/auth/login',
+    { username: `TIDAK_ADA_${Date.now()}`, password: 'apapun123' }, undefined);
+
+  // f) Membuat siswa dengan NIS yang SUDAH ADA (duplikat) harus ditolak, bukan
+  //    menimpa data diam-diam atau crash 500.
+  if (state.siswaList[0]) {
+    await expectRejected('Membuat siswa dengan NIS duplikat', 'POST', '/api/admin/siswa',
+      { nis: state.siswaList[0].nis, nama: 'DUPLIKAT TEST', kelas: state.kelasNama, jenis_kelamin: 'LAKI-LAKI' },
+      state.adminToken);
+  }
+
+  // g) Token acak/rusak dipakai ke endpoint admin harus ditolak (401), bukan crash (500)
+  const garbageRes = await api('GET', '/api/admin/dashboard', undefined, 'TOKEN_ACAK_TIDAK_VALID_12345');
+  if (garbageRes.status === 500) {
+    recordBug('Token rusak menyebabkan server error 500 (seharusnya 401)', JSON.stringify(garbageRes.data), 'GET /api/admin/dashboard');
+  } else if (!garbageRes.ok) {
+    log('✓ Token rusak ditolak dengan benar (bukan 500)', 'ok');
+  } else {
+    recordBug('Token rusak/acak malah DITERIMA aplikasi', JSON.stringify(garbageRes.data), 'GET /api/admin/dashboard');
+  }
+
+  // h) Role mismatch: token SISWA dipakai untuk akses endpoint khusus ADMIN
+  if (siswaSelesai) {
+    await expectRejected('Token siswa dipakai untuk akses endpoint admin', 'GET', '/api/admin/dashboard', undefined, siswaSelesai.token);
+  }
+
+  // ---------- 6m. Tutup sesi ujian ----------
   setAction('Menutup sesi ujian…');
   const tutup = await api('POST', `/api/pengawas/sesi/${state.sesiId}/tutup`, {}, state.guruToken);
   if (!tutup.ok) recordBug('Gagal menutup sesi ujian', JSON.stringify(tutup.data), `POST /api/pengawas/sesi/${state.sesiId}/tutup`);
   else log('Sesi ujian ditutup: OK', 'ok');
+
+  // ---------- 6n. SETELAH sesi ditutup: pastikan siswa tidak bisa lagi sync/masuk ----------
+  setAction('Menguji bahwa sesi yang sudah ditutup benar-benar terkunci…');
+  if (siswaSelesai) {
+    const syncSetelahTutup = await api('POST', '/api/siswa/ujian/sync',
+      { sesiId: state.sesiId, jawaban: [{ soal_id: 'SL_TIDAKADA', jawaban: 'A' }] }, siswaSelesai.token);
+    if (syncSetelahTutup.ok) {
+      recordBug(
+        'Sync jawaban TETAP DITERIMA walau sesi sudah ditutup',
+        `Sesi ${state.sesiId} sudah berstatus SELESAI, tapi POST /api/siswa/ujian/sync masih membalas sukses: ${JSON.stringify(syncSetelahTutup.data)}. Seharusnya ditolak karena ujian sudah resmi ditutup pengawas.`,
+        'POST /api/siswa/ujian/sync (setelah sesi ditutup)'
+      );
+    } else {
+      log('✓ Sync jawaban ditolak dengan benar setelah sesi ditutup', 'ok');
+    }
+  }
+  await expectRejected(
+    'Validasi masuk ujian setelah sesi ditutup',
+    'POST', '/api/siswa/ujian/validasi',
+    { kodeSesi: state.kodeSesi, nis: `${state.runId}_TIDAKADA` },
+    state.adminToken, // token role salah pun cukup untuk uji ini, fokusnya status sesi
+    { checkValidFalse: true }
+  );
+
+  // ---------- 6o. Cek pencemaran statistik dashboard akibat data testing ----------
+  setAction('Memeriksa apakah data testing mencemari statistik dashboard…');
+  const afterDash = await api('GET', '/api/admin/dashboard', undefined, state.adminToken);
+  const afterSiswaAktif = afterDash.data?.totalSiswa;
+  if (typeof state.baselineSiswaAktif === 'number' && typeof afterSiswaAktif === 'number') {
+    const selisih = afterSiswaAktif - state.baselineSiswaAktif;
+    const jumlahSiswaTesting = state.siswaList.length;
+    if (selisih >= jumlahSiswaTesting * 0.9) { // toleransi sedikit kalau ada aktivitas asli bersamaan
+      recordBug(
+        'Data siswa testing ikut tercatat di statistik dashboard production',
+        `totalSiswa di admin/dashboard naik dari ${state.baselineSiswaAktif} menjadi ${afterSiswaAktif} (selisih ${selisih}) setelah ${jumlahSiswaTesting} siswa testing dibuat. Tabel siswa punya kolom "is_tester" yang seharusnya bisa dipakai untuk mengecualikan siswa testing dari statistik ini (dashboard sudah filter .neq("is_tester","YES")), TAPI endpoint POST /api/admin/siswa yang dipakai load test ini tidak mendukung parameter is_tester, sehingga siswa testing tetap dihitung "YA aktif" di dashboard sekolah asli sampai cleanup dijalankan. Disarankan: tambahkan dukungan parameter is_tester di POST /api/admin/siswa & POST /api/admin/users, lalu load test mengirim is_tester:"YES" saat membuat data testing.`,
+        'GET /api/admin/dashboard (sebelum vs sesudah ramp-up)'
+      );
+    } else {
+      log(`✓ Statistik dashboard tidak banyak terpengaruh data testing (selisih ${selisih} dari ${jumlahSiswaTesting} siswa testing)`, 'ok');
+    }
+  }
+
+  log(
+    'Catatan: endpoint backup, restore, reset database, import massal, cetak PDF, dan duplikasi paket soal SENGAJA tidak diuji otomatis di sini karena destruktif/berat untuk dijalankan berulang terhadap data production — sebaiknya dites manual secara terpisah.',
+    'warn'
+  );
 }
 
 // =====================================================================
@@ -1002,14 +1332,16 @@ async function previewCleanup() {
 
   const kelasNama = runId;
   const guruUsername = `${runId}_guru`;
+  const kepsekUsername = `${runId}_kepsek`;
 
   // Hitung siswa di kelas ini
   const siswaRes = await api('GET', `/api/admin/siswa?per_page=1&kelas=${encodeURIComponent(kelasNama)}`, undefined, state.adminToken);
   const jumlahSiswa = siswaRes.data?.total ?? 'tidak diketahui';
 
-  // Cek user guru
+  // Cek user guru & kepsek
   const usersRes = await api('GET', '/api/admin/users', undefined, state.adminToken);
   const guruExists = usersRes.data?.data?.some(u => u.username === guruUsername);
+  const kepsekExists = usersRes.data?.data?.some(u => u.username === kepsekUsername);
 
   // Cek jadwal
   const jadwalRes = await api('GET', `/api/admin/jadwal?kelas=${encodeURIComponent(kelasNama)}`, undefined, state.adminToken);
@@ -1020,6 +1352,7 @@ async function previewCleanup() {
     <table>
       <tr><td>Kelas testing</td><td class="num">${escapeHtml(kelasNama)} (${jumlahSiswa} siswa di dalamnya)</td></tr>
       <tr><td>Akun guru testing</td><td class="num">${guruExists ? escapeHtml(guruUsername) : 'tidak ditemukan'}</td></tr>
+      <tr><td>Akun kepsek testing</td><td class="num">${kepsekExists ? escapeHtml(kepsekUsername) : 'tidak ditemukan'}</td></tr>
       <tr><td>Jadwal ujian testing</td><td class="num">${jumlahJadwal} jadwal</td></tr>
     </table>
     <p style="margin:12px 0 0;font-size:11.5px;color:var(--muted)">
@@ -1077,6 +1410,24 @@ async function confirmCleanup() {
     const delGuru = await api('DELETE', `/api/admin/users/${guruUsername}`, undefined, state.adminToken);
     if (delGuru.ok) log(`Akun guru testing "${guruUsername}" dihapus`, 'ok');
     else log(`Gagal menghapus guru testing: ${JSON.stringify(delGuru.data)}`, 'warn');
+
+    // 5. Hapus akun kepsek testing (kalau ada — dibuat di Fase 6 Fitur Lain)
+    const kepsekUsername = `${runId}_kepsek`;
+    const delKepsek = await api('DELETE', `/api/admin/users/${kepsekUsername}`, undefined, state.adminToken);
+    if (delKepsek.ok) log(`Akun kepsek testing "${kepsekUsername}" dihapus`, 'ok');
+    else log(`Akun kepsek testing tidak ditemukan/sudah tidak ada (${JSON.stringify(delKepsek.data)})`, 'info');
+
+    // 6. Hapus akun pengawas testing (kalau ada — dibuat di Fase 6 Fitur Lain)
+    const pengawasUsername = `${runId}_pengawas`;
+    const delPengawas = await api('DELETE', `/api/admin/users/${pengawasUsername}`, undefined, state.adminToken);
+    if (delPengawas.ok) log(`Akun pengawas testing "${pengawasUsername}" dihapus`, 'ok');
+    else log(`Akun pengawas testing tidak ditemukan/sudah tidak ada (${JSON.stringify(delPengawas.data)})`, 'info');
+
+    // 7. Hapus kelas "lintas kelas" + siswanya (dibuat untuk uji skenario akses lintas-kelas)
+    const kelasLain = `${runId}_LAINKELAS`;
+    const delKelasLain = await api('DELETE', '/api/admin/kelas', { nama: kelasLain }, state.adminToken);
+    if (delKelasLain.ok) log(`Kelas uji lintas-kelas "${kelasLain}" dan siswanya dihapus`, 'ok');
+    else log(`Kelas uji lintas-kelas tidak ditemukan/sudah tidak ada (${JSON.stringify(delKelasLain.data)})`, 'info');
 
     log('Cleanup selesai. Lihat catatan di atas untuk baris data yatim (nilai/jawaban) yang perlu dibersihkan manual lewat Supabase SQL Editor jika diinginkan.', 'ok');
     alert('Cleanup selesai. Cek log aktivitas untuk detail apa yang berhasil/gagal dihapus.');
