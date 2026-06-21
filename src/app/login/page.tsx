@@ -568,6 +568,28 @@ export default function LoginPage() {
   const displayName = siteInfo.namaSekolah || 'SmartExam'
   const year = new Date().getFullYear()
 
+  // ── Jam WITA realtime ──────────────────────────────────────────────────────
+  const [witaTime, setWitaTime] = useState<{ day: string; date: string; time: string }>({ day: '', date: '', time: '' })
+  useEffect(() => {
+    const DAYS = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu']
+    const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Ags', 'Sep', 'Okt', 'Nov', 'Des']
+    const tick = () => {
+      const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Makassar' }))
+      const d = now.getDay(), dt = now.getDate(), mo = now.getMonth(), yr = now.getFullYear()
+      const h = String(now.getHours()).padStart(2, '0')
+      const m = String(now.getMinutes()).padStart(2, '0')
+      const s = String(now.getSeconds()).padStart(2, '0')
+      setWitaTime({
+        day: DAYS[d],
+        date: `${dt} ${MONTHS[mo]} ${yr}`,
+        time: `${h}:${m}:${s}`,
+      })
+    }
+    tick()
+    const id = setInterval(tick, 1000)
+    return () => clearInterval(id)
+  }, [])
+
   const activeRoleData = ROLES.find(r => r.id === activeRole) ?? ROLES[0]
 
   return (
@@ -639,6 +661,63 @@ export default function LoginPage() {
       </svg>
 
       <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" style={{ pointerEvents: 'none', zIndex: 0 }} />
+
+      {/* ── Jam WITA — sudut kanan atas ── */}
+      {witaTime.time && (
+        <div
+          className="absolute top-4 right-5 z-20 hidden lg:flex items-center gap-2.5 select-none"
+          style={{
+            background: 'linear-gradient(135deg, rgba(15,10,40,0.72) 0%, rgba(30,20,80,0.68) 100%)',
+            backdropFilter: 'blur(14px)',
+            WebkitBackdropFilter: 'blur(14px)',
+            border: '1px solid rgba(167,139,250,0.28)',
+            borderRadius: '14px',
+            padding: '7px 14px 7px 11px',
+            boxShadow: '0 2px 18px rgba(99,102,241,0.22), 0 0 0 1px rgba(255,255,255,0.04)',
+          }}
+        >
+          {/* Ikon jam kecil */}
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
+            <circle cx="12" cy="12" r="9.5" stroke="#a78bfa" strokeWidth="1.8" />
+            <path d="M12 7v5.5l3.5 2" stroke="#c4b5fd" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+
+          {/* Hari & tanggal */}
+          <span style={{ fontSize: '11.5px', color: '#c4b5fd', fontWeight: 500, letterSpacing: '0.01em', lineHeight: 1 }}>
+            {witaTime.day}, {witaTime.date}
+          </span>
+
+          {/* Divider */}
+          <span style={{ width: '1px', height: '14px', background: 'rgba(167,139,250,0.35)', flexShrink: 0 }} />
+
+          {/* Jam */}
+          <span style={{
+            fontSize: '13px',
+            fontWeight: 700,
+            letterSpacing: '0.06em',
+            color: '#f0abfc',
+            fontVariantNumeric: 'tabular-nums',
+            lineHeight: 1,
+            textShadow: '0 0 8px rgba(240,171,252,0.5)',
+          }}>
+            {witaTime.time}
+          </span>
+
+          {/* Badge WITA */}
+          <span style={{
+            fontSize: '9px',
+            fontWeight: 700,
+            letterSpacing: '0.08em',
+            color: '#7c3aed',
+            background: 'rgba(167,139,250,0.18)',
+            borderRadius: '6px',
+            padding: '2px 5px',
+            lineHeight: 1.2,
+          }}>
+            WITA
+          </span>
+        </div>
+      )}
 
       {/* Left — branding */}
       <div className="hidden lg:flex flex-col w-1/2 p-12 text-white relative">
