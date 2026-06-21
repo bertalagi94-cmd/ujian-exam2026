@@ -19,6 +19,16 @@ export async function POST(req: NextRequest) {
 
   if (!sesiId) return NextResponse.json({ error: 'sesiId diperlukan' }, { status: 400 })
 
+  // FIX: sebelumnya endpoint ini menerima & menyimpan jawaban TANPA pernah
+  // mengecek status sesi — siswa tetap bisa sync jawaban walau sesi sudah
+  // ditutup pengawas (status SELESAI). Ditemukan otomatis oleh load test
+  // (skenario "sync setelah sesi ditutup seharusnya ditolak").
+  const { data: sesi } = await db.from('sesi_ujian').select('status').eq('id', sesiId).single()
+  if (!sesi) return NextResponse.json({ error: 'Sesi tidak ditemukan' }, { status: 404 })
+  if (sesi.status !== 'BERJALAN') {
+    return NextResponse.json({ error: 'Sesi ujian sudah ditutup, jawaban tidak bisa disimpan lagi.' }, { status: 409 })
+  }
+
   if (Array.isArray(jawaban) && jawaban.length > 0) {
     const records = jawaban.map((j: { soal_id: string; jawaban: string }) => ({
       sesi_id: sesiId,
