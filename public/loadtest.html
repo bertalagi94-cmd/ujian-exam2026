@@ -1201,13 +1201,22 @@ async function phaseFeatures() {
       log('✓ Sync jawaban ditolak dengan benar setelah sesi ditutup', 'ok');
     }
   }
-  await expectRejected(
-    'Validasi masuk ujian setelah sesi ditutup',
-    'POST', '/api/siswa/ujian/validasi',
-    { kodeSesi: state.kodeSesi, nis: `${state.runId}_TIDAKADA` },
-    state.adminToken, // token role salah pun cukup untuk uji ini, fokusnya status sesi
-    { checkValidFalse: true }
-  );
+ if (siswaSelesai) {
+    // PENTING: harus pakai token SISWA asli (bukan admin/role lain). Endpoint
+    // /api/siswa/ujian/validasi mengecek role dulu (requireRole(['SISWA'])) —
+    // kalau dikasih token admin, request ditolak 403 di tahap role check
+    // SEBELUM sampai ke logika status sesi, jadi tes ini jadi tidak menguji
+    // apa-apa soal sesi tertutup (selalu "sukses ditolak" walau alasannya beda).
+    await expectRejected(
+      'Validasi masuk ujian setelah sesi ditutup',
+      'POST', '/api/siswa/ujian/validasi',
+      { kodeSesi: state.kodeSesi, nis: siswaSelesai.nis },
+      siswaSelesai.token,
+      { checkValidFalse: true }
+    );
+  } else {
+    log('Lewati cek "validasi masuk ujian setelah sesi ditutup": tidak ada token siswa yang tersedia.', 'warn');
+  }
 
   // ---------- 6o. Cek pencemaran statistik dashboard akibat data testing ----------
   setAction('Memeriksa apakah data testing mencemari statistik dashboard…');
