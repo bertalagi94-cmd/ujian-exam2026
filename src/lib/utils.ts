@@ -61,8 +61,16 @@ export function generateKodeSesi(): string {
   return code
 }
 
+// FIX: sebelumnya hanya `${prefix}_${Date.now()}` — Date.now() presisi
+// milidetik, sehingga dua request yang sampai di server pada milidetik
+// yang sama (mudah terjadi saat banyak insert paralel/serentak, misalnya
+// banyak guru menyimpan soal di waktu hampir bersamaan) menghasilkan ID
+// identik dan gagal dengan "duplicate key value violates unique
+// constraint". Suffix acak di akhir menghilangkan kemungkinan collision
+// ini sepenuhnya, termasuk pada beban tinggi.
 export function generateId(prefix: string): string {
-  return `${prefix}_${Date.now()}`
+  const random = Math.random().toString(36).slice(2, 8)
+  return `${prefix}_${Date.now()}_${random}`
 }
 
 export function apiRequest<T = unknown>(
