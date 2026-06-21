@@ -18,7 +18,7 @@ function generateKodeReset(): string {
 // Reset status siswa yang di-reset agar harus memasukkan kode 7 digit untuk masuk lagi
 // Jawaban TIDAK dihapus
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
-  const auth = requireRole(req, ['GURU', 'ADMIN'])
+  const auth = requireRole(req, ['PENGAWAS', 'GURU', 'ADMIN'])
   if ('error' in auth) return auth.error
 
   const db = createAdminClient()
