@@ -873,8 +873,19 @@ async function phaseFeatures() {
 
   setAction('Menguji monitoring pengawas real-time…');
   const monitor = await api('GET', `/api/pengawas/sesi/${state.sesiId}/siswa`, undefined, state.guruToken);
-  if (!monitor.ok) recordBug('Monitoring pengawas gagal dimuat', JSON.stringify(monitor.data), `GET /api/pengawas/sesi/${state.sesiId}/siswa`);
-  else log(`Monitoring pengawas: OK (${monitor.data?.data?.length ?? 0} siswa terlihat)`, 'ok');
+  const monitorCount = monitor.data?.data?.length ?? 0;
+  const expectedCount = state.siswaList.filter(s => s.token).length;
+  if (!monitor.ok) {
+    recordBug('Monitoring pengawas gagal dimuat', JSON.stringify(monitor.data), `GET /api/pengawas/sesi/${state.sesiId}/siswa`);
+  } else if (monitorCount === 0 && expectedCount > 0) {
+    recordBug(
+      'Monitoring pengawas menampilkan 0 siswa padahal seharusnya ada',
+      `Sesi ID dipakai: ${state.sesiId}. Status respons HTTP: ${monitor.status}. Jumlah siswa yang berhasil login & submit: ${expectedCount}. Body respons mentah: ${JSON.stringify(monitor.data)}. Token guru yang dipakai milik: ${state.guruUsername}.`,
+      `GET /api/pengawas/sesi/${state.sesiId}/siswa`
+    );
+  } else {
+    log(`Monitoring pengawas: OK (${monitorCount} siswa terlihat)`, 'ok');
+  }
 
   setAction('Menguji rekap nilai guru…');
   const nilaiGuru = await api('GET', `/api/guru/nilai?mapel_id=${state.mapelId}`, undefined, state.guruToken);
