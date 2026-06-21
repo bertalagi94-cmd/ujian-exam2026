@@ -685,17 +685,30 @@ async function phaseApprove() {
   state.jadwalId = myJadwal.id;
   log(`Jadwal dibuat: ${state.jadwalId}`, 'ok');
 
-  setAction('Membuka sesi ujian (sebagai guru/pengawas)…');
+  // CATATAN TEMUAN: endpoint buka sesi (POST /api/pengawas/sesi) hanya
+  // mengizinkan role PENGAWAS dan ADMIN — TIDAK GURU. Tapi endpoint
+  // monitoring (GET .../siswa) dan tutup sesi (POST .../tutup) hanya
+  // mengizinkan GURU dan ADMIN — TIDAK PENGAWAS. Ini inkonsistensi role
+  // di aplikasi: seseorang dengan role PENGAWAS murni tidak bisa
+  // memonitor/menutup sesi yang baru dia buka sendiri. Untuk skrip ini,
+  // ADMIN dipakai konsisten di ketiga endpoint agar testing bisa lanjut;
+  // baris ini juga sudah dicatat sebagai bug terpisah di laporan akhir.
+  setAction('Membuka sesi ujian (sebagai admin — lihat catatan inkonsistensi role di laporan)…');
   state.kodeSesi = `LT${Date.now().toString().slice(-6)}`;
   const sesiRes = await api('POST', '/api/pengawas/sesi', {
     jadwalId: state.jadwalId,
     kodeSesi: state.kodeSesi,
-  }, state.guruToken);
+  }, state.adminToken);
   if (!sesiRes.ok) {
     recordBug('Gagal membuka sesi ujian', JSON.stringify(sesiRes.data), 'POST /api/pengawas/sesi');
     throw new Error('Sesi ujian gagal dibuka.');
   }
   state.sesiId = sesiRes.data.sesiId;
+  recordBug(
+    'Inkonsistensi role pada endpoint sesi ujian (ditemukan otomatis)',
+    'POST /api/pengawas/sesi hanya mengizinkan role PENGAWAS dan ADMIN. Tapi GET /api/pengawas/sesi/[id]/siswa (monitoring) dan POST /api/pengawas/sesi/[id]/tutup (tutup sesi) hanya mengizinkan GURU dan ADMIN — TIDAK PENGAWAS. Akibatnya: pengguna dengan role PENGAWAS murni bisa membuka sesi tapi tidak bisa memonitor atau menutup sesi yang dia buka sendiri. Disarankan menambahkan PENGAWAS ke daftar role yang diizinkan di kedua endpoint tersebut.',
+    'Konsistensi role: PENGAWAS vs GURU vs ADMIN'
+  );
   log(`Sesi ujian dibuka. Kode sesi: ${state.kodeSesi}`, 'ok');
 }
 
