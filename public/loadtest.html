@@ -1,0 +1,1100 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SmartExam CBT — Load Test Console</title>
+<style>
+  :root {
+    --bg: #0a1518;
+    --panel: #0f1f23;
+    --panel-2: #122a2f;
+    --border: #1c3a40;
+    --teal: #02c39a;
+    --teal-dim: #028090;
+    --text: #e8f5f3;
+    --muted: #7fa8a3;
+    --red: #ff5c5c;
+    --amber: #ffb84d;
+    --green: #2ecc71;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
+    min-height: 100vh;
+  }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 24px 20px 80px; }
+  header { display: flex; align-items: center; gap: 14px; margin-bottom: 6px; }
+  .logo {
+    width: 38px; height: 38px; border-radius: 10px;
+    background: linear-gradient(135deg, var(--teal), var(--teal-dim));
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 800; font-size: 18px; color: #04201d; flex-shrink: 0;
+  }
+  h1 { font-size: 18px; margin: 0; letter-spacing: 0.5px; }
+  .sub { color: var(--muted); font-size: 12.5px; margin: 2px 0 0; }
+  .banner {
+    background: #1a1208; border: 1px solid #4d3a14; color: var(--amber);
+    border-radius: 10px; padding: 12px 14px; font-size: 12.5px; line-height: 1.5;
+    margin: 18px 0;
+  }
+  .panel {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 14px; padding: 18px 20px; margin-bottom: 16px;
+  }
+  .panel h2 {
+    font-size: 13px; text-transform: uppercase; letter-spacing: 1px;
+    color: var(--teal); margin: 0 0 14px; display: flex; align-items: center; gap: 8px;
+  }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
+  .field { display: flex; flex-direction: column; gap: 5px; min-width: 130px; flex: 1; }
+  .field label { font-size: 11px; color: var(--muted); }
+  .field input, .field select {
+    background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
+    padding: 9px 10px; border-radius: 8px; font-family: inherit; font-size: 13px;
+  }
+  .field input:focus, .field select:focus { outline: none; border-color: var(--teal-dim); }
+  button {
+    font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+    border: none; border-radius: 9px; padding: 11px 20px; transition: all .15s;
+  }
+  .btn-primary { background: var(--teal); color: #04201d; }
+  .btn-primary:hover { background: #03e0ad; transform: translateY(-1px); }
+  .btn-primary:disabled { background: #1e3a3e; color: var(--muted); cursor: not-allowed; transform: none; }
+  .btn-danger { background: var(--red); color: #200505; }
+  .btn-danger:hover { background: #ff7575; }
+  .btn-danger:disabled { background: #3a1e1e; color: var(--muted); cursor: not-allowed; }
+  .btn-ghost { background: transparent; border: 1px solid var(--border); color: var(--text); }
+  .btn-ghost:hover { border-color: var(--teal-dim); }
+
+  #phase-track { display: flex; gap: 6px; margin: 16px 0; flex-wrap: wrap; }
+  .phase-chip {
+    flex: 1; min-width: 90px; text-align: center; padding: 8px 6px; border-radius: 8px;
+    background: var(--panel-2); border: 1px solid var(--border); font-size: 11px; color: var(--muted);
+    transition: all .25s;
+  }
+  .phase-chip.active { border-color: var(--teal); color: var(--teal); background: #0d2b26; }
+  .phase-chip.done { border-color: #1d5c4a; color: var(--green); }
+  .phase-chip.failed { border-color: var(--red); color: var(--red); }
+
+  .progress-outer {
+    background: var(--panel-2); border-radius: 999px; height: 22px; overflow: hidden;
+    border: 1px solid var(--border); position: relative;
+  }
+  .progress-inner {
+    height: 100%; background: linear-gradient(90deg, var(--teal-dim), var(--teal));
+    width: 0%; transition: width .3s ease; display: flex; align-items: center; justify-content: flex-end;
+    padding-right: 8px;
+  }
+  .progress-label {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    font-size: 11px; font-weight: 700; color: #04201d; text-shadow: 0 1px 0 rgba(255,255,255,.15);
+    z-index: 2;
+  }
+  .progress-label.outside { color: var(--text); text-shadow: none; }
+
+  .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-top: 14px; }
+  .stat-box { background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 12px; }
+  .stat-box .v { font-size: 22px; font-weight: 700; }
+  .stat-box .l { font-size: 10.5px; color: var(--muted); margin-top: 2px; text-transform: uppercase; letter-spacing: .5px; }
+  .stat-box.ok .v { color: var(--green); }
+  .stat-box.warn .v { color: var(--amber); }
+  .stat-box.err .v { color: var(--red); }
+
+  #log {
+    background: #060d0f; border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px 14px; height: 220px; overflow-y: auto; font-size: 12px; line-height: 1.65;
+  }
+  .log-line { display: flex; gap: 8px; }
+  .log-time { color: #44666a; flex-shrink: 0; }
+  .log-line.info .log-msg { color: var(--text); }
+  .log-line.ok .log-msg { color: var(--green); }
+  .log-line.warn .log-msg { color: var(--amber); }
+  .log-line.err .log-msg { color: var(--red); }
+  .log-line.bug .log-msg { color: #ff7eb6; font-weight: 700; }
+
+  #bug-list { display: flex; flex-direction: column; gap: 10px; }
+  .bug-card {
+    background: #1a0e14; border: 1px solid #4a1f30; border-radius: 10px; padding: 12px 14px;
+  }
+  .bug-card .title { color: #ff7eb6; font-weight: 700; font-size: 13px; margin-bottom: 4px; }
+  .bug-card .meta { color: var(--muted); font-size: 11px; margin-bottom: 6px; }
+  .bug-card .detail { color: var(--text); font-size: 12px; white-space: pre-wrap; word-break: break-word; }
+  .empty-state { color: var(--muted); font-size: 12.5px; text-align: center; padding: 20px 0; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 600; text-transform: uppercase; font-size: 10.5px; letter-spacing: .5px; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tr.row-warn td { color: var(--amber); }
+  tr.row-bad td { color: var(--red); }
+
+  .pill { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 10.5px; font-weight: 700; }
+  .pill.ok { background: #103a2c; color: var(--green); }
+  .pill.warn { background: #3a2c10; color: var(--amber); }
+  .pill.bad { background: #3a1010; color: var(--red); }
+
+  details summary { cursor: pointer; color: var(--teal); font-size: 12px; }
+  code { background: #0c1c1f; padding: 1px 5px; border-radius: 4px; font-size: 11.5px; }
+
+  #cleanup-summary { display: none; }
+  .check-row { display: flex; align-items: flex-start; gap: 8px; font-size: 12.5px; margin-bottom: 8px; }
+  .check-row input { margin-top: 3px; }
+
+  ::-webkit-scrollbar { width: 8px; }
+  ::-webkit-scrollbar-thumb { background: #1c3a40; border-radius: 4px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="logo">SE</div>
+    <div>
+      <h1>SmartExam CBT — Load Test Console</h1>
+      <p class="sub">Pengujian beban &amp; fungsional menyeluruh · dijalankan dari browser Anda sendiri</p>
+    </div>
+  </header>
+
+  <div class="banner">
+    ⚠️ <strong>Alat ini akan membuat data sungguhan di database production Anda</strong> (kelas, guru, siswa, soal, sesi ujian — semuanya ditandai dengan prefix unik <code id="run-id-preview">LOADTEST_...</code>) lalu menjalankan beban bertahap.
+    Setelah selesai, jalankan <strong>Cleanup</strong> di panel paling bawah untuk membersihkannya. Jangan tutup tab ini sampai cleanup selesai.
+  </div>
+
+  <div class="banner" id="origin-warning" style="display:none">
+    🚫 <strong>File ini sedang dibuka langsung dari komputer Anda (file://), bukan dari server aplikasi.</strong>
+    Browser akan memblokir semua request ke API karena alasan keamanan CORS — ini sebabnya login selalu gagal dengan pesan "Failed to fetch".
+    <br><br>
+    <strong>Cara memperbaiki:</strong> upload file ini ke folder <code>public/</code> di proyek Anda (beri nama misalnya <code>loadtest.html</code>), deploy ulang ke Vercel, lalu buka dari
+    <code>https://ujian-exam2026.vercel.app/loadtest.html</code> — bukan dari file lokal. Setelah itu, login akan berfungsi normal.
+  </div>
+
+  <!-- ============ KONFIGURASI ============ -->
+  <div class="panel">
+    <h2>⚙ Konfigurasi</h2>
+    <div class="row">
+      <div class="field">
+        <label>URL Aplikasi (otomatis terdeteksi)</label>
+        <input id="cfg-baseurl" value="https://ujian-exam2026.vercel.app" readonly style="opacity:0.7;cursor:not-allowed" />
+      </div>
+      <div class="field">
+        <label>Username Admin</label>
+        <input id="cfg-admin-user" value="admin" />
+      </div>
+      <div class="field">
+        <label>Password Admin</label>
+        <input id="cfg-admin-pass" type="password" value="admin123" />
+      </div>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <div class="field">
+        <label>Jumlah soal di paket test</label>
+        <input id="cfg-soal-count" type="number" value="200" min="1" max="2000" />
+      </div>
+      <div class="field">
+        <label>Target siswa maksimum (ramp-up)</label>
+        <select id="cfg-max-siswa">
+          <option value="50">50</option>
+          <option value="100">100</option>
+          <option value="150" selected>150</option>
+          <option value="200">200</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Kecepatan ramp-up</label>
+        <select id="cfg-speed">
+          <option value="slow">Hati-hati (disarankan untuk free tier)</option>
+          <option value="normal" selected>Normal</option>
+          <option value="fast">Cepat (lebih agresif)</option>
+        </select>
+      </div>
+    </div>
+    <div class="row" style="margin-top:14px">
+      <button class="btn-primary" id="btn-start">▶ Mulai Pengujian</button>
+      <button class="btn-ghost" id="btn-stop" disabled>■ Hentikan</button>
+    </div>
+  </div>
+
+  <!-- ============ PROGRESS ============ -->
+  <div class="panel" id="progress-panel" style="display:none">
+    <h2>📊 Progres Pengujian</h2>
+    <div id="phase-track"></div>
+    <div class="progress-outer">
+      <div class="progress-inner" id="progress-bar"><span class="progress-label" id="progress-label">0%</span></div>
+    </div>
+    <p class="sub" id="current-action" style="margin-top:10px">Menunggu mulai…</p>
+
+    <div class="stat-grid" id="stat-grid"></div>
+  </div>
+
+  <!-- ============ RAMP-UP TABLE ============ -->
+  <div class="panel" id="ramp-panel" style="display:none">
+    <h2>📈 Hasil Per Tahap Beban (Ramp-Up)</h2>
+    <table id="ramp-table">
+      <thead>
+        <tr>
+          <th>Tahap</th><th class="num">Siswa</th><th class="num">Berhasil</th>
+          <th class="num">Gagal</th><th class="num">Rata² Respons</th><th class="num">Respons Terlama</th><th>Status</th>
+        </tr>
+      </thead>
+      <tbody id="ramp-tbody"></tbody>
+    </table>
+  </div>
+
+  <!-- ============ BUGS ============ -->
+  <div class="panel" id="bug-panel" style="display:none">
+    <h2>🐞 Temuan Bug &amp; Anomali</h2>
+    <div id="bug-list"></div>
+  </div>
+
+  <!-- ============ LOG ============ -->
+  <div class="panel">
+    <h2>📜 Log Aktivitas</h2>
+    <div id="log"></div>
+  </div>
+
+  <!-- ============ CLEANUP ============ -->
+  <div class="panel">
+    <h2>🧹 Cleanup (Hapus Data Pengujian)</h2>
+    <p class="sub" style="margin-bottom:12px">
+      Tersedia setelah pengujian berjalan minimal satu fase. Cleanup hanya menghapus data yang ditandai dengan Run ID di bawah — data sekolah asli tidak tersentuh.
+    </p>
+    <div class="row">
+      <div class="field">
+        <label>Run ID yang akan dibersihkan</label>
+        <input id="cleanup-run-id" placeholder="contoh: LOADTEST_1750500000000" />
+      </div>
+      <button class="btn-ghost" id="btn-preview-cleanup">🔍 Lihat Apa Yang Akan Dihapus</button>
+    </div>
+    <div id="cleanup-summary" class="panel" style="background:var(--panel-2); margin-top:14px;">
+      <div id="cleanup-summary-body"></div>
+      <div class="row" style="margin-top:14px">
+        <button class="btn-danger" id="btn-confirm-cleanup">🗑 Ya, Hapus Sekarang</button>
+        <button class="btn-ghost" id="btn-cancel-cleanup">Batal</button>
+      </div>
+    </div>
+  </div>
+
+  <p class="sub" style="text-align:center; margin-top:30px">
+    Dibuat untuk pengujian internal sebelum rilis ke sekolah. Jalankan di jam sepi dan pantau dashboard Supabase Anda selama proses berjalan.
+  </p>
+</div>
+
+<script>
+/* =====================================================================
+   SmartExam CBT — Load Test Console
+   Berjalan 100% di browser Anda. Tidak ada data yang dikirim ke pihak
+   ketiga manapun selain server aplikasi yang Anda masukkan sendiri di
+   kolom "URL Aplikasi" di atas.
+   ===================================================================== */
+
+// ---------- State global ----------
+const state = {
+  baseUrl: '',
+  adminToken: null,
+  guruToken: null,
+  runId: null,           // contoh: LOADTEST_1750500000000
+  kelasNama: null,
+  guruUsername: null,
+  mapelId: null,
+  mapelNama: null,
+  paketId: null,
+  jadwalId: null,
+  sesiId: null,
+  kodeSesi: null,
+  soalIds: [],
+  siswaList: [],          // {nis, password}
+  bugs: [],
+  rampResults: [],
+  stopRequested: false,
+  totalRequests: 0,
+  totalErrors: 0,
+  latencies: [],
+};
+
+const PHASES = [
+  { key: 'setup', label: '1. Setup Data' },
+  { key: 'soal', label: '2. Generate Soal' },
+  { key: 'approve', label: '3. Approve & Buka Sesi' },
+  { key: 'ramp', label: '4. Ramp-Up Login' },
+  { key: 'exam', label: '5. Simulasi Ujian' },
+  { key: 'features', label: '6. Fitur Lain' },
+  { key: 'report', label: '7. Laporan' },
+];
+
+// ---------- Util: logging ----------
+function nowStr() {
+  return new Date().toLocaleTimeString('id-ID', { hour12: false });
+}
+
+function log(msg, level = 'info') {
+  const el = document.getElementById('log');
+  const line = document.createElement('div');
+  line.className = `log-line ${level}`;
+  line.innerHTML = `<span class="log-time">${nowStr()}</span><span class="log-msg"></span>`;
+  line.querySelector('.log-msg').textContent = msg;
+  el.appendChild(line);
+  el.scrollTop = el.scrollHeight;
+}
+
+function recordBug(title, detail, meta = '') {
+  state.bugs.push({ title, detail, meta, time: nowStr() });
+  log(`BUG: ${title}`, 'bug');
+  renderBugs();
+}
+
+// ---------- Util: HTTP ----------
+async function api(method, path, body, token) {
+  const url = state.baseUrl.replace(/\/$/, '') + path;
+  const headers = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const t0 = performance.now();
+  state.totalRequests++;
+  let res, json, errText;
+  try {
+    res = await fetch(url, {
+      method,
+      headers,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+  } catch (e) {
+    const latency = performance.now() - t0;
+    state.totalErrors++;
+    state.latencies.push(latency);
+    return { ok: false, status: 0, networkError: true, error: e.message, latency };
+  }
+  const latency = performance.now() - t0;
+  state.latencies.push(latency);
+
+  try { json = await res.json(); } catch { json = null; }
+
+  if (!res.ok) state.totalErrors++;
+
+  return { ok: res.ok, status: res.status, data: json, latency };
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// ---------- UI: phase track ----------
+function renderPhaseTrack(activeKey, doneKeys = [], failedKey = null) {
+  const track = document.getElementById('phase-track');
+  track.innerHTML = '';
+  for (const p of PHASES) {
+    const chip = document.createElement('div');
+    chip.className = 'phase-chip';
+    if (doneKeys.includes(p.key)) chip.classList.add('done');
+    if (p.key === activeKey) chip.classList.add('active');
+    if (p.key === failedKey) chip.classList.add('failed');
+    chip.textContent = p.label;
+    track.appendChild(chip);
+  }
+}
+
+function setProgress(pct, label) {
+  const bar = document.getElementById('progress-bar');
+  const lbl = document.getElementById('progress-label');
+  pct = Math.max(0, Math.min(100, pct));
+  bar.style.width = pct + '%';
+  lbl.textContent = label || `${pct.toFixed(0)}%`;
+  lbl.classList.toggle('outside', pct < 12);
+}
+
+function setAction(text) {
+  document.getElementById('current-action').textContent = text;
+}
+
+function renderStats() {
+  const grid = document.getElementById('stat-grid');
+  const avgLatency = state.latencies.length
+    ? (state.latencies.reduce((a, b) => a + b, 0) / state.latencies.length).toFixed(0)
+    : 0;
+  const maxLatency = state.latencies.length ? Math.max(...state.latencies).toFixed(0) : 0;
+  const errRate = state.totalRequests ? ((state.totalErrors / state.totalRequests) * 100).toFixed(1) : '0.0';
+
+  grid.innerHTML = `
+    <div class="stat-box"><div class="v">${state.totalRequests}</div><div class="l">Total Request</div></div>
+    <div class="stat-box ${state.totalErrors > 0 ? 'err' : 'ok'}"><div class="v">${state.totalErrors}</div><div class="l">Error</div></div>
+    <div class="stat-box ${errRate > 5 ? 'err' : errRate > 1 ? 'warn' : 'ok'}"><div class="v">${errRate}%</div><div class="l">Error Rate</div></div>
+    <div class="stat-box"><div class="v">${avgLatency}ms</div><div class="l">Rata² Respons</div></div>
+    <div class="stat-box ${maxLatency > 5000 ? 'err' : maxLatency > 2000 ? 'warn' : 'ok'}"><div class="v">${maxLatency}ms</div><div class="l">Respons Terlama</div></div>
+    <div class="stat-box ${state.bugs.length > 0 ? 'err' : 'ok'}"><div class="v">${state.bugs.length}</div><div class="l">Bug Ditemukan</div></div>
+  `;
+}
+
+function renderBugs() {
+  const panel = document.getElementById('bug-panel');
+  const list = document.getElementById('bug-list');
+  if (state.bugs.length === 0) {
+    panel.style.display = 'none';
+    return;
+  }
+  panel.style.display = 'block';
+  list.innerHTML = '';
+  state.bugs.forEach(b => {
+    const card = document.createElement('div');
+    card.className = 'bug-card';
+    card.innerHTML = `
+      <div class="title">${escapeHtml(b.title)}</div>
+      <div class="meta">${escapeHtml(b.meta)} · ditemukan ${b.time}</div>
+      <div class="detail">${escapeHtml(b.detail)}</div>
+    `;
+    list.appendChild(card);
+  });
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function renderRampTable() {
+  document.getElementById('ramp-panel').style.display = 'block';
+  const tbody = document.getElementById('ramp-tbody');
+  tbody.innerHTML = '';
+  state.rampResults.forEach(r => {
+    const tr = document.createElement('tr');
+    const errPct = r.total ? (r.failed / r.total) * 100 : 0;
+    if (errPct > 20) tr.className = 'row-bad';
+    else if (errPct > 5) tr.className = 'row-warn';
+    let pill = '<span class="pill ok">AMAN</span>';
+    if (errPct > 20) pill = '<span class="pill bad">BERAT</span>';
+    else if (errPct > 5) pill = '<span class="pill warn">WASPADA</span>';
+    tr.innerHTML = `
+      <td>${r.label}</td>
+      <td class="num">${r.total}</td>
+      <td class="num">${r.success}</td>
+      <td class="num">${r.failed}</td>
+      <td class="num">${r.avgLatency.toFixed(0)}ms</td>
+      <td class="num">${r.maxLatency.toFixed(0)}ms</td>
+      <td>${pill}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+// ---------- SPEED PRESETS ----------
+function getSpeedConfig() {
+  const speed = document.getElementById('cfg-speed').value;
+  // batchSize = jumlah request paralel sekaligus; delayBetweenBatches = jeda ms
+  if (speed === 'slow') return { batchSize: 8, delayBetweenBatches: 600 };
+  if (speed === 'fast') return { batchSize: 25, delayBetweenBatches: 150 };
+  return { batchSize: 15, delayBetweenBatches: 300 }; // normal
+}
+
+// Jalankan banyak tugas async dengan concurrency terbatas (bukan all-at-once
+// yang akan dibatasi browser ke ~6 koneksi dan memberi angka menyesatkan,
+// tapi juga bukan sungguh tak terbatas yang membanjiri Vercel/Supabase free tier).
+async function runBatched(items, workerFn, { batchSize, delayBetweenBatches }, onProgress) {
+  const results = [];
+  for (let i = 0; i < items.length; i += batchSize) {
+    if (state.stopRequested) break;
+    const batch = items.slice(i, i + batchSize);
+    const batchResults = await Promise.all(batch.map(item => workerFn(item).catch(e => ({ ok: false, error: e.message }))));
+    results.push(...batchResults);
+    if (onProgress) onProgress(results.length, items.length);
+    if (i + batchSize < items.length) await sleep(delayBetweenBatches);
+  }
+  return results;
+}
+
+// =====================================================================
+// FASE 1 — SETUP DATA (kelas testing, guru testing, ambil mapel)
+// =====================================================================
+async function phaseSetup() {
+  setAction('Login sebagai admin…');
+  const adminUser = document.getElementById('cfg-admin-user').value.trim();
+  const adminPass = document.getElementById('cfg-admin-pass').value;
+
+  const loginRes = await api('POST', '/api/auth/login', { username: adminUser, password: adminPass });
+  if (!loginRes.ok || !loginRes.data?.token) {
+    recordBug('Login admin gagal', JSON.stringify(loginRes.data || loginRes.error), 'POST /api/auth/login');
+    throw new Error('Tidak bisa login sebagai admin. Periksa username/password atau URL aplikasi.');
+  }
+  if (loginRes.data.role !== 'ADMIN') {
+    throw new Error(`Akun ini berperan "${loginRes.data.role}", bukan ADMIN. Periksa kredensial.`);
+  }
+  state.adminToken = loginRes.data.token;
+  log('Login admin berhasil', 'ok');
+
+  // Buat Run ID unik
+  state.runId = `LOADTEST_${Date.now()}`;
+  document.getElementById('run-id-preview').textContent = state.runId;
+  document.getElementById('cleanup-run-id').value = state.runId;
+  log(`Run ID untuk sesi pengujian ini: ${state.runId}`, 'info');
+
+  state.kelasNama = state.runId; // nama kelas testing = run id, dijamin unik
+  state.guruUsername = `${state.runId}_guru`;
+
+  // Buat guru testing
+  setAction('Membuat akun guru testing…');
+  const guruRes = await api('POST', '/api/admin/users', {
+    username: state.guruUsername,
+    nama: `GURU LOADTEST ${state.runId}`,
+    role: 'GURU',
+    password: 'LoadTest123!',
+    status: 'AKTIF',
+  }, state.adminToken);
+  if (!guruRes.ok) {
+    recordBug('Gagal membuat akun guru testing', JSON.stringify(guruRes.data), 'POST /api/admin/users');
+    throw new Error('Tidak bisa membuat akun guru testing.');
+  }
+  log(`Guru testing dibuat: ${state.guruUsername}`, 'ok');
+
+  // Login sebagai guru testing
+  const guruLogin = await api('POST', '/api/auth/login', { username: state.guruUsername, password: 'LoadTest123!' });
+  if (!guruLogin.ok) {
+    recordBug('Login guru testing gagal', JSON.stringify(guruLogin.data), 'POST /api/auth/login');
+    throw new Error('Akun guru testing dibuat tapi gagal login.');
+  }
+  state.guruToken = guruLogin.data.token;
+
+  // Ambil daftar mapel yang sudah ada — pakai satu yang sudah ada (mapel
+  // tidak unik per kelas, jadi aman dipakai bersama mapel sekolah asli)
+  setAction('Mengambil daftar mata pelajaran…');
+  const mapelRes = await api('GET', '/api/admin/mapel', undefined, state.adminToken);
+  if (!mapelRes.ok || !mapelRes.data?.data?.length) {
+    recordBug('Tidak ada data mapel', JSON.stringify(mapelRes.data), 'GET /api/admin/mapel');
+    throw new Error('Tidak ada mata pelajaran tersedia di aplikasi ini untuk dipakai testing.');
+  }
+  const mapel = mapelRes.data.data[0];
+  state.mapelId = mapel.id;
+  state.mapelNama = mapel.nama;
+  log(`Memakai mata pelajaran yang sudah ada: ${state.mapelNama}`, 'info');
+
+  log('Fase setup selesai', 'ok');
+}
+
+// =====================================================================
+// FASE 2 — GENERATE SOAL (sebanyak yang dikonfigurasi, ke 1 paket testing)
+// =====================================================================
+async function phaseSoal() {
+  const soalCount = parseInt(document.getElementById('cfg-soal-count').value) || 200;
+
+  setAction('Membuat paket soal testing…');
+  const paketRes = await api('POST', '/api/guru/paket', {
+    mapel_id: state.mapelId,
+    kelas_id: state.kelasNama, // kelas_id testing belum ada di tabel kelas — akan dibuat saat siswa pertama ditambahkan
+    acak: 'YA',
+  }, state.guruToken);
+
+  if (!paketRes.ok) {
+    recordBug('Gagal membuat paket soal', JSON.stringify(paketRes.data), 'POST /api/guru/paket');
+    throw new Error('Tidak bisa membuat paket soal testing.');
+  }
+
+  // Ambil ID paket yang baru dibuat
+  const listPaket = await api('GET', '/api/guru/paket', undefined, state.guruToken);
+  const myPaket = listPaket.data?.data?.find(p => p.mapel_id === state.mapelId && p.kelas_id === state.kelasNama);
+  if (!myPaket) {
+    recordBug('Paket soal tidak ditemukan setelah dibuat', JSON.stringify(listPaket.data), 'GET /api/guru/paket');
+    throw new Error('Paket soal gagal diverifikasi.');
+  }
+  state.paketId = myPaket.id;
+  log(`Paket soal dibuat: ${state.paketId}`, 'ok');
+
+  setAction(`Membuat ${soalCount} soal…`);
+  const indices = Array.from({ length: soalCount }, (_, i) => i + 1);
+  const { batchSize, delayBetweenBatches } = getSpeedConfig();
+
+  let created = 0;
+  const results = await runBatched(indices, async (i) => {
+    const opts = ['A', 'B', 'C', 'D'];
+    const benar = opts[i % 4];
+    const r = await api('POST', '/api/guru/soal', {
+      mapel_id: state.mapelId,
+      kelas_id: state.kelasNama,
+      paket_id: state.paketId,
+      teks: `[LOADTEST] Soal otomatis nomor ${i} — berapakah hasil dari ${i} + ${i}?`,
+      opsi_a: `${i * 2 - 1}`,
+      opsi_b: `${i * 2}`,
+      opsi_c: `${i * 2 + 1}`,
+      opsi_d: `${i * 2 + 2}`,
+      kunci: benar,
+      tingkat: 'Sedang',
+      jumlah_opsi: 4,
+      acak: 'YA',
+      status: 'DRAFT',
+    }, state.guruToken);
+    if (r.ok) created++;
+    else recordBug(`Gagal membuat soal #${i}`, JSON.stringify(r.data), 'POST /api/guru/soal');
+    return r;
+  }, { batchSize, delayBetweenBatches }, (done, total) => {
+    setProgress((done / total) * 100, `${done}/${total} soal`);
+    setAction(`Membuat soal… (${done}/${total})`);
+  });
+
+  log(`${created}/${soalCount} soal berhasil dibuat`, created === soalCount ? 'ok' : 'warn');
+  if (created < soalCount * 0.95) {
+    recordBug(
+      'Tingkat kegagalan tinggi saat membuat soal massal',
+      `Hanya ${created} dari ${soalCount} soal berhasil dibuat. Ini mengindikasikan aplikasi mulai kesulitan menangani banyak insert berurutan.`,
+      'POST /api/guru/soal (massal)'
+    );
+  }
+}
+
+// =====================================================================
+// FASE 3 — APPROVE PAKET, BUAT JADWAL, BUKA SESI
+// =====================================================================
+async function phaseApprove() {
+  setAction('Mengirim paket soal untuk validasi…');
+  const kirimRes = await api('POST', `/api/guru/paket/${state.paketId}/kirim`, {}, state.guruToken);
+  if (!kirimRes.ok) {
+    recordBug('Gagal mengirim paket untuk validasi', JSON.stringify(kirimRes.data), `POST /api/guru/paket/${state.paketId}/kirim`);
+    throw new Error('Paket soal gagal dikirim untuk validasi admin.');
+  }
+  log('Paket soal dikirim untuk validasi', 'ok');
+
+  setAction('Menyetujui paket soal sebagai admin…');
+  const approveRes = await api('POST', '/api/admin/soal', {
+    paket_id: state.paketId,
+    action: 'SETUJUI',
+  }, state.adminToken);
+  if (!approveRes.ok) {
+    recordBug('Gagal menyetujui paket soal', JSON.stringify(approveRes.data), 'POST /api/admin/soal');
+    throw new Error('Paket soal gagal disetujui.');
+  }
+  log('Paket soal disetujui', 'ok');
+
+  setAction('Membuat jadwal ujian testing…');
+  const today = new Date().toISOString().slice(0, 10);
+  const jadwalRes = await api('POST', '/api/admin/jadwal', {
+    tanggal: today,
+    sesi: 1,
+    jam_mulai: '00:00',
+    jam_selesai: '23:59',
+    mapel_id: state.mapelId,
+    kelas: state.kelasNama,
+    pengawas: state.guruUsername,
+    durasi: 90,
+  }, state.adminToken);
+  if (!jadwalRes.ok) {
+    recordBug('Gagal membuat jadwal ujian', JSON.stringify(jadwalRes.data), 'POST /api/admin/jadwal');
+    throw new Error('Jadwal ujian testing gagal dibuat.');
+  }
+
+  const jadwalList = await api('GET', `/api/admin/jadwal?kelas=${encodeURIComponent(state.kelasNama)}`, undefined, state.adminToken);
+  const myJadwal = jadwalList.data?.data?.find(j => j.mapel_id === state.mapelId && j.kelas === state.kelasNama);
+  if (!myJadwal) {
+    recordBug('Jadwal tidak ditemukan setelah dibuat', JSON.stringify(jadwalList.data), 'GET /api/admin/jadwal');
+    throw new Error('Jadwal gagal diverifikasi.');
+  }
+  state.jadwalId = myJadwal.id;
+  log(`Jadwal dibuat: ${state.jadwalId}`, 'ok');
+
+  setAction('Membuka sesi ujian (sebagai guru/pengawas)…');
+  state.kodeSesi = `LT${Date.now().toString().slice(-6)}`;
+  const sesiRes = await api('POST', '/api/pengawas/sesi', {
+    jadwalId: state.jadwalId,
+    kodeSesi: state.kodeSesi,
+  }, state.guruToken);
+  if (!sesiRes.ok) {
+    recordBug('Gagal membuka sesi ujian', JSON.stringify(sesiRes.data), 'POST /api/pengawas/sesi');
+    throw new Error('Sesi ujian gagal dibuka.');
+  }
+  state.sesiId = sesiRes.data.sesiId;
+  log(`Sesi ujian dibuka. Kode sesi: ${state.kodeSesi}`, 'ok');
+}
+
+// =====================================================================
+// FASE 4 — RAMP-UP: buat siswa & login bertahap (20 -> target)
+// =====================================================================
+async function phaseRamp() {
+  const maxSiswa = parseInt(document.getElementById('cfg-max-siswa').value) || 150;
+  const steps = [20, 50, 100, 150, 200].filter(s => s <= maxSiswa);
+  if (steps[steps.length - 1] !== maxSiswa) steps.push(maxSiswa);
+
+  const { batchSize, delayBetweenBatches } = getSpeedConfig();
+  let createdSoFar = 0;
+
+  for (const target of steps) {
+    if (state.stopRequested) break;
+    setAction(`Tahap ramp-up: menyiapkan ${target} siswa…`);
+
+    // Buat siswa baru sebanyak (target - createdSoFar)
+    const newCount = target - createdSoFar;
+    const newIndices = Array.from({ length: newCount }, (_, i) => createdSoFar + i + 1);
+
+    await runBatched(newIndices, async (i) => {
+      const nis = `${state.runId}_${String(i).padStart(4, '0')}`;
+      const r = await api('POST', '/api/admin/siswa', {
+        nis, nama: `SISWA LOADTEST ${i}`, kelas: state.kelasNama,
+        jenis_kelamin: i % 2 === 0 ? 'LAKI-LAKI' : 'PEREMPUAN',
+      }, state.adminToken);
+      if (r.ok) state.siswaList.push({ nis, password: nis });
+      else recordBug(`Gagal membuat siswa testing #${i}`, JSON.stringify(r.data), 'POST /api/admin/siswa');
+      return r;
+    }, { batchSize, delayBetweenBatches });
+
+    createdSoFar = target;
+    log(`${target} siswa testing siap di database`, 'info');
+
+    // Sekarang login SERENTAK (sesuai tujuan utama: stress login bersamaan)
+    setAction(`Login serentak: ${target} siswa…`);
+    const loginLatencies = [];
+    let success = 0, failed = 0;
+    const toLogin = state.siswaList.slice(0, target);
+
+    const loginResults = await runBatched(toLogin, async (siswa) => {
+      const r = await api('POST', '/api/auth/login', { username: siswa.nis, password: siswa.password });
+      if (r.ok && r.data?.token) {
+        siswa.token = r.data.token;
+        success++;
+      } else {
+        failed++;
+      }
+      loginLatencies.push(r.latency);
+      return r;
+    }, { batchSize, delayBetweenBatches }, (done, total) => {
+      setProgress((done / total) * 100, `${done}/${total} login`);
+    });
+
+    const avgLatency = loginLatencies.reduce((a, b) => a + b, 0) / (loginLatencies.length || 1);
+    const maxLatency = loginLatencies.length ? Math.max(...loginLatencies) : 0;
+
+    state.rampResults.push({
+      label: `${target} siswa`,
+      total: toLogin.length,
+      success, failed,
+      avgLatency, maxLatency,
+    });
+    renderRampTable();
+    renderStats();
+
+    const failRate = (failed / toLogin.length) * 100;
+    if (failRate > 20) {
+      recordBug(
+        `Tingkat gagal login tinggi pada ${target} siswa serentak`,
+        `${failed} dari ${toLogin.length} login gagal (${failRate.toFixed(1)}%). Rata-rata respons: ${avgLatency.toFixed(0)}ms, terlama: ${maxLatency.toFixed(0)}ms. Ini mengindikasikan aplikasi/database mulai kewalahan pada level beban ini — kemungkinan limit koneksi Supabase atau timeout function Vercel tercapai.`,
+        `Login serentak — tahap ${target} siswa`
+      );
+      log(`⚠ Tahap ${target} siswa: tingkat gagal tinggi (${failRate.toFixed(1)}%) — berhenti ramp-up lebih lanjut`, 'warn');
+      break; // Hentikan ramp lebih lanjut, sudah ketemu titik gagal
+    } else if (failRate > 5) {
+      log(`⚠ Tahap ${target} siswa: ada tanda-tanda tekanan (${failed} gagal, rata-rata ${avgLatency.toFixed(0)}ms)`, 'warn');
+    } else {
+      log(`✓ Tahap ${target} siswa: lancar (${success} berhasil, rata-rata ${avgLatency.toFixed(0)}ms)`, 'ok');
+    }
+  }
+}
+
+// =====================================================================
+// FASE 5 — SIMULASI UJIAN: validasi masuk, jawab soal, sync, selesai
+// =====================================================================
+async function phaseExam() {
+  const loggedInSiswa = state.siswaList.filter(s => s.token);
+  if (loggedInSiswa.length === 0) {
+    log('Tidak ada siswa yang berhasil login — fase ujian dilewati', 'warn');
+    return;
+  }
+
+  const { batchSize, delayBetweenBatches } = getSpeedConfig();
+  setAction(`Memvalidasi ${loggedInSiswa.length} siswa masuk ke ujian…`);
+
+  const soalPerSiswa = {};
+  let validasiOk = 0;
+
+  await runBatched(loggedInSiswa, async (siswa) => {
+    const r = await api('POST', '/api/siswa/ujian/validasi', {
+      kodeSesi: state.kodeSesi, nis: siswa.nis,
+    }, siswa.token);
+    if (r.ok && r.data?.valid) {
+      validasiOk++;
+      soalPerSiswa[siswa.nis] = r.data.soalList || [];
+    } else {
+      recordBug(`Validasi masuk ujian gagal untuk ${siswa.nis}`, JSON.stringify(r.data), 'POST /api/siswa/ujian/validasi');
+    }
+    return r;
+  }, { batchSize, delayBetweenBatches }, (done, total) => {
+    setProgress((done / total) * 100, `${done}/${total} validasi`);
+  });
+
+  log(`${validasiOk}/${loggedInSiswa.length} siswa berhasil masuk ke ujian`, validasiOk === loggedInSiswa.length ? 'ok' : 'warn');
+
+  // Simulasi menjawab + sync berkala (seperti autosave 30 detik di aplikasi asli)
+  setAction('Mensimulasikan siswa menjawab soal (sync jawaban)…');
+  let syncOk = 0, syncFail = 0;
+
+  await runBatched(loggedInSiswa.filter(s => soalPerSiswa[s.nis]?.length), async (siswa) => {
+    const soalList = soalPerSiswa[siswa.nis];
+    const jawaban = soalList.slice(0, Math.max(1, Math.floor(soalList.length * 0.8))).map(s => ({
+      soal_id: s.id,
+      jawaban: ['A', 'B', 'C', 'D'][Math.floor(Math.random() * 4)],
+    }));
+    const r = await api('POST', '/api/siswa/ujian/sync', { sesiId: state.sesiId, jawaban }, siswa.token);
+    if (r.ok) syncOk++; else { syncFail++; recordBug(`Sync jawaban gagal untuk ${siswa.nis}`, JSON.stringify(r.data), 'POST /api/siswa/ujian/sync'); }
+    return r;
+  }, { batchSize, delayBetweenBatches }, (done, total) => {
+    setProgress((done / total) * 100, `${done}/${total} sync jawaban`);
+  });
+
+  log(`Sync jawaban: ${syncOk} berhasil, ${syncFail} gagal`, syncFail === 0 ? 'ok' : 'warn');
+
+  // Submit selesai ujian
+  setAction('Mensimulasikan siswa submit ujian…');
+  let selesaiOk = 0;
+
+  await runBatched(loggedInSiswa.filter(s => soalPerSiswa[s.nis]?.length), async (siswa) => {
+    const r = await api('POST', '/api/siswa/ujian/selesai', { sesiId: state.sesiId, nis: siswa.nis }, siswa.token);
+    if (r.ok) selesaiOk++;
+    else recordBug(`Submit selesai gagal untuk ${siswa.nis}`, JSON.stringify(r.data), 'POST /api/siswa/ujian/selesai');
+    return r;
+  }, { batchSize, delayBetweenBatches }, (done, total) => {
+    setProgress((done / total) * 100, `${done}/${total} submit`);
+  });
+
+  log(`${selesaiOk} siswa berhasil submit ujian dan mendapat nilai`, 'ok');
+}
+
+// =====================================================================
+// FASE 6 — FITUR LAIN (monitoring pengawas, dashboard admin/kepsek/guru)
+// =====================================================================
+async function phaseFeatures() {
+  setAction('Menguji dashboard admin…');
+  const dashAdmin = await api('GET', '/api/admin/dashboard', undefined, state.adminToken);
+  if (!dashAdmin.ok) recordBug('Dashboard admin gagal dimuat', JSON.stringify(dashAdmin.data), 'GET /api/admin/dashboard');
+  else log('Dashboard admin: OK', 'ok');
+
+  setAction('Menguji monitoring pengawas real-time…');
+  const monitor = await api('GET', `/api/pengawas/sesi/${state.sesiId}/siswa`, undefined, state.guruToken);
+  if (!monitor.ok) recordBug('Monitoring pengawas gagal dimuat', JSON.stringify(monitor.data), `GET /api/pengawas/sesi/${state.sesiId}/siswa`);
+  else log(`Monitoring pengawas: OK (${monitor.data?.data?.length ?? 0} siswa terlihat)`, 'ok');
+
+  setAction('Menguji rekap nilai guru…');
+  const nilaiGuru = await api('GET', `/api/guru/nilai?mapel_id=${state.mapelId}`, undefined, state.guruToken);
+  if (!nilaiGuru.ok) recordBug('Rekap nilai guru gagal dimuat', JSON.stringify(nilaiGuru.data), 'GET /api/guru/nilai');
+  else log('Rekap nilai guru: OK', 'ok');
+
+  setAction('Menguji analisis ujian admin…');
+  const analisis = await api('GET', `/api/admin/analisis-ujian?sesi_id=${state.sesiId}`, undefined, state.adminToken);
+  if (!analisis.ok) recordBug('Analisis ujian gagal dimuat', JSON.stringify(analisis.data), 'GET /api/admin/analisis-ujian');
+  else log('Analisis ujian admin: OK', 'ok');
+
+  setAction('Menutup sesi ujian…');
+  const tutup = await api('POST', `/api/pengawas/sesi/${state.sesiId}/tutup`, {}, state.guruToken);
+  if (!tutup.ok) recordBug('Gagal menutup sesi ujian', JSON.stringify(tutup.data), `POST /api/pengawas/sesi/${state.sesiId}/tutup`);
+  else log('Sesi ujian ditutup: OK', 'ok');
+}
+
+// =====================================================================
+// FASE 7 — LAPORAN AKHIR
+// =====================================================================
+function phaseReport() {
+  setAction('Pengujian selesai.');
+  setProgress(100, 'Selesai');
+  const avgLatency = state.latencies.length
+    ? (state.latencies.reduce((a, b) => a + b, 0) / state.latencies.length).toFixed(0)
+    : 0;
+  log('═══════════════════════════════════', 'info');
+  log(`LAPORAN AKHIR — Run ID: ${state.runId}`, 'ok');
+  log(`Total request: ${state.totalRequests} · Error: ${state.totalErrors} · Bug ditemukan: ${state.bugs.length}`, 'info');
+  log(`Rata-rata waktu respons: ${avgLatency}ms`, 'info');
+  log(`Siswa berhasil login: ${state.siswaList.filter(s => s.token).length} dari ${state.siswaList.length}`, 'info');
+  log('Jangan lupa jalankan CLEANUP di bagian bawah untuk menghapus data pengujian ini.', 'warn');
+  log('═══════════════════════════════════', 'info');
+}
+
+// =====================================================================
+// ORKESTRASI UTAMA
+// =====================================================================
+async function runFullTest() {
+  state.stopRequested = false;
+  document.getElementById('btn-start').disabled = true;
+  document.getElementById('btn-stop').disabled = false;
+  document.getElementById('progress-panel').style.display = 'block';
+
+  const doneKeys = [];
+  try {
+    state.baseUrl = document.getElementById('cfg-baseurl').value.trim();
+    if (!state.baseUrl.startsWith('http')) throw new Error('URL aplikasi tidak valid.');
+
+    renderPhaseTrack('setup', doneKeys);
+    setProgress(0, '');
+    await phaseSetup();
+    doneKeys.push('setup');
+
+    renderPhaseTrack('soal', doneKeys);
+    await phaseSoal();
+    doneKeys.push('soal');
+
+    renderPhaseTrack('approve', doneKeys);
+    setProgress(0, '');
+    await phaseApprove();
+    doneKeys.push('approve');
+
+    renderPhaseTrack('ramp', doneKeys);
+    setProgress(0, '');
+    await phaseRamp();
+    doneKeys.push('ramp');
+
+    renderPhaseTrack('exam', doneKeys);
+    setProgress(0, '');
+    await phaseExam();
+    doneKeys.push('exam');
+
+    renderPhaseTrack('features', doneKeys);
+    setProgress(0, '');
+    await phaseFeatures();
+    doneKeys.push('features');
+
+    renderPhaseTrack('report', doneKeys);
+    phaseReport();
+    doneKeys.push('report');
+    renderPhaseTrack('report', doneKeys);
+
+  } catch (e) {
+    log(`Pengujian dihentikan: ${e.message}`, 'err');
+    const lastPhase = PHASES.find(p => !doneKeys.includes(p.key))?.key;
+    renderPhaseTrack(null, doneKeys, lastPhase);
+    setAction(`Berhenti: ${e.message}`);
+  } finally {
+    renderStats();
+    document.getElementById('btn-start').disabled = false;
+    document.getElementById('btn-stop').disabled = true;
+  }
+}
+
+// =====================================================================
+// CLEANUP
+// =====================================================================
+async function previewCleanup() {
+  const runId = document.getElementById('cleanup-run-id').value.trim();
+  if (!runId) { alert('Masukkan Run ID terlebih dahulu.'); return; }
+
+  const baseUrl = document.getElementById('cfg-baseurl').value.trim();
+  const adminUser = document.getElementById('cfg-admin-user').value.trim();
+  const adminPass = document.getElementById('cfg-admin-pass').value;
+
+  // Pastikan kita punya token admin (mungkin baru buka tab/reload)
+  if (!state.adminToken || state.baseUrl !== baseUrl) {
+    state.baseUrl = baseUrl;
+    const loginRes = await api('POST', '/api/auth/login', { username: adminUser, password: adminPass });
+    if (!loginRes.ok) { alert('Gagal login admin untuk cleanup. Periksa kredensial.'); return; }
+    state.adminToken = loginRes.data.token;
+  }
+
+  const kelasNama = runId;
+  const guruUsername = `${runId}_guru`;
+
+  // Hitung siswa di kelas ini
+  const siswaRes = await api('GET', `/api/admin/siswa?per_page=1&kelas=${encodeURIComponent(kelasNama)}`, undefined, state.adminToken);
+  const jumlahSiswa = siswaRes.data?.total ?? 'tidak diketahui';
+
+  // Cek user guru
+  const usersRes = await api('GET', '/api/admin/users', undefined, state.adminToken);
+  const guruExists = usersRes.data?.data?.some(u => u.username === guruUsername);
+
+  // Cek jadwal
+  const jadwalRes = await api('GET', `/api/admin/jadwal?kelas=${encodeURIComponent(kelasNama)}`, undefined, state.adminToken);
+  const jumlahJadwal = jadwalRes.data?.data?.length ?? 0;
+
+  document.getElementById('cleanup-summary-body').innerHTML = `
+    <p style="margin:0 0 10px;font-size:13px">Yang akan dihapus untuk Run ID <code>${escapeHtml(runId)}</code>:</p>
+    <table>
+      <tr><td>Kelas testing</td><td class="num">${escapeHtml(kelasNama)} (${jumlahSiswa} siswa di dalamnya)</td></tr>
+      <tr><td>Akun guru testing</td><td class="num">${guruExists ? escapeHtml(guruUsername) : 'tidak ditemukan'}</td></tr>
+      <tr><td>Jadwal ujian testing</td><td class="num">${jumlahJadwal} jadwal</td></tr>
+    </table>
+    <p style="margin:12px 0 0;font-size:11.5px;color:var(--muted)">
+      Catatan: baris riwayat nilai/jawaban siswa testing tidak dapat dihapus lewat API aplikasi ini (tidak ada endpoint untuk itu) — baris tersebut akan menjadi data yatim yang tidak tampil di manapun karena siswanya sudah terhapus. Lihat query SQL pembersihan opsional di bagian bawah laporan jika ingin membersihkan 100%.
+    </p>
+  `;
+  document.getElementById('cleanup-summary').style.display = 'block';
+}
+
+async function confirmCleanup() {
+  const runId = document.getElementById('cleanup-run-id').value.trim();
+  const kelasNama = runId;
+  const guruUsername = `${runId}_guru`;
+
+  document.getElementById('btn-confirm-cleanup').disabled = true;
+  document.getElementById('btn-confirm-cleanup').textContent = 'Menghapus…';
+
+  try {
+    // 1. Cari paket soal milik guru testing untuk mapel apapun di kelas ini, batalkan approval-nya dulu
+    const paketRes = await api('GET', '/api/guru/paket', undefined, state.guruToken || state.adminToken);
+    // Jika kita tidak punya guruToken (sesi baru/reload), login dulu
+    let guruToken = state.guruToken;
+    if (!guruToken) {
+      const gl = await api('POST', '/api/auth/login', { username: guruUsername, password: 'LoadTest123!' });
+      if (gl.ok) guruToken = gl.data.token;
+    }
+
+    if (guruToken) {
+      const myPaketRes = await api('GET', '/api/guru/paket', undefined, guruToken);
+      const myPakets = (myPaketRes.data?.data || []).filter(p => p.kelas_id === kelasNama);
+      for (const paket of myPakets) {
+        if (paket.status === 'DISETUJUI') {
+          await api('POST', '/api/admin/soal', { paket_id: paket.id, action: 'BATAL_SETUJUI' }, state.adminToken);
+        }
+        const delRes = await api('DELETE', `/api/guru/paket/${paket.id}`, undefined, guruToken);
+        if (delRes.ok) log(`Paket soal ${paket.id} dan seluruh isinya dihapus`, 'ok');
+        else log(`Gagal menghapus paket ${paket.id}: ${JSON.stringify(delRes.data)}`, 'warn');
+      }
+    }
+
+    // 2. Hapus jadwal testing
+    const jadwalRes = await api('GET', `/api/admin/jadwal?kelas=${encodeURIComponent(kelasNama)}`, undefined, state.adminToken);
+    for (const j of (jadwalRes.data?.data || [])) {
+      const delJ = await api('DELETE', '/api/admin/jadwal', { id: j.id }, state.adminToken);
+      if (delJ.ok) log(`Jadwal ${j.id} dihapus`, 'ok');
+      else log(`Gagal menghapus jadwal ${j.id}: ${JSON.stringify(delJ.data)} (kemungkinan berstatus SELESAI dengan siswa belum bernilai)`, 'warn');
+    }
+
+    // 3. Hapus kelas testing (otomatis menghapus semua siswa di dalamnya)
+    const delKelas = await api('DELETE', '/api/admin/kelas', { nama: kelasNama }, state.adminToken);
+    if (delKelas.ok) log(`Kelas testing "${kelasNama}" dan semua siswanya dihapus`, 'ok');
+    else log(`Gagal menghapus kelas testing: ${JSON.stringify(delKelas.data)}`, 'err');
+
+    // 4. Hapus akun guru testing
+    const delGuru = await api('DELETE', `/api/admin/users/${guruUsername}`, undefined, state.adminToken);
+    if (delGuru.ok) log(`Akun guru testing "${guruUsername}" dihapus`, 'ok');
+    else log(`Gagal menghapus guru testing: ${JSON.stringify(delGuru.data)}`, 'warn');
+
+    log('Cleanup selesai. Lihat catatan di atas untuk baris data yatim (nilai/jawaban) yang perlu dibersihkan manual lewat Supabase SQL Editor jika diinginkan.', 'ok');
+    alert('Cleanup selesai. Cek log aktivitas untuk detail apa yang berhasil/gagal dihapus.');
+  } catch (e) {
+    log(`Cleanup terhenti karena error: ${e.message}`, 'err');
+    alert('Cleanup terhenti karena error. Cek log aktivitas untuk detail.');
+  } finally {
+    document.getElementById('btn-confirm-cleanup').disabled = false;
+    document.getElementById('btn-confirm-cleanup').textContent = '🗑 Ya, Hapus Sekarang';
+    document.getElementById('cleanup-summary').style.display = 'none';
+  }
+}
+
+// ---------- Event bindings ----------
+document.getElementById('btn-start').addEventListener('click', runFullTest);
+document.getElementById('btn-stop').addEventListener('click', () => {
+  state.stopRequested = true;
+  log('Permintaan berhenti diterima — akan berhenti setelah batch saat ini selesai…', 'warn');
+});
+document.getElementById('btn-preview-cleanup').addEventListener('click', previewCleanup);
+document.getElementById('btn-confirm-cleanup').addEventListener('click', confirmCleanup);
+document.getElementById('btn-cancel-cleanup').addEventListener('click', () => {
+  document.getElementById('cleanup-summary').style.display = 'none';
+});
+
+renderPhaseTrack(null, []);
+
+// ---------- Deteksi origin: pastikan file ini diakses lewat server, bukan file:// ----------
+(function detectOrigin() {
+  if (location.protocol === 'file:') {
+    document.getElementById('origin-warning').style.display = 'block';
+    document.getElementById('btn-start').disabled = true;
+    document.getElementById('btn-start').title = 'Tidak bisa jalan dari file lokal — lihat peringatan di atas';
+    log('File ini dibuka dari file:// — login akan selalu gagal karena CORS. Lihat peringatan di atas halaman.', 'err');
+  } else {
+    // Same-origin: isi otomatis dan kunci field URL ke lokasi file ini sendiri
+    document.getElementById('cfg-baseurl').value = location.origin;
+    log(`Terdeteksi berjalan dari ${location.origin} — siap digunakan.`, 'ok');
+  }
+})();
+log('Siap. Isi konfigurasi di atas lalu klik "Mulai Pengujian".', 'info');
+
+</script>
+</body>
+</html>
