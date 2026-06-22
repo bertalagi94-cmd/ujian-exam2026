@@ -27,7 +27,7 @@ export async function GET(req: NextRequest) {
       .limit(30),
     db.from('sesi_ujian')
       .select('id, kelas, mapel_id, waktu_mulai, jumlah_peserta')
-      .eq('status', 'BERLANGSUNG')
+      .eq('status', 'BERJALAN')
       .order('waktu_mulai', { ascending: false }),
     db.from('pelanggaran')
       .select('id, nis, jenis, created_at')
@@ -43,7 +43,7 @@ export async function GET(req: NextRequest) {
       .gte('created_at', fiveMinsAgo.toISOString()),
     db.from('sesi_ujian')
       .select('id', { count: 'exact', head: true })
-      .eq('status', 'BERLANGSUNG'),
+      .eq('status', 'BERJALAN'),
     db.from('pelanggaran')
       .select('id', { count: 'exact', head: true })
       .gte('created_at', startOfDay.toISOString()),
