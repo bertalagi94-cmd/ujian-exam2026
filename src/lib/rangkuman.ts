@@ -45,27 +45,26 @@ export async function getRangkumanJadwal(): Promise<RangkumanJadwal> {
   const paketList = (paketRaw ?? []) as { mapel_id: string; kelas_id: string; status: string }[]
   const guruList = (guruRaw ?? []) as { username: string; nama: string; status: string }[]
 
-  // Ambil semua nama kelas yang dipakai di kelas_list mapel, untuk mapping nama -> id
-  const semuaNamaKelas = new Set<string>()
-  for (const m of mapelList) {
-    if (m.kelas_list) {
-      m.kelas_list.split(',').map(k => k.trim()).filter(Boolean).forEach(k => semuaNamaKelas.add(k))
-    }
-  }
-  const { data: kelasRaw } = semuaNamaKelas.size > 0
-    ? await (db as any).from('kelas').select('id, nama').in('nama', [...semuaNamaKelas])
-    : { data: [] }
+  // Ambil SEMUA kelas (tanpa filter) agar map id→nama lengkap
+  // Ini penting karena kelas_id di paket_soal SELALU berupa id asli ("KLS_xxx")
+  // sesuai dropdown guru yang menggunakan k.id sebagai value
+  const { data: kelasRaw } = await (db as any).from('kelas').select('id, nama')
   const kelasList = (kelasRaw ?? []) as { id: string; nama: string }[]
-  const namaKeId = Object.fromEntries(kelasList.map(k => [k.nama, k.id]))
+  const idKeNama = Object.fromEntries(kelasList.map(k => [k.id, String(k.nama)]))
+  const namaKeId = Object.fromEntries(kelasList.map(k => [String(k.nama), k.id]))
 
   // Set kombinasi mapel_id__kelasNama yang sudah terjadwal
   const sudahTerjadwal = new Set(jadwalList.map(j => `${j.mapel_id}__${j.kelas}`))
 
-  // Status paket soal terbaik per mapel_id__kelas_id
+  // Status paket soal terbaik per mapel_id__kelasNama
+  // Resolve kelas_id paket ke nama kelas via idKeNama agar key-nya konsisten dengan jadwal
   const statusPriority: Record<string, number> = { DISETUJUI: 4, MENUNGGU: 3, DITOLAK: 2, DRAFT: 1 }
   const paketStatusMap: Record<string, string> = {}
   for (const p of paketList) {
-    const key = `${p.mapel_id}__${p.kelas_id}`
+    // kelas_id di paket selalu berupa id asli; resolve ke nama kelas
+    // fallback ke kelas_id langsung untuk data lama yang mungkin menyimpan nama
+    const namaKelasForPaket = idKeNama[p.kelas_id] ?? p.kelas_id
+    const key = `${p.mapel_id}__${namaKelasForPaket}`
     const existing = paketStatusMap[key]
     if (!existing || (statusPriority[p.status] ?? 0) > (statusPriority[existing] ?? 0)) {
       paketStatusMap[key] = p.status
@@ -82,8 +81,8 @@ export async function getRangkumanJadwal(): Promise<RangkumanJadwal> {
         belumDijadwalkan.push({ mapel_id: m.id, nama_mapel: m.nama, kelas: namaKelas, guru_id: m.guru_id })
       }
 
-      const kelasId = namaKeId[namaKelas]
-      const statusSoal = kelasId ? (paketStatusMap[`${m.id}__${kelasId}`] ?? 'BELUM_ADA') : 'BELUM_ADA'
+      // Cek paketStatusMap dengan key berbasis nama kelas (sudah dinormalisasi di atas)
+      const statusSoal = paketStatusMap[`${m.id}__${namaKelas}`] ?? 'BELUM_ADA'
       if (statusSoal !== 'DISETUJUI') {
         belumAdaSoal.push({ mapel_id: m.id, nama_mapel: m.nama, kelas: namaKelas, status_soal: statusSoal, guru_id: m.guru_id })
       }
