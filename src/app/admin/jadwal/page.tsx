@@ -1044,16 +1044,41 @@ export default function AdminJadwalPage() {
               defaultValue={editData?.mapel_id ?? ''}
               onChange={e => setSelectedMapelId(e.target.value)}>
               <option value="">Pilih Mapel</option>
-              {mapelList.filter((m, idx, arr) => arr.findIndex(x => x.nama === m.nama) === idx)
-                .map(m => <option key={m.id} value={m.id}>{m.nama}</option>)}
+              {/* PENTING: jangan dedup by nama. Satu nama mapel bisa punya beberapa baris
+                  (mapel_id berbeda) kalau diampu guru berbeda untuk kelas berbeda — lihat
+                  validasi findKelasConflict di /api/admin/mapel. Dedup di sini akan
+                  menyembunyikan mapel_id guru lain dari pilihan, sehingga admin terpaksa
+                  memilih mapel_id yang salah dan status_soal jadi tidak pernah cocok. */}
+              {mapelList.map(m => (
+                <option key={m.id} value={m.id}>
+                  {m.nama}{m.nama_guru ? ` · ${m.nama_guru}` : ''}{m.kelas_list ? ` (Kelas ${m.kelas_list})` : ''}
+                </option>
+              ))}
             </select>
           </div>
           <div>
             <label className="label">Kelas *</label>
             <select name="kelas" className="select" required defaultValue={editData?.kelas ?? ''}>
               <option value="">Pilih Kelas</option>
-              {kelasList.map(k => <option key={k.id} value={k.nama}>{k.nama}</option>)}
+              {(() => {
+                // Batasi pilihan kelas sesuai kelas_list mapel yang dipilih, agar
+                // mapel_id (guru) dan kelas yang disimpan ke jadwal selalu konsisten.
+                // Jika mapel belum dipilih atau kelas_list kosong (data lama), tampilkan semua kelas.
+                const mapelTerpilih = selectedMapelId ? mapelList.find(m => m.id === selectedMapelId) : null
+                const kelasIzin = mapelTerpilih?.kelas_list
+                  ? mapelTerpilih.kelas_list.split(',').map(s => s.trim()).filter(Boolean)
+                  : null
+                const opsiKelas = kelasIzin
+                  ? kelasList.filter(k => kelasIzin.includes(String(k.nama)) || k.nama === editData?.kelas)
+                  : kelasList
+                return opsiKelas.map(k => <option key={k.id} value={k.nama}>{k.nama}</option>)
+              })()}
             </select>
+            {selectedMapelId && mapelList.find(m => m.id === selectedMapelId)?.kelas_list && (
+              <p className="mt-1.5 text-xs text-slate-400">
+                Hanya menampilkan kelas yang diampu untuk mapel ini.
+              </p>
+            )}
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
