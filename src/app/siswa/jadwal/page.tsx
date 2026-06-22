@@ -9,11 +9,13 @@ import { Jadwal } from '@/types'
 export default function SiswaJadwalPage() {
   const [jadwal, setJadwal] = useState<Jadwal[]>([])
   const [loading, setLoading] = useState(true)
+  const [zonaWaktu, setZonaWaktu] = useState<{ utcOffsetJam: number; label: string }>({ utcOffsetJam: 7, label: 'WIB (UTC+7)' })
 
   const load = useCallback(async () => {
     try {
-      const res = await apiRequest<{ data: Jadwal[] }>('/api/siswa/jadwal')
+      const res = await apiRequest<{ data: Jadwal[]; zonaWaktu?: { utcOffsetJam: number; label: string } }>('/api/siswa/jadwal')
       setJadwal(res.data)
+      if (res.zonaWaktu) setZonaWaktu(res.zonaWaktu)
     } finally { setLoading(false) }
   }, [])
 
@@ -21,7 +23,13 @@ export default function SiswaJadwalPage() {
 
   if (loading) return <PageLoader />
 
-  const today = new Date().toISOString().slice(0, 10)
+  // Tanggal "hari ini" pada zona waktu sekolah — bukan UTC. Sebelumnya pakai
+  // `new Date().toISOString().slice(0,10)` yang salah setiap dini hari
+  // (00:00–06:59 WIB/WITA/WIT), karena toISOString() selalu UTC.
+  const today = (() => {
+    const shifted = new Date(Date.now() + zonaWaktu.utcOffsetJam * 60 * 60 * 1000)
+    return shifted.toISOString().slice(0, 10)
+  })()
   // BUG FIX: Pisahkan hari ini, mendatang (besok dst), dan sudah lewat
   const hariIni   = jadwal.filter(j => j.tanggal === today)
   const mendatang = jadwal.filter(j => j.tanggal > today)
