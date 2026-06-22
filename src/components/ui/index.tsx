@@ -124,11 +124,23 @@ export function StatusBadge({ status }: { status: string }) {
 }
 
 // ── Empty State ───────────────────────────────────────
-export function EmptyState({ message = 'Tidak ada data', icon: Icon }: { message?: string; icon?: React.ElementType }) {
+export function EmptyState({
+  message,
+  title,
+  description,
+  icon: Icon,
+}: {
+  message?: string
+  title?: string
+  description?: string
+  icon?: React.ElementType
+}) {
   return (
     <div className="flex flex-col items-center justify-center py-16 text-slate-400">
       {Icon && <Icon className="w-12 h-12 mb-3 opacity-40" />}
-      <p className="text-sm">{message}</p>
+      {title && <p className="text-sm font-medium text-slate-500">{title}</p>}
+      {description && <p className="text-xs mt-1 text-center max-w-xs">{description}</p>}
+      {!title && !description && <p className="text-sm">{message ?? 'Tidak ada data'}</p>}
     </div>
   )
 }
