@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 import { generateId } from '@/lib/utils'
+import { getZonaWaktuSekolah, tanggalHariIni } from '@/lib/pengaturan-waktu'
 
 function generateKodeSesi7(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
@@ -20,7 +21,8 @@ export async function GET(req: NextRequest) {
   const db = createAdminClient()
 
   // ── 1. Ambil semua jadwal milik guru ini ──────────────────────────────────
-  const today = new Date().toISOString().slice(0, 10)
+  const zona = await getZonaWaktuSekolah()
+  const today = tanggalHariIni(zona)
   const todayStart = `${today}T00:00:00`
   const todayEnd   = `${today}T23:59:59`
 
