@@ -163,7 +163,7 @@ export default function MonitoringPanel() {
       `}</style>
 
       {/* ── Floating Button ── */}
-      <div style={{ position:'fixed', bottom:24, right:24, zIndex: fullscreen ? 1 : 50 }}>
+      <div style={{ position:'fixed', bottom:24, right:24, zIndex: 50 }}>
 
         {/* Panel */}
         {open && (
