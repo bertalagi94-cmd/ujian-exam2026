@@ -118,8 +118,10 @@ export default function GuruBuatSoalPage() {
     if (!setupMapel) return []
     const mapel = guruMapelList.find(m => m.id === setupMapel)
     if (!mapel?.kelas_list) return []
-    const kelasIds = mapel.kelas_list.split(',').map(s => s.trim()).filter(Boolean)
-    return allKelasList.filter(k => kelasIds.includes(k.id))
+    const kelasDiMapel = mapel.kelas_list.split(',').map(s => s.trim()).filter(Boolean)
+    // kelas_list berisi nama kelas (misal "10,11,12"), bukan id kelas.
+    // Cocokkan dengan k.nama agar kelas apapun pasti muncul di dropdown guru.
+    return allKelasList.filter(k => kelasDiMapel.includes(k.nama))
   })()
 
   useEffect(() => { setSetupKelas('') }, [setupMapel])
