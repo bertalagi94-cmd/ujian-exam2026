@@ -40,35 +40,32 @@ export async function GET(req: NextRequest) {
 
   // Enrich status_soal: ambil paket_soal terbaru per (mapel_id, kelas_id)
   // Catatan: kelas di jadwal = nama kelas (string, misal "10").
-  // kelas_id di paket_soal bisa berisi:
-  //   (a) id asli dari tabel kelas (misal "KLS_xxx") — jika kelas sudah punya baris di tabel kelas
-  //   (b) nama kelas itu sendiri (misal "10") — jika kelas belum punya baris di tabel kelas saat guru menyimpan
-  // Oleh karena itu kita perlu mencocokkan paket dengan KEDUA kemungkinan tersebut.
+  // kelas_id di paket_soal SELALU berupa id asli dari tabel kelas (misal "KLS_xxx")
+  // karena dropdown guru menggunakan k.id sebagai value.
+  // Kita perlu:
+  //   1. Ambil semua baris kelas (tanpa filter nama) agar punya map id→nama yang lengkap
+  //   2. Query paket_soal hanya filter by mapel_id (tanpa filter kelas_id) agar tidak miss
+  //   3. Resolve nama kelas dari kelas_id paket via map id→nama
+  //   4. Cocokkan dengan nama kelas di jadwal (r.kelas)
   const kelasNamaList = [...new Set(data.map((r: any) => r.kelas).filter(Boolean))] as string[]
 
-  // Query tabel kelas untuk mendapat id asli (jika ada)
-  const { data: kelasListRaw } = kelasNamaList.length > 0
-    ? await (db as any).from('kelas').select('id, nama').in('nama', kelasNamaList)
-    : { data: [] }
+  // Ambil SEMUA kelas (tanpa filter nama) untuk map id→nama yang lengkap
+  const { data: kelasListRaw } = await (db as any).from('kelas').select('id, nama')
   const kelasList = (kelasListRaw ?? []) as { id: string; nama: string }[]
 
-  // Map: nama kelas → id asli (jika ada baris di tabel kelas)
+  // Map dua arah
+  const idToNamaKelas = Object.fromEntries(kelasList.map(k => [k.id, String(k.nama)]))
+  // Map nama → id (untuk keperluan lain, misalnya rangkuman)
   const kelasNamaToId = Object.fromEntries(kelasList.map(k => [String(k.nama), k.id]))
 
-  // Kumpulkan semua nilai kelas_id yang mungkin dipakai guru:
-  // - id asli (dari tabel kelas)
-  // - nama kelas itu sendiri (fallback lama)
-  const kelasIdsAsli = kelasList.map(k => k.id)
-  const allPossibleKelasIds = [...new Set([...kelasIdsAsli, ...kelasNamaList])]
-
-  // Ambil semua paket_soal yang relevan (cukup satu query, filter di memori)
+  // Ambil semua paket_soal yang relevan berdasarkan mapel saja (filter kelas di memori)
+  // Ini menghindari miss ketika kelas_id di paket tidak ada di allPossibleKelasIds
   let paketStatusMap: Record<string, string> = {}
-  if (mapelIds.length > 0 && allPossibleKelasIds.length > 0) {
+  if (mapelIds.length > 0) {
     const { data: paketList } = await db
       .from('paket_soal')
       .select('mapel_id, kelas_id, status')
       .in('mapel_id', mapelIds)
-      .in('kelas_id', allPossibleKelasIds)
       .order('tanggal', { ascending: false })
 
     // Priority: DISETUJUI > MENUNGGU > DITOLAK > DRAFT
@@ -76,11 +73,9 @@ export async function GET(req: NextRequest) {
     const typedPaketList = (paketList ?? []) as { mapel_id: string; kelas_id: string; status: string }[]
 
     for (const p of typedPaketList) {
-      // Normalisasi: cari nama kelas yang sesuai dengan kelas_id di paket ini.
-      // kelas_id bisa berupa id asli ATAU nama kelas langsung.
-      // Kita perlu memetakan keduanya ke nama kelas agar key konsisten.
-      const idToNama = Object.fromEntries(kelasList.map(k => [k.id, k.nama]))
-      const kelasNamaForPaket = idToNama[p.kelas_id] ?? p.kelas_id // fallback: kelas_id IS nama
+      // Resolve nama kelas dari kelas_id (selalu berupa id asli "KLS_xxx")
+      // Fallback ke kelas_id langsung jika tidak ketemu di map (data lama / edge case)
+      const kelasNamaForPaket = idToNamaKelas[p.kelas_id] ?? p.kelas_id
       const key = `${p.mapel_id}__${kelasNamaForPaket}`
       const existing = paketStatusMap[key]
       if (!existing || (statusPriority[p.status] ?? 0) > (statusPriority[existing] ?? 0)) {
