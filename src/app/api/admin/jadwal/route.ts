@@ -39,30 +39,49 @@ export async function GET(req: NextRequest) {
   }
 
   // Enrich status_soal: ambil paket_soal terbaru per (mapel_id, kelas_id)
-  // kelas di jadwal = nama kelas (string), kelas_id di paket_soal = id kelas
-  // Kita perlu mapping nama kelas -> id kelas
-  const kelasNamaList = [...new Set(data.map(r => r.kelas).filter(Boolean))]
-  const { data: kelasListRaw } = kelasNamaList.length > 0 ? await (db as any).from('kelas').select('id, nama').in('nama', kelasNamaList) : { data: [] }
+  // Catatan: kelas di jadwal = nama kelas (string, misal "10").
+  // kelas_id di paket_soal bisa berisi:
+  //   (a) id asli dari tabel kelas (misal "KLS_xxx") — jika kelas sudah punya baris di tabel kelas
+  //   (b) nama kelas itu sendiri (misal "10") — jika kelas belum punya baris di tabel kelas saat guru menyimpan
+  // Oleh karena itu kita perlu mencocokkan paket dengan KEDUA kemungkinan tersebut.
+  const kelasNamaList = [...new Set(data.map((r: any) => r.kelas).filter(Boolean))] as string[]
+
+  // Query tabel kelas untuk mendapat id asli (jika ada)
+  const { data: kelasListRaw } = kelasNamaList.length > 0
+    ? await (db as any).from('kelas').select('id, nama').in('nama', kelasNamaList)
+    : { data: [] }
   const kelasList = (kelasListRaw ?? []) as { id: string; nama: string }[]
+
+  // Map: nama kelas → id asli (jika ada baris di tabel kelas)
   const kelasNamaToId = Object.fromEntries(kelasList.map(k => [String(k.nama), k.id]))
 
-  // Ambil semua paket_soal yang relevan
-  const kelasIds = kelasList.map(k => k.id)
+  // Kumpulkan semua nilai kelas_id yang mungkin dipakai guru:
+  // - id asli (dari tabel kelas)
+  // - nama kelas itu sendiri (fallback lama)
+  const kelasIdsAsli = kelasList.map(k => k.id)
+  const allPossibleKelasIds = [...new Set([...kelasIdsAsli, ...kelasNamaList])]
+
+  // Ambil semua paket_soal yang relevan (cukup satu query, filter di memori)
   let paketStatusMap: Record<string, string> = {}
-  if (mapelIds.length > 0 && kelasIds.length > 0) {
+  if (mapelIds.length > 0 && allPossibleKelasIds.length > 0) {
     const { data: paketList } = await db
       .from('paket_soal')
       .select('mapel_id, kelas_id, status')
       .in('mapel_id', mapelIds)
-      .in('kelas_id', kelasIds)
+      .in('kelas_id', allPossibleKelasIds)
       .order('tanggal', { ascending: false })
 
-    // Untuk setiap kombinasi mapel+kelas, ambil status paket terbaru
     // Priority: DISETUJUI > MENUNGGU > DITOLAK > DRAFT
     const statusPriority: Record<string, number> = { DISETUJUI: 4, MENUNGGU: 3, DITOLAK: 2, DRAFT: 1 }
     const typedPaketList = (paketList ?? []) as { mapel_id: string; kelas_id: string; status: string }[]
+
     for (const p of typedPaketList) {
-      const key = `${p.mapel_id}__${p.kelas_id}`
+      // Normalisasi: cari nama kelas yang sesuai dengan kelas_id di paket ini.
+      // kelas_id bisa berupa id asli ATAU nama kelas langsung.
+      // Kita perlu memetakan keduanya ke nama kelas agar key konsisten.
+      const idToNama = Object.fromEntries(kelasList.map(k => [k.id, k.nama]))
+      const kelasNamaForPaket = idToNama[p.kelas_id] ?? p.kelas_id // fallback: kelas_id IS nama
+      const key = `${p.mapel_id}__${kelasNamaForPaket}`
       const existing = paketStatusMap[key]
       if (!existing || (statusPriority[p.status] ?? 0) > (statusPriority[existing] ?? 0)) {
         paketStatusMap[key] = p.status
@@ -108,8 +127,9 @@ export async function GET(req: NextRequest) {
   }
 
   const enriched = data.map(r => {
-    const kelasId = kelasNamaToId[String(r.kelas)]
-    const soalKey = `${r.mapel_id}__${kelasId}`
+    // Gunakan nama kelas langsung sebagai key (sudah konsisten dengan paketStatusMap yang baru)
+    const kelasNama = String(r.kelas ?? '')
+    const soalKey = `${r.mapel_id}__${kelasNama}`
 
     const sesiAktif = sesiAktifMap[r.id]
     // Default: pengawas aktif = pengawas asli jadwal ini
@@ -125,8 +145,6 @@ export async function GET(req: NextRequest) {
       nama_mapel: mapelMap[r.mapel_id] ?? r.mapel_id,
       nama_pengawas: r.pengawas ? (guruMap[r.pengawas] ?? r.pengawas) : null,
       status_soal: paketStatusMap[soalKey] ?? 'BELUM_ADA',
-      // Hanya relevan ketika status BERJALAN; untuk status lain nilainya
-      // sama dengan pengawas asli / null.
       pengawas_aktif: pengawasAktifUsername ? (guruMap[pengawasAktifUsername] ?? pengawasAktifUsername) : null,
       is_pengawas_susulan: isPengawasSusulan,
     }
@@ -168,7 +186,6 @@ export async function POST(req: NextRequest) {
 
     const typedJadwalPengawas = (jadwalPengawas ?? []) as { id: string; jam_mulai: string; jam_selesai: string }[]
     const bentrok = typedJadwalPengawas.find(j => {
-      // Overlap jika: mulai baru < selesai lama DAN selesai baru > mulai lama
       return body.jam_mulai < j.jam_selesai && body.jam_selesai > j.jam_mulai
     })
 
@@ -204,7 +221,7 @@ export async function PUT(req: NextRequest) {
   const db = createAdminClient()
   const { id, ...update } = await req.json()
 
-  // Cegah duplikat saat edit: cek jadwal lain dengan mapel + kelas yang sama (kecuali dirinya sendiri)
+  // Cegah duplikat saat edit
   if (update.mapel_id && update.kelas) {
     const { data: existing } = await db
       .from('jadwal')
@@ -257,7 +274,6 @@ export async function DELETE(req: NextRequest) {
   const db = createAdminClient()
   const { id } = await req.json()
 
-  // Ambil data jadwal
   const { data: jadwal } = await db
     .from('jadwal')
     .select('id, mapel_id, kelas, status')
@@ -266,10 +282,7 @@ export async function DELETE(req: NextRequest) {
 
   if (!jadwal) return NextResponse.json({ error: 'Jadwal tidak ditemukan.' }, { status: 404 })
 
-  // Hanya jadwal SELESAI yang dicek kelengkapan ujian siswa
   if (jadwal.status === 'SELESAI') {
-
-    // Ambil semua siswa aktif di kelas ini
     const { data: semuaSiswa } = await db
       .from('siswa')
       .select('nis, nama')
@@ -277,7 +290,6 @@ export async function DELETE(req: NextRequest) {
       .eq('status', 'AKTIF')
       .order('nama')
 
-    // Ambil sesi ujian untuk jadwal ini
     const { data: sesiList } = await db
       .from('sesi_ujian')
       .select('id')
@@ -285,8 +297,6 @@ export async function DELETE(req: NextRequest) {
       .eq('kelas', jadwal.kelas)
 
     const sesiIds = (sesiList ?? []).map((s: any) => s.id)
-
-    // Ambil NIS yang sudah punya nilai
     let sudahUjianNis: string[] = []
     if (sesiIds.length > 0) {
       const { data: nilaiList } = await db
@@ -296,9 +306,7 @@ export async function DELETE(req: NextRequest) {
       sudahUjianNis = [...new Set((nilaiList ?? []).map((n: any) => n.nis))]
     }
 
-    // Cari siswa yang belum ujian
     const belumUjian = (semuaSiswa ?? []).filter((s: any) => !sudahUjianNis.includes(s.nis))
-
     if (belumUjian.length > 0) {
       return NextResponse.json({
         error: 'Hapus ditolak. Masih ada siswa yang belum mengikuti ujian.',
@@ -307,19 +315,17 @@ export async function DELETE(req: NextRequest) {
     }
   }
 
-  // Lakukan hapus
   const { error } = await (db as any).from('jadwal').delete().eq('id', id)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ message: 'Jadwal berhasil dihapus' })
 }
-// Hapus semua jadwal SELESAI — dengan cek siswa dulu
+
 export async function PATCH(req: NextRequest) {
   const auth = requireRole(req, ['ADMIN'])
   if ('error' in auth) return auth.error
 
   const db = createAdminClient()
 
-  // Ambil semua jadwal SELESAI
   const { data: jadwalSelesai } = await db
     .from('jadwal')
     .select('id, mapel_id, kelas')
@@ -329,7 +335,6 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: 'Tidak ada jadwal dengan status Selesai.' }, { status: 400 })
   }
 
-  // Cek setiap jadwal apakah semua siswanya sudah ujian
   const semuaBelumUjian: { jadwal: string; kelas: string; siswa: { nama: string }[] }[] = []
 
   for (const jadwal of jadwalSelesai) {
@@ -361,15 +366,10 @@ export async function PATCH(req: NextRequest) {
 
     const belumUjian = semuaSiswa.filter((s: any) => !sudahUjianNis.includes(s.nis))
     if (belumUjian.length > 0) {
-      semuaBelumUjian.push({
-        jadwal: jadwal.id,
-        kelas: jadwal.kelas,
-        siswa: belumUjian,
-      })
+      semuaBelumUjian.push({ jadwal: jadwal.id, kelas: jadwal.kelas, siswa: belumUjian })
     }
   }
 
-  // Jika ada jadwal yang siswanya belum semua ujian, tolak
   if (semuaBelumUjian.length > 0) {
     return NextResponse.json({
       error: 'Hapus dibatalkan. Masih ada siswa yang belum mengikuti ujian.',
@@ -377,7 +377,6 @@ export async function PATCH(req: NextRequest) {
     }, { status: 400 })
   }
 
-  // Semua bersih — hapus semua jadwal SELESAI
   const idList = jadwalSelesai.map((j: any) => j.id)
   const { error } = await db.from('jadwal').delete().in('id', idList)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
