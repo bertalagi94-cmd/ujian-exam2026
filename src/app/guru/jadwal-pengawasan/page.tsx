@@ -54,32 +54,48 @@ function groupByMonth(list: JadwalPengawasan[]) {
   return Object.entries(map).sort(([a], [b]) => a.localeCompare(b))
 }
 
-function isToday(dateStr: string) {
-  return dateStr === new Date().toISOString().slice(0, 10)
+// Zona waktu sekolah (offset jam dari UTC), dikirim oleh server lewat API
+// /api/guru/jadwal-pengawasan — JANGAN dihitung dari timezone browser,
+// karena guru bisa membuka aplikasi dari device dengan timezone berbeda
+// (misalnya laptop yang salah-set, atau guru yang sedang di luar kota).
+// Status ujian harus satu kebenaran tunggal yang sama untuk semua orang,
+// ditentukan oleh lokasi SEKOLAH, bukan lokasi/perangkat masing-masing guru.
+interface ZonaWaktuInfo {
+  utcOffsetJam: number
+  label: string
 }
 
-function isPast(dateStr: string) {
-  return dateStr < new Date().toISOString().slice(0, 10)
+const ZONA_FALLBACK: ZonaWaktuInfo = { utcOffsetJam: 7, label: 'WIB (UTC+7)' }
+
+// Tanggal "hari ini" pada zona waktu sekolah (bukan UTC, bukan timezone browser)
+function tanggalHariIniDiZona(zona: ZonaWaktuInfo, now: Date): string {
+  const shifted = new Date(now.getTime() + zona.utcOffsetJam * 60 * 60 * 1000)
+  return shifted.toISOString().slice(0, 10)
+}
+
+function isToday(dateStr: string, zona: ZonaWaktuInfo, now: Date) {
+  return dateStr === tanggalHariIniDiZona(zona, now)
+}
+
+function isPast(dateStr: string, zona: ZonaWaktuInfo, now: Date) {
+  return dateStr < tanggalHariIniDiZona(zona, now)
 }
 
 // Kembalikan true jika sekarang sudah 15 menit sebelum jam_mulai (dan belum lewat jam_selesai)
-function canStartSesi(tanggal: string, jamMulai: string, jamSelesai: string, now: Date): boolean {
-  if (!isToday(tanggal)) return false
-  const [mH, mM] = jamMulai.split(':').map(Number)
-  const [eH, eM] = jamSelesai.split(':').map(Number)
-  const todayStr = now.toISOString().slice(0, 10)
-  const mulaiMs  = new Date(`${todayStr}T${String(mH).padStart(2,'0')}:${String(mM).padStart(2,'0')}:00`).getTime() - 15 * 60 * 1000
-  const selesaiMs = new Date(`${todayStr}T${String(eH).padStart(2,'0')}:${String(eM).padStart(2,'0')}:00`).getTime()
+function canStartSesi(tanggal: string, jamMulai: string, jamSelesai: string, now: Date, zona: ZonaWaktuInfo): boolean {
+  if (!isToday(tanggal, zona, now)) return false
+  const offsetStr = `+${String(zona.utcOffsetJam).padStart(2, '0')}:00`
+  const mulaiMs   = new Date(`${tanggal}T${jamMulai}:00${offsetStr}`).getTime() - 15 * 60 * 1000
+  const selesaiMs = new Date(`${tanggal}T${jamSelesai}:00${offsetStr}`).getTime()
   const nowMs = now.getTime()
   return nowMs >= mulaiMs && nowMs < selesaiMs
 }
 
 // Hitung sisa menit sebelum boleh mulai (negatif = sudah boleh)
-function menitMenunggu(tanggal: string, jamMulai: string, now: Date): number {
-  if (!isToday(tanggal)) return 999
-  const [mH, mM] = jamMulai.split(':').map(Number)
-  const todayStr = now.toISOString().slice(0, 10)
-  const mulaiMs = new Date(`${todayStr}T${String(mH).padStart(2,'0')}:${String(mM).padStart(2,'0')}:00`).getTime() - 15 * 60 * 1000
+function menitMenunggu(tanggal: string, jamMulai: string, now: Date, zona: ZonaWaktuInfo): number {
+  if (!isToday(tanggal, zona, now)) return 999
+  const offsetStr = `+${String(zona.utcOffsetJam).padStart(2, '0')}:00`
+  const mulaiMs = new Date(`${tanggal}T${jamMulai}:00${offsetStr}`).getTime() - 15 * 60 * 1000
   return Math.ceil((mulaiMs - now.getTime()) / 60000)
 }
 
@@ -376,15 +392,17 @@ export default function JadwalPengawasanPage() {
   const [refreshing, setRefreshing] = useState(false)
   const [susulanTarget, setSusulanTarget] = useState<JadwalPengawasan | null>(null)
   const [now, setNow] = useState(() => new Date())
+  const [zonaWaktu, setZonaWaktu] = useState<ZonaWaktuInfo>(ZONA_FALLBACK)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true)
     else setRefreshing(true)
     try {
-      const res = await apiRequest<{ data: JadwalPengawasan[]; hasJadwal: boolean }>('/api/guru/jadwal-pengawasan')
+      const res = await apiRequest<{ data: JadwalPengawasan[]; hasJadwal: boolean; zonaWaktu?: ZonaWaktuInfo }>('/api/guru/jadwal-pengawasan')
       setJadwal(res.data ?? [])
       setHasJadwal(res.hasJadwal ?? (res.data?.length > 0))
+      if (res.zonaWaktu) setZonaWaktu(res.zonaWaktu)
     } catch (e) {
       console.error(e)
     } finally {
@@ -410,7 +428,7 @@ export default function JadwalPengawasanPage() {
   if (loading) return <PageLoader />
 
   const grouped = groupByMonth(jadwal)
-  const upcoming = jadwal.filter(j => j.status === 'AKTIF' && !isPast(j.tanggal))
+  const upcoming = jadwal.filter(j => j.status === 'AKTIF' && !isPast(j.tanggal, zonaWaktu, now))
   const total = jadwal.length
   const selesai = jadwal.filter(j => j.status === 'SELESAI').length
   const berjalan = jadwal.filter(j => j.status === 'BERJALAN').length
@@ -472,7 +490,7 @@ export default function JadwalPengawasanPage() {
             <div className="space-y-3">
               {items.map(j => {
                 const cfg = STATUS_CONFIG[j.status] ?? STATUS_CONFIG.AKTIF
-                const today = isToday(j.tanggal)
+                const today = isToday(j.tanggal, zonaWaktu, now)
                 const dayName = new Date(j.tanggal).toLocaleDateString('id-ID', { weekday: 'long' })
                 const isSelesai = j.status === 'SELESAI'
 
@@ -526,8 +544,8 @@ export default function JadwalPengawasanPage() {
 
                         {/* Today reminder + tombol mulai */}
                         {today && j.status === 'AKTIF' && (() => {
-                          const bisa = canStartSesi(j.tanggal, j.jam_mulai, j.jam_selesai, now)
-                          const menit = menitMenunggu(j.tanggal, j.jam_mulai, now)
+                          const bisa = canStartSesi(j.tanggal, j.jam_mulai, j.jam_selesai, now, zonaWaktu)
+                          const menit = menitMenunggu(j.tanggal, j.jam_mulai, now, zonaWaktu)
                           if (bisa) {
                             return (
                               <div className="mt-3 flex items-center justify-between gap-3 flex-wrap">
