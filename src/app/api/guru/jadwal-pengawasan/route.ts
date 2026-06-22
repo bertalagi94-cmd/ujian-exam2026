@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
+import { getZonaWaktuSekolah, tanggalHariIni } from '@/lib/pengaturan-waktu'
 
 export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['GURU'])
@@ -45,7 +46,9 @@ export async function GET(req: NextRequest) {
   const jadwalList = [...(jadwalSendiri ?? []), ...jadwalSusulanSaya]
     .sort((a, b) => (a.tanggal < b.tanggal ? -1 : a.tanggal > b.tanggal ? 1 : (a.sesi ?? 0) - (b.sesi ?? 0)))
 
-  if (!jadwalList?.length) return NextResponse.json({ data: [], hasJadwal: false })
+  const zona = await getZonaWaktuSekolah()
+
+  if (!jadwalList?.length) return NextResponse.json({ data: [], hasJadwal: false, zonaWaktu: zona })
 
   // Enrich dengan nama mapel dan nama kelas
   const mapelIds = [...new Set(jadwalList.map(j => j.mapel_id).filter(Boolean))]
@@ -78,7 +81,7 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  const today = new Date().toISOString().slice(0, 10)
+  const today = tanggalHariIni(zona)
 
   const enriched = jadwalList.map(j => {
     const tanggal = j.tanggal?.slice(0, 10) ?? j.tanggal
@@ -101,5 +104,5 @@ export async function GET(req: NextRequest) {
     }
   })
 
-  return NextResponse.json({ data: enriched, hasJadwal: enriched.length > 0 })
+  return NextResponse.json({ data: enriched, hasJadwal: enriched.length > 0, zonaWaktu: zona })
 }
