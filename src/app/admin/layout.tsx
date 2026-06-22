@@ -21,10 +21,13 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     <div className="flex min-h-screen bg-surface-50">
       <AdminSidebar />
       <FullscreenButton />
-      {/* FIX: pt-16 di semua breakpoint — sebelumnya "pt-16 lg:pt-8" bikin tombol
-          di header halaman (mis. "Tambah Pengguna") bertabrakan dengan FullscreenButton
-          yang fixed top-4 right-4 (z-30) */}
-      <main className="flex-1 min-w-0 p-6 lg:p-8 pt-16">
+      {/* FIX v2: pt-16 lg:pt-16 — sebelumnya cuma "pt-16" tanpa varian lg:, dan
+          ternyata KALAH cascade dari "lg:p-8" karena Tailwind mengelompokkan semua
+          utility ber-breakpoint (lg:) di blok @media terpisah di AKHIR file CSS,
+          jadi lg:p-8 selalu menang di atas pt-16 tanpa prefix, walau pt-16 ditulis
+          belakangan di className. Sekarang lg:pt-16 ada di blok @media yang sama
+          dengan lg:p-8 dan ditulis setelahnya → menang juga di layar besar. */}
+      <main className="flex-1 min-w-0 p-6 lg:p-8 pt-16 lg:pt-16">
         {children}
       </main>
     </div>
