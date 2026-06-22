@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
+import { getZonaWaktuSekolah, tanggalHariIni } from '@/lib/pengaturan-waktu'
 
 export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['SISWA'])
@@ -24,7 +25,8 @@ export async function GET(req: NextRequest) {
 
   // FIX: sinkronkan status — jadwal yang tanggalnya sudah lewat tapi masih AKTIF
   // di-override ke SELESAI agar konsisten dengan tampilan guru
-  const today = new Date().toISOString().slice(0, 10)
+  const zona = await getZonaWaktuSekolah()
+  const today = tanggalHariIni(zona)
 
   return NextResponse.json({
     data: data.map(j => {
