@@ -348,6 +348,7 @@ export default function AdminJadwalPage() {
   const [editData, setEditData] = useState<Partial<Jadwal> | null>(null)
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [perluLengkapiPengaturan, setPerluLengkapiPengaturan] = useState(false)
   const [selectedMapelId, setSelectedMapelId] = useState<string>('')
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
 
@@ -447,6 +448,14 @@ export default function AdminJadwalPage() {
       setModalOpen(false)
       load()
     } catch (err: unknown) {
+      const errData = (err as any)?.data
+      if (errData?.perluLengkapiPengaturan) {
+        // Jangan tutup modal — biarkan admin lihat datanya masih tersimpan di form,
+        // lalu arahkan untuk melengkapi pengaturan dulu.
+        setPerluLengkapiPengaturan(true)
+        showToast(err instanceof Error ? err.message : 'Lengkapi pengaturan lokasi sekolah terlebih dahulu', 'error')
+        return
+      }
       showToast(err instanceof Error ? err.message : 'Gagal menyimpan', 'error')
     } finally { setSaving(false) }
   }
@@ -766,7 +775,7 @@ export default function AdminJadwalPage() {
               Hapus Jadwal Selesai
             </button>
           )}
-          <button onClick={() => { setEditData({}); setSelectedMapelId(''); setModalOpen(true) }} className="btn-primary btn-sm">
+          <button onClick={() => { setEditData({}); setSelectedMapelId(''); setPerluLengkapiPengaturan(false); setModalOpen(true) }} className="btn-primary btn-sm">
             <Plus className="w-4 h-4" /> Tambah Jadwal
           </button>
         </div>
@@ -840,7 +849,7 @@ export default function AdminJadwalPage() {
                         </button>
                         {j.status === 'AKTIF' && (
                           <>
-                            <button onClick={() => { setEditData(j); setSelectedMapelId(j.mapel_id ?? ''); setModalOpen(true) }}
+                            <button onClick={() => { setEditData(j); setSelectedMapelId(j.mapel_id ?? ''); setPerluLengkapiPengaturan(false); setModalOpen(true) }}
                               className="btn-ghost btn-icon btn-sm text-slate-600 hover:bg-slate-50">
                               <Pencil className="w-3.5 h-3.5" />
                             </button>
@@ -929,7 +938,7 @@ export default function AdminJadwalPage() {
                   </button>
                   {j.status === 'AKTIF' && (
                     <>
-                      <button onClick={() => { setEditData(j); setSelectedMapelId(j.mapel_id ?? ''); setModalOpen(true) }}
+                      <button onClick={() => { setEditData(j); setSelectedMapelId(j.mapel_id ?? ''); setPerluLengkapiPengaturan(false); setModalOpen(true) }}
                         className="btn-ghost btn-icon btn-sm text-slate-600">
                         <Pencil className="w-4 h-4" />
                       </button>
@@ -1026,6 +1035,24 @@ export default function AdminJadwalPage() {
         }
       >
         <form id="jadwal-form" onSubmit={handleSave} className="space-y-4">
+          {perluLengkapiPengaturan && (
+            <div className="flex items-start gap-3 p-3 rounded-xl bg-amber-50 border border-amber-200">
+              <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+              <div className="flex-1 text-sm">
+                <p className="text-amber-800 font-medium">Lengkapi Pengaturan Lokasi Sekolah</p>
+                <p className="text-amber-700 mt-0.5">
+                  Provinsi & Kabupaten sekolah belum diatur, sehingga zona waktu dan status ujian
+                  (Akan Datang / Berlangsung / Selesai) belum dapat dihitung dengan benar.
+                </p>
+                <a
+                  href="/admin/pengaturan"
+                  className="inline-flex items-center gap-1.5 mt-2 text-amber-800 font-semibold hover:underline"
+                >
+                  Buka Menu Pengaturan →
+                </a>
+              </div>
+            </div>
+          )}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="label">Tanggal *</label>
