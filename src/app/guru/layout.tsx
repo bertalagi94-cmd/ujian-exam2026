@@ -20,7 +20,10 @@ export default function GuruLayout({ children }: { children: React.ReactNode }) 
     <div className="flex min-h-screen bg-surface-50">
       <GuruSidebar />
       <FullscreenButton />
-      <main className="flex-1 min-w-0 p-6 lg:p-8 pt-16 lg:pt-8">
+      {/* FIX: pt-16 di semua breakpoint — sebelumnya "pt-16 lg:pt-8" bikin tombol
+          di header halaman (mis. "Tambah Soal") bertabrakan dengan FullscreenButton
+          yang fixed top-4 right-4 (z-30) */}
+      <main className="flex-1 min-w-0 p-6 lg:p-8 pt-16">
         {children}
       </main>
       <SesiTerlupaPopup />
