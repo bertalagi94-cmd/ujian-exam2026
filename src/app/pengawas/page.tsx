@@ -65,6 +65,7 @@ export default function PengawasDashboard() {
   const [jadwal, setJadwal] = useState<Jadwal[]>([])
   const [sesiAktif, setSesiAktif] = useState<SesiUjian[]>([])
   const [loading, setLoading] = useState(true)
+  const [zonaWaktu, setZonaWaktu] = useState<{ utcOffsetJam: number; label: string }>({ utcOffsetJam: 7, label: 'WIB (UTC+7)' })
   const [mulaiId, setMulaiId] = useState<string | null>(null)
   const [tutupId, setTutupId] = useState<string | null>(null)
   const [susulanSesiId, setSusulanSesiId] = useState<string | null>(null)
@@ -180,10 +181,11 @@ export default function PengawasDashboard() {
     setLoading(true)
     try {
       const [j, s] = await Promise.all([
-        apiRequest<{ data: Jadwal[] }>('/api/pengawas/jadwal'),
+        apiRequest<{ data: Jadwal[]; zonaWaktu?: { utcOffsetJam: number; label: string } }>('/api/pengawas/jadwal'),
         apiRequest<{ data: SesiUjian[] }>('/api/pengawas/sesi'),
       ])
       setJadwal(j.data)
+      if (j.zonaWaktu) setZonaWaktu(j.zonaWaktu)
       setSesiAktif(s.data)
 
       const res = await apiRequest<{ data: SesiUjian[] }>('/api/pengawas/sesi?status=SELESAI')
@@ -297,7 +299,12 @@ export default function PengawasDashboard() {
     })
   }
 
-  const today = new Date().toISOString().slice(0, 10)
+  // Tanggal "hari ini" pada zona waktu sekolah — bukan UTC. Lihat penjelasan
+  // lengkap di src/app/guru/jadwal-pengawasan/page.tsx
+  const today = (() => {
+    const shifted = new Date(Date.now() + zonaWaktu.utcOffsetJam * 60 * 60 * 1000)
+    return shifted.toISOString().slice(0, 10)
+  })()
 
   const ringkasanSiswa = pelanggaran.reduce<Record<string, { nama: string; jumlah: number; terakhir: string }>>((acc, p) => {
     if (!acc[p.nis]) acc[p.nis] = { nama: p.nama_siswa, jumlah: 0, terakhir: p.created_at }
