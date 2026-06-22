@@ -70,12 +70,15 @@ export default function MonitoringPanel() {
     setLoading(true)
     setError(null)
     try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
       const controller = new AbortController()
       const timeoutId = setTimeout(() => controller.abort(), 8000)
       const r = await fetch('/api/admin/monitoring', {
         cache: 'no-store',
         signal: controller.signal,
+        headers: token ? { Authorization: 'Bearer ' + token } : {},
       })
+      
       clearTimeout(timeoutId)
       if (r.ok) {
         setData(await r.json())
