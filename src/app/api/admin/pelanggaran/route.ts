@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
   const page = parseInt(searchParams.get('page') ?? '1')
   const perPage = parseInt(searchParams.get('per_page') ?? '20')
-  const search = searchParams.get('search') ?? ''
+  const search = (searchParams.get('search') ?? '').trim()
   const status = searchParams.get('status') ?? ''
   const jenis = searchParams.get('jenis') ?? ''
   const sesiId = searchParams.get('sesiId') ?? ''
@@ -29,11 +29,31 @@ export async function GET(req: NextRequest) {
   const from = (page - 1) * perPage
   const to = from + perPage - 1
 
+  // Kalau ada kata kunci search, cari dulu daftar NIS yang nama/NIS-nya cocok
+  // di tabel siswa, supaya filter search bisa diterapkan di query DB
+  // (sebelum .range()), bukan setelah data dipotong ke 1 halaman.
+  // Bersihkan karakter spesial PostgREST (, ( ) %) dari search supaya tidak merusak
+  // sintaks .or()/.ilike()/.in() — karakter ini punya makna khusus di query string PostgREST.
+  const safeSearch = search.replace(/[,()%*]/g, ' ').trim()
+
+  let searchNisList: string[] | null = null
+  if (safeSearch) {
+    const { data: matchedSiswa } = await db
+      .from('siswa')
+      .select('nis')
+      .or(`nama.ilike.%${safeSearch}%,nis.ilike.%${safeSearch}%`)
+
+    searchNisList = (matchedSiswa ?? []).map(s => s.nis)
+
+    // Search juga boleh cocok dengan kolom "jenis" pelanggaran langsung,
+    // jadi kalau tidak ada siswa yang cocok tapi search adalah jenis pelanggaran,
+    // tetap jangan langsung return kosong — biarkan filter .or() di bawah yang menentukan.
+  }
+
   let query = db
     .from('pelanggaran')
     .select('id, sesi_id, nis, jenis, level, detail, status, created_at', { count: 'exact' })
     .order('created_at', { ascending: false })
-    .range(from, to)
 
   if (status) query = query.eq('status', status)
   if (jenis) query = query.eq('jenis', jenis)
@@ -43,6 +63,17 @@ export async function GET(req: NextRequest) {
     const end = new Date(tanggal); end.setHours(23, 59, 59, 999)
     query = query.gte('created_at', start.toISOString()).lte('created_at', end.toISOString())
   }
+
+  if (safeSearch) {
+    const nisFilter = searchNisList && searchNisList.length > 0
+      ? `nis.in.(${searchNisList.join(',')})`
+      : null
+    const orParts = [`jenis.ilike.%${safeSearch}%`, `nis.ilike.%${safeSearch}%`]
+    if (nisFilter) orParts.push(nisFilter)
+    query = query.or(orParts.join(','))
+  }
+
+  query = query.range(from, to)
 
   const { data: pelanggaran, error, count } = await query
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
@@ -67,7 +98,7 @@ export async function GET(req: NextRequest) {
   const sesiMap = Object.fromEntries((sesiList ?? []).map(s => [s.id, s]))
   const mapelMap = Object.fromEntries((mapelList ?? []).map(m => [m.id, m.nama]))
 
-  let data = pelanggaran.map(p => {
+  const data = pelanggaran.map(p => {
     const siswa = siswaMap[p.nis]
     const sesi = sesiMap[p.sesi_id]
     return {
@@ -78,29 +109,28 @@ export async function GET(req: NextRequest) {
     }
   })
 
-  // filter search by nama/nis
-  if (search) {
-    const q = search.toLowerCase()
-    data = data.filter(p =>
-      p.nama_siswa.toLowerCase().includes(q) ||
-      p.nis.toLowerCase().includes(q) ||
-      p.jenis?.toLowerCase().includes(q)
-    )
-  }
-
-  // Statistik ringkas
-  const { data: stats } = await db
-    .from('pelanggaran')
-    .select('status, jenis')
-
-  const statsBelum = stats?.filter(s => s.status === 'BELUM_DITINDAKLANJUTI').length ?? 0
-  const statsSudah = stats?.filter(s => s.status === 'SUDAH_DITINDAKLANJUTI').length ?? 0
-  const statsDiabaikan = stats?.filter(s => s.status === 'DIABAIKAN').length ?? 0
+  // Statistik ringkas — pakai count(head:true) per status, tidak menarik semua baris
+  const [
+    { count: statsBelum },
+    { count: statsSudah },
+    { count: statsDiabaikan },
+    { count: statsTotal },
+  ] = await Promise.all([
+    db.from('pelanggaran').select('id', { count: 'exact', head: true }).eq('status', 'BELUM_DITINDAKLANJUTI'),
+    db.from('pelanggaran').select('id', { count: 'exact', head: true }).eq('status', 'SUDAH_DITINDAKLANJUTI'),
+    db.from('pelanggaran').select('id', { count: 'exact', head: true }).eq('status', 'DIABAIKAN'),
+    db.from('pelanggaran').select('id', { count: 'exact', head: true }),
+  ])
 
   return NextResponse.json({
     data,
     total: count ?? data.length,
-    stats: { belum: statsBelum, sudah: statsSudah, diabaikan: statsDiabaikan, total: stats?.length ?? 0 }
+    stats: {
+      belum: statsBelum ?? 0,
+      sudah: statsSudah ?? 0,
+      diabaikan: statsDiabaikan ?? 0,
+      total: statsTotal ?? 0,
+    }
   })
 }
 
@@ -201,8 +231,13 @@ export async function PATCH(req: NextRequest) {
           kkm: mapel?.kkm ?? 75,
           timestamp: new Date().toISOString(),
         })
+        // PENTING: jangan ubah status jadi 'SELESAI' di sini.
+        // Status harus tetap 'TERKUNCI' (sudah di-set di atas) agar:
+        // - validasi/route.ts tetap memblokir akses & menampilkan pesan "dikunci permanen"
+        // - dashboard pengawas/guru tetap menandai siswa ini dengan indikator terkunci
+        // Cukup catat waktu selesainya saja.
         await db.from('siswa_ujian')
-          .update({ status: 'SELESAI', waktu_selesai: new Date().toISOString() })
+          .update({ waktu_selesai: new Date().toISOString() })
           .eq('sesi_id', sesiId)
           .eq('nis', nis)
       }
