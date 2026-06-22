@@ -4,8 +4,14 @@ import { requireRole } from '@/lib/auth'
 
 type AnyRow = Record<string, unknown>
 
-function pickData(res: { data: AnyRow[] | null }): AnyRow[] {
-  return res.data ?? []
+// Supabase returns PromiseLike, bukan Promise — wrap agar bisa .catch()
+async function q(query: PromiseLike<{ data: AnyRow[] | null }>): Promise<AnyRow[]> {
+  try {
+    const res = await query
+    return res.data ?? []
+  } catch {
+    return []
+  }
 }
 
 export async function GET(req: NextRequest) {
@@ -21,37 +27,33 @@ export async function GET(req: NextRequest) {
   const t0 = Date.now()
 
   const [r0, r1, r2, r3] = await Promise.all([
-    db.from('log_aktivitas')
+    q(db.from('log_aktivitas')
       .select('id, user_id, aksi, detail, created_at')
       .gte('created_at', since24h)
       .order('created_at', { ascending: false })
-      .limit(200)
-      .then(pickData).catch(() => [] as AnyRow[]),
+      .limit(200)),
 
-    db.from('sesi_ujian')
+    q(db.from('sesi_ujian')
       .select('id, kelas, mapel_id, waktu_mulai, jumlah_peserta, status')
       .eq('status', 'BERJALAN')
-      .order('waktu_mulai', { ascending: false })
-      .then(pickData).catch(() => [] as AnyRow[]),
+      .order('waktu_mulai', { ascending: false })),
 
-    db.from('pelanggaran')
+    q(db.from('pelanggaran')
       .select('id, nis, jenis, created_at')
       .gte('created_at', since24h)
       .order('created_at', { ascending: false })
-      .limit(10)
-      .then(pickData).catch(() => [] as AnyRow[]),
+      .limit(10)),
 
-    db.from('jadwal')
+    q(db.from('jadwal')
       .select('id, mapel_id, kelas, jam_mulai, jam_selesai, status')
       .eq('tanggal', todayStr)
-      .in('status', ['BERJALAN', 'AKTIF'])
-      .then(pickData).catch(() => [] as AnyRow[]),
+      .in('status', ['BERJALAN', 'AKTIF'])),
   ])
 
   const dbResponseMs = Date.now() - t0
 
-  const allLogs    = r0 as { id: string; user_id: string; aksi: string; detail: string; created_at: string }[]
-  const sesiAktif  = r1 as { id: string; kelas: string; mapel_id: string; waktu_mulai: string; jumlah_peserta: number }[]
+  const allLogs     = r0 as { id: string; user_id: string; aksi: string; detail: string; created_at: string }[]
+  const sesiAktif   = r1 as { id: string; kelas: string; mapel_id: string; waktu_mulai: string; jumlah_peserta: number }[]
   const pelanggaran = r2 as { id: string; nis: string; jenis: string; created_at: string }[]
   const ujianBerjalan = r3
 
