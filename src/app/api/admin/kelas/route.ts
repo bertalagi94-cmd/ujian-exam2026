@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
+import { generateId } from '@/lib/utils'
 
 /**
  * GET — daftar kelas diambil otomatis dari tabel siswa.
@@ -25,7 +26,6 @@ export async function GET(req: NextRequest) {
     if (s.kelas) kelasCount[s.kelas] = (kelasCount[s.kelas] ?? 0) + 1
   }
 
-  // Jika tidak ada siswa sama sekali, kembalikan array kosong
   if (Object.keys(kelasCount).length === 0) {
     return NextResponse.json({ data: [] })
   }
@@ -62,20 +62,18 @@ export async function PUT(req: NextRequest) {
 
   if (!nama) return NextResponse.json({ error: 'Nama kelas diperlukan' }, { status: 400 })
 
-  // Cek apakah sudah ada record untuk kelas ini
   const { data: existing } = await db.from('kelas').select('id').eq('nama', nama).maybeSingle()
 
   if (existing) {
-    // Update
     const { error } = await db
       .from('kelas')
       .update({ wali_kelas: wali_kelas || null, jurusan: jurusan || '-' })
       .eq('nama', nama)
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   } else {
-    // Insert baru (kelas belum pernah punya wali)
+    // Insert baru — gunakan id unik KLS_xxx, bukan nama, agar id tidak ambigu
     const { error } = await db.from('kelas').insert({
-      id: nama, // gunakan nama sebagai id agar sederhana
+      id: generateId('KLS'),
       nama,
       wali_kelas: wali_kelas || null,
       jurusan: jurusan || '-',
@@ -99,11 +97,9 @@ export async function DELETE(req: NextRequest) {
   const { nama } = await req.json()
   if (!nama) return NextResponse.json({ error: 'Nama kelas diperlukan' }, { status: 400 })
 
-  // 1. Hapus semua siswa di kelas ini
   const { error: siswaError } = await db.from('siswa').delete().eq('kelas', nama)
   if (siswaError) return NextResponse.json({ error: siswaError.message }, { status: 500 })
 
-  // 2. Hapus info kelas dari tabel kelas (jika ada)
   await db.from('kelas').delete().eq('nama', nama)
 
   return NextResponse.json({ message: `Kelas ${nama} dan semua siswanya berhasil dihapus` })
