@@ -2,23 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 
-type LogRow = { id: string; user_id: string; aksi: string; detail: string; created_at: string }
-type SesiRow = { id: string; kelas: string; mapel_id: string; waktu_mulai: string; jumlah_peserta: number; status: string }
-type PelanggaranRow = { id: string; nis: string; jenis: string; created_at: string }
-type JadwalRow = { id: string; mapel_id: string; kelas: string; jam_mulai: string; jam_selesai: string; status: string }
+type AnyRow = Record<string, unknown>
 
-async function safeQuery<T>(promise: Promise<{ data: T | null; error: unknown }>, timeoutMs = 5000): Promise<T[]> {
-  try {
-    const result = await Promise.race([
-      promise,
-      new Promise<{ data: null; error: string }>((_, reject) =>
-        setTimeout(() => reject(new Error('timeout')), timeoutMs)
-      ),
-    ])
-    return (result.data ?? []) as T[]
-  } catch {
-    return []
-  }
+function pickData(res: { data: AnyRow[] | null }): AnyRow[] {
+  return res.data ?? []
 }
 
 export async function GET(req: NextRequest) {
@@ -27,52 +14,52 @@ export async function GET(req: NextRequest) {
 
   const db = createAdminClient()
   const now = new Date()
-  const since5m   = new Date(now.getTime() -  5 * 60 * 1000).toISOString()
-  const since24h  = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString()
-  const todayStr  = now.toISOString().split('T')[0]
+  const since5m  = new Date(now.getTime() -  5 * 60 * 1000).toISOString()
+  const since24h = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString()
+  const todayStr = now.toISOString().split('T')[0]
 
   const t0 = Date.now()
 
-  // ── 4 query paralel (sebelumnya 6, dengan 3 duplikat ke log_aktivitas) ──
-  const [allLogs, sesiAktif, pelanggaran, ujianBerjalan] = await Promise.all([
-    // SATU query log_aktivitas 24 jam — turunannya dihitung di JS
-    safeQuery<LogRow>(
-      db.from('log_aktivitas')
-        .select('id, user_id, aksi, detail, created_at')
-        .gte('created_at', since24h)
-        .order('created_at', { ascending: false })
-        .limit(200)
-    ),
-    safeQuery<SesiRow>(
-      db.from('sesi_ujian')
-        .select('id, kelas, mapel_id, waktu_mulai, jumlah_peserta, status')
-        .eq('status', 'BERJALAN')
-        .order('waktu_mulai', { ascending: false })
-    ),
-    safeQuery<PelanggaranRow>(
-      db.from('pelanggaran')
-        .select('id, nis, jenis, created_at')
-        .gte('created_at', since24h)
-        .order('created_at', { ascending: false })
-        .limit(10)
-    ),
-    safeQuery<JadwalRow>(
-      db.from('jadwal')
-        .select('id, mapel_id, kelas, jam_mulai, jam_selesai, status')
-        .eq('tanggal', todayStr)
-        .in('status', ['BERJALAN', 'AKTIF'])
-    ),
+  const [r0, r1, r2, r3] = await Promise.all([
+    db.from('log_aktivitas')
+      .select('id, user_id, aksi, detail, created_at')
+      .gte('created_at', since24h)
+      .order('created_at', { ascending: false })
+      .limit(200)
+      .then(pickData).catch(() => [] as AnyRow[]),
+
+    db.from('sesi_ujian')
+      .select('id, kelas, mapel_id, waktu_mulai, jumlah_peserta, status')
+      .eq('status', 'BERJALAN')
+      .order('waktu_mulai', { ascending: false })
+      .then(pickData).catch(() => [] as AnyRow[]),
+
+    db.from('pelanggaran')
+      .select('id, nis, jenis, created_at')
+      .gte('created_at', since24h)
+      .order('created_at', { ascending: false })
+      .limit(10)
+      .then(pickData).catch(() => [] as AnyRow[]),
+
+    db.from('jadwal')
+      .select('id, mapel_id, kelas, jam_mulai, jam_selesai, status')
+      .eq('tanggal', todayStr)
+      .in('status', ['BERJALAN', 'AKTIF'])
+      .then(pickData).catch(() => [] as AnyRow[]),
   ])
 
   const dbResponseMs = Date.now() - t0
 
-  // Hitung turunan dari satu query log_aktivitas
+  const allLogs    = r0 as { id: string; user_id: string; aksi: string; detail: string; created_at: string }[]
+  const sesiAktif  = r1 as { id: string; kelas: string; mapel_id: string; waktu_mulai: string; jumlah_peserta: number }[]
+  const pelanggaran = r2 as { id: string; nis: string; jenis: string; created_at: string }[]
+  const ujianBerjalan = r3
+
   const loginHariIni = allLogs.filter(l => l.aksi === 'LOGIN' && l.created_at >= todayStr).length
   const aktifitas5m  = allLogs.filter(l => l.created_at >= since5m).length
   const logs         = allLogs.slice(0, 30)
   const sesiCount    = sesiAktif.length
 
-  // Status server
   let serverStatus: 'AMAN' | 'NORMAL' | 'WASPADA' | 'BERAT' | 'KRITIS'
   let serverScore: number
 
@@ -84,12 +71,7 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     server: { status: serverStatus, score: serverScore, dbResponseMs, timestamp: now.toISOString() },
-    aktivitas: {
-      loginHariIni,
-      aktifitas5MenitTerakhir: aktifitas5m,
-      sesiUjianAktif: sesiCount,
-      pelanggaranHariIni: pelanggaran.length,
-    },
+    aktivitas: { loginHariIni, aktifitas5MenitTerakhir: aktifitas5m, sesiUjianAktif: sesiCount, pelanggaranHariIni: pelanggaran.length },
     logs,
     sesiAktif,
     ujianHariIni: ujianBerjalan,
