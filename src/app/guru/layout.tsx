@@ -20,10 +20,11 @@ export default function GuruLayout({ children }: { children: React.ReactNode }) 
     <div className="flex min-h-screen bg-surface-50">
       <GuruSidebar />
       <FullscreenButton />
-      {/* FIX: pt-16 di semua breakpoint — sebelumnya "pt-16 lg:pt-8" bikin tombol
-          di header halaman (mis. "Tambah Soal") bertabrakan dengan FullscreenButton
-          yang fixed top-4 right-4 (z-30) */}
-      <main className="flex-1 min-w-0 p-6 lg:p-8 pt-16">
+      {/* FIX v2: pt-16 lg:pt-16 — "pt-16" tanpa varian lg: kalah cascade dari
+          "lg:p-8" (Tailwind taruh semua utility ber-breakpoint di blok @media
+          terpisah di akhir file CSS). lg:pt-16 sekarang ditulis setelah lg:p-8
+          dalam blok @media yang sama, jadi menang juga di layar besar. */}
+      <main className="flex-1 min-w-0 p-6 lg:p-8 pt-16 lg:pt-16">
         {children}
       </main>
       <SesiTerlupaPopup />
