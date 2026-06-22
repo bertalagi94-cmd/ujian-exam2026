@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
+import { getZonaWaktuSekolah } from '@/lib/pengaturan-waktu'
 
 export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['KEPSEK', 'ADMIN'])
@@ -18,7 +19,9 @@ export async function GET(req: NextRequest) {
   const { data: rawData, error } = await query
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  if (!rawData?.length) return NextResponse.json({ data: [] })
+  const zonaWaktu = await getZonaWaktuSekolah()
+
+  if (!rawData?.length) return NextResponse.json({ data: [], zonaWaktu })
 
   const data = rawData as { id: string; tanggal: string; sesi: number; jam_mulai: string; jam_selesai: string; mapel_id: string; kelas: string; pengawas?: string; durasi: number; status: string }[]
 
@@ -66,5 +69,5 @@ export async function GET(req: NextRequest) {
     jumlah_sudah_nilai: r.status === 'SELESAI' ? (nilaiAggMap[`${r.mapel_id}__${r.kelas}`] ?? 0) : null,
   }))
 
-  return NextResponse.json({ data: enriched })
+  return NextResponse.json({ data: enriched, zonaWaktu })
 }
