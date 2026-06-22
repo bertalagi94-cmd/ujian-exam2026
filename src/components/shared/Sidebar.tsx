@@ -6,7 +6,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import {
   LayoutDashboard, Users, BookOpen, Calendar, ClipboardList,
   BarChart3, Settings, LogOut, Menu, X, ChevronRight,
-  GraduationCap, School, Bell, User, FileText, Eye
+  GraduationCap, School, Bell, User, FileText, Eye, ShieldAlert
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { AuthUser } from '@/types'
@@ -182,6 +182,7 @@ export function AdminSidebar() {
     },
     { label: 'Rekap Nilai', href: '/admin/nilai', icon: BarChart3 },
     { label: 'Analisis Ujian', href: '/admin/analisis-ujian', icon: BarChart3 },
+    { label: 'Pelanggaran', href: '/admin/pelanggaran', icon: ShieldAlert },
     { label: 'Pengaturan', href: '/admin/pengaturan', icon: Settings },
   ]
 
