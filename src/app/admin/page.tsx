@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Users, BookOpen, GraduationCap, BarChart3, Calendar, ClipboardCheck, TrendingUp, AlertCircle } from 'lucide-react'
 import { StatCard, PageLoader, Badge, StatusBadge } from '@/components/ui'
 import { apiRequest, formatDateTime, nilaiColor } from '@/lib/utils'
+import MonitoringPanel from '@/components/shared/MonitoringPanel'
 
 interface DashboardData {
   stats: {
@@ -163,6 +164,9 @@ export default function AdminDashboard() {
           </div>
         </div>
       </div>
+
+      {/* Floating Monitoring Panel */}
+      <MonitoringPanel />
     </div>
   )
 }
