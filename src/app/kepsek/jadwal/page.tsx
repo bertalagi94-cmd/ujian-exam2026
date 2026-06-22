@@ -41,8 +41,18 @@ function monthLabel(key: string) {
   return new Date(Number(y), Number(m) - 1, 1).toLocaleDateString('id-ID', { month: 'long', year: 'numeric' })
 }
 
-function isToday(dateStr: string) {
-  return dateStr === new Date().toISOString().slice(0, 10)
+interface ZonaWaktuInfo {
+  utcOffsetJam: number
+  label: string
+}
+
+const ZONA_FALLBACK: ZonaWaktuInfo = { utcOffsetJam: 7, label: 'WIB (UTC+7)' }
+
+// Tanggal "hari ini" pada zona waktu sekolah (bukan UTC, bukan timezone browser) —
+// lihat penjelasan lebih lengkap di src/app/guru/jadwal-pengawasan/page.tsx
+function isToday(dateStr: string, zona: ZonaWaktuInfo, now: Date) {
+  const shifted = new Date(now.getTime() + zona.utcOffsetJam * 60 * 60 * 1000)
+  return dateStr === shifted.toISOString().slice(0, 10)
 }
 
 export default function KepsekJadwalPage() {
@@ -50,6 +60,8 @@ export default function KepsekJadwalPage() {
   const [loading, setLoading] = useState(true)
   const [statusFilter, setStatusFilter] = useState<string>('')
   const [kelasFilter, setKelasFilter] = useState<string>('')
+  const [zonaWaktu, setZonaWaktu] = useState<ZonaWaktuInfo>(ZONA_FALLBACK)
+  const [now] = useState(() => new Date())
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -57,8 +69,9 @@ export default function KepsekJadwalPage() {
       const params = new URLSearchParams()
       if (statusFilter) params.set('status', statusFilter)
       if (kelasFilter) params.set('kelas', kelasFilter)
-      const res = await apiRequest<{ data: JadwalRow[] }>(`/api/kepsek/jadwal?${params}`)
+      const res = await apiRequest<{ data: JadwalRow[]; zonaWaktu?: ZonaWaktuInfo }>(`/api/kepsek/jadwal?${params}`)
       setData(res.data ?? [])
+      if (res.zonaWaktu) setZonaWaktu(res.zonaWaktu)
     } finally { setLoading(false) }
   }, [statusFilter, kelasFilter])
 
@@ -123,7 +136,7 @@ export default function KepsekJadwalPage() {
               <div className="space-y-2.5">
                 {items.map(j => {
                   const cfg = STATUS_CONFIG[j.status]
-                  const today = isToday(j.tanggal)
+                  const today = isToday(j.tanggal, zonaWaktu, now)
                   return (
                     <div
                       key={j.id}
