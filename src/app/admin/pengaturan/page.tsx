@@ -9,6 +9,7 @@ import {
 import { Toast, Spinner, Confirm } from '@/components/ui'
 import { HackerPopup, HackerPopupType } from '@/components/ui/HackerPopup'
 import { apiRequest } from '@/lib/utils'
+import { DATA_WILAYAH, getProvinsiById, ZONA_WAKTU_INFO } from '@/lib/wilayah'
 
 type ResetCategory = {
   id: string
@@ -36,6 +37,8 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   nipKepsek: '',
   alamat: '',
   kota: '',
+  provinsiId: '',
+  kabupaten: '',
   tahunAjaran: '',
   batasPelanggaran: '3',
   jumlahOpsi: '4',
@@ -379,9 +382,65 @@ export default function AdminPengaturanPage() {
               <input className="input" placeholder="Alamat lengkap sekolah" value={values.alamat} onChange={e => set('alamat', e.target.value)} />
             </div>
             <div>
-              <label className="label">Kota / Kabupaten</label>
+              <label className="label">Kota / Kabupaten (untuk kop surat)</label>
               <input className="input" placeholder="Contoh: Banggai Kepulauan" value={values.kota} onChange={e => set('kota', e.target.value)} />
             </div>
+          </div>
+
+          {/* Lokasi Sekolah — untuk deteksi zona waktu otomatis */}
+          <div className="pt-2 border-t border-slate-100">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="label mb-0">Lokasi Sekolah (Provinsi & Kabupaten)</span>
+            </div>
+            <p className="text-xs text-slate-400 mb-3">
+              Dipakai untuk mendeteksi zona waktu secara otomatis, agar status ujian
+              (Akan Datang / Berlangsung / Selesai) dihitung dengan benar.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="label">Provinsi</label>
+                <select
+                  className="select"
+                  value={values.provinsiId}
+                  onChange={e => {
+                    set('provinsiId', e.target.value)
+                    set('kabupaten', '') // reset kabupaten saat provinsi berubah
+                  }}
+                >
+                  <option value="">Pilih Provinsi</option>
+                  {DATA_WILAYAH.map(p => (
+                    <option key={p.id} value={p.id}>{p.nama}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="label">Kabupaten / Kota</label>
+                <select
+                  className="select"
+                  value={values.kabupaten}
+                  onChange={e => set('kabupaten', e.target.value)}
+                  disabled={!values.provinsiId}
+                >
+                  <option value="">Pilih Kabupaten/Kota</option>
+                  {(getProvinsiById(values.provinsiId)?.kabupaten ?? []).map(k => (
+                    <option key={k} value={k}>{k}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            {values.provinsiId && (
+              <div className="mt-3 flex items-center gap-2 text-xs px-3 py-2 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200">
+                <span>
+                  Zona waktu terdeteksi: <strong>{ZONA_WAKTU_INFO[getProvinsiById(values.provinsiId)!.zona].label}</strong>
+                </span>
+              </div>
+            )}
+            {!values.provinsiId && (
+              <div className="mt-3 flex items-center gap-2 text-xs px-3 py-2 rounded-xl bg-amber-50 text-amber-700 border border-amber-200">
+                <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
+                <span>Provinsi belum dipilih — status ujian akan dihitung sementara dengan zona waktu WIB sampai diisi.</span>
+              </div>
+            )}
           </div>
 
           {/* Logo Sekolah */}
@@ -420,7 +479,7 @@ export default function AdminPengaturanPage() {
           <div className="pt-2 flex justify-end">
             <button
               type="button"
-              onClick={() => saveSection(['namaSekolah','npsn','namaKepsek','nipKepsek','alamat','kota','tahunAjaran','logoUrl'], 'Informasi Sekolah')}
+              onClick={() => saveSection(['namaSekolah','npsn','namaKepsek','nipKepsek','alamat','kota','provinsiId','kabupaten','tahunAjaran','logoUrl'], 'Informasi Sekolah')}
               className="btn-primary btn-sm"
               disabled={savingSection === 'Informasi Sekolah'}
             >
