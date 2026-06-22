@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
 import { ShieldAlert, Search, RefreshCw, Key, Lock, Trash2, CheckCircle, XCircle, Clock, Filter, ChevronDown } from 'lucide-react'
-import { Modal, Confirm, SearchInput, Pagination, EmptyState, Spinner, Toast, Badge, StatusBadge } from '@/components/ui'
+import { Modal, Confirm, SearchInput, Pagination, EmptyState, Spinner, Toast, Badge } from '@/components/ui'
 import { apiRequest, formatDateTime } from '@/lib/utils'
 
 type StatusPelanggaran = 'BELUM_DITINDAKLANJUTI' | 'SUDAH_DITINDAKLANJUTI' | 'DIABAIKAN'
@@ -35,10 +35,10 @@ const STATUS_LABEL: Record<StatusPelanggaran, string> = {
   DIABAIKAN: 'Diabaikan',
 }
 
-const STATUS_COLOR: Record<StatusPelanggaran, string> = {
-  BELUM_DITINDAKLANJUTI: 'error',
-  SUDAH_DITINDAKLANJUTI: 'success',
-  DIABAIKAN: 'warning',
+const STATUS_COLOR: Record<StatusPelanggaran, 'red' | 'green' | 'yellow' | 'slate' | 'blue' | 'purple' | 'orange'> = {
+  BELUM_DITINDAKLANJUTI: 'red',
+  SUDAH_DITINDAKLANJUTI: 'green',
+  DIABAIKAN: 'yellow',
 }
 
 type ModalAction = {
@@ -248,7 +248,7 @@ export default function AdminPelanggaranPage() {
                       </span>
                     </td>
                     <td>
-                      <StatusBadge status={STATUS_COLOR[p.status] as 'success' | 'error' | 'warning'} label={STATUS_LABEL[p.status]} />
+                      <Badge variant={STATUS_COLOR[p.status]}>{STATUS_LABEL[p.status]}</Badge>
                     </td>
                     <td className="text-xs text-muted whitespace-nowrap">{formatDateTime(p.created_at)}</td>
                     <td>
@@ -312,7 +312,7 @@ export default function AdminPelanggaranPage() {
         )}
         {!loading && total > PER_PAGE && (
           <div className="p-4 border-t border-border">
-            <Pagination page={page} totalPages={Math.ceil(total / PER_PAGE)} onPageChange={setPage} />
+            <Pagination page={page} totalPages={Math.ceil(total / PER_PAGE)} onPage={setPage} />
           </div>
         )}
       </div>
