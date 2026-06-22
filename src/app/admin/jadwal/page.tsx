@@ -1048,12 +1048,30 @@ export default function AdminJadwalPage() {
                   (mapel_id berbeda) kalau diampu guru berbeda untuk kelas berbeda — lihat
                   validasi findKelasConflict di /api/admin/mapel. Dedup di sini akan
                   menyembunyikan mapel_id guru lain dari pilihan, sehingga admin terpaksa
-                  memilih mapel_id yang salah dan status_soal jadi tidak pernah cocok. */}
-              {mapelList.map(m => (
-                <option key={m.id} value={m.id}>
-                  {m.nama}{m.nama_guru ? ` · ${m.nama_guru}` : ''}{m.kelas_list ? ` (Kelas ${m.kelas_list})` : ''}
-                </option>
-              ))}
+                  memilih mapel_id yang salah dan status_soal jadi tidak pernah cocok.
+                  Saat tambah baru: sembunyikan mapel yang SEMUA kelasnya sudah terjadwal. */}
+              {(() => {
+                const isEdit = !!editData?.id
+                return mapelList.map(m => {
+                  if (!isEdit) {
+                    // Cek apakah semua kelas untuk mapel ini sudah memiliki jadwal
+                    const kelasMapel = m.kelas_list
+                      ? m.kelas_list.split(',').map(s => s.trim()).filter(Boolean)
+                      : null
+                    if (kelasMapel && kelasMapel.length > 0) {
+                      const semuaSudahDijadwal = kelasMapel.every(kls =>
+                        jadwal.some(j => j.mapel_id === m.id && j.kelas === kls)
+                      )
+                      if (semuaSudahDijadwal) return null
+                    }
+                  }
+                  return (
+                    <option key={m.id} value={m.id}>
+                      {m.nama}{m.nama_guru ? ` · ${m.nama_guru}` : ''}{m.kelas_list ? ` (Kelas ${m.kelas_list})` : ''}
+                    </option>
+                  )
+                })
+              })()}
             </select>
           </div>
           <div>
@@ -1064,19 +1082,27 @@ export default function AdminJadwalPage() {
                 // Batasi pilihan kelas sesuai kelas_list mapel yang dipilih, agar
                 // mapel_id (guru) dan kelas yang disimpan ke jadwal selalu konsisten.
                 // Jika mapel belum dipilih atau kelas_list kosong (data lama), tampilkan semua kelas.
+                // Saat tambah baru: sembunyikan kelas yang sudah ada jadwalnya untuk mapel ini.
+                const isEdit = !!editData?.id
                 const mapelTerpilih = selectedMapelId ? mapelList.find(m => m.id === selectedMapelId) : null
                 const kelasIzin = mapelTerpilih?.kelas_list
                   ? mapelTerpilih.kelas_list.split(',').map(s => s.trim()).filter(Boolean)
                   : null
-                const opsiKelas = kelasIzin
+                let opsiKelas = kelasIzin
                   ? kelasList.filter(k => kelasIzin.includes(String(k.nama)) || k.nama === editData?.kelas)
                   : kelasList
+                // Saat tambah baru, filter kelas yang sudah ada jadwalnya untuk mapel terpilih
+                if (!isEdit && selectedMapelId) {
+                  opsiKelas = opsiKelas.filter(k =>
+                    !jadwal.some(j => j.mapel_id === selectedMapelId && j.kelas === k.nama)
+                  )
+                }
                 return opsiKelas.map(k => <option key={k.id} value={k.nama}>{k.nama}</option>)
               })()}
             </select>
             {selectedMapelId && mapelList.find(m => m.id === selectedMapelId)?.kelas_list && (
               <p className="mt-1.5 text-xs text-slate-400">
-                Hanya menampilkan kelas yang diampu untuk mapel ini.
+                Hanya menampilkan kelas yang diampu untuk mapel ini{!editData?.id ? ' dan belum memiliki jadwal' : ''}.
               </p>
             )}
           </div>
