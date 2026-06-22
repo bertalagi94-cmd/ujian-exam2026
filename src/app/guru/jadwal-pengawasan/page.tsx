@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Calendar, Clock, BookOpen, Users, CheckCircle, PlayCircle, AlertCircle, RefreshCw, ClipboardList, X, UserX, RotateCcw, Copy } from 'lucide-react'
 import { apiRequest, formatDate } from '@/lib/utils'
 import { PageLoader, Spinner } from '@/components/ui'
@@ -60,6 +60,27 @@ function isToday(dateStr: string) {
 
 function isPast(dateStr: string) {
   return dateStr < new Date().toISOString().slice(0, 10)
+}
+
+// Kembalikan true jika sekarang sudah 15 menit sebelum jam_mulai (dan belum lewat jam_selesai)
+function canStartSesi(tanggal: string, jamMulai: string, jamSelesai: string, now: Date): boolean {
+  if (!isToday(tanggal)) return false
+  const [mH, mM] = jamMulai.split(':').map(Number)
+  const [eH, eM] = jamSelesai.split(':').map(Number)
+  const todayStr = now.toISOString().slice(0, 10)
+  const mulaiMs  = new Date(`${todayStr}T${String(mH).padStart(2,'0')}:${String(mM).padStart(2,'0')}:00`).getTime() - 15 * 60 * 1000
+  const selesaiMs = new Date(`${todayStr}T${String(eH).padStart(2,'0')}:${String(eM).padStart(2,'0')}:00`).getTime()
+  const nowMs = now.getTime()
+  return nowMs >= mulaiMs && nowMs < selesaiMs
+}
+
+// Hitung sisa menit sebelum boleh mulai (negatif = sudah boleh)
+function menitMenunggu(tanggal: string, jamMulai: string, now: Date): number {
+  if (!isToday(tanggal)) return 999
+  const [mH, mM] = jamMulai.split(':').map(Number)
+  const todayStr = now.toISOString().slice(0, 10)
+  const mulaiMs = new Date(`${todayStr}T${String(mH).padStart(2,'0')}:${String(mM).padStart(2,'0')}:00`).getTime() - 15 * 60 * 1000
+  return Math.ceil((mulaiMs - now.getTime()) / 60000)
 }
 
 // ── Modal Ujian Susulan ──────────────────────────────────────────────────────
@@ -354,6 +375,8 @@ export default function JadwalPengawasanPage() {
   const [hasJadwal, setHasJadwal] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [susulanTarget, setSusulanTarget] = useState<JadwalPengawasan | null>(null)
+  const [now, setNow] = useState(() => new Date())
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true)
@@ -371,6 +394,18 @@ export default function JadwalPengawasanPage() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  // Update jam setiap detik (untuk deteksi 15 menit sebelum dan status real-time)
+  useEffect(() => {
+    const tick = setInterval(() => setNow(new Date()), 1000)
+    return () => clearInterval(tick)
+  }, [])
+
+  // Auto-refresh data dari server setiap 30 detik
+  useEffect(() => {
+    intervalRef.current = setInterval(() => load(true), 30000)
+    return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
+  }, [load])
 
   if (loading) return <PageLoader />
 
@@ -489,13 +524,34 @@ export default function JadwalPengawasanPage() {
                           </span>
                         </div>
 
-                        {/* Today reminder */}
-                        {today && j.status === 'AKTIF' && (
-                          <div className="mt-3 flex items-center gap-2 text-xs text-indigo-600 bg-indigo-50 px-3 py-2 rounded-xl">
-                            <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
-                            Ujian hari ini! Buka menu <strong className="mx-1">Mode Pengawas</strong> untuk memulai sesi.
-                          </div>
-                        )}
+                        {/* Today reminder + tombol mulai */}
+                        {today && j.status === 'AKTIF' && (() => {
+                          const bisa = canStartSesi(j.tanggal, j.jam_mulai, j.jam_selesai, now)
+                          const menit = menitMenunggu(j.tanggal, j.jam_mulai, now)
+                          if (bisa) {
+                            return (
+                              <div className="mt-3 flex items-center justify-between gap-3 flex-wrap">
+                                <div className="flex items-center gap-2 text-xs text-emerald-700 bg-emerald-50 px-3 py-2 rounded-xl flex-1">
+                                  <PlayCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                                  {menit <= 0 ? 'Ujian sudah dimulai!' : `${menit} menit lagi — Anda sudah bisa memulai sesi`}
+                                </div>
+                                <a
+                                  href="/guru/mode-pengawas"
+                                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold transition-all shadow-sm"
+                                >
+                                  <PlayCircle className="w-3.5 h-3.5" />
+                                  Mulai Sesi
+                                </a>
+                              </div>
+                            )
+                          }
+                          return (
+                            <div className="mt-3 flex items-center gap-2 text-xs text-indigo-600 bg-indigo-50 px-3 py-2 rounded-xl">
+                              <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                              Ujian hari ini — tombol mulai tersedia <strong className="mx-1">{menit} menit lagi</strong> (15 mnt sebelum jam {j.jam_mulai})
+                            </div>
+                          )
+                        })()}
                         {today && j.status === 'BERJALAN' && (
                           <div className="mt-3 flex items-center gap-2 text-xs text-amber-600 bg-amber-50 px-3 py-2 rounded-xl">
                             <PlayCircle className="w-3.5 h-3.5 flex-shrink-0" />
