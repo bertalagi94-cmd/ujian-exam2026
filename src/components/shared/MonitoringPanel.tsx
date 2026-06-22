@@ -3,8 +3,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Activity, Server, Users, AlertTriangle, ChevronDown,
-  ChevronUp, RefreshCw, Shield, Zap, Clock, Eye,
-  X, Wifi, Database, TrendingUp
+  RefreshCw, Shield, Zap, Clock, Eye,
+  X, Wifi, Database, TrendingUp, Maximize2, Minimize2
 } from 'lucide-react'
 
 interface MonitoringData {
@@ -58,22 +58,40 @@ function roleLabel(aksi: string) {
 
 export default function MonitoringPanel() {
   const [open, setOpen] = useState(false)
+  const [fullscreen, setFullscreen] = useState(false)
   const [tab, setTab] = useState<'server' | 'aktivitas' | 'log'>('server')
   const [data, setData] = useState<MonitoringData | null>(null)
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const fetch_ = useCallback(async () => {
     setLoading(true)
+    setError(null)
     try {
-      const r = await fetch('/api/admin/monitoring', { cache: 'no-store' })
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 8000)
+      const r = await fetch('/api/admin/monitoring', {
+        cache: 'no-store',
+        signal: controller.signal,
+      })
+      clearTimeout(timeoutId)
       if (r.ok) {
         setData(await r.json())
         setLastRefresh(new Date())
+      } else {
+        setError('Gagal memuat data server')
       }
-    } catch {}
-    finally { setLoading(false) }
+    } catch (e: unknown) {
+      if (e instanceof Error && e.name === 'AbortError') {
+        setError('Koneksi timeout — coba refresh manual')
+      } else {
+        setError('Tidak dapat terhubung ke server')
+      }
+    } finally {
+      setLoading(false)
+    }
   }, [])
 
   useEffect(() => {
@@ -82,11 +100,42 @@ export default function MonitoringPanel() {
       intervalRef.current = setInterval(fetch_, 15000)
     } else {
       if (intervalRef.current) clearInterval(intervalRef.current)
+      setFullscreen(false)
     }
     return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
   }, [open, fetch_])
 
+  // Tutup fullscreen dengan Escape
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && fullscreen) setFullscreen(false) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [fullscreen])
+
   const cfg = data ? STATUS_CONFIG[data.server.status] : STATUS_CONFIG['NORMAL']
+
+  // Dimensi panel: fullscreen atau normal
+  const panelStyle: React.CSSProperties = fullscreen
+    ? {
+        position: 'fixed', inset: 0, zIndex: 9999,
+        borderRadius: 0, width: '100vw', height: '100vh',
+        background: 'linear-gradient(160deg,#0f0b2e 0%,#0d1b3e 100%)',
+        border: 'none',
+        boxShadow: 'none',
+        overflow: 'hidden',
+        display: 'flex', flexDirection: 'column',
+      }
+    : {
+        position: 'absolute', bottom: 'calc(100% + 12px)', right: 0,
+        width: 360, borderRadius: 16,
+        background: 'linear-gradient(160deg,#0f0b2e 0%,#0d1b3e 100%)',
+        border: '1px solid rgba(255,255,255,0.1)',
+        boxShadow: '0 24px 64px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.04)',
+        overflow: 'hidden',
+        display: 'flex', flexDirection: 'column',
+      }
+
+  const scrollHeight = fullscreen ? 'calc(100vh - 240px)' : '220px'
 
   return (
     <>
@@ -105,45 +154,63 @@ export default function MonitoringPanel() {
         .mon-bar-fill { height:100%; border-radius:4px; transition:width .8s ease }
         .mon-log-row { display:flex; align-items:flex-start; gap:8px; padding:7px 0; border-bottom:1px solid rgba(255,255,255,0.06) }
         .mon-log-row:last-child { border-bottom:none }
-        .mon-scroll { overflow-y:auto; max-height:220px; scrollbar-width:thin; scrollbar-color:rgba(255,255,255,.15) transparent }
+        .mon-scroll { overflow-y:auto; scrollbar-width:thin; scrollbar-color:rgba(255,255,255,.15) transparent }
+        .mon-icon-btn { background:none; border:none; cursor:pointer; color:rgba(255,255,255,0.4); padding:3px; border-radius:5px; display:flex; align-items:center; transition:color .15s }
+        .mon-icon-btn:hover { color:rgba(255,255,255,0.85) }
       `}</style>
 
       {/* ── Floating Button ── */}
-      <div style={{ position:'fixed', bottom:24, right:24, zIndex:50 }}>
+      <div style={{ position:'fixed', bottom:24, right:24, zIndex: fullscreen ? 1 : 50 }}>
 
         {/* Panel */}
         {open && (
-          <div className="mon-slide" style={{
-            position:'absolute', bottom:'calc(100% + 12px)', right:0,
-            width:340, borderRadius:16,
-            background:'linear-gradient(160deg,#0f0b2e 0%,#0d1b3e 100%)',
-            border:'1px solid rgba(255,255,255,0.1)',
-            boxShadow:'0 24px 64px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.04)',
-            overflow:'hidden',
-          }}>
+          <div className="mon-slide" style={panelStyle}>
 
             {/* Header */}
-            <div style={{ padding:'14px 16px 10px', borderBottom:'1px solid rgba(255,255,255,0.07)', display:'flex', alignItems:'center', gap:10 }}>
+            <div style={{ padding:'14px 16px 10px', borderBottom:'1px solid rgba(255,255,255,0.07)', display:'flex', alignItems:'center', gap:10, flexShrink:0 }}>
               <Server size={15} color="#94a3b8" />
               <span style={{ flex:1, fontSize:13, fontWeight:700, color:'#fff', letterSpacing:'0.03em' }}>Monitor Sistem</span>
               {loading && <RefreshCw size={13} color="#64748b" className="mon-spin" />}
-              {lastRefresh && <span style={{ fontSize:10, color:'rgba(255,255,255,0.3)' }}>~15d</span>}
-              <button onClick={() => setOpen(false)} style={{ background:'none', border:'none', cursor:'pointer', color:'rgba(255,255,255,0.35)', padding:2 }}>
+              {lastRefresh && !loading && (
+                <span style={{ fontSize:10, color:'rgba(255,255,255,0.3)' }}>
+                  {lastRefresh.toLocaleTimeString('id-ID', { hour:'2-digit', minute:'2-digit', second:'2-digit' })}
+                </span>
+              )}
+              {/* Tombol Fullscreen */}
+              <button
+                className="mon-icon-btn"
+                title={fullscreen ? 'Keluar fullscreen (Esc)' : 'Fullscreen'}
+                onClick={() => setFullscreen(f => !f)}
+              >
+                {fullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+              </button>
+              <button className="mon-icon-btn" title="Tutup" onClick={() => setOpen(false)}>
                 <X size={14} />
               </button>
             </div>
 
             {/* Status Bar */}
             {data && (
-              <div style={{ padding:'10px 16px', background: cfg.bg, borderBottom:'1px solid rgba(255,255,255,0.06)', display:'flex', alignItems:'center', gap:10 }}>
+              <div style={{ padding:'10px 16px', background: cfg.bg, borderBottom:'1px solid rgba(255,255,255,0.06)', display:'flex', alignItems:'center', gap:10, flexShrink:0 }}>
                 <span className="mon-pulse" style={{ width:8, height:8, borderRadius:'50%', background:cfg.color, display:'inline-block', flexShrink:0 }} />
                 <span style={{ fontSize:12, fontWeight:800, color:cfg.color, letterSpacing:'0.08em' }}>{cfg.label}</span>
                 <span style={{ marginLeft:'auto', fontSize:11, color:'rgba(255,255,255,0.4)' }}>DB {data.server.dbResponseMs}ms</span>
               </div>
             )}
 
+            {/* Error State */}
+            {error && !loading && (
+              <div style={{ padding:'10px 16px', background:'rgba(239,68,68,0.1)', borderBottom:'1px solid rgba(239,68,68,0.2)', display:'flex', alignItems:'center', gap:8 }}>
+                <AlertTriangle size={13} color="#ef4444" />
+                <span style={{ fontSize:12, color:'#fca5a5', flex:1 }}>{error}</span>
+                <button className="mon-icon-btn" onClick={fetch_} style={{ fontSize:11, color:'#fca5a5' }}>
+                  <RefreshCw size={12} />
+                </button>
+              </div>
+            )}
+
             {/* Tabs */}
-            <div style={{ display:'flex', padding:'8px 12px', gap:4, borderBottom:'1px solid rgba(255,255,255,0.06)' }}>
+            <div style={{ display:'flex', padding:'8px 12px', gap:4, borderBottom:'1px solid rgba(255,255,255,0.06)', flexShrink:0 }}>
               {(['server','aktivitas','log'] as const).map(t => (
                 <button key={t} className={`mon-tab${tab===t?' active':''}`} onClick={()=>setTab(t)}>
                   {t==='server'?'Server':t==='aktivitas'?'Aktivitas':'Log'}
@@ -151,16 +218,23 @@ export default function MonitoringPanel() {
               ))}
             </div>
 
-            {/* Content */}
-            <div style={{ padding:'12px 16px 14px', minHeight:200 }}>
+            {/* Content — scrollable */}
+            <div style={{ padding: fullscreen ? '20px 24px' : '12px 16px 14px', flex:1, overflow:'hidden', display:'flex', flexDirection:'column' }}>
 
-              {!data && !loading && (
-                <div style={{ textAlign:'center', paddingTop:40, color:'rgba(255,255,255,0.3)', fontSize:13 }}>Memuat data...</div>
+              {!data && loading && (
+                <div style={{ textAlign:'center', paddingTop:40, color:'rgba(255,255,255,0.4)', fontSize:13, display:'flex', flexDirection:'column', alignItems:'center', gap:12 }}>
+                  <RefreshCw size={22} color="#64748b" className="mon-spin" />
+                  <span>Memuat data server...</span>
+                </div>
+              )}
+
+              {!data && !loading && !error && (
+                <div style={{ textAlign:'center', paddingTop:40, color:'rgba(255,255,255,0.3)', fontSize:13 }}>Klik refresh untuk memuat</div>
               )}
 
               {/* TAB: SERVER */}
               {tab === 'server' && data && (
-                <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+                <div style={{ display:'flex', flexDirection:'column', gap:12, flex:1, overflow:'auto' }} className="mon-scroll">
 
                   {/* Score bar */}
                   <div>
@@ -176,18 +250,20 @@ export default function MonitoringPanel() {
                   </div>
 
                   {/* Metric cards */}
-                  {[
-                    { icon:<Database size={13}/>, label:'Response DB', value:`${data.server.dbResponseMs} ms`, ok: data.server.dbResponseMs < 500 },
-                    { icon:<Wifi size={13}/>, label:'Sesi Ujian Aktif', value:`${data.aktivitas.sesiUjianAktif} sesi`, ok: data.aktivitas.sesiUjianAktif < 10 },
-                    { icon:<Zap size={13}/>, label:'Aktivitas 5 Menit', value:`${data.aktivitas.aktifitas5MenitTerakhir} aksi`, ok: data.aktivitas.aktifitas5MenitTerakhir < 50 },
-                    { icon:<Shield size={13}/>, label:'Pelanggaran Hari Ini', value:`${data.aktivitas.pelanggaranHariIni} kasus`, ok: data.aktivitas.pelanggaranHariIni === 0 },
-                  ].map((m,i) => (
-                    <div key={i} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 10px', borderRadius:10, background:'rgba(255,255,255,0.05)', border:`1px solid ${m.ok?'rgba(16,185,129,0.2)':'rgba(245,158,11,0.25)'}` }}>
-                      <span style={{ color: m.ok?'#10b981':'#f59e0b' }}>{m.icon}</span>
-                      <span style={{ flex:1, fontSize:12, color:'rgba(255,255,255,0.55)' }}>{m.label}</span>
-                      <span style={{ fontSize:12, fontWeight:700, color: m.ok?'#10b981':'#f59e0b' }}>{m.value}</span>
-                    </div>
-                  ))}
+                  <div style={{ display:'grid', gridTemplateColumns: fullscreen ? '1fr 1fr' : '1fr', gap:8 }}>
+                    {[
+                      { icon:<Database size={13}/>, label:'Response DB', value:`${data.server.dbResponseMs} ms`, ok: data.server.dbResponseMs < 500 },
+                      { icon:<Wifi size={13}/>, label:'Sesi Ujian Aktif', value:`${data.aktivitas.sesiUjianAktif} sesi`, ok: data.aktivitas.sesiUjianAktif < 10 },
+                      { icon:<Zap size={13}/>, label:'Aktivitas 5 Menit', value:`${data.aktivitas.aktifitas5MenitTerakhir} aksi`, ok: data.aktivitas.aktifitas5MenitTerakhir < 50 },
+                      { icon:<Shield size={13}/>, label:'Pelanggaran Hari Ini', value:`${data.aktivitas.pelanggaranHariIni} kasus`, ok: data.aktivitas.pelanggaranHariIni === 0 },
+                    ].map((m,i) => (
+                      <div key={i} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 10px', borderRadius:10, background:'rgba(255,255,255,0.05)', border:`1px solid ${m.ok?'rgba(16,185,129,0.2)':'rgba(245,158,11,0.25)'}` }}>
+                        <span style={{ color: m.ok?'#10b981':'#f59e0b' }}>{m.icon}</span>
+                        <span style={{ flex:1, fontSize:12, color:'rgba(255,255,255,0.55)' }}>{m.label}</span>
+                        <span style={{ fontSize:12, fontWeight:700, color: m.ok?'#10b981':'#f59e0b' }}>{m.value}</span>
+                      </div>
+                    ))}
+                  </div>
 
                   {/* Sesi aktif list */}
                   {data.sesiAktif.length > 0 && (
@@ -195,7 +271,7 @@ export default function MonitoringPanel() {
                       <div style={{ fontSize:11, color:'rgba(255,255,255,0.35)', marginBottom:6, display:'flex', alignItems:'center', gap:5 }}>
                         <Eye size={11}/> Ujian Berlangsung
                       </div>
-                      <div className="mon-scroll" style={{ maxHeight:100 }}>
+                      <div className="mon-scroll" style={{ maxHeight: fullscreen ? 300 : 100 }}>
                         {data.sesiAktif.map(s => (
                           <div key={s.id} style={{ display:'flex', justifyContent:'space-between', padding:'5px 0', borderBottom:'1px solid rgba(255,255,255,0.05)', fontSize:11 }}>
                             <span style={{ color:'#c4b5fd' }}>Kelas {s.kelas}</span>
@@ -210,19 +286,21 @@ export default function MonitoringPanel() {
 
               {/* TAB: AKTIVITAS */}
               {tab === 'aktivitas' && data && (
-                <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-                  {[
-                    { icon:<TrendingUp size={14}/>, label:'Login Hari Ini', value: data.aktivitas.loginHariIni, color:'#6366f1' },
-                    { icon:<Activity size={14}/>, label:'Aktivitas 5 Menit Terakhir', value: data.aktivitas.aktifitas5MenitTerakhir, color:'#10b981' },
-                    { icon:<Users size={14}/>, label:'Sesi Ujian Aktif', value: data.aktivitas.sesiUjianAktif, color:'#3b82f6' },
-                    { icon:<AlertTriangle size={14}/>, label:'Pelanggaran Hari Ini', value: data.aktivitas.pelanggaranHariIni, color: data.aktivitas.pelanggaranHariIni > 0 ? '#ef4444' : '#10b981' },
-                  ].map((m,i) => (
-                    <div key={i} style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', borderRadius:10, background:'rgba(255,255,255,0.05)' }}>
-                      <span style={{ color:m.color }}>{m.icon}</span>
-                      <span style={{ flex:1, fontSize:12, color:'rgba(255,255,255,0.6)' }}>{m.label}</span>
-                      <span style={{ fontSize:18, fontWeight:800, color:m.color }}>{m.value}</span>
-                    </div>
-                  ))}
+                <div style={{ display:'flex', flexDirection:'column', gap:10, flex:1, overflow:'auto' }} className="mon-scroll">
+                  <div style={{ display:'grid', gridTemplateColumns: fullscreen ? '1fr 1fr' : '1fr', gap:10 }}>
+                    {[
+                      { icon:<TrendingUp size={14}/>, label:'Login Hari Ini', value: data.aktivitas.loginHariIni, color:'#6366f1' },
+                      { icon:<Activity size={14}/>, label:'Aktivitas 5 Menit Terakhir', value: data.aktivitas.aktifitas5MenitTerakhir, color:'#10b981' },
+                      { icon:<Users size={14}/>, label:'Sesi Ujian Aktif', value: data.aktivitas.sesiUjianAktif, color:'#3b82f6' },
+                      { icon:<AlertTriangle size={14}/>, label:'Pelanggaran Hari Ini', value: data.aktivitas.pelanggaranHariIni, color: data.aktivitas.pelanggaranHariIni > 0 ? '#ef4444' : '#10b981' },
+                    ].map((m,i) => (
+                      <div key={i} style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', borderRadius:10, background:'rgba(255,255,255,0.05)' }}>
+                        <span style={{ color:m.color }}>{m.icon}</span>
+                        <span style={{ flex:1, fontSize:12, color:'rgba(255,255,255,0.6)' }}>{m.label}</span>
+                        <span style={{ fontSize: fullscreen ? 24 : 18, fontWeight:800, color:m.color }}>{m.value}</span>
+                      </div>
+                    ))}
+                  </div>
 
                   {/* Pelanggaran terbaru */}
                   {data.pelanggaran.length > 0 && (
@@ -242,9 +320,9 @@ export default function MonitoringPanel() {
 
               {/* TAB: LOG */}
               {tab === 'log' && data && (
-                <div>
+                <div style={{ flex:1, overflow:'hidden', display:'flex', flexDirection:'column' }}>
                   <div style={{ fontSize:11, color:'rgba(255,255,255,0.35)', marginBottom:8 }}>30 Aktivitas Terbaru</div>
-                  <div className="mon-scroll">
+                  <div className="mon-scroll" style={{ flex:1, maxHeight: scrollHeight }}>
                     {data.logs.length === 0 && (
                       <p style={{ color:'rgba(255,255,255,0.3)', fontSize:12, textAlign:'center', paddingTop:20 }}>Belum ada log</p>
                     )}
@@ -269,7 +347,7 @@ export default function MonitoringPanel() {
             </div>
 
             {/* Footer */}
-            <div style={{ padding:'8px 16px', borderTop:'1px solid rgba(255,255,255,0.06)', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+            <div style={{ padding:'8px 16px', borderTop:'1px solid rgba(255,255,255,0.06)', display:'flex', justifyContent:'space-between', alignItems:'center', flexShrink:0 }}>
               <span style={{ fontSize:10, color:'rgba(255,255,255,0.25)', display:'flex', alignItems:'center', gap:4 }}>
                 <Clock size={10}/> Refresh otomatis 15 detik
               </span>
@@ -280,33 +358,35 @@ export default function MonitoringPanel() {
           </div>
         )}
 
-        {/* Floating Button */}
-        <button
-          onClick={() => setOpen(o => !o)}
-          style={{
-            width: 52, height: 52, borderRadius: '50%',
-            background: data ? `linear-gradient(135deg,${cfg.color}cc,${cfg.color}88)` : 'linear-gradient(135deg,#334155,#1e293b)',
-            border: `2px solid ${data ? cfg.color : 'rgba(255,255,255,0.15)'}`,
-            boxShadow: data ? `0 4px 20px ${cfg.color}55, 0 2px 8px rgba(0,0,0,0.4)` : '0 4px 16px rgba(0,0,0,0.4)',
-            cursor: 'pointer',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            transition: 'all .2s',
-            position: 'relative',
-          }}
-        >
-          {data && (
-            <span className="mon-pulse" style={{
-              position:'absolute', top:-2, right:-2,
-              width:10, height:10, borderRadius:'50%',
-              background: cfg.color,
-              border:'2px solid #0f0b2e',
-            }} />
-          )}
-          {open
-            ? <ChevronDown size={20} color="#fff" />
-            : <Activity size={20} color="#fff" />
-          }
-        </button>
+        {/* Floating Button — sembunyikan saat fullscreen */}
+        {!fullscreen && (
+          <button
+            onClick={() => setOpen(o => !o)}
+            style={{
+              width: 52, height: 52, borderRadius: '50%',
+              background: data ? `linear-gradient(135deg,${cfg.color}cc,${cfg.color}88)` : 'linear-gradient(135deg,#334155,#1e293b)',
+              border: `2px solid ${data ? cfg.color : 'rgba(255,255,255,0.15)'}`,
+              boxShadow: data ? `0 4px 20px ${cfg.color}55, 0 2px 8px rgba(0,0,0,0.4)` : '0 4px 16px rgba(0,0,0,0.4)',
+              cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              transition: 'all .2s',
+              position: 'relative',
+            }}
+          >
+            {data && (
+              <span className="mon-pulse" style={{
+                position:'absolute', top:-2, right:-2,
+                width:10, height:10, borderRadius:'50%',
+                background: cfg.color,
+                border:'2px solid #0f0b2e',
+              }} />
+            )}
+            {open
+              ? <ChevronDown size={20} color="#fff" />
+              : <Activity size={20} color="#fff" />
+            }
+          </button>
+        )}
       </div>
     </>
   )
