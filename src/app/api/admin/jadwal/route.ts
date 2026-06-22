@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 import { generateId } from '@/lib/utils'
+import { pastikanLokasiSekolahLengkap } from '@/lib/pengaturan-waktu'
 
 export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['ADMIN', 'GURU', 'PENGAWAS', 'KEPSEK', 'SISWA'])
@@ -151,6 +152,14 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const auth = requireRole(req, ['ADMIN'])
   if ('error' in auth) return auth.error
+
+  // Pastikan lokasi sekolah (provinsi) sudah diatur, agar zona waktu dan
+  // status ujian (Akan Datang / Berlangsung / Selesai) dapat dihitung
+  // dengan benar untuk jadwal yang baru dibuat ini.
+  const lokasi = await pastikanLokasiSekolahLengkap()
+  if (!lokasi.ok) {
+    return NextResponse.json({ error: lokasi.error, perluLengkapiPengaturan: true }, { status: 422 })
+  }
 
   const db = createAdminClient()
   const body = await req.json()
