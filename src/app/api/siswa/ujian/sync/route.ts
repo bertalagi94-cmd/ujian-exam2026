@@ -29,6 +29,24 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Sesi ujian sudah ditutup, jawaban tidak bisa disimpan lagi.' }, { status: 409 })
   }
 
+  // FIX BUG #1b: sebelumnya endpoint ini hanya mengecek status SESI, tidak pernah
+  // mengecek status SISWA itu sendiri. Akibatnya siswa yang sudah dikunci/diblokir
+  // Admin (status TERKUNCI) atau sedang menunggu kode reset (status RESET) tetap
+  // bisa terus mengirim & menyimpan jawaban sampai ujian selesai.
+  const { data: siswaUjian } = await db
+    .from('siswa_ujian')
+    .select('status')
+    .eq('sesi_id', sesiId)
+    .eq('nis', user.nis!)
+    .single()
+
+  if (siswaUjian && (siswaUjian.status === 'TERKUNCI' || siswaUjian.status === 'RESET')) {
+    return NextResponse.json(
+      { error: 'Akses ujian Anda sedang dikunci/menunggu reset. Jawaban tidak bisa disimpan.' },
+      { status: 403 }
+    )
+  }
+
   if (Array.isArray(jawaban) && jawaban.length > 0) {
     const records = jawaban.map((j: { soal_id: string; jawaban: string }) => ({
       sesi_id: sesiId,
