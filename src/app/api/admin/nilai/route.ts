@@ -49,3 +49,116 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({ data: enriched, total: count ?? 0 })
 }
+
+// PATCH /api/admin/nilai
+// Body: { action: 'reset_ujian', nis, sesi_id }
+// Mereset hasil ujian seorang siswa untuk satu sesi tertentu, agar siswa tersebut
+// bisa login dan mengerjakan ujian itu kembali dari awal.
+//
+// Berbeda dari fitur reset di menu Pelanggaran (yang ditujukan untuk siswa yang
+// melakukan kecurangan/pelanggaran), endpoint ini untuk kasus non-pelanggaran —
+// misalnya sesi ditutup paksa oleh pengawas sebelum siswa selesai mengirim jawaban,
+// sehingga nilainya tidak valid/tidak ada dan siswa perlu diberi kesempatan ujian ulang.
+export async function PATCH(req: NextRequest) {
+  const auth = requireRole(req, ['ADMIN'])
+  if ('error' in auth) return auth.error
+
+  const db = createAdminClient()
+  let body: { action?: string; nis?: string; sesi_id?: string; catatan?: string }
+  try {
+    body = await req.json()
+  } catch {
+    return NextResponse.json({ error: 'Request tidak valid' }, { status: 400 })
+  }
+
+  const { action, nis, sesi_id: sesiId, catatan } = body
+
+  if (action !== 'reset_ujian') {
+    return NextResponse.json({ error: 'Action tidak dikenali' }, { status: 400 })
+  }
+  if (!nis || !sesiId) {
+    return NextResponse.json({ error: 'nis dan sesi_id diperlukan' }, { status: 400 })
+  }
+
+  const { data: siswa } = await db.from('siswa').select('nama').eq('nis', nis).single()
+  if (!siswa) return NextResponse.json({ error: 'Siswa tidak ditemukan' }, { status: 404 })
+
+  const { data: sesi } = await db
+    .from('sesi_ujian')
+    .select('id, jadwal_id, status, is_darurat, siswa_diizinkan')
+    .eq('id', sesiId)
+    .single()
+  if (!sesi) return NextResponse.json({ error: 'Sesi ujian tidak ditemukan' }, { status: 404 })
+
+  // Hapus seluruh jejak pengerjaan siswa ini di sesi tersebut:
+  // - jawaban yang sudah tersimpan
+  // - nilai yang sudah dihasilkan (kalau ada)
+  // - riwayat pelanggaran di sesi ini
+  // - baris pencatatan di siswa_ujian (status AKTIF/SELESAI/TERKUNCI/RESET dsb.)
+  // Menghapus baris siswa_ujian (bukan sekadar mengubah status) membuat siswa kembali
+  // berstatus "belum pernah masuk sesi" sehingga dapat memulai ujian dari awal lagi,
+  // sama seperti siswa yang belum pernah mengerjakan sesi ini sama sekali.
+  const [delJawaban, delNilai, delPelanggaran, delSiswaUjian] = await Promise.all([
+    db.from('jawaban').delete().eq('sesi_id', sesiId).eq('nis', nis),
+    db.from('nilai').delete().eq('sesi_id', sesiId).eq('nis', nis),
+    db.from('pelanggaran').delete().eq('sesi_id', sesiId).eq('nis', nis),
+    db.from('siswa_ujian').delete().eq('sesi_id', sesiId).eq('nis', nis),
+  ])
+
+  const errors = [delJawaban, delNilai, delPelanggaran, delSiswaUjian]
+    .map(r => r.error?.message)
+    .filter(Boolean)
+
+  if (errors.length > 0) {
+    return NextResponse.json({ error: 'Reset gagal sebagian', details: errors }, { status: 500 })
+  }
+
+  // PENTING: menghapus data saja tidak cukup. Siswa login dengan memasukkan kode_sesi,
+  // dan endpoint validasi hanya menerima sesi dengan status 'BERJALAN'. Kalau sesi ini
+  // sudah ditutup (status SELESAI, mis. ditutup paksa oleh pengawas), siswa tidak akan
+  // bisa masuk lagi walau datanya sudah dibersihkan di atas.
+  //
+  // Maka sesi dibuka kembali (status → BERJALAN), tapi dibatasi HANYA untuk siswa yang
+  // direset ini (is_darurat + siswa_diizinkan), memakai mekanisme yang sama dengan
+  // "sesi susulan" yang sudah ada — supaya siswa lain yang sudah selesai/sedang
+  // mengerjakan tidak ikut terdampak atau bisa mengerjakan ulang secara tidak sengaja.
+  const daftarDiizinkanLama: string[] = Array.isArray(sesi.siswa_diizinkan) ? sesi.siswa_diizinkan : []
+  const daftarDiizinkanBaru = [...new Set([...daftarDiizinkanLama, nis])]
+
+  const { error: reopenError } = await db
+    .from('sesi_ujian')
+    .update({
+      status: 'BERJALAN',
+      is_darurat: true,
+      siswa_diizinkan: daftarDiizinkanBaru,
+    })
+    .eq('id', sesiId)
+
+  if (reopenError) {
+    return NextResponse.json({ error: `Data berhasil direset tapi gagal membuka sesi: ${reopenError.message}` }, { status: 500 })
+  }
+
+  // Sinkronkan status jadwal agar tampil "Berjalan" selama sesi ini aktif lagi
+  if (sesi.jadwal_id) {
+    await db.from('jadwal').update({ status: 'BERJALAN' }).eq('id', sesi.jadwal_id)
+  }
+
+  // Bersihkan kode bypass lama yang belum digunakan supaya tidak membingungkan
+  await db.from('log_reset').delete().eq('nis', nis).eq('digunakan', false)
+
+  await db.from('log_reset').insert({
+    nis,
+    reset_oleh: auth.user?.username ?? 'admin',
+    alasan: `sesi:${sesiId} — Reset hasil ujian (bukan pelanggaran) oleh ADMIN agar dapat ujian ulang${catatan ? ': ' + catatan : ''}`,
+    password_baru: '-',
+    digunakan: true,
+  })
+
+  const { data: sesiInfo } = await db.from('sesi_ujian').select('kode_sesi').eq('id', sesiId).single()
+
+  return NextResponse.json({
+    success: true,
+    kode_sesi: sesiInfo?.kode_sesi ?? null,
+    message: `Hasil ujian ${siswa.nama} pada sesi ini telah direset dan sesi dibuka kembali khusus untuk siswa ini. Siswa dapat login dan mengerjakan ujian ini dari awal menggunakan kode sesi yang sama.`,
+  })
+}
