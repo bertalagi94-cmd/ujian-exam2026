@@ -544,18 +544,18 @@ export default function SiswaUjianPage() {
     if (!pendingResetSesiId) return
     setKodeResetLoading(true); setKodeResetError('')
     try {
-      const res = await apiRequest<{ valid: boolean; message?: string }>('/api/siswa/ujian/verifikasi-reset', {
+      // FIX Bug #1: tambahkan waktu_mulai ke type agar sisa waktu dihitung
+      // dari waktu_mulai_awal yang dikembalikan server, bukan dari /validasi
+      // berikutnya yang mungkin memberi waktu berbeda.
+      const res = await apiRequest<{ valid: boolean; message?: string; waktu_mulai?: string }>('/api/siswa/ujian/verifikasi-reset', {
         method: 'POST',
         body: JSON.stringify({ sesiId: pendingResetSesiId, kodeReset: kodeReset.trim().toUpperCase() }),
       })
       if (!res.valid) { setKodeResetError(res.message ?? 'Kode tidak valid'); return }
-      
-      // Kode valid — lanjutkan ujian dengan kode sesi yang sama
-      // Ambil soal lagi menggunakan kode sesi asli
+  
       setKodeReset('')
       setPhase('KODE')
-      setKode(kode) // kode sesi yang sudah dimasukkan sebelumnya
-      // Langsung trigger masuk ujian
+      setKode(kode)
       setLoading(true)
       try {
         const user = JSON.parse(localStorage.getItem('user') ?? '{}')
@@ -566,8 +566,19 @@ export default function SiswaUjianPage() {
         if (!sesiRes.valid) { setError(sesiRes.message ?? 'Gagal masuk ujian'); setPhase('KODE'); return }
         setSesiInfo(sesiRes)
         await resumeJawaban(sesiRes.sesiId, user.nis)
-        const terpakai2 = Math.floor((Date.now() - new Date(sesiRes.waktu_mulai).getTime()) / 1000)
+  
+        // FIX Bug #1: pakai waktu_mulai dari response verifikasi reset (waktu_mulai_awal)
+        // jika tersedia, karena itulah ground truth dari server. Fallback ke sesiRes
+        // hanya jika tidak ada (misalnya versi API lama).
+        const waktuAcuan = res.waktu_mulai ?? sesiRes.waktu_mulai
+        const terpakai2 = Math.floor((Date.now() - new Date(waktuAcuan).getTime()) / 1000)
         setSisaWaktu(Math.max(0, sesiRes.durasi * 60 - terpakai2))
+  
+        // FIX Bug #2: reset pelanggaranActiveRef agar event anti-cheat
+        // berikutnya (keluar fullscreen, ganti tab, blur) kembali aktif.
+        // Tanpa ini, semua pelanggaran setelah reset tidak akan terdeteksi.
+        pelanggaranActiveRef.current = false
+  
         setPhase('UJIAN')
         setTimeout(() => requestFullscreen(document.documentElement).catch(() => {}), 100)
       } finally { setLoading(false) }
