@@ -33,7 +33,7 @@ function getImgOpsi(s: SoalWithImg, l: string) {
 
 // ── Komponen form edit soal (dipakai di dua tempat) ──────────────
 function EditSoalForm({
-  formId, soal, jumlahOpsi, setJumlahOpsi,
+  formId, soal, jumlahOpsi,
   imgPertanyaan, setImgPertanyaan,
   imgOpsi, setImgOpsi,
   onSubmit, uploadingImg, onTriggerUpload,
@@ -41,7 +41,6 @@ function EditSoalForm({
   formId: string
   soal: SoalWithImg
   jumlahOpsi: number
-  setJumlahOpsi: (n: number) => void
   imgPertanyaan: string
   setImgPertanyaan: (s: string) => void
   imgOpsi: Record<string, string>
@@ -74,13 +73,10 @@ function EditSoalForm({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div>
-          <label className="label">Jumlah Opsi</label>
-          <select className="select" value={jumlahOpsi} onChange={e => setJumlahOpsi(Number(e.target.value))}>
-            <option value={3}>3 Opsi</option><option value={4}>4 Opsi</option><option value={5}>5 Opsi</option>
-          </select>
-        </div>
+      {/* FIX: dropdown "Jumlah Opsi" dihilangkan dari sini — jumlah opsi
+          jawaban (4 atau 5) sekarang sepenuhnya ditentukan otomatis dari
+          Pengaturan Ujian di akun Admin, bukan dipilih manual per soal oleh guru. */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <label className="label">Tingkat Kesulitan</label>
           <select name="tingkat" className="select" defaultValue={soal.tingkat ?? 'Sedang'}>
@@ -185,7 +181,7 @@ function ViewSoalModal({ soal, onClose }: { soal: SoalWithImg | null; onClose: (
 function TambahSoalForm({
   nomorUrut, onTambah, saving, uploadingImg, onTriggerUpload,
   imgPertanyaan, setImgPertanyaan, imgOpsi, setImgOpsi,
-  jumlahOpsi, setJumlahOpsi, formRef,
+  jumlahOpsi, formRef,
 }: {
   nomorUrut: number
   onTambah: (e: React.FormEvent<HTMLFormElement>) => void
@@ -197,7 +193,6 @@ function TambahSoalForm({
   imgOpsi: Record<string, string>
   setImgOpsi: (fn: (prev: Record<string, string>) => Record<string, string>) => void
   jumlahOpsi: number
-  setJumlahOpsi: (n: number) => void
   formRef: React.RefObject<HTMLFormElement>
 }) {
   return (
@@ -229,13 +224,10 @@ function TambahSoalForm({
             )}
           </div>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div>
-            <label className="label">Jumlah Opsi</label>
-            <select className="select" value={jumlahOpsi} onChange={e => setJumlahOpsi(Number(e.target.value))}>
-              <option value={3}>3 Opsi</option><option value={4}>4 Opsi</option><option value={5}>5 Opsi</option>
-            </select>
-          </div>
+        {/* FIX: dropdown "Jumlah Opsi" dihilangkan — jumlah opsi jawaban
+            (4 atau 5) sekarang otomatis mengikuti Pengaturan Ujian di akun
+            Admin, bukan dipilih manual oleh guru per soal. */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="label">Tingkat Kesulitan</label>
             <select name="tingkat" className="select" defaultValue="Sedang">
@@ -304,14 +296,17 @@ export default function GuruBankSoalPage() {
 
   // Mode tambah soal (tambah ke paket yang sudah ada)
   const [addingToId, setAddingToId] = useState<string | null>(null)
-  const [tambahJumlahOpsi, setTambahJumlahOpsi] = useState(4)
   const [tambahImgPertanyaan, setTambahImgPertanyaan] = useState('')
   const [tambahImgOpsi, setTambahImgOpsi] = useState<Record<string, string>>({})
   const tambahFormRef = useRef<HTMLFormElement>(null)
 
+  // FIX: jumlah opsi jawaban (4/5) tidak lagi dipilih manual oleh guru per
+  // soal — sekarang otomatis mengikuti Pengaturan Ujian yang ditentukan
+  // admin (key "jumlahOpsi"). Dipakai untuk soal BARU yang ditambahkan.
+  const [globalJumlahOpsi, setGlobalJumlahOpsi] = useState(4)
+
   // Edit soal
   const [editSoal, setEditSoal] = useState<SoalWithImg | null>(null)
-  const [editJumlahOpsi, setEditJumlahOpsi] = useState(4)
   const [editImgPertanyaan, setEditImgPertanyaan] = useState('')
   const [editImgOpsi, setEditImgOpsi] = useState<Record<string, string>>({})
   const editFileRef = useRef<HTMLInputElement>(null)
@@ -359,6 +354,16 @@ export default function GuruBankSoalPage() {
   useEffect(() => {
     apiRequest<{ data: Kelas[] }>('/api/admin/kelas')
       .then(r => setAllKelas(r.data ?? []))
+      .catch(() => { })
+  }, [])
+
+  // ── Fetch jumlah opsi jawaban (ditentukan admin) ───────────────
+  useEffect(() => {
+    apiRequest<{ data: Record<string, string> }>('/api/public/pengaturan')
+      .then(r => {
+        const n = Number(r.data?.jumlahOpsi)
+        if (n === 3 || n === 4 || n === 5) setGlobalJumlahOpsi(n)
+      })
       .catch(() => { })
   }, [])
 
@@ -453,7 +458,7 @@ export default function GuruBankSoalPage() {
     if (!paket) return
     const fd = new FormData(e.currentTarget)
     const payload: Record<string, unknown> = Object.fromEntries(fd.entries())
-    payload.jumlah_opsi = String(tambahJumlahOpsi)
+    payload.jumlah_opsi = String(globalJumlahOpsi)
     payload.mapel_id = paket.mapel_id
     payload.kelas_id = paket.kelas_id
     payload.paket_id = paket.id
@@ -467,7 +472,6 @@ export default function GuruBankSoalPage() {
       const soalList = soalMap[addingToId] ?? []
       showToast(`Soal ke-${soalList.length + 1} berhasil ditambahkan`)
       tambahFormRef.current?.reset()
-      setTambahJumlahOpsi(4)
       setTambahImgPertanyaan('')
       setTambahImgOpsi({})
       // Refresh soal dalam paket & jumlah di header
@@ -484,7 +488,6 @@ export default function GuruBankSoalPage() {
   // ── Edit soal ─────────────────────────────────────────────────
   function openEdit(s: SoalWithImg) {
     setEditSoal(s)
-    setEditJumlahOpsi(s.jumlah_opsi || 4)
     setEditImgPertanyaan(getImgPertanyaan(s))
     const imgs: Record<string, string> = {}
     for (const l of ['a', 'b', 'c', 'd', 'e']) {
@@ -499,7 +502,7 @@ export default function GuruBankSoalPage() {
     if (!editSoal?.id) return
     const fd = new FormData(e.currentTarget)
     const payload: Record<string, unknown> = Object.fromEntries(fd.entries())
-    payload.jumlah_opsi = String(editJumlahOpsi)
+    payload.jumlah_opsi = String(editSoal.jumlah_opsi || 4)
     payload.gambar_pertanyaan = editImgPertanyaan || null
     for (const l of ['a', 'b', 'c', 'd', 'e']) {
       payload[`gambar_opsi_${l}`] = editImgOpsi[l] || null
@@ -771,7 +774,6 @@ export default function GuruBankSoalPage() {
                               <button onClick={() => {
                                 setAddingToId(null)
                                 tambahFormRef.current?.reset()
-                                setTambahJumlahOpsi(4)
                                 setTambahImgPertanyaan('')
                                 setTambahImgOpsi({})
                               }} className="btn-ghost btn-sm text-slate-400">
@@ -788,8 +790,7 @@ export default function GuruBankSoalPage() {
                               setImgPertanyaan={setTambahImgPertanyaan}
                               imgOpsi={tambahImgOpsi}
                               setImgOpsi={setTambahImgOpsi}
-                              jumlahOpsi={tambahJumlahOpsi}
-                              setJumlahOpsi={setTambahJumlahOpsi}
+                              jumlahOpsi={globalJumlahOpsi}
                               formRef={tambahFormRef}
                             />
                           </div>
@@ -799,7 +800,6 @@ export default function GuruBankSoalPage() {
                           <button
                             onClick={() => {
                               setAddingToId(p.id)
-                              setTambahJumlahOpsi(4)
                               setTambahImgPertanyaan('')
                               setTambahImgOpsi({})
                             }}
@@ -843,8 +843,7 @@ export default function GuruBankSoalPage() {
           <EditSoalForm
             formId="edit-soal-form"
             soal={editSoal}
-            jumlahOpsi={editJumlahOpsi}
-            setJumlahOpsi={setEditJumlahOpsi}
+            jumlahOpsi={editSoal.jumlah_opsi || 4}
             imgPertanyaan={editImgPertanyaan}
             setImgPertanyaan={setEditImgPertanyaan}
             imgOpsi={editImgOpsi}
