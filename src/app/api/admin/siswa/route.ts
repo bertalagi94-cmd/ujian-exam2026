@@ -48,13 +48,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'NIS, nama, dan kelas wajib diisi' }, { status: 400 })
   }
 
-  const kelasNama = String(kelas).trim()
+  const kelasNama = String(kelas).trim().toUpperCase()
 
   // Jika kelas belum ada di tabel kelas, otomatis buat entry baru
+  // FIX Bug #5: gunakan ilike (case-insensitive) agar tidak ada duplikat
+  // akibat perbedaan casing (mis. "10a" vs "10A" jadi dua kelas berbeda).
+  // Siswa dengan kelas casing berbeda tidak akan cocok dengan jadwal ujian.
   const { data: kelasExist } = await db
     .from('kelas')
     .select('id')
-    .eq('nama', kelasNama)
+    .ilike('nama', kelasNama)
     .maybeSingle()
 
   if (!kelasExist) {
