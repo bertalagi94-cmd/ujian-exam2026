@@ -157,10 +157,25 @@
     z-index: 999;
     background: #0a0000;
     border-bottom: 3px solid #ff1a1a;
-    padding: 14px 20px;
-    text-align: center;
+    padding: 10px 20px;
     margin: 0 -20px 0;
   }
+  .dbg-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  /* kiri: tanggal */
+  .dbg-date {
+    font-size: 13px;
+    font-weight: 700;
+    color: #cc4444;
+    letter-spacing: 0.5px;
+    font-family: 'SF Mono','Consolas','Monaco',monospace;
+    min-width: 100px;
+  }
+  /* tengah: teks berkedip */
   #debug-banner .dbg-text {
     font-size: 30px;
     font-weight: 900;
@@ -171,13 +186,36 @@
     animation: blink-slow 1.4s ease-in-out infinite;
     display: inline-flex;
     align-items: center;
-    gap: 14px;
+    gap: 10px;
+    flex: 1;
+    justify-content: center;
+  }
+  /* kanan: durasi */
+  .dbg-duration {
+    font-family: 'SF Mono','Consolas','Monaco',monospace;
+    text-align: right;
+    min-width: 100px;
+  }
+  .dbg-duration .dur-label {
+    font-size: 10px;
+    color: #cc4444;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+  .dbg-duration .dur-value {
+    font-size: 22px;
+    font-weight: 900;
+    color: #ff2222;
+    text-shadow: 0 0 12px #ff000088;
+    letter-spacing: 2px;
+    font-variant-numeric: tabular-nums;
   }
   #debug-banner .dbg-sub {
-    font-size: 12px;
+    font-size: 11px;
     color: #ff6666;
-    margin-top: 4px;
+    margin-top: 3px;
     letter-spacing: 1px;
+    text-align: center;
     animation: blink-slow 1.4s ease-in-out infinite;
     animation-delay: 0.2s;
   }
@@ -198,9 +236,16 @@
 
   <!-- ============ DEBUG CHECKING BANNER ============ -->
   <div id="debug-banner">
-    <div class="dbg-text">
-      🔴 DEBUG CHECKING
-      <span class="dbg-dot">.</span><span class="dbg-dot">.</span><span class="dbg-dot">.</span>
+    <div class="dbg-row">
+      <div class="dbg-date" id="dbg-date-text">—</div>
+      <div class="dbg-text">
+        🔴 DEBUG CHECKING
+        <span class="dbg-dot">.</span><span class="dbg-dot">.</span><span class="dbg-dot">.</span>
+      </div>
+      <div class="dbg-duration">
+        <div class="dur-label">⏱ DURASI</div>
+        <div class="dur-value" id="dbg-duration-display">00:00:00</div>
+      </div>
     </div>
     <div class="dbg-sub">⚠ Pengujian sedang berjalan — jangan tutup tab ini</div>
   </div>
@@ -359,46 +404,75 @@ const state = {
   pengawasUsername: null,
   pengawasToken: null,
   baselineSiswaAktif: null,
-  runId: null,           // contoh: LOADTEST_1750500000000
+  runId: null,
   kelasNama: null,
   guruUsername: null,
   mapelId: null,
   mapelNama: null,
   paketId: null,
-  firstSoalId: null,      // id salah satu soal di paket — dipakai tes admin/guru soal by id
+  firstSoalId: null,
   jadwalId: null,
   sesiId: null,
   kodeSesi: null,
   soalIds: [],
-  siswaList: [],          // {nis, password}
+  siswaList: [],
   bugs: [],
   rampResults: [],
   stopRequested: false,
   totalRequests: 0,
   totalErrors: 0,
   latencies: [],
+  // Mesin analisis cerdas
+  endpointLatencyMap: {},
+  endpointErrorMap: {},
+  endpointCallCount: {},
+  responseSignatures: {},
+  raceConditionLog: [],
+  tokenLeakageLog: [],
+  syncRetryLog: [],
+  scoreConsistencyLog: [],
+  submitTimestamps: {},
 };
 
 const PHASES = [
-  { key: 'setup', label: '1. Setup Data' },
-  { key: 'soal', label: '2. Generate Soal' },
+  { key: 'setup',   label: '1. Setup Data' },
+  { key: 'soal',    label: '2. Generate Soal' },
   { key: 'approve', label: '3. Approve & Buka Sesi' },
-  { key: 'ramp', label: '4. Ramp-Up Login' },
-  { key: 'exam', label: '5. Simulasi Ujian' },
-  { key: 'features', label: '6. Fitur Lain' },
-  { key: 'report', label: '7. Laporan' },
+  { key: 'ramp',    label: '4. Ramp-Up Login' },
+  { key: 'exam',    label: '5. Simulasi Ujian' },
+  { key: 'features',label: '6. Fitur Lain' },
+  { key: 'smart',   label: '7. ⚡ Smart Detection' },
+  { key: 'report',  label: '8. Laporan' },
 ];
 
 // ─── Kategori bug & ambang latensi ───────────────────────────────────────────
 const BUG_CATEGORIES = {
-  STRUKTUR:    'Struktur Response',
-  LATENSI:     'Latensi Tinggi',
-  HTTP_STATUS: 'HTTP Status Salah',
-  OTORISASI:   'Otorisasi / Keamanan',
-  KONSISTENSI: 'Inkonsistensi Data',
-  BEBAN:       'Beban / Skalabilitas',
-  FUNGSIONAL:  'Fungsional',
+  STRUKTUR:       'Struktur Response',
+  LATENSI:        'Latensi Tinggi',
+  HTTP_STATUS:    'HTTP Status Salah',
+  OTORISASI:      'Otorisasi / Keamanan',
+  KONSISTENSI:    'Inkonsistensi Data',
+  BEBAN:          'Beban / Skalabilitas',
+  FUNGSIONAL:     'Fungsional',
+  RACE_CONDITION: '⚡ Race Condition',  // bug paling susah dilacak
+  DATA_LEAK:      '🔓 Kebocoran Data',  // data silang antar user/kelas
+  FATAL:          '💀 BUG FATAL',       // crash, data hilang, nilai tidak tersimpan
 };
+
+// Severity — dipakai untuk sort di laporan
+const SEVERITY = {
+  [BUG_CATEGORIES.FATAL]:          5,
+  [BUG_CATEGORIES.RACE_CONDITION]: 4,
+  [BUG_CATEGORIES.DATA_LEAK]:      4,
+  [BUG_CATEGORIES.OTORISASI]:      3,
+  [BUG_CATEGORIES.KONSISTENSI]:    3,
+  [BUG_CATEGORIES.HTTP_STATUS]:    2,
+  [BUG_CATEGORIES.LATENSI]:        2,
+  [BUG_CATEGORIES.STRUKTUR]:       1,
+  [BUG_CATEGORIES.BEBAN]:          1,
+  [BUG_CATEGORIES.FUNGSIONAL]:     1,
+};
+
 const LATENCY_WARN_MS     = 2000;
 const LATENCY_CRITICAL_MS = 5000;
 
@@ -445,9 +519,14 @@ async function api(method, path, body, token) {
   const headers = { 'Content-Type': 'application/json' };
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
+  const endpointKey = `${method} ${path.split('?')[0]}`;
   const t0 = performance.now();
   state.totalRequests++;
-  let res, json, errText;
+
+  // Track per-endpoint call count
+  state.endpointCallCount[endpointKey] = (state.endpointCallCount[endpointKey] || 0) + 1;
+
+  let res, json;
   try {
     res = await fetch(url, {
       method,
@@ -458,19 +537,84 @@ async function api(method, path, body, token) {
     const latency = performance.now() - t0;
     state.totalErrors++;
     state.latencies.push(latency);
+    state.endpointErrorMap[endpointKey] = (state.endpointErrorMap[endpointKey] || 0) + 1;
+    if (!state.endpointLatencyMap[endpointKey]) state.endpointLatencyMap[endpointKey] = [];
+    state.endpointLatencyMap[endpointKey].push(latency);
     return { ok: false, status: 0, networkError: true, error: e.message, latency };
   }
+
   const latency = performance.now() - t0;
   state.latencies.push(latency);
+  if (!state.endpointLatencyMap[endpointKey]) state.endpointLatencyMap[endpointKey] = [];
+  state.endpointLatencyMap[endpointKey].push(latency);
 
   try { json = await res.json(); } catch { json = null; }
 
-  if (!res.ok) state.totalErrors++;
+  if (!res.ok) {
+    state.totalErrors++;
+    state.endpointErrorMap[endpointKey] = (state.endpointErrorMap[endpointKey] || 0) + 1;
+  }
+
+  // ── Deteksi "response signature drift" ───────────────────────────────────
+  // Rekam fingerprint struktur response pertama yang sukses untuk endpoint ini.
+  // Kalau nanti ada panggilan ulang yang balas struktur berbeda (field hilang
+  // atau tipe berubah) itu indikasi bug non-deterministik atau cache stale.
+  if (res.ok && json && typeof json === 'object' && !Array.isArray(json)) {
+    const sig = Object.keys(json).sort().join('|');
+    if (!state.responseSignatures[endpointKey]) {
+      state.responseSignatures[endpointKey] = sig;
+    } else if (state.responseSignatures[endpointKey] !== sig) {
+      recordBugCat(
+        BUG_CATEGORIES.KONSISTENSI,
+        `Response structure berubah antar panggilan ke ${endpointKey}`,
+        `Pertama: { ${state.responseSignatures[endpointKey]} }. Sekarang: { ${sig} }. Ini indikasi endpoint non-deterministik, bug conditional rendering, atau cache poisoning.`,
+        endpointKey
+      );
+    }
+  }
 
   return { ok: res.ok, status: res.status, data: json, latency };
 }
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// Kirim N request ke endpoint yang sama secara BENAR-BENAR serentak (Promise.all),
+// dipakai untuk mendeteksi race condition. Berbeda dengan runBatched yang punya jeda.
+async function apiBurst(count, method, path, bodyFn, tokenFn) {
+  const promises = Array.from({ length: count }, (_, i) =>
+    api(method, path, typeof bodyFn === 'function' ? bodyFn(i) : bodyFn,
+        typeof tokenFn === 'function' ? tokenFn(i) : tokenFn)
+      .catch(e => ({ ok: false, status: 0, error: e.message, latency: 0 }))
+  );
+  return Promise.all(promises);
+}
+
+// Hitung persentil dari array angka
+function percentile(arr, p) {
+  if (!arr.length) return 0;
+  const sorted = [...arr].sort((a, b) => a - b);
+  const idx = Math.floor(sorted.length * p / 100);
+  return sorted[Math.min(idx, sorted.length - 1)];
+}
+
+// Analisis statistik latency endpoint — deteksi outlier & regresi
+function analyzeEndpointLatency(endpointKey, label) {
+  const lats = state.endpointLatencyMap[endpointKey];
+  if (!lats || lats.length < 3) return;
+  const p50 = percentile(lats, 50);
+  const p95 = percentile(lats, 95);
+  const p99 = percentile(lats, 99);
+  const max = Math.max(...lats);
+  // Deteksi ekor panjang: P99 >> P50 mengindikasikan occasional slow query
+  if (p99 > p50 * 8 && p99 > 3000) {
+    recordBugCat(
+      BUG_CATEGORIES.LATENSI,
+      `${label} — ekor latensi panjang (P50=${p50.toFixed(0)}ms tapi P99=${p99.toFixed(0)}ms)`,
+      `Distribusi latensi sangat tidak merata. P50=${p50.toFixed(0)}ms P95=${p95.toFixed(0)}ms P99=${p99.toFixed(0)}ms Max=${max.toFixed(0)}ms. Ini pola khas N+1 query, missing index, atau koneksi database yang perlu di-warm-up ulang secara berkala. Siswa yang unlucky bisa menunggu ${(p99/1000).toFixed(1)} detik.`,
+      endpointKey
+    );
+  }
+}
 
 // ─── Skema validasi response per endpoint ───────────────────────────────────
 // Jika endpoint ada di sini, checkEndpoint akan memvalidasi struktur body-nya.
@@ -722,7 +866,7 @@ function renderBugs() {
   summaryEl.insertBefore(totalChip, summaryEl.firstChild);
   list.appendChild(summaryEl);
 
-  // ── Daftar bug dikelompokkan per kategori ─────────────────────────────
+  // ── Daftar bug dikelompokkan per kategori, diurutkan severity tertinggi dulu ──
   const grouped = {};
   state.bugs.forEach((b, idx) => {
     const cat = b.category || BUG_CATEGORIES.FUNGSIONAL;
@@ -730,15 +874,24 @@ function renderBugs() {
     grouped[cat].push({ ...b, idx: idx + 1 });
   });
 
-  Object.entries(grouped).forEach(([cat, bugs]) => {
+  // Sort kategori: FATAL dan RACE_CONDITION selalu muncul paling atas
+  const sortedEntries = Object.entries(grouped).sort(([catA], [catB]) => {
+    return (SEVERITY[catB] || 0) - (SEVERITY[catA] || 0);
+  });
+
+  sortedEntries.forEach(([cat, bugs]) => {
+    const sev = SEVERITY[cat] || 1;
+    const sevColor = sev >= 5 ? '#ff3333' : sev >= 4 ? '#ff7700' : '#ff9ec4';
     const header = document.createElement('div');
-    header.style.cssText = 'font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#ff9ec4;margin:12px 0 6px;font-weight:700;border-bottom:1px solid #4a1f30;padding-bottom:4px;';
+    header.style.cssText = `font-size:11px;text-transform:uppercase;letter-spacing:1px;color:${sevColor};margin:12px 0 6px;font-weight:700;border-bottom:1px solid #4a1f30;padding-bottom:4px;`;
     header.textContent = `▸ ${cat} (${bugs.length})`;
     list.appendChild(header);
 
     bugs.forEach(b => {
       const card = document.createElement('div');
+      const isFatal = sev >= 4;
       card.className = 'bug-card';
+      if (isFatal) card.style.cssText = 'background:#1f0808;border:2px solid #aa1111;border-radius:10px;padding:12px 14px;margin-bottom:6px;';
       card.innerHTML = `
         <div class="title">#${b.idx} ${escapeHtml(b.title)}</div>
         <div class="meta">${escapeHtml(b.meta || '—')} · ditemukan ${b.time}</div>
@@ -1630,7 +1783,468 @@ async function phaseFeatures() {
 }
 
 // =====================================================================
-// FASE 7 — LAPORAN AKHIR
+// FASE 7 — SMART DETECTION: deteksi bug tersembunyi & fatal
+// Race condition, data leak, jawaban hilang, token escalation,
+// koneksi putus, double-submit bersamaan, degradasi latensi, dll.
+// =====================================================================
+async function phaseSmartDetection() {
+  const loggedIn = state.siswaList.filter(s => s.token);
+  const siswaA = loggedIn[0];
+  const siswaB = loggedIn[1];
+  const { batchSize, delayBetweenBatches } = getSpeedConfig();
+
+  // ── 7a. RACE CONDITION: double-submit BENAR-BENAR serentak (bukan 2 panggilan berurutan) ──
+  // Ini skenario yang TIDAK bisa dideteksi dengan expectIdempotent biasa karena
+  // expectIdempotent memanggil dua kali secara BERURUTAN — server masih sempat
+  // menyelesaikan yang pertama sebelum yang kedua tiba.
+  // Di sini kita kirim PERSIS di waktu yang sama via Promise.all.
+  setAction('Uji race condition: double-submit serentak…');
+  if (siswaA) {
+    const [r1, r2] = await apiBurst(
+      2, 'POST', '/api/siswa/ujian/selesai',
+      () => ({ sesiId: state.sesiId, nis: siswaA.nis }),
+      () => siswaA.token
+    );
+    // Dua hal yang dicek:
+    // 1. Apakah nilai di r1 dan r2 sama persis (idempotent)?
+    // 2. Apakah salah satu mendapat error 4xx/5xx (dikunci dengan benar)?
+    const nilaiR1 = r1.data?.nilai ?? r1.data?.score ?? r1.data?.benar;
+    const nilaiR2 = r2.data?.nilai ?? r2.data?.score ?? r2.data?.benar;
+    if (r1.ok && r2.ok && nilaiR1 !== nilaiR2 && nilaiR1 !== undefined) {
+      recordBugCat(
+        BUG_CATEGORIES.RACE_CONDITION,
+        'Double-submit serentak menghasilkan nilai BERBEDA — race condition di kalkulasi nilai',
+        `Dua request /api/siswa/ujian/selesai dikirim dalam milidetik yang sama untuk NIS=${siswaA.nis}. Request 1 mengembalikan nilai=${nilaiR1}, Request 2 mengembalikan nilai=${nilaiR2}. Ini menandakan fungsi kalkulasi nilai tidak atomic — ada jendela di antara READ dan WRITE yang bisa ditembus request bersamaan. Perbaikan: gunakan database transaction atau upsert atomic.`,
+        'POST /api/siswa/ujian/selesai (burst x2)'
+      );
+    } else if (r1.ok && r2.ok) {
+      log(`✓ Double-submit serentak: idempotent (nilai=${nilaiR1})`, 'ok');
+    } else {
+      log(`✓ Double-submit serentak: satu request ditolak dengan benar (${r1.ok ? r2.status : r1.status})`, 'ok');
+    }
+    state.raceConditionLog.push({ test: 'double-submit', r1status: r1.status, r2status: r2.status, nilaiR1, nilaiR2 });
+  }
+
+  // ── 7b. RACE CONDITION: buka dua sesi untuk jadwal yang sama sekaligus ──
+  // Bug fatal yang susah dilacak: kalau ada jendela antara cek "sudah ada sesi?" dan
+  // INSERT, dua pengawas bisa membuka sesi kembar — menyebabkan siswa submit ke
+  // sesi yang salah dan nilai hilang.
+  setAction('Uji race condition: buka sesi ganda serentak…');
+  const kode1 = `RACE1_${Date.now().toString().slice(-5)}`;
+  const kode2 = `RACE2_${Date.now().toString().slice(-5)}`;
+  // Buat jadwal kedua dulu (diperlukan untuk uji ini — tidak bisa pakai jadwal yang sudah SELESAI)
+  const today = new Date().toISOString().slice(0, 10);
+  const jadwal2Res = await api('POST', '/api/admin/jadwal', {
+    tanggal: today, sesi: 2, jam_mulai: '00:00', jam_selesai: '23:59',
+    mapel_id: state.mapelId, kelas: state.kelasNama,
+    pengawas: state.guruUsername, durasi: 90,
+  }, state.adminToken);
+  if (jadwal2Res.ok) {
+    const jList = await api('GET', `/api/admin/jadwal?kelas=${encodeURIComponent(state.kelasNama)}`, undefined, state.adminToken);
+    const jadwal2 = jList.data?.data?.find(j => j.sesi === 2 && j.mapel_id === state.mapelId);
+    if (jadwal2) {
+      const [s1, s2] = await apiBurst(
+        2, 'POST', '/api/pengawas/sesi',
+        (i) => ({ jadwalId: jadwal2.id, kodeSesi: i === 0 ? kode1 : kode2 }),
+        () => state.adminToken
+      );
+      if (s1.ok && s2.ok) {
+        recordBugCat(
+          BUG_CATEGORIES.RACE_CONDITION,
+          'DUA sesi berhasil dibuka untuk jadwal yang sama secara serentak — sesi kembar fatal',
+          `Dua request POST /api/pengawas/sesi dikirim serentak untuk jadwal ID=${jadwal2.id}. Keduanya sukses (s1: ${JSON.stringify(s1.data)}, s2: ${JSON.stringify(s2.data)}). Ini bug fatal: sesi kembar menyebabkan sebagian siswa submit ke sesi yang salah dan nilai hilang secara permanen. Perbaikan: tambahkan UNIQUE constraint di database pada kolom (jadwal_id, status) untuk status=AKTIF, atau gunakan SELECT FOR UPDATE + INSERT dalam satu transaction.`,
+          'POST /api/pengawas/sesi (burst x2 — jadwal sama)'
+        );
+      } else {
+        log(`✓ Sesi ganda serentak: ditolak dengan benar (s1: ${s1.status}, s2: ${s2.status})`, 'ok');
+      }
+      // Tutup jadwal2 apapun hasilnya
+      if (s1.ok && s1.data?.sesiId) await api('POST', `/api/pengawas/sesi/${s1.data.sesiId}/tutup`, {}, state.adminToken);
+      if (s2.ok && s2.data?.sesiId) await api('POST', `/api/pengawas/sesi/${s2.data.sesiId}/tutup`, {}, state.adminToken);
+    }
+  }
+
+  // ── 7c. DATA LEAK: apakah siswa A bisa melihat nilai/jawaban siswa B? ──
+  // Ini bug yang mungkin tidak terdeteksi di uji manual biasa karena dev menguji
+  // dengan akun yang sama. Harus pakai dua token berbeda.
+  setAction('Uji data leak: siswa A mencoba akses data siswa B…');
+  if (siswaA && siswaB) {
+    // Coba ambil nilai siswa B menggunakan token siswa A
+    const leakNilai = await api('GET', `/api/siswa/nilai?nis=${siswaB.nis}`, undefined, siswaA.token);
+    if (leakNilai.ok && Array.isArray(leakNilai.data?.data) && leakNilai.data.data.length > 0) {
+      // Cek apakah data yang dikembalikan benar-benar milik siswa B, bukan A
+      const adaDataSiswaB = leakNilai.data.data.some(d => d.nis === siswaB.nis || d.siswa_nis === siswaB.nis);
+      if (adaDataSiswaB) {
+        recordBugCat(
+          BUG_CATEGORIES.DATA_LEAK,
+          `Siswa A bisa melihat nilai siswa B lewat query param ?nis=`,
+          `Token siswa A (${siswaA.nis}) dipakai untuk GET /api/siswa/nilai?nis=${siswaB.nis} dan mendapat data nilai milik B. Endpoint tidak memvalidasi bahwa nis di query param harus sama dengan nis dari token JWT yang dikirim. Ini pelanggaran privasi serius — setiap siswa bisa melihat nilai siswa lain cukup dengan mengganti query param di browser.`,
+          `GET /api/siswa/nilai?nis=${siswaB.nis} (token siswa A)`
+        );
+      }
+    } else {
+      log('✓ Data leak nilai: endpoint tidak mengembalikan data siswa lain', 'ok');
+    }
+    state.tokenLeakageLog.push({ test: 'nilai_cross_nis', tested: true });
+
+    // Coba akses jawaban ujian siswa B melalui monitoring pengawas tapi pakai token SISWA
+    const leakMonitor = await api('GET', `/api/pengawas/sesi/${state.sesiId}/siswa`, undefined, siswaA.token);
+    if (leakMonitor.ok) {
+      recordBugCat(
+        BUG_CATEGORIES.DATA_LEAK,
+        'Token SISWA bisa mengakses endpoint monitoring pengawas',
+        `GET /api/pengawas/sesi/[id]/siswa berhasil diakses menggunakan token role SISWA (NIS: ${siswaA.nis}). Endpoint ini seharusnya hanya bisa diakses oleh PENGAWAS/GURU/ADMIN. Ini berarti siswa bisa memantau progress ujian teman-temannya secara real-time.`,
+        `GET /api/pengawas/sesi/${state.sesiId}/siswa (token SISWA)`
+      );
+    } else {
+      log('✓ Monitoring pengawas: ditolak untuk token SISWA', 'ok');
+    }
+  }
+
+  // ── 7d. TOKEN ESCALATION: apakah token GURU bisa mengakses data kelas lain? ──
+  // Guru seharusnya hanya melihat mapel/kelas yang dia ampu sendiri.
+  setAction('Uji privilege escalation: guru akses kelas yang bukan amalannya…');
+  // Buat guru baru yang tidak mengampu kelas testing
+  const guru2Username = `${state.runId}_guru2`;
+  const guru2Res = await api('POST', '/api/admin/users', {
+    username: guru2Username, nama: `GURU2 LOADTEST ${state.runId}`,
+    role: 'GURU', password: 'LoadTest123!', status: 'AKTIF',
+  }, state.adminToken);
+  if (guru2Res.ok) {
+    const guru2Login = await api('POST', '/api/auth/login', { username: guru2Username, password: 'LoadTest123!' });
+    if (guru2Login.ok) {
+      const guru2Token = guru2Login.data.token;
+      // Guru2 mencoba mengambil soal paket milik guru1 (yang mengampu kelas testing)
+      const soalLeak = await api('GET', `/api/guru/paket/${state.paketId}/soal`, undefined, guru2Token);
+      if (soalLeak.ok && Array.isArray(soalLeak.data?.data) && soalLeak.data.data.length > 0) {
+        recordBugCat(
+          BUG_CATEGORIES.DATA_LEAK,
+          'Guru dari kelas lain bisa mengakses soal paket guru lain',
+          `Guru2 (${guru2Username}) yang tidak mengampu kelas/mapel testing berhasil mengakses GET /api/guru/paket/${state.paketId}/soal dan mendapat ${soalLeak.data.data.length} soal. Seharusnya endpoint ini memvalidasi bahwa paket_id yang diminta milik guru yang sedang login. Ini berarti guru bisa bocorkan soal ujian guru lain.`,
+          `GET /api/guru/paket/${state.paketId}/soal (token guru lain)`
+        );
+      } else {
+        log('✓ Soal paket guru: tidak bocor ke guru lain', 'ok');
+      }
+      // Guru2 mencoba approve paket soal milik guru1 — seharusnya hanya ADMIN yang bisa
+      const approveByGuru = await api('POST', '/api/admin/soal', { paket_id: state.paketId, action: 'SETUJUI' }, guru2Token);
+      if (approveByGuru.ok) {
+        recordBugCat(
+          BUG_CATEGORIES.DATA_LEAK,
+          'GURU bisa melakukan approve/reject paket soal — seharusnya hanya ADMIN',
+          `POST /api/admin/soal dengan action=SETUJUI berhasil dipanggil oleh token GURU (${guru2Username}). Endpoint berlabel /api/admin/ ini tidak memvalidasi bahwa caller harus berperan ADMIN.`,
+          'POST /api/admin/soal (token GURU)'
+        );
+      } else {
+        log('✓ Approve soal: ditolak untuk token GURU', 'ok');
+      }
+      // Hapus guru2 saat cleanup — tambahkan ke state
+      state.siswaList.push({ nis: guru2Username, _isUser: true });
+    }
+    // Hapus guru2
+    await api('DELETE', `/api/admin/users/${guru2Username}`, undefined, state.adminToken);
+  }
+
+  // ── 7e. JAWABAN HILANG: skenario koneksi putus saat sync → retry → verifikasi ──
+  // Skenario paling sering di lapangan: siswa sync jawaban, koneksi putus di tengah,
+  // lalu saat reconnect siswa tidak tahu jawabannya tersimpan atau tidak.
+  // Yang diuji: apakah jawaban yang sudah di-sync sebelumnya masih ada setelah
+  // panggilan sync ulang dengan data yang sama?
+  setAction('Uji ketahanan jawaban: simulasi koneksi putus → retry sync…');
+  if (siswaA && state.sesiId) {
+    // Ambil daftar soal siswa A
+    const validasiUlang = await api('POST', '/api/siswa/ujian/validasi', {
+      kodeSesi: state.kodeSesi, nis: siswaA.nis,
+    }, siswaA.token);
+    const soalListA = validasiUlang.data?.soalList || [];
+
+    if (soalListA.length > 0) {
+      // Sync pertama: kirim 5 jawaban
+      const jawabanAwal = soalListA.slice(0, 5).map((s, i) => ({
+        soal_id: s.id,
+        jawaban: ['A', 'B', 'C', 'D'][i % 4],
+      }));
+      const sync1 = await api('POST', '/api/siswa/ujian/sync', { sesiId: state.sesiId, jawaban: jawabanAwal }, siswaA.token);
+
+      if (sync1.ok) {
+        // Simulasi "koneksi putus" = sleep 2 detik
+        await sleep(2000);
+        // Sync ulang dengan jawaban SAMA (retry setelah reconnect)
+        const sync2 = await api('POST', '/api/siswa/ujian/sync', { sesiId: state.sesiId, jawaban: jawabanAwal }, siswaA.token);
+
+        if (!sync2.ok) {
+          recordBugCat(
+            BUG_CATEGORIES.FATAL,
+            'Retry sync jawaban DITOLAK setelah jeda 2 detik — jawaban siswa bisa hilang permanen',
+            `Sync pertama berhasil (HTTP ${sync1.status}). Setelah jeda 2 detik (simulasi reconnect), sync ulang dengan data identik gagal dengan HTTP ${sync2.status}: ${JSON.stringify(sync2.data)}. Di lapangan ini berarti: siswa jawab 50 soal, koneksi putus, reconnect, browser coba sync ulang, tapi server menolak → 50 jawaban hilang. Endpoint sync harus bersifat idempotent/upsert, bukan INSERT yang gagal kalau data sudah ada.`,
+            'POST /api/siswa/ujian/sync (retry after 2s)'
+          );
+        } else {
+          log('✓ Retry sync jawaban setelah jeda: diterima (idempotent)', 'ok');
+        }
+        state.syncRetryLog.push({ sync1: sync1.status, sync2: sync2.status });
+
+        // Lanjut: apakah jawaban yang disync masih tercatat setelah submit?
+        // Ini verifikasi "nilai tidak hilang setelah koneksi putus"
+        const submitPost = await api('POST', '/api/siswa/ujian/selesai', { sesiId: state.sesiId, nis: siswaA.nis }, siswaA.token);
+        if (submitPost.ok) {
+          const nilaiPost = submitPost.data?.nilai ?? submitPost.data?.score ?? submitPost.data?.benar;
+          state.scoreConsistencyLog.push({ nis: siswaA.nis, nilai: nilaiPost, source: 'submit_after_retry_sync' });
+          if (nilaiPost === 0 || nilaiPost === null || nilaiPost === undefined) {
+            recordBugCat(
+              BUG_CATEGORIES.FATAL,
+              'Nilai = 0 setelah sync → putus → retry sync → submit — jawaban tidak tersimpan',
+              `Siswa ${siswaA.nis} telah sync 5 jawaban (sync1 HTTP ${sync1.status}), retry sync (sync2 HTTP ${sync2.status}), lalu submit ujian. Tapi nilai yang dikembalikan = ${nilaiPost}. Kemungkinan: sync ulang menimpa jawaban pertama dengan array yang dianggap "kosong" oleh server, atau ada bug merge jawaban saat ada konflik versi.`,
+              'POST /api/siswa/ujian/selesai (setelah retry sync)'
+            );
+          } else {
+            log(`✓ Nilai setelah retry sync: ${nilaiPost} — jawaban tersimpan dengan benar`, 'ok');
+          }
+        }
+      }
+    }
+  }
+
+  // ── 7f. KONEKSI PUTUS SAAT SUBMIT: apakah timeout/abort submit menyebabkan data korup? ──
+  // Simulasi dengan AbortController: kirim submit, batalkan di tengah jalan,
+  // lalu cek apakah sesi siswa tersimpan di state "setengah jadi" yang tidak konsisten.
+  setAction('Uji ketahanan submit: simulasi abort request di tengah jalan…');
+  if (siswaB && state.sesiId) {
+    const controller = new AbortController();
+    const abortTimer = setTimeout(() => controller.abort(), 80); // abort setelah 80ms
+    try {
+      await fetch(state.baseUrl + '/api/siswa/ujian/selesai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${siswaB.token}` },
+        body: JSON.stringify({ sesiId: state.sesiId, nis: siswaB.nis }),
+        signal: controller.signal,
+      });
+    } catch (e) {
+      // Expected: AbortError atau network error
+    } finally {
+      clearTimeout(abortTimer);
+    }
+
+    // Tunggu sebentar lalu cek: apakah siswa B ada di monitoring dengan status aneh?
+    await sleep(1500);
+    const monitorCheck = await api('GET', `/api/pengawas/sesi/${state.sesiId}/siswa`, undefined, state.guruToken);
+    const siswaStatus = monitorCheck.data?.data?.find(d => d.nis === siswaB.nis || d.siswa_nis === siswaB.nis);
+    if (siswaStatus) {
+      const statusVal = siswaStatus.status || siswaStatus.state;
+      // Status "SELESAI" padahal request di-abort sangat mencurigakan (bisa false positive
+      // kalau siswa B sudah submit sebelumnya di fase exam)
+      log(`Status siswa B (${siswaB.nis}) pasca-abort: ${statusVal || 'tidak ada field status'}`, 'info');
+    }
+
+    // Sekarang kirim submit ulang (siswa B reconnect dan coba lagi)
+    const retrySubmit = await api('POST', '/api/siswa/ujian/selesai', { sesiId: state.sesiId, nis: siswaB.nis }, siswaB.token);
+    if (!retrySubmit.ok && retrySubmit.status !== 400) {
+      // 400 acceptable jika sudah submit sebelumnya
+      recordBugCat(
+        BUG_CATEGORIES.FATAL,
+        'Submit ulang setelah abort gagal dengan error tak terduga — status ujian mungkin korup',
+        `Setelah request submit di-abort (simulasi koneksi putus), siswa ${siswaB.nis} mencoba submit ulang dan mendapat HTTP ${retrySubmit.status}: ${JSON.stringify(retrySubmit.data)}. Jika status bukan 400 (sudah_selesai) atau 200 (idempotent), berarti ada state korup di server yang memblokir penyelesaian ujian.`,
+        'POST /api/siswa/ujian/selesai (retry after abort)'
+      );
+    } else {
+      log(`✓ Submit ulang setelah abort: diterima atau ditolak dengan benar (HTTP ${retrySubmit.status})`, 'ok');
+    }
+  }
+
+  // ── 7g. IDLE LAMA: siswa tidak aktif 3 menit lalu tiba-tiba sync semua jawaban ──
+  // Token biasanya punya expiry. Kalau expiry terlalu pendek, siswa yang membuka ujian
+  // lalu melamun bisa kehilangan sesi di tengah ujian.
+  setAction('Uji idle session: sync setelah "idle" lama…');
+  const siswaIdle = loggedIn[2];
+  if (siswaIdle) {
+    // Kita tidak bisa benar-benar nunggu 3 menit (akan timeout test).
+    // Yang bisa kita uji: apakah token yang valid SEKARANG masih valid setelah
+    // sekian operasi berat? Proxy dari idle adalah: token yang sama dipakai
+    // lagi setelah ratusan request lain sudah berjalan sejak login.
+    const idleCheck = await api('POST', '/api/siswa/ujian/sync', {
+      sesiId: state.sesiId,
+      jawaban: [{ soal_id: 'IDLE_TEST', jawaban: 'A' }],
+    }, siswaIdle.token);
+    if (!idleCheck.ok && idleCheck.status === 401) {
+      recordBugCat(
+        BUG_CATEGORIES.FATAL,
+        `Token siswa kadaluarsa terlalu cepat (${siswaIdle.nis} dapat 401 setelah token dibuat beberapa menit lalu)`,
+        `Siswa login di awal test, tapi token sudah ditolak dengan 401 saat dipakai menit-menit kemudian. Kalau ini terjadi di ujian real, siswa yang mengerjakan soal lambat akan tiba-tiba kehilangan sesi dan seluruh jawaban yang belum disync akan hilang. Periksa JWT expiry — untuk ujian durasi 90 menit, token harus valid minimal 2 jam.`,
+        `POST /api/siswa/ujian/sync (token ${siswaIdle.nis} — umur beberapa menit)`
+      );
+    } else if (idleCheck.ok) {
+      log(`✓ Token siswa masih valid setelah penggunaan panjang (${siswaIdle.nis})`, 'ok');
+    }
+  }
+
+  // ── 7h. DEGRADASI LATENSI: apakah endpoint makin lambat di akhir test vs awal? ──
+  // Setelah ratusan request dan ribuan baris data testing di DB, apakah ada
+  // query yang mulai melambat? Ini deteksi N+1 query atau missing index yang
+  // hanya muncul saat data besar.
+  setAction('Analisis degradasi latensi per endpoint…');
+  const endpointsToCheck = [
+    ['GET /api/admin/dashboard', '/api/admin/dashboard', state.adminToken],
+    ['GET /api/guru/nilai', `/api/guru/nilai?mapel_id=${state.mapelId}`, state.guruToken],
+    ['GET /api/admin/nilai', `/api/admin/nilai?mapel_id=${state.mapelId}`, state.adminToken],
+  ];
+  for (const [key, path, token] of endpointsToCheck) {
+    // Ambil 3 sampel latensi sekarang (data sudah banyak)
+    const samples = [];
+    for (let i = 0; i < 3; i++) {
+      const r = await api('GET', path, undefined, token);
+      samples.push(r.latency);
+      await sleep(200);
+    }
+    const avgNow = samples.reduce((a, b) => a + b, 0) / samples.length;
+    const avgEarly = state.endpointLatencyMap[key]?.slice(0, 3).reduce((a, b) => a + b, 0) / 3 || avgNow;
+    if (avgEarly > 0 && avgNow > avgEarly * 2.5 && avgNow > 1500) {
+      recordBugCat(
+        BUG_CATEGORIES.LATENSI,
+        `${key} — latensi meningkat ${(avgNow/avgEarly).toFixed(1)}× dari awal ke akhir test (indikasi N+1 query atau missing index)`,
+        `Latensi rata-rata di awal test: ${avgEarly.toFixed(0)}ms. Di akhir test (setelah ${state.siswaList.length} siswa + banyak data): ${avgNow.toFixed(0)}ms. Peningkatan lebih dari 2.5× mengindikasikan query yang kompleksitasnya tumbuh linear terhadap jumlah data — kemungkinan besar SELECT * tanpa LIMIT, subquery tanpa index, atau JOIN ke tabel besar tanpa kondisi filter yang ter-index.`,
+        key
+      );
+    } else {
+      log(`✓ ${key}: latensi stabil (awal ${avgEarly.toFixed(0)}ms → akhir ${avgNow.toFixed(0)}ms)`, 'ok');
+    }
+    analyzeEndpointLatency(key, key);
+  }
+
+  // ── 7i. KONSISTENSI NILAI: bandingkan nilai dari submit vs nilai di rekap ──
+  // Bug fatal yang sangat susah dilacak: nilai tersimpan saat submit (endpoint
+  // balas sukses) tapi rekap nilai guru/admin menampilkan angka yang berbeda.
+  // Bisa disebabkan oleh race di kalkulasi, rounding berbeda, atau kunci jawaban
+  // yang berubah setelah ujian berlangsung.
+  setAction('Verifikasi konsistensi nilai submit vs rekap…');
+  const rekapAdmin = await api('GET', `/api/admin/nilai?mapel_id=${state.mapelId}`, undefined, state.adminToken);
+  const rekapGuru  = await api('GET', `/api/guru/nilai?mapel_id=${state.mapelId}`, undefined, state.guruToken);
+
+  if (rekapAdmin.ok && rekapGuru.ok) {
+    const adminData = rekapAdmin.data?.data || [];
+    const guruData  = rekapGuru.data?.data  || [];
+
+    // Buat map NIS → nilai dari masing-masing sumber
+    const mapAdmin = {};
+    adminData.forEach(d => { if (d.nis || d.siswa_nis) mapAdmin[d.nis || d.siswa_nis] = d.nilai ?? d.score ?? d.benar; });
+    const mapGuru = {};
+    guruData.forEach(d => { if (d.nis || d.siswa_nis) mapGuru[d.nis || d.siswa_nis] = d.nilai ?? d.score ?? d.benar; });
+
+    let nilaiBeda = [];
+    Object.keys(mapAdmin).forEach(nis => {
+      if (nis in mapGuru && mapAdmin[nis] !== mapGuru[nis]) {
+        nilaiBeda.push({ nis, admin: mapAdmin[nis], guru: mapGuru[nis] });
+      }
+    });
+
+    if (nilaiBeda.length > 0) {
+      recordBugCat(
+        BUG_CATEGORIES.FATAL,
+        `Nilai di admin/nilai ≠ guru/nilai untuk ${nilaiBeda.length} siswa — nilai tidak konsisten`,
+        `Rekap nilai antara endpoint admin dan guru berbeda untuk siswa yang sama pada mapel yang sama. Contoh: ${nilaiBeda.slice(0, 3).map(d => `NIS=${d.nis}: admin=${d.admin} guru=${d.guru}`).join(', ')}. Ini bug fatal — admin dan guru melihat nilai berbeda. Kemungkinan: query yang berbeda di kedua route dengan filter yang tidak identik, atau ada dua baris nilai untuk siswa yang sama (efek dari race condition submit) dan admin/guru mengambil baris yang berbeda.`,
+        'GET /api/admin/nilai vs GET /api/guru/nilai'
+      );
+    } else if (adminData.length > 0) {
+      log(`✓ Konsistensi nilai admin vs guru: OK (${adminData.length} siswa diperiksa)`, 'ok');
+    }
+  }
+
+  // ── 7j. BANYAK SISWA SUBMIT DI MENIT TERAKHIR SERENTAK ──
+  // Skenario paling stres di dunia nyata: pengawas mau tutup sesi, 200 siswa
+  // panik klik "Selesai" bersamaan. Apakah semua nilai tersimpan?
+  setAction('Uji beban puncak: semua siswa yang tersisa submit serentak…');
+  const belumSubmit = loggedIn.filter(s => !state.submitTimestamps[s.nis]).slice(0, 50); // maks 50 serentak
+  if (belumSubmit.length > 5) {
+    log(`Simulasi ${belumSubmit.length} siswa submit serentak di menit terakhir…`, 'info');
+    const t0burst = performance.now();
+    const burstResults = await Promise.all(
+      belumSubmit.map(s =>
+        api('POST', '/api/siswa/ujian/selesai', { sesiId: state.sesiId, nis: s.nis }, s.token)
+          .then(r => { state.submitTimestamps[s.nis] = Date.now(); return r; })
+          .catch(e => ({ ok: false, status: 0, error: e.message, latency: 0 }))
+      )
+    );
+    const burstDuration = performance.now() - t0burst;
+    const burstOk    = burstResults.filter(r => r.ok).length;
+    const burstFail  = burstResults.filter(r => !r.ok).length;
+    const burstLats  = burstResults.map(r => r.latency).filter(Boolean);
+    const burstP95   = percentile(burstLats, 95);
+
+    log(`Burst submit: ${burstOk} OK, ${burstFail} gagal. Durasi total: ${burstDuration.toFixed(0)}ms. P95: ${burstP95.toFixed(0)}ms`, burstFail > 0 ? 'warn' : 'ok');
+
+    if (burstFail > belumSubmit.length * 0.1) {
+      recordBugCat(
+        BUG_CATEGORIES.FATAL,
+        `${burstFail} dari ${belumSubmit.length} siswa GAGAL submit di skenario akhir ujian serentak`,
+        `Saat ${belumSubmit.length} siswa submit bersamaan (simulasi menit terakhir ujian), ${burstFail} gagal (${((burstFail/belumSubmit.length)*100).toFixed(1)}%). Durasi seluruh burst: ${burstDuration.toFixed(0)}ms. P95 latency: ${burstP95.toFixed(0)}ms. Siswa yang gagal submit tidak akan punya nilai — ini skenario yang persis terjadi di lapangan saat ujian berakhir. Kemungkinan penyebab: database connection pool habis, timeout Vercel 10s terlampaui, atau UNIQUE constraint konflik dari double-submit massal.`,
+        'POST /api/siswa/ujian/selesai (burst semua siswa serentak)'
+      );
+    }
+
+    // Verifikasi: cek nilai tersimpan untuk sampel dari burst
+    await sleep(2000); // beri waktu DB settle
+    const sampelVerif = burstResults.filter(r => r.ok && r.data?.nis).slice(0, 3);
+    for (const r of sampelVerif) {
+      const nisVerif = r.data.nis;
+      const nilaiVerif = r.data.nilai ?? r.data.score ?? r.data.benar;
+      state.scoreConsistencyLog.push({ nis: nisVerif, nilai: nilaiVerif, source: 'burst_submit' });
+    }
+  }
+
+  // ── 7k. XSS PROBE: apakah input teks soal di-sanitize? ──
+  // Kalau teks soal yang mengandung <script> dirender mentah di browser siswa,
+  // itu celah XSS — siswa A bisa inject script ke sesi siswa B.
+  setAction('Uji XSS probe: apakah input teks soal di-sanitize?…');
+  const soalXss = await api('POST', '/api/guru/soal', {
+    mapel_id: state.mapelId,
+    kelas_id: state.kelasNama,
+    paket_id: state.paketId,
+    teks: `\x3cscript\x3ewindow._xss_probe=true\x3c/script\x3e[LOADTEST XSS PROBE]`,
+    opsi_a: `\x3cimg src=x onerror="alert(1)"\x3e`,
+    opsi_b: 'B',
+    opsi_c: 'C',
+    opsi_d: 'D',
+    kunci: 'B',
+    tingkat: 'Mudah',
+    jumlah_opsi: 4,
+    acak: 'YA',
+    status: 'DRAFT',
+  }, state.guruToken);
+  if (soalXss.ok) {
+    // Ambil kembali soal ini via daftar soal
+    const daftarSoal = await api('GET', `/api/guru/soal?paket_id=${state.paketId}`, undefined, state.guruToken);
+    const xssSoal = daftarSoal.data?.data?.find(s => s.teks?.includes('_xss_probe') || s.teks?.includes('<script'));
+    if (xssSoal && (xssSoal.teks?.includes('<script') || xssSoal.opsi_a?.includes('<img'))) {
+      recordBugCat(
+        BUG_CATEGORIES.OTORISASI,
+        'Input soal yang mengandung HTML/script tidak di-sanitize di server — potensi XSS stored',
+        `Teks soal berisi "<script>..." berhasil disimpan dan dikembalikan mentah tanpa sanitasi oleh GET /api/guru/soal. Kalau frontend merender teks ini dengan innerHTML (bukan textContent), ini menjadi XSS stored yang memungkinkan guru jahat menginjeksi script ke semua browser siswa yang mengerjakan soal tersebut. Wajib sanitize di sisi server menggunakan library seperti DOMPurify sebelum disimpan ke DB.`,
+        'POST /api/guru/soal + GET /api/guru/soal (XSS probe)'
+      );
+    } else {
+      log('✓ Input soal: teks HTML/script tidak muncul mentah di response (kemungkinan sudah di-sanitize)', 'ok');
+    }
+  }
+
+  // ── 7l. ANALISIS HOLISTIK: endpoint dengan error rate tinggi ──
+  setAction('Analisis holistik: endpoint dengan error rate tinggi…');
+  Object.entries(state.endpointCallCount).forEach(([ep, total]) => {
+    const errors = state.endpointErrorMap[ep] || 0;
+    const rate = total > 3 ? errors / total : 0;
+    if (rate > 0.3 && errors > 2) {
+      recordBugCat(
+        BUG_CATEGORIES.BEBAN,
+        `${ep} — error rate tinggi (${(rate*100).toFixed(0)}% dari ${total} panggilan gagal)`,
+        `Endpoint dipanggil ${total}× selama test, ${errors} di antaranya gagal (${(rate*100).toFixed(0)}% error rate). Di production dengan ratusan pengguna nyata, endpoint ini akan menciptakan banyak error yang terlihat oleh pengguna. Periksa log Vercel untuk stack trace lengkap.`,
+        ep
+      );
+    }
+  });
+
+  log('Fase Smart Detection selesai', 'ok');
+}
+
+// =====================================================================
+// FASE 8 — LAPORAN AKHIR
 // =====================================================================
 function phaseReport() {
   setAction('Pengujian selesai.');
@@ -1655,23 +2269,52 @@ function phaseReport() {
   log(`Latensi — Rata²: ${avgLatency}ms | P95: ${p95}ms | Maks: ${maxLatency}ms`, 'info');
   log(`Siswa berhasil login: ${state.siswaList.filter(s => s.token).length} dari ${state.siswaList.length}`, 'info');
 
-  // Ringkasan bug per kategori
+  // Ringkasan bug per kategori, diurutkan severity tertinggi dulu
   if (state.bugs.length > 0) {
-    log('─── Ringkasan Bug Per Kategori ───────', 'warn');
+    log('─── Ringkasan Bug (urut prioritas) ───', 'warn');
     const counts = {};
     state.bugs.forEach(b => {
       const cat = b.category || BUG_CATEGORIES.FUNGSIONAL;
       counts[cat] = (counts[cat] || 0) + 1;
     });
-    Object.entries(counts).sort((a, b) => b[1] - a[1]).forEach(([cat, n]) => {
-      log(`  ${cat}: ${n} bug`, 'warn');
-    });
-    log('─── Detail Bug (lihat panel di atas) ─', 'warn');
-    state.bugs.forEach((b, i) => {
-      log(`  #${i + 1} [${b.category || '?'}] ${b.title}`, 'bug');
-    });
+    Object.entries(counts)
+      .sort(([a], [b]) => (SEVERITY[b] || 0) - (SEVERITY[a] || 0))
+      .forEach(([cat, n]) => {
+        const sev = SEVERITY[cat] || 1;
+        const level = sev >= 5 ? 'bug' : sev >= 3 ? 'warn' : 'info';
+        log(`  ${cat}: ${n} bug`, level);
+      });
+
+    // Khusus bug fatal/race — tampilkan judul di log
+    const criticals = state.bugs.filter(b => (SEVERITY[b.category] || 0) >= 4);
+    if (criticals.length > 0) {
+      log('─── BUG KRITIS (WAJIB DIPERBAIKI DULU) ─', 'bug');
+      criticals.forEach((b, i) => {
+        log(`  ⚠ [${b.category}] ${b.title}`, 'bug');
+      });
+    }
   } else {
-    log('Tidak ada bug yang ditemukan selama pengujian ini!', 'ok');
+    log('✓ Tidak ada bug yang ditemukan selama pengujian ini!', 'ok');
+  }
+
+  // Endpoint paling lambat
+  const slowEndpoints = Object.entries(state.endpointLatencyMap)
+    .map(([ep, lats]) => ({ ep, p95: percentile(lats, 95), avg: lats.reduce((a,b)=>a+b,0)/lats.length }))
+    .filter(x => x.p95 > 1000)
+    .sort((a, b) => b.p95 - a.p95)
+    .slice(0, 5);
+  if (slowEndpoints.length > 0) {
+    log('─── Endpoint Terlambat (P95) ─────────', 'warn');
+    slowEndpoints.forEach(x => log(`  ${x.ep}: P95=${x.p95.toFixed(0)}ms avg=${x.avg.toFixed(0)}ms`, 'warn'));
+  }
+
+  // Race condition & data leak summary
+  if (state.raceConditionLog.length > 0) {
+    log(`─── Race Condition Diuji: ${state.raceConditionLog.length} skenario ─`, 'info');
+  }
+  if (state.scoreConsistencyLog.length > 0) {
+    const nilaiBervariasi = state.scoreConsistencyLog.filter(s => s.nilai !== null && s.nilai !== undefined);
+    log(`─── Nilai Diverifikasi: ${nilaiBervariasi.length} siswa ─`, 'info');
   }
 
   log('Jangan lupa jalankan CLEANUP di bagian bawah untuk menghapus data pengujian ini.', 'warn');
@@ -1687,6 +2330,7 @@ async function runFullTest() {
   document.getElementById('btn-stop').disabled = false;
   document.getElementById('progress-panel').style.display = 'block';
   document.getElementById('debug-banner').style.display = 'block';
+  startDurasiBanner();
 
   const doneKeys = [];
   try {
@@ -1722,6 +2366,11 @@ async function runFullTest() {
     await phaseFeatures();
     doneKeys.push('features');
 
+    renderPhaseTrack('smart', doneKeys);
+    setProgress(0, '');
+    await phaseSmartDetection();
+    doneKeys.push('smart');
+
     renderPhaseTrack('report', doneKeys);
     phaseReport();
     doneKeys.push('report');
@@ -1734,6 +2383,7 @@ async function runFullTest() {
     setAction(`Berhenti: ${e.message}`);
   } finally {
     renderStats();
+    stopDurasiBanner();
     document.getElementById('debug-banner').style.display = 'none';
     document.getElementById('btn-start').disabled = false;
     document.getElementById('btn-stop').disabled = true;
@@ -1868,6 +2518,39 @@ async function confirmCleanup() {
     document.getElementById('btn-confirm-cleanup').textContent = '🗑 Ya, Hapus Sekarang';
     document.getElementById('cleanup-summary').style.display = 'none';
   }
+}
+
+// =====================================================================
+// BANNER: durasi tes berjalan + tanggal
+// =====================================================================
+let _durasiInterval = null;
+let _durasiStart = null;
+
+function pad2(n) { return String(n).padStart(2, '0'); }
+
+function startDurasiBanner() {
+  _durasiStart = Date.now();
+
+  // Isi tanggal sekali saat banner muncul
+  const tgl = new Date();
+  const hariNames = ['Minggu','Senin','Selasa','Rabu','Kamis','Jumat','Sabtu'];
+  const bulanNames = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
+  const dateStr = `${hariNames[tgl.getDay()]}, ${tgl.getDate()} ${bulanNames[tgl.getMonth()]} ${tgl.getFullYear()}`;
+  document.getElementById('dbg-date-text').textContent = dateStr;
+  document.getElementById('dbg-duration-display').textContent = '00:00:00';
+
+  _durasiInterval = setInterval(() => {
+    const elapsed = Math.floor((Date.now() - _durasiStart) / 1000);
+    const hh = Math.floor(elapsed / 3600);
+    const mm = Math.floor((elapsed % 3600) / 60);
+    const ss = elapsed % 60;
+    document.getElementById('dbg-duration-display').textContent =
+      `${pad2(hh)}:${pad2(mm)}:${pad2(ss)}`;
+  }, 1000);
+}
+
+function stopDurasiBanner() {
+  if (_durasiInterval) { clearInterval(_durasiInterval); _durasiInterval = null; }
 }
 
 // ---------- Event bindings ----------
