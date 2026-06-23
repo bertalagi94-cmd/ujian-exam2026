@@ -957,65 +957,68 @@ export default function SiswaUjianPage() {
 
       <div className="max-w-3xl mx-auto space-y-4 animate-fade-in select-none">
         {/* Header */}
-        <div className="card py-3 flex items-center justify-between gap-4">
-          <div>
-            <div className="font-semibold text-slate-900 text-sm">{sesiInfo?.namaMapel}</div>
-            <div className={`text-xs font-medium ${
-              totalDijawab === soalList.length
-                ? 'text-emerald-600'
-                : totalDijawab === 0
-                ? 'text-slate-400'
-                : 'text-amber-500'
-            }`}>
-              {totalDijawab}/{soalList.length} terjawab
-              {totalDijawab < soalList.length && (
-                <span className="ml-1">· {soalList.length - totalDijawab} belum</span>
-              )}
+        <div className="card py-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex-1 min-w-0">
+              <div className="font-semibold text-slate-900 text-sm truncate">{sesiInfo?.namaMapel}</div>
+              <div className={`text-xs font-medium ${
+                totalDijawab === soalList.length
+                  ? 'text-emerald-600'
+                  : totalDijawab === 0
+                  ? 'text-slate-400'
+                  : 'text-amber-500'
+              }`}>
+                {totalDijawab}/{soalList.length} terjawab
+                {totalDijawab < soalList.length && (
+                  <span className="ml-1">· {soalList.length - totalDijawab} belum</span>
+                )}
+              </div>
             </div>
-            <div className={`text-[11px] mt-0.5 flex items-center gap-1 ${
-              syncStatus === 'error' ? 'text-red-600 font-semibold' :
-              syncStatus === 'syncing' ? 'text-amber-500' :
-              syncStatus === 'synced' ? 'text-emerald-600' : 'text-slate-400'
+            <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-mono font-bold text-base flex-shrink-0 ${
+              sisaWaktu < 300 ? 'bg-red-50 text-red-600' :
+              sisaWaktu < 600 ? 'bg-amber-50 text-amber-600' :
+              'bg-brand-50 text-brand-700'
             }`}>
-              {syncStatus === 'error' && '⚠ Gagal menyimpan ke server, mencoba lagi...'}
-              {syncStatus === 'syncing' && 'Menyimpan ke server...'}
-              {syncStatus === 'synced' && '✓ Tersimpan di server'}
-              {syncStatus === 'idle' && 'Belum ada jawaban yang disimpan'}
+              <Clock className="w-3.5 h-3.5" />
+              {formatWaktu(sisaWaktu)}
             </div>
-          </div>
-          <div className={`flex items-center gap-2 px-4 py-2 rounded-xl font-mono font-bold text-lg ${
-            sisaWaktu < 300 ? 'bg-red-50 text-red-600' :
-            sisaWaktu < 600 ? 'bg-amber-50 text-amber-600' :
-            'bg-brand-50 text-brand-700'
-          }`}>
-            <Clock className="w-4 h-4" />
-            {formatWaktu(sisaWaktu)}
-          </div>
-          <button
-            onClick={() => {
-              if (totalDijawab < soalList.length) {
-                // Arahkan ke soal pertama yang belum dijawab
-                const idxBelum = soalList.findIndex(s => !jawaban[s.id])
-                if (idxBelum !== -1) setCurrentIdx(idxBelum)
-              } else {
-                setConfirmSelesai(true)
+            <button
+              onClick={() => {
+                if (totalDijawab < soalList.length) {
+                  // Arahkan ke soal pertama yang belum dijawab
+                  const idxBelum = soalList.findIndex(s => !jawaban[s.id])
+                  if (idxBelum !== -1) setCurrentIdx(idxBelum)
+                } else {
+                  setConfirmSelesai(true)
+                }
+              }}
+              className={`btn-sm flex items-center gap-1.5 font-semibold transition-all flex-shrink-0 ${
+                totalDijawab < soalList.length
+                  ? 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'
+                  : 'btn-success'
+              }`}
+              disabled={submitting}
+              title={
+                totalDijawab < soalList.length
+                  ? `${soalList.length - totalDijawab} soal belum dijawab`
+                  : 'Selesaikan ujian'
               }
-            }}
-            className={`btn-sm flex items-center gap-1.5 font-semibold transition-all ${
-              totalDijawab < soalList.length
-                ? 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'
-                : 'btn-success'
-            }`}
-            disabled={submitting}
-            title={
-              totalDijawab < soalList.length
-                ? `${soalList.length - totalDijawab} soal belum dijawab`
-                : 'Selesaikan ujian'
-            }
-          >
-            <Send className="w-3.5 h-3.5" />
-            {submitting ? 'Menyimpan...' : 'Selesai'}
-          </button>
+            >
+              <Send className="w-3.5 h-3.5" />
+              <span className="hidden xs:inline">{submitting ? 'Menyimpan...' : 'Selesai'}</span>
+              <span className="xs:hidden">{submitting ? '...' : 'Kirim'}</span>
+            </button>
+          </div>
+          <div className={`text-[11px] mt-1.5 flex items-center gap-1 ${
+            syncStatus === 'error' ? 'text-red-600 font-semibold' :
+            syncStatus === 'syncing' ? 'text-amber-500' :
+            syncStatus === 'synced' ? 'text-emerald-600' : 'text-slate-400'
+          }`}>
+            {syncStatus === 'error' && '⚠ Gagal menyimpan ke server, mencoba lagi...'}
+            {syncStatus === 'syncing' && 'Menyimpan ke server...'}
+            {syncStatus === 'synced' && '✓ Tersimpan di server'}
+            {syncStatus === 'idle' && 'Belum ada jawaban yang disimpan'}
+          </div>
         </div>
 
         {/* Navigator */}
@@ -1047,11 +1050,14 @@ export default function SiswaUjianPage() {
           </div>
           <p className="text-slate-800 text-base leading-relaxed mb-4">{soalCurrent.teks}</p>
           {(soalCurrent as any).gambar_pertanyaan && (
-            <img
-              src={(soalCurrent as any).gambar_pertanyaan}
-              alt="Gambar soal"
-              className="max-w-full rounded-lg mb-6 border border-slate-200"
-            />
+            <div className="mb-6">
+              <img
+                src={(soalCurrent as any).gambar_pertanyaan}
+                alt="Gambar soal"
+                className="w-full max-w-lg mx-auto rounded-lg border border-slate-200 object-contain block"
+                style={{ maxHeight: '320px' }}
+              />
+            </div>
           )}
 
           <div className="space-y-2">
@@ -1075,7 +1081,8 @@ export default function SiswaUjianPage() {
                       <img
                         src={(soalCurrent as any)[`gambar_opsi_${label.toLowerCase()}`]}
                         alt={`Gambar opsi ${label}`}
-                        className="max-w-xs rounded-lg border border-slate-200 mt-1"
+                        className="w-full max-w-xs rounded-lg border border-slate-200 mt-1 object-contain"
+                        style={{ maxHeight: '160px' }}
                       />
                     )}
                   </span>
