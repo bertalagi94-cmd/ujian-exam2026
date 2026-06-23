@@ -101,25 +101,50 @@ export async function GET(req: NextRequest) {
   // nisSet = siswa yang SUDAH mengerjakan (punya jawaban di sesi ini)
   const nisSet = [...new Set((jawabanAll ?? []).map(j => j.nis))]
 
-  // FIX: hapus query ke tabel peserta_sesi yang tidak ada di schema.
-  // Sebelumnya query ini selalu return null/error sehingga "belum ujian" tidak pernah akurat.
-  // Sebagai gantinya, ambil siswa yang tercatat di siswa_ujian untuk sesi ini
-  // (ini adalah sumber data yang benar — diisi saat siswa masuk validasi).
+  // FIX: siswa_ujian hanya mencatat siswa yang SEMPAT masuk/membuka sesi ujian.
+  // Siswa yang sama sekali belum pernah membuka sesi (mis. belum login / belum klik mulai)
+  // TIDAK akan ada di siswa_ujian sama sekali — sehingga sebelumnya mereka tidak pernah
+  // terhitung sebagai "belum ujian". Akibatnya jumlah "belum ujian" jadi jauh lebih kecil
+  // dari kenyataan (mis. tertulis 1/2 padahal seharusnya 7-8 dari 9 siswa di kelas).
+  //
+  // Sumber kebenaran untuk "total peserta seharusnya" adalah seluruh siswa AKTIF di kelas
+  // tersebut (tabel `siswa`, filter kelas = kelas sesi ini), bukan hanya yang sempat
+  // tercatat di siswa_ujian.
+  const { data: siswaKelasList } = await db
+    .from('siswa')
+    .select('nis, nama')
+    .eq('kelas', sesiAll.kelas)
+    .eq('status', 'AKTIF')
+    .neq('is_tester', 'YES')  // FIX: exclude siswa tester dari statistik analisis
+
   const { data: siswaUjianList } = await db
     .from('siswa_ujian')
-    .select('nis')
+    .select('nis, status')
     .eq('sesi_id', sesiAll.id)
 
-  const semuaNis = siswaUjianList?.length
-    ? [...new Set(siswaUjianList.map(p => p.nis))]
-    : nisSet
+  // semuaNis = SELURUH siswa aktif di kelas ini (total peserta yang seharusnya ujian),
+  // bukan hanya yang tercatat masuk sesi.
+  const semuaNis = (siswaKelasList ?? []).length
+    ? [...new Set((siswaKelasList ?? []).map(s => s.nis))]
+    : [...new Set([...(siswaUjianList ?? []).map(p => p.nis), ...nisSet])]
 
-  // Siswa yang belum ujian = terdaftar di siswa_ujian tapi tidak punya satu pun jawaban
-  const nisUdahUjian  = new Set(nisSet)
-  const nisBelumUjian = semuaNis.filter(n => !nisUdahUjian.has(n))
+  // nisPernahMasuk = siswa yang sempat tercatat masuk sesi (siswa_ujian),
+  // baik sudah selesai maupun sesinya ditutup paksa sebelum sempat mengirim jawaban.
+  const nisPernahMasuk = new Set((siswaUjianList ?? []).map(p => p.nis))
+  const nisSudahJawab  = new Set(nisSet)
+
+  // Belum ujian sama sekali = tidak pernah masuk sesi DAN tidak punya jawaban apa pun.
+  const nisBelumUjian = semuaNis.filter(n => !nisPernahMasuk.has(n) && !nisSudahJawab.has(n))
+
+  // Sudah masuk/mengerjakan tapi belum sempat mengirim jawaban (mis. sesi ditutup paksa
+  // oleh pengawas sebelum siswa selesai) — kategori berbeda dari "belum ujian sama sekali".
+  const nisBelumKirim = (siswaUjianList ?? [])
+    .filter(p => p.status !== 'SELESAI' && !nisSudahJawab.has(p.nis))
+    .map(p => p.nis)
+    .filter(n => !nisBelumUjian.includes(n))
 
   // Ambil nama semua siswa yang relevan
-  const allNis = [...new Set([...nisSet, ...nisBelumUjian])]
+  const allNis = [...new Set([...nisSet, ...nisBelumUjian, ...nisBelumKirim, ...semuaNis])]
   const { data: siswaList } = await db
     .from('siswa')
     .select('nis, nama')
@@ -196,7 +221,11 @@ export async function GET(req: NextRequest) {
     soalMudah:  dijawab.filter(a => a!.persenBenar >= 70).length,
     soalSedang: dijawab.filter(a => a!.persenBenar >= 40 && a!.persenBenar < 70).length,
     soalSulit:  dijawab.filter(a => a!.persenBenar < 40).length,
+    // Belum ujian sama sekali (tidak pernah masuk sesi & tidak ada jawaban)
     siswaBelumUjian: nisBelumUjian.map(n => ({ nis: n, nama: siswaMap[n] ?? n })),
+    // Sudah masuk/mengerjakan tapi belum sempat mengirim jawaban (mis. sesi ditutup
+    // paksa oleh pengawas sebelum siswa selesai)
+    siswaBelumKirim: nisBelumKirim.map(n => ({ nis: n, nama: siswaMap[n] ?? n })),
   }
 
   const mapelMap     = Object.fromEntries((mapelList ?? []).map(m => [m.id, m.nama]))
