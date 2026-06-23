@@ -547,24 +547,54 @@ export default function ModePengawasPage() {
       )}
 
       {/* Confirm Tutup Dialog */}
-      {confirmTutup && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 animate-fade-in">
-            <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mx-auto mb-4">
-              <AlertTriangle className="w-6 h-6 text-red-600" />
-            </div>
-            <h3 className="text-lg font-bold text-slate-900 text-center mb-2">Tutup Sesi Ujian?</h3>
-            <p className="text-sm text-slate-500 text-center mb-1"><strong>{confirmTutup.nama_mapel}</strong> — Kelas {confirmTutup.nama_kelas}</p>
-            <p className="text-xs text-slate-400 text-center mb-6">Semua siswa yang masih mengerjakan akan dianggap selesai. Tindakan ini tidak dapat dibatalkan.</p>
-            <div className="flex gap-3">
-              <button onClick={() => setConfirmTutup(null)} className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 text-sm font-medium">Batal</button>
-              <button onClick={() => handleTutup(confirmTutup)} disabled={stopping === confirmTutup.id} className="flex-1 px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-sm font-semibold">
-                {stopping === confirmTutup.id ? 'Menutup...' : 'Ya, Tutup'}
-              </button>
+      {confirmTutup && (() => {
+        const sesiIdTutup = confirmTutup.sesi_ujian?.id
+        const siswaTutupList = sesiIdTutup ? (siswaMap[sesiIdTutup] ?? []) : []
+        const siswaMasihAktif = siswaTutupList.filter(s => s.status === 'AKTIF')
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 animate-fade-in">
+              <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mx-auto mb-4">
+                <AlertTriangle className="w-6 h-6 text-red-600" />
+              </div>
+              <h3 className="text-lg font-bold text-slate-900 text-center mb-2">Tutup Sesi Ujian?</h3>
+              <p className="text-sm text-slate-500 text-center mb-1"><strong>{confirmTutup.nama_mapel}</strong> — Kelas {confirmTutup.nama_kelas}</p>
+
+              {/* Daftar siswa yang sedang mengerjakan di sesi ini, supaya pengawas
+                  tahu siapa yang akan terdampak sebelum benar-benar menutup sesi. */}
+              {siswaMasihAktif.length > 0 ? (
+                <div className="mt-3 mb-4">
+                  <div className="text-xs font-semibold text-red-500 uppercase tracking-wide mb-2 text-center">
+                    {siswaMasihAktif.length} Siswa Masih Mengerjakan
+                  </div>
+                  <div className="space-y-1 max-h-40 overflow-y-auto bg-red-50 rounded-xl p-2">
+                    {siswaMasihAktif.map(sw => (
+                      <div key={sw.nis} className="flex items-center gap-2 px-2 py-1.5 bg-white rounded-lg text-sm">
+                        <span className="font-medium text-slate-800 truncate flex-1">{sw.nama}</span>
+                        <span className="text-xs text-slate-400 font-mono">{sw.nis}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <p className="text-xs text-slate-400 text-center mb-3">Tidak ada siswa yang sedang mengerjakan saat ini.</p>
+              )}
+
+              <p className="text-xs text-slate-400 text-center mb-6">
+                {siswaMasihAktif.length > 0
+                  ? 'Siswa di atas akan otomatis dianggap selesai dengan jawaban terakhir yang tersimpan. Tindakan ini tidak dapat dibatalkan.'
+                  : 'Tindakan ini tidak dapat dibatalkan.'}
+              </p>
+              <div className="flex gap-3">
+                <button onClick={() => setConfirmTutup(null)} className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 text-sm font-medium">Batal</button>
+                <button onClick={() => handleTutup(confirmTutup)} disabled={stopping === confirmTutup.id} className="flex-1 px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-sm font-semibold">
+                  {stopping === confirmTutup.id ? 'Menutup...' : 'Ya, Tutup'}
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
 
       {/* Confirm Reset Dialog */}
       {resetTarget && !resetResult && (
