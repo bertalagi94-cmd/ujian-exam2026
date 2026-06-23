@@ -13,6 +13,43 @@ export async function POST(req: NextRequest) {
 
   if (nis !== user.nis) return NextResponse.json({ error: 'NIS tidak sesuai' }, { status: 403 })
 
+  // FIX BUG #1b: cek status siswa SEBELUM cek nilai. Sebelumnya endpoint ini
+  // hanya peduli "apakah nilai sudah ada?" sehingga siswa yang sudah dikunci
+  // Admin (TERKUNCI) atau sedang menunggu kode reset (RESET) tetap bisa submit
+  // dan jawabannya tetap dihitung. Sekarang ditolak — kecuali nilai SUDAH ada
+  // (misal hasil kunci_permanen) sehingga early-return di bawah tetap berfungsi
+  // untuk menampilkan hasil yang sudah final.
+  const { data: siswaUjianCheck } = await db
+    .from('siswa_ujian')
+    .select('status')
+    .eq('sesi_id', sesiId)
+    .eq('nis', nis)
+    .single()
+
+  if (siswaUjianCheck && (siswaUjianCheck.status === 'TERKUNCI' || siswaUjianCheck.status === 'RESET')) {
+    const { data: nilaiSudahAda } = await db
+      .from('nilai')
+      .select('id, nilai, grade, benar, total, lulus')
+      .eq('sesi_id', sesiId)
+      .eq('nis', nis)
+      .single()
+
+    if (nilaiSudahAda) {
+      return NextResponse.json({
+        nilai: nilaiSudahAda.nilai,
+        grade: nilaiSudahAda.grade,
+        benar: nilaiSudahAda.benar,
+        total: nilaiSudahAda.total,
+        lulus: nilaiSudahAda.lulus,
+      })
+    }
+
+    return NextResponse.json(
+      { error: 'Akses ujian Anda sedang dikunci/menunggu reset. Ujian tidak bisa diselesaikan sekarang.' },
+      { status: 403 }
+    )
+  }
+
   // Cek dulu apakah sudah pernah submit — early return
   const { data: nilaiExist } = await db
     .from('nilai')
