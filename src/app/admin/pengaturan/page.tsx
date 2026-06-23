@@ -76,6 +76,9 @@ export default function AdminPengaturanPage() {
   const [confirmReset, setConfirmReset] = useState(false)
   const [confirmResetSemua, setConfirmResetSemua] = useState(false)
   const restoreInputRef = useRef<HTMLInputElement>(null)
+  const [confirmRestore, setConfirmRestore] = useState(false)
+  const [pendingRestoreFile, setPendingRestoreFile] = useState<File | null>(null)
+  const [pendingRestoreInfo, setPendingRestoreInfo] = useState<{ name: string; size: string } | null>(null)
 
   const [hackerOpen, setHackerOpen] = useState(false)
   const [hackerType, setHackerType] = useState<HackerPopupType>('backup')
@@ -224,16 +227,39 @@ export default function AdminPengaturanPage() {
     }
   }
 
-  async function handleRestoreFile(e: React.ChangeEvent<HTMLInputElement>) {
+  // Langkah 1: admin pilih file → validasi ringan → tampilkan dialog konfirmasi
+  function handleRestoreFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
     e.target.value = ''
     if (!file.name.endsWith('.json')) { showToast('File harus berformat .json', 'error'); return }
-    const sizeMB = (file.size / 1024 / 1024).toFixed(1) + ' MB'
+    // Validasi ringan di sisi klien sebelum konfirmasi
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      try {
+        const parsed = JSON.parse(ev.target?.result as string)
+        if (!parsed?.tables) { showToast('File bukan backup SmartExam yang valid', 'error'); return }
+        if (parsed.app && parsed.app !== 'SmartExam') { showToast('File backup bukan dari aplikasi SmartExam', 'error'); return }
+        const sizeMB = (file.size / 1024 / 1024).toFixed(1) + ' MB'
+        setPendingRestoreFile(file)
+        setPendingRestoreInfo({ name: file.name, size: sizeMB })
+        setConfirmRestore(true)
+      } catch {
+        showToast('File tidak bisa dibaca atau bukan JSON yang valid', 'error')
+      }
+    }
+    reader.readAsText(file)
+  }
+
+  // Langkah 2: admin konfirmasi → jalankan restore
+  async function doRestore() {
+    if (!pendingRestoreFile || !pendingRestoreInfo) return
+    setConfirmRestore(false)
+    const sizeMB = pendingRestoreInfo.size
     setRestoring(true)
-    openHacker('restore', file.name, sizeMB)
+    openHacker('restore', pendingRestoreFile.name, sizeMB)
     try {
-      const text = await file.text()
+      const text = await pendingRestoreFile.text()
       const parsed = JSON.parse(text)
       if (!parsed?.tables) throw new Error('File bukan backup SmartExam yang valid')
       const resPromise = fetch('/api/admin/restore', {
@@ -252,6 +278,8 @@ export default function AdminPengaturanPage() {
       showToast(err instanceof Error ? err.message : 'Restore gagal', 'error')
     } finally {
       setRestoring(false)
+      setPendingRestoreFile(null)
+      setPendingRestoreInfo(null)
     }
   }
 
@@ -767,6 +795,17 @@ export default function AdminPengaturanPage() {
         message="PERHATIAN: Seluruh data aplikasi akan dihapus permanen — siswa, soal, jadwal, nilai, pengaturan, dan semua lainnya. Aplikasi akan kembali seperti baru. Tindakan ini TIDAK BISA DIBATALKAN. Pastikan Anda sudah backup. Lanjutkan?"
         confirmLabel="Ya, Hapus Semua Data"
         loading={resetting}
+      />
+
+      <Confirm
+        open={confirmRestore}
+        onClose={() => { setConfirmRestore(false); setPendingRestoreFile(null); setPendingRestoreInfo(null) }}
+        onConfirm={doRestore}
+        title="Konfirmasi Restore Data"
+        message={`File: ${pendingRestoreInfo?.name ?? ''} (${pendingRestoreInfo?.size ?? ''}). PERINGATAN: Semua data yang ada saat ini akan digantikan oleh data dari file backup ini. Tindakan ini tidak dapat dibatalkan. Pastikan Anda sudah memilih file yang benar. Lanjutkan?`}
+        confirmLabel="Ya, Pulihkan Sekarang"
+        variant="primary"
+        loading={restoring}
       />
 
       <HackerPopup
