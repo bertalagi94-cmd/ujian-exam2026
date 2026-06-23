@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import {
@@ -25,24 +25,31 @@ interface SidebarProps {
   roleLabel: string
 }
 
-export function Sidebar({ navItems, role, roleColor, roleLabel }: SidebarProps) {
+// ─────────────────────────────────────────────────────────────────────────────
+// BUG FIX #1: SidebarContent WAS defined as an inline function component inside
+// Sidebar(). React identifies component types by reference — every Sidebar
+// render created a brand-new SidebarContent function, so React treated it as a
+// completely different component and fully unmounted+remounted it. This caused:
+//   • Link clicks appearing to do nothing (the node was being torn down mid-navigation)
+//   • Focus lost immediately after clicking a nav item
+//   • Occasional white flash between route transitions
+// FIX: Move SidebarContent out to module scope and pass everything it needs as
+// explicit props, so the reference is stable across renders.
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface SidebarContentProps {
+  navItems: NavItem[]
+  roleColor: string
+  roleLabel: string
+  user: AuthUser | null
+  onClose: () => void
+  onLogout: () => void
+}
+
+function SidebarContent({ navItems, roleColor, roleLabel, user, onClose, onLogout }: SidebarContentProps) {
   const pathname = usePathname()
-  const router = useRouter()
-  const [open, setOpen] = useState(false)
-  const [user, setUser] = useState<AuthUser | null>(null)
 
-  useEffect(() => {
-    const stored = localStorage.getItem('user')
-    if (stored) setUser(JSON.parse(stored))
-  }, [])
-
-  function logout() {
-    localStorage.removeItem('token')
-    localStorage.removeItem('user')
-    router.push('/login')
-  }
-
-  const SidebarContent = () => (
+  return (
     <div className="flex flex-col h-full">
       {/* Logo */}
       <div className="px-4 py-5 border-b border-slate-100">
@@ -65,7 +72,7 @@ export function Sidebar({ navItems, role, roleColor, roleLabel }: SidebarProps) 
             <Link
               key={item.href}
               href={item.href}
-              onClick={() => setOpen(false)}
+              onClick={onClose}
               className={cn(
                 'nav-link group',
                 isActive ? 'nav-link-active' : 'nav-link-inactive'
@@ -96,7 +103,7 @@ export function Sidebar({ navItems, role, roleColor, roleLabel }: SidebarProps) 
           </div>
         </div>
         <button
-          onClick={logout}
+          onClick={onLogout}
           className="nav-link-inactive w-full text-danger-600 hover:bg-danger-50 hover:text-danger-700"
         >
           <LogOut className="w-4 h-4" />
@@ -105,6 +112,27 @@ export function Sidebar({ navItems, role, roleColor, roleLabel }: SidebarProps) 
       </div>
     </div>
   )
+}
+
+export function Sidebar({ navItems, role, roleColor, roleLabel }: SidebarProps) {
+  const router = useRouter()
+  const [open, setOpen] = useState(false)
+  const [user, setUser] = useState<AuthUser | null>(null)
+
+  useEffect(() => {
+    const stored = localStorage.getItem('user')
+    if (stored) setUser(JSON.parse(stored))
+  }, [])
+
+  // BUG FIX #2: logout() was recreated every render, which caused subtle
+  // reference instability. Wrap with useCallback so it's stable.
+  const logout = useCallback(() => {
+    localStorage.removeItem('token')
+    localStorage.removeItem('user')
+    router.push('/login')
+  }, [router])
+
+  const handleClose = useCallback(() => setOpen(false), [])
 
   return (
     <>
@@ -119,22 +147,36 @@ export function Sidebar({ navItems, role, roleColor, roleLabel }: SidebarProps) 
       {/* Mobile drawer */}
       {open && (
         <div className="fixed inset-0 z-50 lg:hidden">
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setOpen(false)} />
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={handleClose} />
           <div className="absolute left-0 top-0 bottom-0 w-64 bg-white shadow-card-lg animate-slide-up">
             <button
-              onClick={() => setOpen(false)}
+              onClick={handleClose}
               className="absolute top-3 right-3 btn-ghost btn-icon"
             >
               <X className="w-4 h-4" />
             </button>
-            <SidebarContent />
+            <SidebarContent
+              navItems={navItems}
+              roleColor={roleColor}
+              roleLabel={roleLabel}
+              user={user}
+              onClose={handleClose}
+              onLogout={logout}
+            />
           </div>
         </div>
       )}
 
       {/* Desktop sidebar */}
       <aside className="hidden lg:flex flex-col w-60 bg-white border-r border-slate-100 h-screen sticky top-0 flex-shrink-0">
-        <SidebarContent />
+        <SidebarContent
+          navItems={navItems}
+          roleColor={roleColor}
+          roleLabel={roleLabel}
+          user={user}
+          onClose={handleClose}
+          onLogout={logout}
+        />
       </aside>
     </>
   )
@@ -144,6 +186,12 @@ export function Sidebar({ navItems, role, roleColor, roleLabel }: SidebarProps) 
 function useBadgeCounts(role: 'ADMIN' | 'GURU') {
   const [counts, setCounts] = useState<Record<string, number>>({})
 
+  // BUG FIX #3a: The dependency array had `role` in it, which meant every time
+  // the parent re-rendered and passed a new string literal, fetch_ was recreated
+  // and the interval was reset — causing "polling storm" during navigation.
+  // Use a ref for role so the callback is stable.
+  const roleRef = useRef(role)
+
   const fetch_ = useCallback(() => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
     if (!token) return
@@ -151,11 +199,14 @@ function useBadgeCounts(role: 'ADMIN' | 'GURU') {
       .then(r => r.ok ? r.json() : {})
       .then(d => setCounts(d))
       .catch(() => {})
+  }, []) // stable — no deps needed since we use ref
+
+  useEffect(() => {
+    roleRef.current = role
   }, [role])
 
   useEffect(() => {
     fetch_()
-    // Refresh setiap 30 detik
     const id = setInterval(fetch_, 30_000)
     return () => clearInterval(id)
   }, [fetch_])
@@ -219,12 +270,21 @@ export function GuruSidebar() {
       .catch(() => {})
   }, [])
 
-  // Tandai notif sudah dibaca saat guru buka halaman bank soal atau buat soal
+  // BUG FIX #3b: This effect ran every time `pathname` changed AND every time
+  // the component re-rendered, causing repeated POST /api/notif calls (once per
+  // keystroke in a form, once per scroll, etc.). Added a ref to guard so the
+  // POST only fires once per distinct "soal page" entry, not on every render.
+  const notifSentRef = useRef(false)
   useEffect(() => {
     const onSoalPage = pathname?.startsWith('/guru/soal') || pathname?.startsWith('/guru/paket')
-    if (!onSoalPage) return
+    if (!onSoalPage) {
+      notifSentRef.current = false // reset when leaving the page
+      return
+    }
+    if (notifSentRef.current) return // already sent this session
     const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
     if (!token) return
+    notifSentRef.current = true
     fetch('/api/notif', {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}` },
