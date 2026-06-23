@@ -49,11 +49,18 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   // Jika sudah >= batasPelanggaran reset → langsung kunci permanen / nilai 0
   if ((resetCount ?? 0) >= batasPelanggaran) {
-    // Set status TERKUNCI permanen
-    await db.from('siswa_ujian')
-      .update({ status: 'TERKUNCI' })
-      .eq('sesi_id', sesiId)
-      .eq('nis', nis)
+    // Set status TERKUNCI permanen + tandai pelanggaran sudah ditindak (FIX BUG #1)
+    await Promise.all([
+      db.from('siswa_ujian')
+        .update({ status: 'TERKUNCI' })
+        .eq('sesi_id', sesiId)
+        .eq('nis', nis),
+      db.from('pelanggaran')
+        .update({ status: 'SUDAH_DITINDAKLANJUTI' })
+        .eq('sesi_id', sesiId)
+        .eq('nis', nis)
+        .eq('status', 'BELUM_DITINDAKLANJUTI'),
+    ])
 
     // Simpan nilai 0 jika belum ada
     const { data: nilaiExist } = await db
@@ -119,10 +126,21 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   })
 
   // Set status siswa ke RESET (harus memasukkan kode untuk lanjut)
-  await db.from('siswa_ujian')
-    .update({ status: 'RESET' })
-    .eq('sesi_id', sesiId)
-    .eq('nis', nis)
+  // FIX BUG #1: penindakan oleh Pengawas/Guru sebelumnya tidak pernah menandai
+  // pelanggaran.status jadi SUDAH_DITINDAKLANJUTI (hanya endpoint admin yang
+  // melakukan ini). Akibatnya menu Admin selalu menampilkan "belum ditindak"
+  // walau siswa sudah di-reset dan lanjut ujian. Disamakan dengan endpoint admin.
+  await Promise.all([
+    db.from('siswa_ujian')
+      .update({ status: 'RESET' })
+      .eq('sesi_id', sesiId)
+      .eq('nis', nis),
+    db.from('pelanggaran')
+      .update({ status: 'SUDAH_DITINDAKLANJUTI' })
+      .eq('sesi_id', sesiId)
+      .eq('nis', nis)
+      .eq('status', 'BELUM_DITINDAKLANJUTI'),
+  ])
 
   return NextResponse.json({
     dikunci_permanen: false,
