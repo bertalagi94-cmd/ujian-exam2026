@@ -229,6 +229,25 @@
   }
   .dbg-dot:nth-child(2) { animation-delay: 0.27s; }
   .dbg-dot:nth-child(3) { animation-delay: 0.54s; }
+
+  /* ── Cetak / Export PDF ──────────────────────────────────────────────── */
+  #report-print-area { background:#fff; color:#111; padding:24px; font-family: Arial, Helvetica, sans-serif; }
+  #report-print-area h1 { font-size:20px; margin:0 0 4px; }
+  #report-print-area h2 { font-size:15px; margin:22px 0 8px; border-bottom:2px solid #333; padding-bottom:4px; }
+  #report-print-area h3 { font-size:13px; margin:14px 0 6px; }
+  #report-print-area p, #report-print-area li { font-size:12px; line-height:1.5; }
+  #report-print-area table { width:100%; border-collapse:collapse; font-size:11px; margin:8px 0 16px; }
+  #report-print-area th, #report-print-area td { border:1px solid #999; padding:5px 7px; text-align:left; }
+  #report-print-area th { background:#eee; }
+  #report-print-area .meta { color:#555; font-size:11px; margin-bottom:16px; }
+  #report-print-area .bug-item { border:1px solid #ccc; border-radius:6px; padding:8px 10px; margin-bottom:8px; page-break-inside: avoid; }
+  #report-print-area .bug-item .tag { display:inline-block; font-size:10px; font-weight:bold; padding:1px 7px; border-radius:999px; background:#333; color:#fff; margin-bottom:4px; }
+  #report-print-area .bug-item .file-hint { font-family: 'Courier New', monospace; background:#f3f3f3; padding:2px 5px; border-radius:3px; }
+  @media print {
+    body * { visibility: hidden; }
+    #report-print-area, #report-print-area * { visibility: visible; }
+    #report-print-area { display:block !important; position:absolute; top:0; left:0; width:100%; }
+  }
 </style>
 </head>
 <body>
@@ -350,8 +369,15 @@
   <div class="panel" id="bug-panel" style="display:none">
     <h2>🐞 Temuan Bug &amp; Anomali <span id="bug-count-badge" style="font-size:11px;background:#3a1010;color:#ff5c5c;border-radius:999px;padding:2px 10px;font-weight:700;letter-spacing:0;text-transform:none;margin-left:6px;">0</span></h2>
     <p style="font-size:11.5px;color:var(--muted);margin:0 0 12px;">Bug dikelompokkan berdasarkan kategori. Gunakan daftar ini sebagai fokus perbaikan Anda.</p>
+    <div class="row" style="margin-bottom:14px;flex-wrap:wrap;gap:8px;">
+      <button class="btn-ghost" id="btn-download-md">⬇ Download Laporan (.md)</button>
+      <button class="btn-ghost" id="btn-download-pdf">⬇ Download Laporan (PDF)</button>
+    </div>
     <div id="bug-list"></div>
   </div>
+
+  <!-- ============ REPORT PRINT AREA (hidden, used only for PDF export) ============ -->
+  <div id="report-print-area" style="display:none"></div>
 
   <!-- ============ LOG ============ -->
   <div class="panel">
@@ -559,15 +585,24 @@ async function api(method, path, body, token) {
   // Rekam fingerprint struktur response pertama yang sukses untuk endpoint ini.
   // Kalau nanti ada panggilan ulang yang balas struktur berbeda (field hilang
   // atau tipe berubah) itu indikasi bug non-deterministik atau cache stale.
+  //
+  // PENTING: beberapa endpoint (mis. POST /api/auth/login) secara SAH
+  // mengembalikan bentuk response berbeda tergantung jenis akun yang login
+  // (admin/guru vs siswa, yang punya field tambahan seperti `nis`/`kelas`).
+  // Untuk menghindari false-positive, baseline signature dikelompokkan per
+  // `role` kalau response punya field tersebut — bukan satu baseline tunggal
+  // per endpoint. Endpoint tanpa field `role` tetap memakai baseline tunggal
+  // seperti sebelumnya.
   if (res.ok && json && typeof json === 'object' && !Array.isArray(json)) {
     const sig = Object.keys(json).sort().join('|');
-    if (!state.responseSignatures[endpointKey]) {
-      state.responseSignatures[endpointKey] = sig;
-    } else if (state.responseSignatures[endpointKey] !== sig) {
+    const variantKey = json.role ? `${endpointKey}::role=${json.role}` : endpointKey;
+    if (!state.responseSignatures[variantKey]) {
+      state.responseSignatures[variantKey] = sig;
+    } else if (state.responseSignatures[variantKey] !== sig) {
       recordBugCat(
         BUG_CATEGORIES.KONSISTENSI,
         `Response structure berubah antar panggilan ke ${endpointKey}`,
-        `Pertama: { ${state.responseSignatures[endpointKey]} }. Sekarang: { ${sig} }. Ini indikasi endpoint non-deterministik, bug conditional rendering, atau cache poisoning.`,
+        `Pertama: { ${state.responseSignatures[variantKey]} }. Sekarang: { ${sig} }. Ini indikasi endpoint non-deterministik, bug conditional rendering, atau cache poisoning.`,
         endpointKey
       );
     }
@@ -2553,6 +2588,222 @@ function stopDurasiBanner() {
   if (_durasiInterval) { clearInterval(_durasiInterval); _durasiInterval = null; }
 }
 
+// =====================================================================
+// EKSPOR LAPORAN — Markdown & PDF
+// Tujuan: hasil load test bisa diunduh sebagai file terstruktur, supaya
+// bisa langsung disalin/dilampirkan ke pihak lain (mis. AI assistant atau
+// developer lain) untuk dianalisis lebih lanjut, tanpa harus screenshot.
+// =====================================================================
+
+function nowFileStamp() {
+  const d = new Date();
+  const p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+}
+
+// Tebak file/area kode yang relevan dari endpointKey atau judul bug,
+// supaya laporan langsung menunjuk ke titik yang harus dicek — bukan
+// cuma "ada bug di suatu tempat".
+function tebakFileHint(bug) {
+  const ep = (bug.meta || '').toLowerCase();
+  const txt = `${bug.title} ${bug.detail}`.toLowerCase();
+  const rules = [
+    [/\/api\/auth\/login/, 'src/app/api/auth/login/route.ts'],
+    [/\/api\/auth/, 'src/app/api/auth/**'],
+    [/\/api\/siswa/, 'src/app/api/siswa/** (cek juga src/app/siswa/*)'],
+    [/\/api\/guru/, 'src/app/api/guru/**'],
+    [/\/api\/ujian|\/api\/sesi/, 'src/app/api/ujian/** atau src/app/api/sesi/**'],
+    [/\/api\/soal/, 'src/app/api/soal/**'],
+    [/\/api\/nilai|\/api\/jawaban/, 'src/app/api/nilai/** atau src/app/api/jawaban/**'],
+    [/token|jwt|otorisa|401|403/, 'src/lib/auth.ts'],
+    [/cache|stale/, 'src/lib/cache.ts'],
+    [/race condition/, 'Kemungkinan kurang lock/transaction di endpoint terkait — cek query Supabase yang read-then-write tanpa transaksi'],
+  ];
+  for (const [re, hint] of rules) {
+    if (re.test(ep) || re.test(txt)) return hint;
+  }
+  return bug.meta ? `Endpoint terkait: ${bug.meta}` : 'Tidak terdeteksi otomatis — cek detail bug di atas';
+}
+
+function rampStatusPill(r) {
+  const errPct = r.total ? (r.failed / r.total) * 100 : 0;
+  if (errPct > 20) return 'BERAT';
+  if (errPct > 5) return 'WASPADA';
+  return 'AMAN';
+}
+
+function buildReportData() {
+  const avgLatency = state.latencies.length
+    ? (state.latencies.reduce((a, b) => a + b, 0) / state.latencies.length).toFixed(0)
+    : 0;
+  const maxLatency = state.latencies.length ? Math.max(...state.latencies).toFixed(0) : 0;
+  const errRate = state.totalRequests ? ((state.totalErrors / state.totalRequests) * 100).toFixed(1) : '0.0';
+
+  const counts = {};
+  state.bugs.forEach(b => {
+    const cat = b.category || BUG_CATEGORIES.FUNGSIONAL;
+    counts[cat] = (counts[cat] || 0) + 1;
+  });
+
+  const grouped = {};
+  state.bugs.forEach((b, idx) => {
+    const cat = b.category || BUG_CATEGORIES.FUNGSIONAL;
+    if (!grouped[cat]) grouped[cat] = [];
+    grouped[cat].push({ ...b, idx: idx + 1, fileHint: tebakFileHint(b) });
+  });
+  const sortedCats = Object.entries(grouped).sort(([a], [b]) => (SEVERITY[b] || 0) - (SEVERITY[a] || 0));
+
+  const rampResults = (state.rampResults || []).map(r => ({
+    label: r.label,
+    total: r.total,
+    success: r.success,
+    failed: r.failed,
+    avgMs: r.avgLatency != null ? r.avgLatency.toFixed(0) : '',
+    maxMs: r.maxLatency != null ? r.maxLatency.toFixed(0) : '',
+    status: rampStatusPill(r),
+  }));
+
+  return {
+    tanggal: new Date().toLocaleString('id-ID', { dateStyle: 'full', timeStyle: 'short' }),
+    baseUrl: state.baseUrl,
+    totalRequests: state.totalRequests,
+    totalErrors: state.totalErrors,
+    errRate, avgLatency, maxLatency,
+    totalBugs: state.bugs.length,
+    counts,
+    sortedCats,
+    rampResults,
+  };
+}
+
+function buildReportMarkdown(d) {
+  let md = `# Laporan Load Test — SmartExam CBT\n\n`;
+  md += `- **Tanggal:** ${d.tanggal}\n`;
+  md += `- **Target URL:** ${d.baseUrl || '(tidak tercatat)'}\n`;
+  md += `- **Total Request:** ${d.totalRequests}\n`;
+  md += `- **Error:** ${d.totalErrors} (${d.errRate}%)\n`;
+  md += `- **Rata-rata Respons:** ${d.avgLatency}ms · **Terlama:** ${d.maxLatency}ms\n`;
+  md += `- **Total Bug Ditemukan:** ${d.totalBugs}\n\n`;
+
+  if (d.rampResults.length) {
+    md += `## Hasil Per Tahap Beban (Ramp-Up)\n\n`;
+    md += `| Tahap | Siswa | Berhasil | Gagal | Rata² Respons | Respons Terlama | Status |\n`;
+    md += `|---|---|---|---|---|---|---|\n`;
+    d.rampResults.forEach(r => {
+      md += `| ${r.label || ''} | ${r.total ?? ''} | ${r.success ?? ''} | ${r.failed ?? ''} | ${r.avgMs ?? ''}ms | ${r.maxMs ?? ''}ms | ${r.status ?? ''} |\n`;
+    });
+    md += `\n`;
+  }
+
+  md += `## Ringkasan per Kategori\n\n`;
+  md += `| Kategori | Jumlah |\n|---|---|\n`;
+  Object.entries(d.counts).forEach(([cat, n]) => { md += `| ${cat} | ${n} |\n`; });
+  md += `\n`;
+
+  md += `## Daftar Bug & Lokasi Kode yang Perlu Dicek\n\n`;
+  md += `> Catatan: "File/area terduga" adalah tebakan otomatis berdasarkan endpoint yang terlibat — tetap perlu dicek manual, bukan kepastian.\n\n`;
+
+  d.sortedCats.forEach(([cat, bugs]) => {
+    md += `### ${cat} (${bugs.length})\n\n`;
+    bugs.forEach(b => {
+      md += `**#${b.idx} — ${b.title}**\n`;
+      md += `- Waktu ditemukan: ${b.time || '-'}\n`;
+      if (b.meta) md += `- Endpoint: \`${b.meta}\`\n`;
+      md += `- Detail: ${b.detail}\n`;
+      md += `- File/area kode terduga: \`${b.fileHint}\`\n\n`;
+    });
+  });
+
+  md += `---\n*Laporan dibuat otomatis oleh loadtest.html. Tempel isi file ini ke percakapan dengan AI assistant atau developer untuk analisis lebih lanjut.*\n`;
+  return md;
+}
+
+function downloadTextFile(filename, content, mime) {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function handleDownloadMarkdown() {
+  if (!state.bugs.length && !state.totalRequests) {
+    alert('Belum ada hasil pengujian untuk diekspor. Jalankan pengujian terlebih dahulu.');
+    return;
+  }
+  const d = buildReportData();
+  const md = buildReportMarkdown(d);
+  downloadTextFile(`laporan-bug-loadtest-${nowFileStamp()}.md`, md, 'text/markdown;charset=utf-8');
+}
+
+function escapeHtmlReport(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function buildReportHtml(d) {
+  let html = `<h1>Laporan Load Test — SmartExam CBT</h1>`;
+  html += `<div class="meta">
+    <strong>Tanggal:</strong> ${escapeHtmlReport(d.tanggal)}<br>
+    <strong>Target URL:</strong> ${escapeHtmlReport(d.baseUrl || '(tidak tercatat)')}<br>
+    <strong>Total Request:</strong> ${d.totalRequests} &nbsp; <strong>Error:</strong> ${d.totalErrors} (${d.errRate}%)<br>
+    <strong>Rata-rata Respons:</strong> ${d.avgLatency}ms &nbsp; <strong>Terlama:</strong> ${d.maxLatency}ms<br>
+    <strong>Total Bug Ditemukan:</strong> ${d.totalBugs}
+  </div>`;
+
+  if (d.rampResults.length) {
+    html += `<h2>Hasil Per Tahap Beban (Ramp-Up)</h2><table><thead><tr>
+      <th>Tahap</th><th>Siswa</th><th>Berhasil</th><th>Gagal</th><th>Rata² Respons</th><th>Respons Terlama</th><th>Status</th>
+    </tr></thead><tbody>`;
+    d.rampResults.forEach(r => {
+      html += `<tr><td>${escapeHtmlReport(r.label)}</td><td>${r.total ?? ''}</td><td>${r.success ?? ''}</td><td>${r.failed ?? ''}</td><td>${r.avgMs ?? ''}ms</td><td>${r.maxMs ?? ''}ms</td><td>${escapeHtmlReport(r.status)}</td></tr>`;
+    });
+    html += `</tbody></table>`;
+  }
+
+  html += `<h2>Ringkasan per Kategori</h2><table><thead><tr><th>Kategori</th><th>Jumlah</th></tr></thead><tbody>`;
+  Object.entries(d.counts).forEach(([cat, n]) => { html += `<tr><td>${escapeHtmlReport(cat)}</td><td>${n}</td></tr>`; });
+  html += `</tbody></table>`;
+
+  html += `<h2>Daftar Bug &amp; Lokasi Kode yang Perlu Dicek</h2>
+    <p style="font-style:italic;color:#555;">"File/area terduga" adalah tebakan otomatis berdasarkan endpoint yang terlibat — tetap perlu dicek manual, bukan kepastian.</p>`;
+
+  d.sortedCats.forEach(([cat, bugs]) => {
+    html += `<h3>${escapeHtmlReport(cat)} (${bugs.length})</h3>`;
+    bugs.forEach(b => {
+      html += `<div class="bug-item">
+        <div class="tag">#${b.idx}</div>
+        <div><strong>${escapeHtmlReport(b.title)}</strong></div>
+        <div>Waktu ditemukan: ${escapeHtmlReport(b.time)}</div>
+        ${b.meta ? `<div>Endpoint: <span class="file-hint">${escapeHtmlReport(b.meta)}</span></div>` : ''}
+        <div>Detail: ${escapeHtmlReport(b.detail)}</div>
+        <div>File/area kode terduga: <span class="file-hint">${escapeHtmlReport(b.fileHint)}</span></div>
+      </div>`;
+    });
+  });
+
+  return html;
+}
+
+function handleDownloadPdf() {
+  if (!state.bugs.length && !state.totalRequests) {
+    alert('Belum ada hasil pengujian untuk diekspor. Jalankan pengujian terlebih dahulu.');
+    return;
+  }
+  const d = buildReportData();
+  const area = document.getElementById('report-print-area');
+  area.innerHTML = buildReportHtml(d);
+  area.style.display = 'block';
+  // Beri waktu browser merender sebelum membuka dialog print/save-as-PDF
+  setTimeout(() => {
+    window.print();
+    area.style.display = 'none';
+  }, 50);
+}
+
 // ---------- Event bindings ----------
 document.getElementById('btn-start').addEventListener('click', runFullTest);
 document.getElementById('btn-stop').addEventListener('click', () => {
@@ -2564,6 +2815,8 @@ document.getElementById('btn-confirm-cleanup').addEventListener('click', confirm
 document.getElementById('btn-cancel-cleanup').addEventListener('click', () => {
   document.getElementById('cleanup-summary').style.display = 'none';
 });
+document.getElementById('btn-download-md').addEventListener('click', handleDownloadMarkdown);
+document.getElementById('btn-download-pdf').addEventListener('click', handleDownloadPdf);
 
 renderPhaseTrack(null, []);
 
