@@ -46,20 +46,27 @@ const CATEGORY_MAP: Record<ResetCategory, string[]> = {
   ],
 }
 
-// Tabel dengan kolom created_at (bisa filter pakai gt)
-const HAS_CREATED_AT = new Set([
-  'pelanggaran', 'nilai', 'jawaban', 'siswa_ujian', 'sesi_ujian',
-  'soal', 'paket_soal', 'jadwal', 'siswa', 'kelas_mapel', 'mapel',
-  'kelas', 'pengaturan', 'log_aktivitas', 'log_reset',
-])
-
-// Mapping tabel ke kolom waktu yang benar sesuai schema
-const TABLE_TIME_COLUMN: Record<string, string> = {
-  nilai: 'timestamp',          // tabel nilai pakai kolom 'timestamp'
-  jawaban: 'updated_at',       // tabel jawaban pakai kolom 'updated_at'
-  siswa_ujian: 'waktu_daftar', // tabel siswa_ujian pakai kolom 'waktu_daftar'
-  kisi_kisi: 'updated_at',     // tabel kisi_kisi pakai kolom 'updated_at' (tidak ada created_at)
+// Mapping tabel ke kolom filter yang benar sesuai schema.
+// Tabel yang tidak terdaftar di sini akan di-delete via .not('id', 'is', null).
+const TABLE_FILTER: Record<string, { col: string; method: 'gt_epoch' | 'not_null' | 'gt_zero' }> = {
+  // Kolom waktu non-standar
+  nilai:      { col: 'timestamp',    method: 'gt_epoch' },
+  jawaban:    { col: 'updated_at',   method: 'gt_epoch' },
+  siswa_ujian:{ col: 'waktu_daftar', method: 'gt_epoch' },
+  kisi_kisi:  { col: 'updated_at',   method: 'gt_epoch' }, // tidak ada created_at; pakai updated_at
+  // PK bukan 'id'
+  pengaturan: { col: 'key',          method: 'not_null'  },
+  siswa:      { col: 'nis',          method: 'not_null'  },
+  // BIGSERIAL PK
+  log_reset:  { col: 'id',           method: 'gt_zero'   },
+  // Tabel users ditangani khusus (jangan hapus ADMIN)
 }
+
+// Tabel yang punya created_at standar — pakai gt epoch sebagai filter hapus
+const HAS_CREATED_AT = new Set([
+  'pelanggaran', 'sesi_ujian', 'soal', 'paket_soal', 'jadwal',
+  'kelas_mapel', 'mapel', 'kelas', 'log_aktivitas',
+])
 
 async function clearTable(
   db: ReturnType<typeof import('@/lib/supabase').createAdminClient>,
@@ -75,30 +82,27 @@ async function clearTable(
       return error ? `users: ${error.message}` : null
     }
 
-    // Tabel dengan PK bukan 'id'
-    if (table === 'pengaturan') {
-      const { error } = await (db as any)
-        .from('pengaturan')
-        .delete()
-        .not('key', 'is', null)
-      return error ? `pengaturan: ${error.message}` : null
-    }
-    if (table === 'siswa') {
-      const { error } = await (db as any).from('siswa').delete().not('nis', 'is', null)
-      return error ? `siswa: ${error.message}` : null
-    }
-
-    // Gunakan kolom waktu yang sesuai per tabel
-    const timeCol = TABLE_TIME_COLUMN[table] ?? (HAS_CREATED_AT.has(table) ? 'created_at' : null)
-    if (timeCol) {
-      const { error } = await (db as any)
-        .from(table)
-        .delete()
-        .gt(timeCol, '1970-01-01')
+    // Cek apakah ada filter spesifik untuk tabel ini
+    const spec = TABLE_FILTER[table]
+    if (spec) {
+      let q = (db as any).from(table).delete()
+      if (spec.method === 'gt_epoch') q = q.gt(spec.col, '1970-01-01')
+      else if (spec.method === 'not_null') q = q.not(spec.col, 'is', null)
+      else if (spec.method === 'gt_zero') q = q.gt(spec.col, 0)
+      const { error } = await q
       return error ? `${table}: ${error.message}` : null
     }
 
-    // Fallback untuk tabel lain (pakai PK id)
+    // Tabel dengan created_at standar
+    if (HAS_CREATED_AT.has(table)) {
+      const { error } = await (db as any)
+        .from(table)
+        .delete()
+        .gt('created_at', '1970-01-01')
+      return error ? `${table}: ${error.message}` : null
+    }
+
+    // Fallback: pakai PK id (TEXT)
     const { error } = await (db as any)
       .from(table)
       .delete()
