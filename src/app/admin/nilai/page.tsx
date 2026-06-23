@@ -1,8 +1,8 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { Download, BarChart3 } from 'lucide-react'
-import { PageLoader, EmptyState, Spinner, Pagination, SearchInput } from '@/components/ui'
+import { Download, BarChart3, RotateCcw } from 'lucide-react'
+import { PageLoader, EmptyState, Spinner, Pagination, SearchInput, Modal } from '@/components/ui'
 import { apiRequest, formatDateTime, nilaiColor } from '@/lib/utils'
 import { Nilai, Mapel, Kelas } from '@/types'
 
@@ -18,6 +18,9 @@ export default function AdminNilaiPage() {
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
+  const [resetTarget, setResetTarget] = useState<Nilai | null>(null)
+  const [resetting, setResetting] = useState(false)
+  const [resetMsg, setResetMsg] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -64,6 +67,29 @@ export default function AdminNilaiPage() {
   const rata = nums.length ? Math.round(nums.reduce((a, b) => a + b, 0) / nums.length) : 0
   const lulus = filtered.filter(n => n.lulus).length
   const persenLulus = filtered.length ? Math.round((lulus / filtered.length) * 100) : 0
+
+  async function handleReset() {
+    if (!resetTarget) return
+    setResetting(true)
+    setResetMsg('')
+    try {
+      const res = await apiRequest<{ success: boolean; message: string; kode_sesi: string | null }>(
+        '/api/admin/nilai',
+        { method: 'PATCH', body: JSON.stringify({ action: 'reset_ujian', nis: resetTarget.nis, sesi_id: resetTarget.sesi_id }) }
+      )
+      setResetMsg(res.message + (res.kode_sesi ? ` Kode sesi: ${res.kode_sesi}` : ''))
+      await load()
+    } catch (e) {
+      setResetMsg(e instanceof Error ? e.message : 'Reset gagal')
+    } finally {
+      setResetting(false)
+    }
+  }
+
+  function closeResetModal() {
+    setResetTarget(null)
+    setResetMsg('')
+  }
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -126,6 +152,7 @@ export default function AdminNilaiPage() {
                   <th>KKM</th>
                   <th>Status</th>
                   <th>Tanggal</th>
+                  <th>Aksi</th>
                 </tr>
               </thead>
               <tbody>
@@ -152,6 +179,15 @@ export default function AdminNilaiPage() {
                       </span>
                     </td>
                     <td className="text-xs text-slate-400">{formatDateTime(n.timestamp)}</td>
+                    <td>
+                      <button
+                        onClick={() => setResetTarget(n)}
+                        className="btn-secondary btn-sm whitespace-nowrap"
+                        title="Reset nilai agar siswa dapat ujian ulang"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5" /> Ujian Ulang
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -163,6 +199,43 @@ export default function AdminNilaiPage() {
             onPage={setPage} total={total} perPage={PER_PAGE} />
         </div>
       </div>
+
+      <Modal
+        open={!!resetTarget}
+        onClose={closeResetModal}
+        title="Reset Nilai & Buka Ujian Ulang"
+        footer={
+          resetMsg ? (
+            <button onClick={closeResetModal} className="btn-secondary btn-sm">Tutup</button>
+          ) : (
+            <>
+              <button onClick={closeResetModal} className="btn-secondary btn-sm" disabled={resetting}>Batal</button>
+              <button onClick={handleReset} className="btn-danger btn-sm" disabled={resetting}>
+                {resetting ? <Spinner size="sm" /> : 'Ya, Reset & Buka Ujian Ulang'}
+              </button>
+            </>
+          )
+        }
+      >
+        {resetTarget && !resetMsg && (
+          <div className="space-y-3 text-sm text-slate-600">
+            <p>
+              Anda akan menghapus nilai <span className="font-semibold text-slate-800">{resetTarget.nama_siswa}</span> untuk
+              mata pelajaran <span className="font-semibold text-slate-800">{resetTarget.nama_mapel}</span>, beserta seluruh
+              jawaban dan riwayat pelanggarannya di sesi tersebut.
+            </p>
+            <p>
+              Sesi ujian ini akan dibuka kembali <span className="font-semibold">khusus untuk siswa ini saja</span> (siswa
+              lain tidak terpengaruh), sehingga ia dapat login dan mengerjakan ujian dari awal — misalnya untuk kasus
+              sesi yang tertutup paksa oleh pengawas sebelum siswa selesai mengirim jawaban.
+            </p>
+            <p className="text-amber-600 font-medium">Tindakan ini tidak dapat dibatalkan.</p>
+          </div>
+        )}
+        {resetMsg && (
+          <p className="text-sm text-slate-700">{resetMsg}</p>
+        )}
+      </Modal>
     </div>
   )
 }
