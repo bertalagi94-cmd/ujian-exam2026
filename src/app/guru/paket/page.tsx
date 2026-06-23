@@ -56,7 +56,6 @@ export default function GuruBuatSoalPage() {
 
   // Edit soal inline state
   const [editSoal, setEditSoal] = useState<SoalWithImg | null>(null)
-  const [editJumlahOpsi, setEditJumlahOpsi] = useState(4)
   const [editImgPertanyaan, setEditImgPertanyaan] = useState('')
   const [editImgOpsi, setEditImgOpsi] = useState<Record<string, string>>({})
   const [deleteSoalId, setDeleteSoalId] = useState<string | null>(null)
@@ -68,8 +67,11 @@ export default function GuruBuatSoalPage() {
   const [setupKelas, setSetupKelas] = useState('')
   const [setupAcak, setSetupAcak] = useState('YA')
 
+  // FIX: jumlah opsi jawaban (4/5) tidak lagi dipilih manual oleh guru —
+  // sekarang otomatis mengikuti Pengaturan Ujian yang ditentukan admin.
+  const [globalJumlahOpsi, setGlobalJumlahOpsi] = useState(4)
+
   // Soal form state
-  const [jumlahOpsi, setJumlahOpsi] = useState(4)
   const [imgPertanyaan, setImgPertanyaan] = useState('')
   const [imgOpsi, setImgOpsi] = useState<Record<string, string>>({})
   const [uploadingImg, setUploadingImg] = useState<string | null>(null)
@@ -114,6 +116,16 @@ export default function GuruBuatSoalPage() {
     })
   }, [])
 
+  // ── Fetch jumlah opsi jawaban (ditentukan admin) ───────────────
+  useEffect(() => {
+    apiRequest<{ data: Record<string, string> }>('/api/public/pengaturan')
+      .then(r => {
+        const n = Number(r.data?.jumlahOpsi)
+        if (n === 3 || n === 4 || n === 5) setGlobalJumlahOpsi(n)
+      })
+      .catch(() => { })
+  }, [])
+
   const kelasUntukMapel: Kelas[] = (() => {
     if (!setupMapel) return []
     const mapel = guruMapelList.find(m => m.id === setupMapel)
@@ -128,7 +140,6 @@ export default function GuruBuatSoalPage() {
 
   function resetSoalForm() {
     formRef.current?.reset()
-    setJumlahOpsi(4)
     setImgPertanyaan('')
     setImgOpsi({})
   }
@@ -242,7 +253,7 @@ export default function GuruBuatSoalPage() {
     if (!activePaket) return
     const fd = new FormData(e.currentTarget)
     const payload: Record<string, unknown> = Object.fromEntries(fd.entries())
-    payload.jumlah_opsi = String(jumlahOpsi)
+    payload.jumlah_opsi = String(globalJumlahOpsi)
     payload.mapel_id = activePaket.mapel_id
     payload.kelas_id = activePaket.kelas_id
     payload.paket_id = activePaket.id
@@ -279,7 +290,6 @@ export default function GuruBuatSoalPage() {
   // ── Edit soal dari expand list ──
   function openEditSoal(s: SoalWithImg) {
     setEditSoal(s)
-    setEditJumlahOpsi(s.jumlah_opsi || 4)
     const sr = s as unknown as Record<string, string>
     setEditImgPertanyaan(s.gambar_pertanyaan || sr.gambar_url || '')
     const opsiImgs: Record<string, string> = {}
@@ -295,7 +305,7 @@ export default function GuruBuatSoalPage() {
     if (!editSoal?.id) return
     const fd = new FormData(e.currentTarget)
     const payload: Record<string, unknown> = Object.fromEntries(fd.entries())
-    payload.jumlah_opsi = String(editJumlahOpsi)
+    payload.jumlah_opsi = String(editSoal.jumlah_opsi || 4)
     payload.gambar_pertanyaan = editImgPertanyaan || null
     for (const l of ['a','b','c','d','e']) {
       payload[`gambar_opsi_${l}`] = editImgOpsi[l] || null
@@ -441,15 +451,10 @@ export default function GuruBuatSoalPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div>
-                <label className="label">Jumlah Opsi</label>
-                <select className="select" value={jumlahOpsi} onChange={e => setJumlahOpsi(Number(e.target.value))}>
-                  <option value={3}>3 Opsi</option>
-                  <option value={4}>4 Opsi</option>
-                  <option value={5}>5 Opsi</option>
-                </select>
-              </div>
+            {/* FIX: dropdown "Jumlah Opsi" dihilangkan — jumlah opsi jawaban
+                (4 atau 5) sekarang otomatis mengikuti Pengaturan Ujian di
+                akun Admin, bukan dipilih manual oleh guru per soal. */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="label">Tingkat Kesulitan</label>
                 <select name="tingkat" className="select" defaultValue="Sedang">
@@ -461,14 +466,14 @@ export default function GuruBuatSoalPage() {
               <div>
                 <label className="label">Kunci Jawaban *</label>
                 <select name="kunci" className="select" required defaultValue="A">
-                  {opsiLabels.slice(0, jumlahOpsi).map(l => <option key={l} value={l}>{l}</option>)}
+                  {opsiLabels.slice(0, globalJumlahOpsi).map(l => <option key={l} value={l}>{l}</option>)}
                 </select>
               </div>
             </div>
 
             <div className="space-y-2">
               <label className="label">Pilihan Jawaban</label>
-              {opsiLabels.slice(0, jumlahOpsi).map(label => {
+              {opsiLabels.slice(0, globalJumlahOpsi).map(label => {
                 const lk = label.toLowerCase()
                 return (
                   <div key={label} className="space-y-1">
@@ -769,15 +774,10 @@ export default function GuruBuatSoalPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div>
-            <label className="label">Jumlah Opsi</label>
-            <select className="select" value={editJumlahOpsi} onChange={e => setEditJumlahOpsi(Number(e.target.value))}>
-              <option value={3}>3 Opsi</option>
-              <option value={4}>4 Opsi</option>
-              <option value={5}>5 Opsi</option>
-            </select>
-          </div>
+        {/* FIX: dropdown "Jumlah Opsi" dihilangkan dari edit — jumlah opsi
+            soal yang sudah ada tetap mengikuti nilai aslinya saat dibuat,
+            karena admin yang menentukan aturan jumlah opsi, bukan guru. */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="label">Tingkat Kesulitan</label>
             <select name="tingkat" className="select" defaultValue={editSoal.tingkat ?? 'Sedang'}>
@@ -789,14 +789,14 @@ export default function GuruBuatSoalPage() {
           <div>
             <label className="label">Kunci Jawaban *</label>
             <select name="kunci" className="select" required defaultValue={editSoal.kunci ?? 'A'}>
-              {opsiLabels.slice(0, editJumlahOpsi).map(l => <option key={l} value={l}>{l}</option>)}
+              {opsiLabels.slice(0, editSoal.jumlah_opsi || 4).map(l => <option key={l} value={l}>{l}</option>)}
             </select>
           </div>
         </div>
 
         <div className="space-y-2">
           <label className="label">Opsi Jawaban</label>
-          {opsiLabels.slice(0, editJumlahOpsi).map(label => {
+          {opsiLabels.slice(0, editSoal.jumlah_opsi || 4).map(label => {
             const lk = label.toLowerCase()
             const defaultVal = (editSoal as unknown as Record<string,string>)[`opsi_${lk}`] ?? ''
             return (
