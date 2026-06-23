@@ -110,8 +110,9 @@ export function apiRequest<T = unknown>(
         }
         throw new Error('Sesi berakhir, silakan login kembali')
       }
-      const err = new Error((data.error as string) || `Request gagal (${res.status})`) as Error & { data: Record<string, unknown> }
+      const err = new Error((data.error as string) || `Request gagal (${res.status})`) as Error & { data: Record<string, unknown>; status: number }
       err.data = data
+      err.status = res.status
       throw err
     }
 
