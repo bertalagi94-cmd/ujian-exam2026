@@ -20,8 +20,37 @@ export async function POST(req: NextRequest) {
   const db = createAdminClient()
   const { sesiId, jenis, detail } = await req.json()
 
-  // Sebelumnya: 2 query serial (~200ms total).
-  // Sekarang: paralel + batasPelanggaran dari cache (~100ms, atau 0ms cache hit).
+  // FIX BUG #2: Dedup pelanggaran di sisi server.
+  // Sebelumnya: client punya ref pelanggaranActiveRef untuk mencegah event ganda
+  // (fullscreenchange + visibilitychange + blur bisa muncul bersamaan untuk 1
+  // kejadian fisik). Tapi ref itu hilang saat tab di-reload/suspend OS → laporan
+  // duplikat dikirim ulang dan tercatat sebagai pelanggaran baru.
+  // Sekarang: cek apakah sudah ada pelanggaran dari nis+sesi yang sama dalam
+  // 5 detik terakhir. Kalau ada → anggap event duplikat, kembalikan data lama
+  // tanpa insert entri baru / menaikkan level.
+  const window5s = new Date(Date.now() - 5000).toISOString()
+  const { data: recentPelanggaran } = await db
+    .from('pelanggaran')
+    .select('id, level, status')
+    .eq('sesi_id', sesiId)
+    .eq('nis', user.nis!)
+    .gte('created_at', window5s)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (recentPelanggaran) {
+    // Event duplikat — kembalikan pelanggaran yang sudah ada tanpa insert baru
+    const [batasPelanggaran] = await Promise.all([getBatasPelanggaran(db)])
+    return NextResponse.json({
+      perlu_reset: true,
+      level: recentPelanggaran.level,
+      batasPelanggaran,
+      message: `Pelanggaran ke-${recentPelanggaran.level} terdeteksi. Hubungi pengawas untuk mendapatkan kode lanjut ujian.`,
+    })
+  }
+
+  // Bukan duplikat — proses normal
   const [batasPelanggaran, { count }] = await Promise.all([
     getBatasPelanggaran(db),
     db.from('pelanggaran')
@@ -32,7 +61,6 @@ export async function POST(req: NextRequest) {
 
   const level = (count ?? 0) + 1
 
-  // Insert pelanggaran & update status siswa_ujian secara paralel
   await Promise.all([
     db.from('pelanggaran').insert({
       id: generateId('PEL'),
