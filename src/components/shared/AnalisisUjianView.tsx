@@ -50,6 +50,7 @@ interface Ringkasan {
   soalSedang: number
   soalSulit: number
   siswaBelumUjian: SiswaItem[]
+  siswaBelumKirim: SiswaItem[]
 }
 
 interface ModalSiswaState {
@@ -411,7 +412,7 @@ export default function AnalisisUjianView({ apiPath, showMapelFilter = false, sh
           {/* Ringkasan */}
           {!loadingData && ringkasan && data.length > 0 && (
             <>
-              {/* Banner siswa belum ujian */}
+              {/* Banner siswa belum ujian sama sekali */}
               {ringkasan.siswaBelumUjian.length > 0 && (
                 <div className="flex items-start gap-3 px-4 py-3 rounded-xl bg-amber-50 border border-amber-200">
                   <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center flex-shrink-0 mt-0.5">
@@ -419,7 +420,7 @@ export default function AnalisisUjianView({ apiPath, showMapelFilter = false, sh
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-amber-800">
-                      {ringkasan.siswaBelumUjian.length} siswa belum ujian
+                      {ringkasan.siswaBelumUjian.length} siswa belum ujian sama sekali
                     </p>
                     <p className="text-xs text-amber-600 mt-0.5 leading-relaxed">
                       {ringkasan.siswaBelumUjian.map(s => s.nama).join(' · ')}
@@ -431,12 +432,33 @@ export default function AnalisisUjianView({ apiPath, showMapelFilter = false, sh
                 </div>
               )}
 
+              {/* Banner siswa sudah masuk/mengerjakan tapi belum sempat mengirim jawaban
+                  (mis. sesi ditutup paksa oleh pengawas sebelum siswa selesai) */}
+              {ringkasan.siswaBelumKirim.length > 0 && (
+                <div className="flex items-start gap-3 px-4 py-3 rounded-xl bg-orange-50 border border-orange-200">
+                  <div className="w-8 h-8 rounded-lg bg-orange-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <AlertTriangle className="w-4 h-4 text-orange-500" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-orange-800">
+                      {ringkasan.siswaBelumKirim.length} siswa sudah ujian tapi belum mengirim jawaban
+                    </p>
+                    <p className="text-xs text-orange-600 mt-0.5 leading-relaxed">
+                      {ringkasan.siswaBelumKirim.map(s => s.nama).join(' · ')} — kemungkinan sesi ditutup sebelum siswa menyelesaikan ujian. Gunakan menu Rekap Nilai untuk mereset siswa ini agar dapat ujian kembali.
+                    </p>
+                  </div>
+                  <div className="flex-shrink-0 bg-orange-200 text-orange-800 text-xs font-bold px-2 py-1 rounded-lg">
+                    {ringkasan.siswaBelumKirim.length}/{ringkasan.totalPeserta}
+                  </div>
+                </div>
+              )}
+
               {sesiTerpilih && (
                 <div className="card py-3 px-4 bg-brand-50 border border-brand-100 text-sm text-brand-800 flex flex-wrap gap-x-4 gap-y-1">
                   <span className="font-semibold">{sesiTerpilih.nama_mapel}</span>
                   <span>Kelas: {sesiTerpilih.kelas}</span>
                   <span>{formatDateTime(sesiTerpilih.waktu_mulai)}</span>
-                  <span>{ringkasan.totalSiswa} dari {ringkasan.totalPeserta} peserta sudah ujian</span>
+                  <span>{ringkasan.totalSiswa} dari {ringkasan.totalPeserta} peserta sudah mengirim jawaban</span>
                 </div>
               )}
 
