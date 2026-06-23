@@ -148,10 +148,62 @@
 
   ::-webkit-scrollbar { width: 8px; }
   ::-webkit-scrollbar-thumb { background: #1c3a40; border-radius: 4px; }
+
+  /* ── DEBUG CHECKING banner ── */
+  #debug-banner {
+    display: none;
+    position: sticky;
+    top: 0;
+    z-index: 999;
+    background: #0a0000;
+    border-bottom: 3px solid #ff1a1a;
+    padding: 14px 20px;
+    text-align: center;
+    margin: 0 -20px 0;
+  }
+  #debug-banner .dbg-text {
+    font-size: 30px;
+    font-weight: 900;
+    color: #ff2222;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    text-shadow: 0 0 18px #ff0000, 0 0 40px #ff000088;
+    animation: blink-slow 1.4s ease-in-out infinite;
+    display: inline-flex;
+    align-items: center;
+    gap: 14px;
+  }
+  #debug-banner .dbg-sub {
+    font-size: 12px;
+    color: #ff6666;
+    margin-top: 4px;
+    letter-spacing: 1px;
+    animation: blink-slow 1.4s ease-in-out infinite;
+    animation-delay: 0.2s;
+  }
+  @keyframes blink-slow {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.25; }
+  }
+  .dbg-dot {
+    display: inline-block;
+    animation: blink-slow 0.8s ease-in-out infinite;
+  }
+  .dbg-dot:nth-child(2) { animation-delay: 0.27s; }
+  .dbg-dot:nth-child(3) { animation-delay: 0.54s; }
 </style>
 </head>
 <body>
 <div class="wrap">
+
+  <!-- ============ DEBUG CHECKING BANNER ============ -->
+  <div id="debug-banner">
+    <div class="dbg-text">
+      🔴 DEBUG CHECKING
+      <span class="dbg-dot">.</span><span class="dbg-dot">.</span><span class="dbg-dot">.</span>
+    </div>
+    <div class="dbg-sub">⚠ Pengujian sedang berjalan — jangan tutup tab ini</div>
+  </div>
 
   <header>
     <div class="logo">SE</div>
@@ -1634,6 +1686,7 @@ async function runFullTest() {
   document.getElementById('btn-start').disabled = true;
   document.getElementById('btn-stop').disabled = false;
   document.getElementById('progress-panel').style.display = 'block';
+  document.getElementById('debug-banner').style.display = 'block';
 
   const doneKeys = [];
   try {
@@ -1681,6 +1734,7 @@ async function runFullTest() {
     setAction(`Berhenti: ${e.message}`);
   } finally {
     renderStats();
+    document.getElementById('debug-banner').style.display = 'none';
     document.getElementById('btn-start').disabled = false;
     document.getElementById('btn-stop').disabled = true;
   }
