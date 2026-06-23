@@ -348,13 +348,24 @@ export default function SiswaUjianPage() {
     const currentPhase = phaseRef.current
     if (!currentSesi || currentPhase !== 'UJIAN') return
     try {
-      const res = await apiRequest<{ status?: string; sesi_status?: string } | null>(
+      const res = await apiRequest<{ sesi_status?: string; siswa_status?: string } | null>(
         `/api/siswa/ujian/cek-sesi?sesiId=${currentSesi.sesiId}`
       )
-      if (res && (res as { sesi_status?: string }).sesi_status === 'SELESAI') {
-        // Sesi ditutup pengawas → tampilkan pemberitahuan jelas ke siswa,
-        // lalu paksa selesai (tanpa menunggu loop verifikasi sync yang
-        // pasti gagal, karena server sudah menolak sync untuk sesi yang ditutup).
+      if (!res) return
+
+      // FIX BUG A+B: cek status SISWA (TERKUNCI) selain status SESI (SELESAI).
+      // Sebelumnya polling hanya bereaksi kalau sesi ditutup pengawas — kalau
+      // admin mengunci siswa secara individual (status TERKUNCI), siswa tidak
+      // mendapat notifikasi apapun dan baru tahu saat coba submit (ditolak 403).
+      if ((res as { siswa_status?: string }).siswa_status === 'TERKUNCI') {
+        clearInterval(timerRef.current!)
+        clearInterval(syncRef.current!)
+        clearInterval(sesiPollRef.current!)
+        setDikeluarkan(true)
+        return
+      }
+
+      if ((res as { sesi_status?: string }).sesi_status === 'SELESAI') {
         clearInterval(timerRef.current!)
         clearInterval(syncRef.current!)
         clearInterval(sesiPollRef.current!)
@@ -477,16 +488,18 @@ export default function SiswaUjianPage() {
     const currentSesi = sesiInfoRef.current
     if (!currentSesi) return
     try {
-      const res = await apiRequest<{ perlu_reset?: boolean; level?: number }>('/api/siswa/ujian/pelanggaran', {
+      const res = await apiRequest<{ perlu_reset?: boolean; level?: number; batasPelanggaran?: number }>('/api/siswa/ujian/pelanggaran', {
         method: 'POST',
         body: JSON.stringify({ sesiId: currentSesi.sesiId, jenis, detail }),
       })
-      // Setelah lapor pelanggaran, tampilkan overlay (sudah dihandle)
-      // Pengawas yang akan memberikan kode reset
-      if (res?.perlu_reset) {
-        // Overlay warning sudah ditampilkan di event handler masing-masing
-        // Tidak perlu action tambahan di sini — pengawas akan reset via dashboard
-      }
+      // FIX BUG A: simpan batasPelanggaran dari response supaya halaman
+      // "Ujian Dihentikan" menampilkan angka yang benar.
+      if (res?.batasPelanggaran) setBatasPelanggaran(res.batasPelanggaran)
+
+      // Catatan: setDikeluarkan(true) TIDAK dipanggil di sini karena endpoint
+      // pelanggaran siswa hanya mencatat kejadian — keputusan kunci/dikeluarkan
+      // ada di tangan pengawas/admin. Polling cekStatusSesi (tiap 10 detik) yang
+      // akan mendeteksi status TERKUNCI dan memanggil setDikeluarkan(true).
     } catch (e) { console.warn(e) }
   }
 
