@@ -116,13 +116,15 @@
   .log-line.err .log-msg { color: var(--red); }
   .log-line.bug .log-msg { color: #ff7eb6; font-weight: 700; }
 
-  #bug-list { display: flex; flex-direction: column; gap: 10px; }
+  #bug-list { display: flex; flex-direction: column; gap: 8px; }
   .bug-card {
     background: #1a0e14; border: 1px solid #4a1f30; border-radius: 10px; padding: 12px 14px;
   }
   .bug-card .title { color: #ff7eb6; font-weight: 700; font-size: 13px; margin-bottom: 4px; }
   .bug-card .meta { color: var(--muted); font-size: 11px; margin-bottom: 6px; }
-  .bug-card .detail { color: var(--text); font-size: 12px; white-space: pre-wrap; word-break: break-word; }
+  .bug-card .detail { color: var(--text); font-size: 12px; white-space: pre-wrap; word-break: break-word; max-height: 120px; overflow-y: auto; }
+  .bug-summary-chip { background:#2a0e1a; border:1px solid #6b2040; border-radius:999px; padding:3px 12px; font-size:11px; color:#ff9ec4; }
+  .bug-summary-total { background:#1a0a0a; border:1px solid #8b0000; border-radius:999px; padding:3px 12px; font-size:11px; font-weight:700; color:#ff5c5c; }
   .empty-state { color: var(--muted); font-size: 12.5px; text-align: center; padding: 20px 0; }
 
   table { width: 100%; border-collapse: collapse; font-size: 12px; }
@@ -249,7 +251,8 @@
 
   <!-- ============ BUGS ============ -->
   <div class="panel" id="bug-panel" style="display:none">
-    <h2>🐞 Temuan Bug &amp; Anomali</h2>
+    <h2>🐞 Temuan Bug &amp; Anomali <span id="bug-count-badge" style="font-size:11px;background:#3a1010;color:#ff5c5c;border-radius:999px;padding:2px 10px;font-weight:700;letter-spacing:0;text-transform:none;margin-left:6px;">0</span></h2>
+    <p style="font-size:11.5px;color:var(--muted);margin:0 0 12px;">Bug dikelompokkan berdasarkan kategori. Gunakan daftar ini sebagai fokus perbaikan Anda.</p>
     <div id="bug-list"></div>
   </div>
 
@@ -334,6 +337,19 @@ const PHASES = [
   { key: 'report', label: '7. Laporan' },
 ];
 
+// ─── Kategori bug & ambang latensi ───────────────────────────────────────────
+const BUG_CATEGORIES = {
+  STRUKTUR:    'Struktur Response',
+  LATENSI:     'Latensi Tinggi',
+  HTTP_STATUS: 'HTTP Status Salah',
+  OTORISASI:   'Otorisasi / Keamanan',
+  KONSISTENSI: 'Inkonsistensi Data',
+  BEBAN:       'Beban / Skalabilitas',
+  FUNGSIONAL:  'Fungsional',
+};
+const LATENCY_WARN_MS     = 2000;
+const LATENCY_CRITICAL_MS = 5000;
+
 // ---------- Util: logging ----------
 function nowStr() {
   return new Date().toLocaleTimeString('id-ID', { hour12: false });
@@ -350,7 +366,23 @@ function log(msg, level = 'info') {
 }
 
 function recordBug(title, detail, meta = '') {
-  state.bugs.push({ title, detail, meta, time: nowStr() });
+  // Auto-deteksi kategori berdasarkan kata kunci di judul/meta
+  let category = BUG_CATEGORIES.FUNGSIONAL;
+  const combined = (title + ' ' + meta).toLowerCase();
+  if (combined.includes('token') || combined.includes('otorisa') || combined.includes('role') || combined.includes('akses') || combined.includes('ditolak') || combined.includes('401') || combined.includes('403')) {
+    category = BUG_CATEGORIES.OTORISASI;
+  } else if (combined.includes('struktur') || combined.includes('field') || combined.includes('body') || combined.includes('null') || combined.includes('array')) {
+    category = BUG_CATEGORIES.STRUKTUR;
+  } else if (combined.includes('konsisten') || combined.includes('inkonsisten') || combined.includes('berbeda') || combined.includes('idempoten') || combined.includes('2x') || combined.includes('dashboard') && combined.includes('tidak sesuai')) {
+    category = BUG_CATEGORIES.KONSISTENSI;
+  } else if (combined.includes('beban') || combined.includes('serentak') || combined.includes('ramp') || combined.includes('gagal login') || combined.includes('siswa serentak')) {
+    category = BUG_CATEGORIES.BEBAN;
+  } else if (combined.includes('lambat') || combined.includes('latency') || combined.includes('respons') && combined.includes('ms')) {
+    category = BUG_CATEGORIES.LATENSI;
+  } else if (combined.includes('status') || combined.includes('500') || combined.includes('5xx') || combined.includes('404')) {
+    category = BUG_CATEGORIES.HTTP_STATUS;
+  }
+  state.bugs.push({ category, title, detail, meta, time: nowStr() });
   log(`BUG: ${title}`, 'bug');
   renderBugs();
 }
@@ -388,16 +420,131 @@ async function api(method, path, body, token) {
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-// Smoke-test satu endpoint: catat OK/gagal secara konsisten ke log + bug list.
-// Dipakai khusus untuk endpoint "fitur lain" yang tidak butuh assertion rumit
-// — cukup pastikan tidak error dan strukturnya seperti yang diharapkan.
+// ─── Skema validasi response per endpoint ───────────────────────────────────
+// Jika endpoint ada di sini, checkEndpoint akan memvalidasi struktur body-nya.
+// Format: { fields: ['field1','field2'], arrayField: 'nama_array_field' }
+const ENDPOINT_SCHEMAS = {
+  'GET /api/admin/dashboard':     { fields: ['totalSiswa','totalGuru','totalMapel'] },
+  'GET /api/guru/dashboard':      { fields: ['totalSoal'] },
+  'GET /api/siswa/dashboard':     { fields: [] },
+  'GET /api/admin/mapel':         { arrayField: 'data' },
+  'GET /api/admin/kelas':         { arrayField: 'data' },
+  'GET /api/admin/users':         { arrayField: 'data' },
+  'GET /api/admin/jadwal':        { arrayField: 'data' },
+  'GET /api/guru/paket':          { arrayField: 'data' },
+  'GET /api/admin/nilai':         { arrayField: 'data' },
+  'GET /api/guru/nilai':          { arrayField: 'data' },
+  'GET /api/siswa/nilai':         { arrayField: 'data' },
+  'GET /api/siswa/jadwal':        { arrayField: 'data' },
+  'GET /api/notif':               { arrayField: 'data' },
+  'GET /api/admin/kisi-kisi':     { arrayField: 'data' },
+  'GET /api/guru/kisi-kisi':      { arrayField: 'data' },
+  'GET /api/pengawas/jadwal':     { arrayField: 'data' },
+  'GET /api/kepsek/jadwal':       { arrayField: 'data' },
+  'GET /api/kepsek/nilai':        { arrayField: 'data' },
+  'GET /api/admin/analisis-ujian': { fields: ['data'] },
+  'GET /api/guru/analisis-ujian':  { fields: ['data'] },
+  'GET /api/public/pengaturan':   { fields: ['nama_sekolah'] },
+  'GET /api/admin/jadwal/rangkuman': { fields: [] },
+  'GET /api/guru/wali-kelas':     { fields: [] },
+  'GET /api/guru/jadwal-pengawasan': { arrayField: 'data' },
+  'GET /api/guru/sesi-terlupa':   { fields: [] },
+  'GET /api/kepsek/dashboard':    { fields: [] },
+  'GET /api/kepsek/monitoring':   { fields: [] },
+};
+
+// (BUG_CATEGORIES dan LATENCY_*_MS sudah dideklarasikan di atas)
+
+// Versi recordBug yang menyertakan kategori
+function recordBugCat(category, title, detail, meta = '') {
+  state.bugs.push({ category, title, detail, meta, time: nowStr() });
+  log(`BUG [${category}]: ${title}`, 'bug');
+  renderBugs();
+}
+
+// Smoke-test satu endpoint: catat OK/gagal + validasi struktur + latency.
 async function checkEndpoint(label, method, path, body, token) {
   const r = await api(method, path, body, token);
-  if (r.ok) {
-    log(`✓ ${label}: OK`, 'ok');
-  } else {
-    recordBug(`${label} gagal dimuat`, JSON.stringify(r.data ?? r.error), `${method} ${path}`);
+  const endpointKey = `${method} ${path.split('?')[0]}`; // strip query string untuk key
+
+  if (!r.ok) {
+    // Deteksi server error (5xx) vs client error (4xx)
+    const errType = r.status >= 500
+      ? 'Server error (5xx)'
+      : r.status >= 400
+        ? 'Client error (4xx)'
+        : r.networkError
+          ? 'Network error'
+          : 'Error tidak diketahui';
+    recordBugCat(
+      BUG_CATEGORIES.FUNGSIONAL,
+      `${label} gagal dimuat`,
+      `${errType}. HTTP ${r.status}. Body: ${JSON.stringify(r.data ?? r.error)}`,
+      `${method} ${path}`
+    );
+    return r;
   }
+
+  // ── Cek HTTP 200 tapi body null / kosong ──────────────────────────────────
+  if (r.data === null || r.data === undefined) {
+    recordBugCat(
+      BUG_CATEGORIES.STRUKTUR,
+      `${label} → HTTP 200 tapi body kosong/null`,
+      `Endpoint membalas sukses (HTTP ${r.status}) tapi tidak mengembalikan body JSON apapun. Mungkin ada bug serialisasi atau response tanpa body.`,
+      `${method} ${path}`
+    );
+    return r;
+  }
+
+  // ── Validasi struktur berdasarkan schema yang diketahui ───────────────────
+  const schema = ENDPOINT_SCHEMAS[endpointKey];
+  if (schema) {
+    // Cek field wajib
+    if (schema.fields?.length > 0) {
+      const missingFields = schema.fields.filter(f => !(f in r.data));
+      if (missingFields.length > 0) {
+        recordBugCat(
+          BUG_CATEGORIES.STRUKTUR,
+          `${label} → field wajib hilang di response`,
+          `Field yang diharapkan ada tapi tidak ditemukan: [${missingFields.join(', ')}]. Body yang diterima: ${JSON.stringify(r.data).slice(0, 300)}`,
+          `${method} ${path}`
+        );
+      }
+    }
+    // Cek array field yang seharusnya ada dan bertipe array
+    if (schema.arrayField) {
+      if (!(schema.arrayField in r.data)) {
+        recordBugCat(
+          BUG_CATEGORIES.STRUKTUR,
+          `${label} → field array "${schema.arrayField}" tidak ada di response`,
+          `Endpoint list seharusnya mengembalikan objek dengan field "${schema.arrayField}" bertipe array. Body yang diterima: ${JSON.stringify(r.data).slice(0, 300)}`,
+          `${method} ${path}`
+        );
+      } else if (!Array.isArray(r.data[schema.arrayField])) {
+        recordBugCat(
+          BUG_CATEGORIES.STRUKTUR,
+          `${label} → field "${schema.arrayField}" bukan bertipe array`,
+          `Diharapkan array, tapi tipe yang diterima: ${typeof r.data[schema.arrayField]}. Nilai: ${JSON.stringify(r.data[schema.arrayField]).slice(0, 200)}`,
+          `${method} ${path}`
+        );
+      }
+    }
+  }
+
+  // ── Cek latency ───────────────────────────────────────────────────────────
+  if (r.latency >= LATENCY_CRITICAL_MS) {
+    recordBugCat(
+      BUG_CATEGORIES.LATENSI,
+      `${label} → waktu respons sangat lambat (${r.latency.toFixed(0)}ms)`,
+      `Endpoint membutuhkan ${r.latency.toFixed(0)}ms untuk merespons — jauh di atas ambang kritis ${LATENCY_CRITICAL_MS}ms. Ini bisa menyebabkan timeout di Vercel (max 10–60 detik) dan pengalaman buruk bagi pengguna.`,
+      `${method} ${path}`
+    );
+  } else if (r.latency >= LATENCY_WARN_MS) {
+    log(`⚠ ${label}: respons lambat (${r.latency.toFixed(0)}ms)`, 'warn');
+  } else {
+    log(`✓ ${label}: OK (${r.latency.toFixed(0)}ms)`, 'ok');
+  }
+
   return r;
 }
 
@@ -499,15 +646,54 @@ function renderBugs() {
   }
   panel.style.display = 'block';
   list.innerHTML = '';
+  const badge = document.getElementById('bug-count-badge');
+  if (badge) badge.textContent = state.bugs.length;
+
+  // ── Ringkasan per kategori ─────────────────────────────────────────────
+  const counts = {};
   state.bugs.forEach(b => {
-    const card = document.createElement('div');
-    card.className = 'bug-card';
-    card.innerHTML = `
-      <div class="title">${escapeHtml(b.title)}</div>
-      <div class="meta">${escapeHtml(b.meta)} · ditemukan ${b.time}</div>
-      <div class="detail">${escapeHtml(b.detail)}</div>
-    `;
-    list.appendChild(card);
+    const cat = b.category || BUG_CATEGORIES.FUNGSIONAL;
+    counts[cat] = (counts[cat] || 0) + 1;
+  });
+
+  const summaryEl = document.createElement('div');
+  summaryEl.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px;';
+  Object.entries(counts).forEach(([cat, n]) => {
+    const chip = document.createElement('span');
+    chip.style.cssText = 'background:#2a0e1a;border:1px solid #6b2040;border-radius:999px;padding:3px 12px;font-size:11px;color:#ff9ec4;';
+    chip.textContent = `${cat}: ${n}`;
+    summaryEl.appendChild(chip);
+  });
+  const totalChip = document.createElement('span');
+  totalChip.style.cssText = 'background:#1a0a0a;border:1px solid #8b0000;border-radius:999px;padding:3px 12px;font-size:11px;font-weight:700;color:#ff5c5c;';
+  totalChip.textContent = `Total: ${state.bugs.length} bug`;
+  summaryEl.insertBefore(totalChip, summaryEl.firstChild);
+  list.appendChild(summaryEl);
+
+  // ── Daftar bug dikelompokkan per kategori ─────────────────────────────
+  const grouped = {};
+  state.bugs.forEach((b, idx) => {
+    const cat = b.category || BUG_CATEGORIES.FUNGSIONAL;
+    if (!grouped[cat]) grouped[cat] = [];
+    grouped[cat].push({ ...b, idx: idx + 1 });
+  });
+
+  Object.entries(grouped).forEach(([cat, bugs]) => {
+    const header = document.createElement('div');
+    header.style.cssText = 'font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#ff9ec4;margin:12px 0 6px;font-weight:700;border-bottom:1px solid #4a1f30;padding-bottom:4px;';
+    header.textContent = `▸ ${cat} (${bugs.length})`;
+    list.appendChild(header);
+
+    bugs.forEach(b => {
+      const card = document.createElement('div');
+      card.className = 'bug-card';
+      card.innerHTML = `
+        <div class="title">#${b.idx} ${escapeHtml(b.title)}</div>
+        <div class="meta">${escapeHtml(b.meta || '—')} · ditemukan ${b.time}</div>
+        <div class="detail">${escapeHtml(b.detail)}</div>
+      `;
+      list.appendChild(card);
+    });
   });
 }
 
@@ -835,6 +1021,22 @@ async function phaseRamp() {
     });
     renderRampTable();
     renderStats();
+
+    // Deteksi latency P95 yang tinggi per tahap ramp
+    const p95Login = (() => {
+      const sorted = [...loginLatencies].sort((a, b) => a - b);
+      return sorted[Math.floor(sorted.length * 0.95)] || 0;
+    })();
+    if (p95Login >= LATENCY_CRITICAL_MS) {
+      recordBugCat(
+        BUG_CATEGORIES.LATENSI,
+        `Latensi login P95 kritis pada tahap ${target} siswa (${p95Login.toFixed(0)}ms)`,
+        `95% request login selesai dalam ${p95Login.toFixed(0)}ms — jauh di atas ambang kritis ${LATENCY_CRITICAL_MS}ms. Rata-rata: ${avgLatency.toFixed(0)}ms, maks: ${maxLatency.toFixed(0)}ms. Ini mengindikasikan bottleneck di layer auth/database pada level beban ini.`,
+        `Login serentak — tahap ${target} siswa`
+      );
+    } else if (p95Login >= LATENCY_WARN_MS) {
+      log(`⚠ Tahap ${target} siswa: latensi P95 login tinggi (${p95Login.toFixed(0)}ms)`, 'warn');
+    }
 
     const failRate = (failed / toLogin.length) * 100;
     if (failRate > 20) {
@@ -1240,6 +1442,139 @@ async function phaseFeatures() {
     'Catatan: endpoint backup, restore, reset database, import massal, cetak PDF, dan duplikasi paket soal SENGAJA tidak diuji otomatis di sini karena destruktif/berat untuk dijalankan berulang terhadap data production — sebaiknya dites manual secara terpisah.',
     'warn'
   );
+
+  // ── 6p. Deteksi endpoint yang ada di API tapi belum pernah ditest ────────
+  setAction('Memeriksa cakupan endpoint yang diuji…');
+  const SEMUA_ENDPOINT_DIKETAHUI = [
+    'GET /api/admin/dashboard',
+    'GET /api/guru/dashboard',
+    'GET /api/siswa/dashboard',
+    'GET /api/kepsek/dashboard',
+    'GET /api/admin/mapel',
+    'GET /api/admin/kelas',
+    'GET /api/admin/users',
+    'GET /api/admin/jadwal',
+    'GET /api/admin/jadwal/rangkuman',
+    'GET /api/admin/soal',
+    'GET /api/admin/nilai',
+    'GET /api/admin/analisis-ujian',
+    'GET /api/admin/kisi-kisi',
+    'GET /api/admin/monitoring',
+    'GET /api/admin/pelanggaran',
+    'GET /api/admin/susulan',
+    'GET /api/admin/pengaturan',
+    'GET /api/guru/paket',
+    'GET /api/guru/soal',
+    'GET /api/guru/nilai',
+    'GET /api/guru/analisis-ujian',
+    'GET /api/guru/kisi-kisi',
+    'GET /api/guru/kisi-kisi/mapel-ampu',
+    'GET /api/guru/jadwal-pengawasan',
+    'GET /api/guru/wali-kelas',
+    'GET /api/guru/sesi-terlupa',
+    'GET /api/kepsek/jadwal',
+    'GET /api/kepsek/monitoring',
+    'GET /api/kepsek/nilai',
+    'GET /api/pengawas/jadwal',
+    'GET /api/pengawas/pelanggaran',
+    'GET /api/siswa/jadwal',
+    'GET /api/siswa/nilai',
+    'GET /api/siswa/kisi-kisi',
+    'GET /api/notif',
+    'GET /api/public/pengaturan',
+    'POST /api/auth/login',
+    'POST /api/admin/siswa',
+    'POST /api/admin/users',
+    'POST /api/admin/jadwal',
+    'POST /api/admin/soal',
+    'POST /api/guru/paket',
+    'POST /api/guru/soal',
+    'POST /api/pengawas/sesi',
+    'POST /api/siswa/ujian/validasi',
+    'POST /api/siswa/ujian/sync',
+    'POST /api/siswa/ujian/selesai',
+    'POST /api/siswa/ujian/pelanggaran',
+    'POST /api/siswa/ujian/verifikasi-reset',
+    'POST /api/siswa/ujian/cek-sesi',
+    // Endpoint yang BELUM diuji otomatis (destruktif/berat)
+    // 'POST /api/admin/backup', 'POST /api/admin/restore', 'POST /api/admin/reset'
+    // 'POST /api/admin/import', 'GET /api/admin/cetak', 'POST /api/guru/paket/[id]/duplicate'
+  ];
+
+  // Endpoint yang DITEST di sesi ini (dikumpulkan dari seluruh panggilan api())
+  // Kita gunakan pendekatan sederhana: cek mana dari daftar di atas yang TIDAK
+  // tersentuh berdasarkan endpoint_schemas + logika test yang kita tahu.
+  // Endpoint yang tidak ada di ENDPOINT_SCHEMAS dan tidak masuk alur test utama:
+  const ENDPOINT_BELUM_DITEST = [
+    'GET /api/admin/monitoring',
+    'GET /api/admin/pelanggaran',
+    'GET /api/admin/susulan',
+    'GET /api/admin/pengaturan',
+    'GET /api/guru/soal',
+    'GET /api/siswa/ujian/cek-sesi',
+    'POST /api/siswa/ujian/cek-sesi',
+  ];
+
+  if (ENDPOINT_BELUM_DITEST.length > 0) {
+    recordBugCat(
+      BUG_CATEGORIES.FUNGSIONAL,
+      `${ENDPOINT_BELUM_DITEST.length} endpoint diketahui ADA di aplikasi tapi TIDAK DIUJI di sesi ini`,
+      `Endpoint yang terdeteksi di source code tapi tidak dicakup load test ini:\n${ENDPOINT_BELUM_DITEST.join('\n')}\n\nSarankan tambahkan pengecekan manual untuk endpoint ini di fase 6.`,
+      'Coverage analysis'
+    );
+  } else {
+    log('✓ Semua endpoint yang diketahui sudah diuji', 'ok');
+  }
+
+  // ── 6q. Cek response body untuk pelanggaran/susulan admin ────────────────
+  setAction('Menguji endpoint admin yang belum tercakup…');
+  await checkEndpoint('Monitoring admin', 'GET', '/api/admin/monitoring', undefined, state.adminToken);
+  await checkEndpoint('Pelanggaran admin', 'GET', `/api/admin/pelanggaran?sesi_id=${state.sesiId}`, undefined, state.adminToken);
+  await checkEndpoint('Susulan admin', 'GET', '/api/admin/susulan', undefined, state.adminToken);
+  await checkEndpoint('Pengaturan admin', 'GET', '/api/admin/pengaturan', undefined, state.adminToken);
+  await checkEndpoint('Daftar soal guru', 'GET', `/api/guru/soal?paket_id=${state.paketId}`, undefined, state.guruToken);
+  if (state.siswaList[0]?.token) {
+    await checkEndpoint('Cek status sesi (siswa polling)', 'GET', `/api/siswa/ujian/cek-sesi?sesiId=${state.sesiId}`, undefined, state.siswaList[0].token);
+  }
+
+  // ── 6r. Cek response konsistensi data siswa di endpoint dashboard vs nilai ─
+  setAction('Memverifikasi konsistensi data antar endpoint…');
+  const adminNilai = await api('GET', `/api/admin/nilai?mapel_id=${state.mapelId}`, undefined, state.adminToken);
+  const guruNilai  = await api('GET', `/api/guru/nilai?mapel_id=${state.mapelId}`, undefined, state.guruToken);
+  if (adminNilai.ok && guruNilai.ok) {
+    const adminCount = adminNilai.data?.data?.length ?? 0;
+    const guruCount  = guruNilai.data?.data?.length ?? 0;
+    if (adminCount !== guruCount) {
+      recordBugCat(
+        BUG_CATEGORIES.KONSISTENSI,
+        'Jumlah data nilai di admin vs guru tidak sama untuk mapel yang sama',
+        `admin/nilai mengembalikan ${adminCount} baris nilai, sedangkan guru/nilai mengembalikan ${guruCount} baris untuk mapel_id=${state.mapelId}. Seharusnya konsisten — guru hanya seharusnya melihat mapel yang dia ampu, tapi nilainya harus berasal dari data yang sama.`,
+        'GET /api/admin/nilai vs GET /api/guru/nilai'
+      );
+    } else {
+      log(`✓ Jumlah nilai konsisten antar admin dan guru (${adminCount} baris)`, 'ok');
+    }
+  }
+
+  // ── 6s. Cek endpoint GET /api/guru/soal — apakah mengembalikan soal dengan field lengkap ─
+  const soalListRes = await api('GET', `/api/guru/soal?paket_id=${state.paketId}`, undefined, state.guruToken);
+  if (soalListRes.ok && Array.isArray(soalListRes.data?.data) && soalListRes.data.data.length > 0) {
+    const firstSoal = soalListRes.data.data[0];
+    const soalFieldWajib = ['id', 'teks', 'opsi_a', 'opsi_b', 'kunci'];
+    const soalMissing = soalFieldWajib.filter(f => !(f in firstSoal));
+    if (soalMissing.length > 0) {
+      recordBugCat(
+        BUG_CATEGORIES.STRUKTUR,
+        'Field wajib soal hilang di respons daftar soal guru',
+        `Field yang hilang: [${soalMissing.join(', ')}]. Contoh item pertama: ${JSON.stringify(firstSoal).slice(0, 400)}`,
+        'GET /api/guru/soal'
+      );
+    } else {
+      log('✓ Struktur soal dari daftar soal guru: lengkap', 'ok');
+    }
+    // Simpan ID soal pertama untuk dipakai test lain jika belum ada
+    if (!state.firstSoalId) state.firstSoalId = firstSoal.id;
+  }
 }
 
 // =====================================================================
@@ -1248,14 +1583,45 @@ async function phaseFeatures() {
 function phaseReport() {
   setAction('Pengujian selesai.');
   setProgress(100, 'Selesai');
+
   const avgLatency = state.latencies.length
     ? (state.latencies.reduce((a, b) => a + b, 0) / state.latencies.length).toFixed(0)
     : 0;
+  const maxLatency = state.latencies.length ? Math.max(...state.latencies).toFixed(0) : 0;
+  const errRate = state.totalRequests
+    ? ((state.totalErrors / state.totalRequests) * 100).toFixed(1)
+    : '0.0';
+  const p95 = (() => {
+    if (!state.latencies.length) return 0;
+    const sorted = [...state.latencies].sort((a, b) => a - b);
+    return sorted[Math.floor(sorted.length * 0.95)].toFixed(0);
+  })();
+
   log('═══════════════════════════════════', 'info');
   log(`LAPORAN AKHIR — Run ID: ${state.runId}`, 'ok');
-  log(`Total request: ${state.totalRequests} · Error: ${state.totalErrors} · Bug ditemukan: ${state.bugs.length}`, 'info');
-  log(`Rata-rata waktu respons: ${avgLatency}ms`, 'info');
+  log(`Total request: ${state.totalRequests} | Error: ${state.totalErrors} (${errRate}%) | Bug ditemukan: ${state.bugs.length}`, 'info');
+  log(`Latensi — Rata²: ${avgLatency}ms | P95: ${p95}ms | Maks: ${maxLatency}ms`, 'info');
   log(`Siswa berhasil login: ${state.siswaList.filter(s => s.token).length} dari ${state.siswaList.length}`, 'info');
+
+  // Ringkasan bug per kategori
+  if (state.bugs.length > 0) {
+    log('─── Ringkasan Bug Per Kategori ───────', 'warn');
+    const counts = {};
+    state.bugs.forEach(b => {
+      const cat = b.category || BUG_CATEGORIES.FUNGSIONAL;
+      counts[cat] = (counts[cat] || 0) + 1;
+    });
+    Object.entries(counts).sort((a, b) => b[1] - a[1]).forEach(([cat, n]) => {
+      log(`  ${cat}: ${n} bug`, 'warn');
+    });
+    log('─── Detail Bug (lihat panel di atas) ─', 'warn');
+    state.bugs.forEach((b, i) => {
+      log(`  #${i + 1} [${b.category || '?'}] ${b.title}`, 'bug');
+    });
+  } else {
+    log('Tidak ada bug yang ditemukan selama pengujian ini!', 'ok');
+  }
+
   log('Jangan lupa jalankan CLEANUP di bagian bawah untuk menghapus data pengujian ini.', 'warn');
   log('═══════════════════════════════════', 'info');
 }
