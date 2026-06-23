@@ -211,7 +211,7 @@ export default function AdminNilaiPage() {
             <>
               <button onClick={closeResetModal} className="btn-secondary btn-sm" disabled={resetting}>Batal</button>
               <button onClick={handleReset} className="btn-danger btn-sm" disabled={resetting}>
-                {resetting ? <Spinner size="sm" /> : 'Ya, Reset & Buka Ujian Ulang'}
+                {resetting ? <Spinner size="sm" /> : 'Ya, Reset Nilai Mapel ini'}
               </button>
             </>
           )
