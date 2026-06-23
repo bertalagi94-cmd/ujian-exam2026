@@ -190,6 +190,48 @@ export async function POST(req: NextRequest) {
 
   if (!jadwal) return NextResponse.json({ error: 'Jadwal tidak ditemukan atau Anda bukan pengawas' }, { status: 404 })
 
+  // ── ANTI-TABRAKAN: satu pengawas hanya boleh fokus pada SATU sesi aktif ──
+  // Kalau guru ini punya jadwal lain (jam sama atau beda) yang sesinya sedang
+  // BERJALAN, jangan izinkan membuka sesi baru. Ini mencegah pengawas membuka
+  // 2 sesi sekaligus dan akhirnya tidak fokus mengawasi salah satunya.
+  // Sesi susulan yang sudah diambil-alih ADMIN untuk pengawas LAIN tidak dihitung,
+  // karena guru ini bukan lagi yang bertugas mengawasi sesi tersebut.
+  const { data: jadwalLainSaya } = await db
+    .from('jadwal')
+    .select('id, mapel_id, kelas')
+    .eq('pengawas', user.username)
+    .neq('id', jadwalId)
+
+  const jadwalLainIds = (jadwalLainSaya ?? []).map(j => j.id)
+  if (jadwalLainIds.length > 0) {
+    const { data: sesiLainBerjalan } = await db
+      .from('sesi_ujian')
+      .select('id, jadwal_id, kode_sesi, info_json')
+      .in('jadwal_id', jadwalLainIds)
+      .eq('status', 'BERJALAN')
+
+    const sesiMilikSayaSendiri = (sesiLainBerjalan ?? []).find(s => {
+      const pengawasSusulan = s.info_json?.dibuka_oleh_admin ? s.info_json?.pengawas_susulan : undefined
+      // Hitung sebagai "milik saya" kecuali sudah jelas diambil-alih admin untuk guru lain
+      return !pengawasSusulan || pengawasSusulan === user.username
+    })
+
+    if (sesiMilikSayaSendiri) {
+      const jadwalBentrok = (jadwalLainSaya ?? []).find(j => j.id === sesiMilikSayaSendiri.jadwal_id)
+      const { data: mapelBentrok } = jadwalBentrok
+        ? await db.from('mapel').select('nama').eq('id', jadwalBentrok.mapel_id).single()
+        : { data: null }
+
+      return NextResponse.json({
+        error: `Anda masih memiliki sesi ujian lain yang sedang berjalan${mapelBentrok ? ` (${mapelBentrok.nama} - kelas ${jadwalBentrok?.kelas})` : ''}. Tutup sesi tersebut terlebih dahulu sebelum membuka sesi baru, agar Anda bisa fokus mengawasi satu sesi pada satu waktu.`,
+        tabrakan: true,
+        sesiAktifId: sesiMilikSayaSendiri.id,
+        kodeSesi: sesiMilikSayaSendiri.kode_sesi,
+        jadwalAktifId: sesiMilikSayaSendiri.jadwal_id,
+      }, { status: 409 })
+    }
+  }
+
   // Cek apakah sesi sudah ada & berjalan
   const { data: existingSesi } = await db
     .from('sesi_ujian')
