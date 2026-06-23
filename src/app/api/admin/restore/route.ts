@@ -65,7 +65,7 @@ async function clearTable(
       // BIGSERIAL PK — pakai gt 0
       ;({ error } = await (db as any).from(table).delete().gt('id', 0))
     } else {
-      // Semua tabel lain punya created_at dan id TEXT
+      // Semua tabel lain (termasuk kisi_kisi) punya id TEXT
       ;({ error } = await (db as any).from(table).delete().not('id', 'is', null))
     }
 
@@ -94,6 +94,25 @@ export async function POST(req: NextRequest) {
   if (!payload?.tables || typeof payload.tables !== 'object') {
     return NextResponse.json(
       { error: 'Format backup tidak dikenali. Pastikan file adalah backup SmartExam.' },
+      { status: 400 }
+    )
+  }
+
+  // Validasi tambahan: pastikan file memang dari SmartExam (bukan JSON acak)
+  if (payload.app && payload.app !== 'SmartExam') {
+    return NextResponse.json(
+      { error: 'File backup bukan dari aplikasi SmartExam.' },
+      { status: 400 }
+    )
+  }
+
+  // Pastikan minimal ada satu tabel yang dikenal di dalam backup
+  const KNOWN_TABLES = new Set(DELETE_ORDER)
+  const tableKeys = Object.keys(payload.tables)
+  const hasKnownTable = tableKeys.some(k => KNOWN_TABLES.has(k))
+  if (!hasKnownTable) {
+    return NextResponse.json(
+      { error: 'File backup tidak mengandung data yang dikenali. Pastikan file adalah backup SmartExam yang valid.' },
       { status: 400 }
     )
   }
