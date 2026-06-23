@@ -100,6 +100,13 @@ export default function SiswaUjianPage() {
   const [syncFailInfo, setSyncFailInfo] = useState<{ expected: number; synced: number }>({ expected: 0, synced: 0 })
   const [manualRetrying, setManualRetrying] = useState(false)
 
+  // FIX: sebelumnya saat pengawas menutup sesi mendadak, siswa tidak mendapat
+  // pemberitahuan apa pun — tombol "Selesai" hanya diam-diam jadi nonaktif
+  // (karena terjebak loop verifikasi sync yang pasti gagal terus, sebab server
+  // menolak sync setelah sesi ditutup) sehingga aplikasi terlihat "hang".
+  // Sekarang ditampilkan notifikasi jelas begitu sesi ditutup paksa.
+  const [sesiDitutupPaksa, setSesiDitutupPaksa] = useState(false)
+
   // Fullscreen & anti-cheat state
   const [isFS, setIsFS] = useState(false)
   const [warningMsg, setWarningMsg] = useState('')
@@ -345,11 +352,14 @@ export default function SiswaUjianPage() {
         `/api/siswa/ujian/cek-sesi?sesiId=${currentSesi.sesiId}`
       )
       if (res && (res as { sesi_status?: string }).sesi_status === 'SELESAI') {
-        // Sesi ditutup pengawas → paksa selesai
+        // Sesi ditutup pengawas → tampilkan pemberitahuan jelas ke siswa,
+        // lalu paksa selesai (tanpa menunggu loop verifikasi sync yang
+        // pasti gagal, karena server sudah menolak sync untuk sesi yang ditutup).
         clearInterval(timerRef.current!)
         clearInterval(syncRef.current!)
         clearInterval(sesiPollRef.current!)
-        await handleSelesai(true)
+        setSesiDitutupPaksa(true)
+        await handleSelesai(true, true)
       }
     } catch { /* silent */ }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -397,7 +407,7 @@ export default function SiswaUjianPage() {
   // bukan asumsi "fetch tidak error = semua tersimpan". Pemanggil (terutama
   // handleSelesai) WAJIB memeriksa nilai ini sebelum menganggap ujian selesai.
   const MAX_SYNC_RETRY = 4
-  const syncJawaban = useCallback(async (): Promise<{ ok: boolean; totalSynced: number }> => {
+  const syncJawaban = useCallback(async (): Promise<{ ok: boolean; totalSynced: number; sesiClosed?: boolean }> => {
     const currentSesi = sesiInfoRef.current
     const currentJawaban = jawabanRef.current
     if (!currentSesi) return { ok: true, totalSynced: 0 }
@@ -418,6 +428,16 @@ export default function SiswaUjianPage() {
         return { ok: true, totalSynced: res.totalSynced ?? 0 }
       } catch (e) {
         console.warn(`Sync percobaan ke-${attempt} gagal:`, e)
+        // FIX: jika server menolak karena sesi sudah ditutup pengawas (409),
+        // ini bukan masalah koneksi — mengulang 4x dengan backoff hanya
+        // membuang waktu karena pasti gagal terus. Hentikan segera dan
+        // beri tahu pemanggil agar bisa menampilkan pesan yang tepat.
+        const status = (e as { status?: number } | undefined)?.status
+        if (status === 409) {
+          setSyncStatus('error')
+          setSyncErrorMsg('Sesi ujian sudah ditutup oleh pengawas.')
+          return { ok: false, totalSynced: 0, sesiClosed: true }
+        }
         if (attempt < MAX_SYNC_RETRY) {
           // Backoff bertahap: 1.5s, 3s, 4.5s — beri waktu jaringan/server pulih
           await new Promise(r => setTimeout(r, attempt * 1500))
@@ -543,7 +563,7 @@ export default function SiswaUjianPage() {
     } finally { setKodeResetLoading(false) }
   }
 
-  async function handleSelesai(isTimeout = false) {
+  async function handleSelesai(isTimeout = false, dipaksaPengawas = false) {
     if (submitting) return
     setConfirmSelesai(false)
     setSubmitting(true)
@@ -560,17 +580,29 @@ export default function SiswaUjianPage() {
     // beberapa ronde, dan baru lanjut menilai kalau jumlah jawaban yang
     // dikonfirmasi SERVER (totalSynced, dari hitungan baris di DB) sudah
     // sama dengan jumlah yang dijawab siswa secara lokal.
+    //
+    // FIX: pengecualian untuk kasus sesi ditutup paksa oleh pengawas
+    // (dipaksaPengawas=true) — di sini server SUDAH PASTI menolak setiap
+    // percobaan sync (sesi tidak BERJALAN lagi), jadi loop verifikasi ini
+    // tidak akan pernah berhasil walau diulang berapa kali pun. Sebelumnya
+    // ini membuat siswa terjebak di modal "coba lagi" selamanya tanpa
+    // penjelasan. Sekarang: coba sync sekali (best-effort, untuk menyimpan
+    // jawaban terakhir jika masih memungkinkan), lalu langsung lanjut ke
+    // penilaian dengan jawaban yang sudah tersimpan di server sejauh ini.
     const MAX_VERIFY_ROUNDS = 4
     let verified = false
     let totalSynced = 0
+    let sesiClosedDuringSync = false
     for (let round = 1; round <= MAX_VERIFY_ROUNDS; round++) {
       const result = await syncJawaban()
       totalSynced = result.totalSynced
       if (result.ok && totalSynced >= expectedCount) { verified = true; break }
+      if (result.sesiClosed) { sesiClosedDuringSync = true; setSesiDitutupPaksa(true); break }
+      if (dipaksaPengawas) break // jangan ulangi percobaan yang sudah pasti gagal
       if (round < MAX_VERIFY_ROUNDS) await new Promise(r => setTimeout(r, 2000))
     }
 
-    if (!verified) {
+    if (!verified && !dipaksaPengawas && !sesiClosedDuringSync) {
       // Jangan diam-diam lanjut menilai dengan data yang belum lengkap.
       // Tampilkan ke siswa secara jelas + beri opsi coba lagi manual atau
       // kembali menjawab dulu sambil menunggu koneksi pulih.
@@ -600,10 +632,19 @@ export default function SiswaUjianPage() {
       if (currentSesi && user?.nis) clearBackup(currentSesi.sesiId, user.nis)
     } catch (err: unknown) {
       console.error(err)
-      // Gagal memanggil endpoint penilaian (bukan sekadar sync jawaban) —
-      // beri kesempatan retry juga, jangan tampilkan layar kosong/diam.
-      setSyncFailInfo({ expected: expectedCount, synced: totalSynced })
-      setShowSyncFailModal(true)
+      if (dipaksaPengawas || sesiClosedDuringSync) {
+        // Sesi sudah ditutup pengawas dan endpoint penilaian pun gagal
+        // (kemungkinan masalah jaringan saat itu) — biarkan siswa lihat
+        // notifikasi penutupan sesi dan beri opsi coba lagi yang relevan,
+        // bukan modal generik "koneksi tidak stabil".
+        setSyncFailInfo({ expected: expectedCount, synced: totalSynced })
+        setShowSyncFailModal(true)
+      } else {
+        // Gagal memanggil endpoint penilaian (bukan sekadar sync jawaban) —
+        // beri kesempatan retry juga, jangan tampilkan layar kosong/diam.
+        setSyncFailInfo({ expected: expectedCount, synced: totalSynced })
+        setShowSyncFailModal(true)
+      }
     } finally { setSubmitting(false) }
   }
 
@@ -611,7 +652,7 @@ export default function SiswaUjianPage() {
   async function handleRetrySelesai() {
     setManualRetrying(true)
     try {
-      await handleSelesai(false)
+      await handleSelesai(false, sesiDitutupPaksa)
     } finally {
       setManualRetrying(false)
       setShowSyncFailModal(false)
@@ -801,6 +842,15 @@ export default function SiswaUjianPage() {
           </h2>
           <p className="text-sm text-slate-500 mb-6">{sesiInfo?.namaMapel}</p>
 
+          {sesiDitutupPaksa && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4 text-left flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+              <p className="text-xs text-amber-700">
+                Sesi ujian ditutup oleh pengawas sebelum Anda menekan "Selesai". Jawaban yang sudah tersimpan otomatis dinilai.
+              </p>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
             <div className="bg-slate-50 rounded-xl p-4">
               <div className="text-3xl font-bold text-slate-900">{hasilNilai.nilai}</div>
@@ -887,6 +937,20 @@ export default function SiswaUjianPage() {
                 </>
               )}
             </button>
+          </div>
+        </div>
+      )}
+
+      {sesiDitutupPaksa && phase === 'UJIAN' && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 text-center animate-fade-in">
+            <div className="w-12 h-12 rounded-full bg-amber-100 flex items-center justify-center mx-auto mb-4">
+              <AlertTriangle className="w-6 h-6 text-amber-600" />
+            </div>
+            <h3 className="text-lg font-bold text-slate-900 mb-2">Sesi Ditutup Pengawas</h3>
+            <p className="text-sm text-slate-500">
+              Pengawas telah menutup sesi ujian ini. Jawaban Anda yang sudah tersimpan sedang dinilai, mohon tunggu sebentar...
+            </p>
           </div>
         </div>
       )}
@@ -1064,20 +1128,39 @@ export default function SiswaUjianPage() {
               <div className="w-16 h-16 bg-amber-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
                 <AlertTriangle className="w-8 h-8 text-amber-600" />
               </div>
-              <h2 className="text-lg font-bold text-slate-900 mb-2">Jawaban Belum Semua Tersimpan</h2>
-              <p className="text-sm text-slate-600 mb-3">
-                Koneksi ke server tidak stabil. Baru <strong>{syncFailInfo.synced}</strong> dari{' '}
-                <strong>{syncFailInfo.expected}</strong> jawaban yang terkonfirmasi tersimpan.
-                Ujian <strong>belum akan dinilai</strong> sampai semua jawaban berhasil tersimpan,
-                supaya jawaban Anda tidak ada yang terhitung salah secara tidak adil.
-              </p>
-              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4 text-left">
-                <p className="text-xs text-amber-700">
-                  Jawaban Anda tetap aman tersimpan sementara di perangkat ini. Coba periksa koneksi
-                  internet, lalu tekan &quot;Coba Lagi&quot;. Anda juga bisa kembali menjawab dulu —
-                  sistem akan terus mencoba menyimpan otomatis di latar belakang.
-                </p>
-              </div>
+              {sesiDitutupPaksa ? (
+                <>
+                  <h2 className="text-lg font-bold text-slate-900 mb-2">Sesi Ditutup Pengawas</h2>
+                  <p className="text-sm text-slate-600 mb-3">
+                    Pengawas menutup sesi ujian ini, dan saat itu juga koneksi gagal mengirim hasil
+                    akhir ke server. Baru <strong>{syncFailInfo.synced}</strong> dari{' '}
+                    <strong>{syncFailInfo.expected}</strong> jawaban yang terkonfirmasi tersimpan.
+                  </p>
+                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4 text-left">
+                    <p className="text-xs text-amber-700">
+                      Jawaban Anda tetap aman tersimpan sementara di perangkat ini. Tekan &quot;Coba Lagi&quot;
+                      untuk mengirim ulang nilai akhir Anda. Jika masih gagal, segera hubungi pengawas atau guru.
+                    </p>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <h2 className="text-lg font-bold text-slate-900 mb-2">Jawaban Belum Semua Tersimpan</h2>
+                  <p className="text-sm text-slate-600 mb-3">
+                    Koneksi ke server tidak stabil. Baru <strong>{syncFailInfo.synced}</strong> dari{' '}
+                    <strong>{syncFailInfo.expected}</strong> jawaban yang terkonfirmasi tersimpan.
+                    Ujian <strong>belum akan dinilai</strong> sampai semua jawaban berhasil tersimpan,
+                    supaya jawaban Anda tidak ada yang terhitung salah secara tidak adil.
+                  </p>
+                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4 text-left">
+                    <p className="text-xs text-amber-700">
+                      Jawaban Anda tetap aman tersimpan sementara di perangkat ini. Coba periksa koneksi
+                      internet, lalu tekan &quot;Coba Lagi&quot;. Anda juga bisa kembali menjawab dulu —
+                      sistem akan terus mencoba menyimpan otomatis di latar belakang.
+                    </p>
+                  </div>
+                </>
+              )}
               <div className="flex gap-2">
                 <button
                   onClick={handleKembaliDariSyncFail}
