@@ -73,11 +73,11 @@ export default function AdminNilaiPage() {
     setResetting(true)
     setResetMsg('')
     try {
-      const res = await apiRequest<{ success: boolean; message: string; kode_sesi: string | null }>(
+      const res = await apiRequest<{ success: boolean; message: string }>(
         '/api/admin/nilai',
         { method: 'PATCH', body: JSON.stringify({ action: 'reset_ujian', nis: resetTarget.nis, sesi_id: resetTarget.sesi_id }) }
       )
-      setResetMsg(res.message + (res.kode_sesi ? ` Kode sesi: ${res.kode_sesi}` : ''))
+      setResetMsg(res.message)
       await load()
     } catch (e) {
       setResetMsg(e instanceof Error ? e.message : 'Reset gagal')
@@ -225,9 +225,9 @@ export default function AdminNilaiPage() {
               jawaban dan riwayat pelanggarannya di sesi tersebut.
             </p>
             <p>
-              Sesi ujian ini akan dibuka kembali <span className="font-semibold">khusus untuk siswa ini saja</span> (siswa
-              lain tidak terpengaruh), sehingga ia dapat login dan mengerjakan ujian dari awal — misalnya untuk kasus
-              sesi yang tertutup paksa oleh pengawas sebelum siswa selesai mengirim jawaban.
+              Sesi ujian <span className="font-semibold">TIDAK</span> akan dibuka secara otomatis. Setelah direset,
+              siswa ini akan tampak seperti belum pernah ujian — Anda perlu membuka akses ujian ulang secara manual
+              sendiri saat siap (misalnya lewat fitur sesi susulan, atau membuka kembali sesi yang bersangkutan).
             </p>
             <p className="text-amber-600 font-medium">Tindakan ini tidak dapat dibatalkan.</p>
           </div>
