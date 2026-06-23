@@ -4,8 +4,27 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Activity, Server, Users, AlertTriangle, ChevronDown,
   RefreshCw, Shield, Zap, Clock, Eye,
-  X, Wifi, Database, TrendingUp, Maximize2, Minimize2
+  X, Wifi, Database, TrendingUp, Maximize2, Minimize2,
+  BookOpen, CheckCircle, AlertCircle, Timer,
 } from 'lucide-react'
+
+interface SesiAktif {
+  id: string
+  kelas: string
+  mapel_id: string
+  nama_mapel: string
+  waktu_mulai: string
+  jumlah_peserta: number
+  durasi_menit: number
+}
+
+interface Pelanggaran {
+  id: string
+  nis: string
+  nama_siswa: string
+  jenis: string
+  created_at: string
+}
 
 interface MonitoringData {
   server: {
@@ -19,10 +38,13 @@ interface MonitoringData {
     aktifitas5MenitTerakhir: number
     sesiUjianAktif: number
     pelanggaranHariIni: number
+    siswaAktifMengerjakan: number
+    submitHariIni: number
   }
   logs: Array<{ id: string; user_id: string; aksi: string; detail: string; created_at: string }>
-  sesiAktif: Array<{ id: string; kelas: string; mapel_id: string; waktu_mulai: string; jumlah_peserta: number }>
-  pelanggaran: Array<{ id: string; nis: string; jenis: string; created_at: string }>
+  sesiAktif: SesiAktif[]
+  pelanggaran: Pelanggaran[]
+  maintenanceAktif: boolean
 }
 
 const STATUS_CONFIG = {
@@ -38,6 +60,13 @@ function formatAgo(iso: string) {
   if (diff < 60) return `${diff}d lalu`
   if (diff < 3600) return `${Math.floor(diff / 60)}m lalu`
   return `${Math.floor(diff / 3600)}j lalu`
+}
+
+function formatUptime(ms: number) {
+  const s = Math.floor(ms / 1000)
+  if (s < 60) return `${s}d`
+  if (s < 3600) return `${Math.floor(s / 60)}m ${s % 60}d`
+  return `${Math.floor(s / 3600)}j ${Math.floor((s % 3600) / 60)}m`
 }
 
 function roleColor(aksi: string) {
@@ -56,6 +85,31 @@ function roleLabel(aksi: string) {
   return 'Sistem'
 }
 
+// ── Poin 4 & response-time: Sparkline mini chart ──
+function Sparkline({ values, color, height = 28 }: { values: number[]; color: string; height?: number }) {
+  if (values.length < 2) return null
+  const max = Math.max(...values, 1)
+  const w = 80
+  const h = height
+  const pts = values.map((v, i) => {
+    const x = (i / (values.length - 1)) * w
+    const y = h - (v / max) * h
+    return `${x},${y}`
+  }).join(' ')
+  return (
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} style={{ display: 'block' }}>
+      <polyline points={pts} fill="none" stroke={color} strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" opacity={0.8} />
+      {/* Last dot */}
+      {(() => {
+        const last = values[values.length - 1]
+        const x = w
+        const y = h - (last / max) * h
+        return <circle cx={x} cy={y} r={2.5} fill={color} />
+      })()}
+    </svg>
+  )
+}
+
 export default function MonitoringPanel() {
   const [open, setOpen] = useState(false)
   const [fullscreen, setFullscreen] = useState(false)
@@ -65,6 +119,14 @@ export default function MonitoringPanel() {
   const [error, setError] = useState<string | null>(null)
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // Poin 4: Score history (client-side, max 12 titik)
+  const scoreHistory = useRef<number[]>([])
+  // Poin 4b: DB response time history
+  const dbHistory = useRef<number[]>([])
+  // Poin 7: Uptime panel
+  const openedAt = useRef<number>(0)
+  const [uptimeDisplay, setUptimeDisplay] = useState('0d')
 
   const fetch_ = useCallback(async () => {
     setLoading(true)
@@ -78,11 +140,14 @@ export default function MonitoringPanel() {
         signal: controller.signal,
         headers: token ? { Authorization: 'Bearer ' + token } : {},
       })
-      
       clearTimeout(timeoutId)
       if (r.ok) {
-        setData(await r.json())
+        const json: MonitoringData = await r.json()
+        setData(json)
         setLastRefresh(new Date())
+        // Simpan history score & db (max 12)
+        scoreHistory.current = [...scoreHistory.current, json.server.score].slice(-12)
+        dbHistory.current = [...dbHistory.current, json.server.dbResponseMs].slice(-12)
       } else {
         setError('Gagal memuat data server')
       }
@@ -99,16 +164,25 @@ export default function MonitoringPanel() {
 
   useEffect(() => {
     if (open) {
+      openedAt.current = Date.now()
       fetch_()
       intervalRef.current = setInterval(fetch_, 15000)
+      // Uptime ticker tiap detik
+      const uptimeTick = setInterval(() => {
+        setUptimeDisplay(formatUptime(Date.now() - openedAt.current))
+      }, 1000)
+      return () => {
+        if (intervalRef.current) clearInterval(intervalRef.current)
+        clearInterval(uptimeTick)
+      }
     } else {
       if (intervalRef.current) clearInterval(intervalRef.current)
       setFullscreen(false)
+      scoreHistory.current = []
+      dbHistory.current = []
     }
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
   }, [open, fetch_])
 
-  // Tutup fullscreen dengan Escape
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && fullscreen) setFullscreen(false) }
     window.addEventListener('keydown', onKey)
@@ -117,28 +191,24 @@ export default function MonitoringPanel() {
 
   const cfg = data ? STATUS_CONFIG[data.server.status] : STATUS_CONFIG['NORMAL']
 
-  // Dimensi panel: fullscreen atau normal
   const panelStyle: React.CSSProperties = fullscreen
     ? {
         position: 'fixed', inset: 0, zIndex: 9999,
         borderRadius: 0, width: '100vw', height: '100vh',
         background: 'linear-gradient(160deg,#0f0b2e 0%,#0d1b3e 100%)',
-        border: 'none',
-        boxShadow: 'none',
-        overflow: 'hidden',
+        border: 'none', boxShadow: 'none', overflow: 'hidden',
         display: 'flex', flexDirection: 'column',
       }
     : {
         position: 'absolute', bottom: 'calc(100% + 12px)', right: 0,
-        width: 360, borderRadius: 16,
+        width: 380, borderRadius: 16,
         background: 'linear-gradient(160deg,#0f0b2e 0%,#0d1b3e 100%)',
         border: '1px solid rgba(255,255,255,0.1)',
         boxShadow: '0 24px 64px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.04)',
-        overflow: 'hidden',
-        display: 'flex', flexDirection: 'column',
+        overflow: 'hidden', display: 'flex', flexDirection: 'column',
       }
 
-  const scrollHeight = fullscreen ? 'calc(100vh - 240px)' : '220px'
+  const scrollHeight = fullscreen ? 'calc(100vh - 240px)' : '230px'
 
   return (
     <>
@@ -160,31 +230,29 @@ export default function MonitoringPanel() {
         .mon-scroll { overflow-y:auto; scrollbar-width:thin; scrollbar-color:rgba(255,255,255,.15) transparent }
         .mon-icon-btn { background:none; border:none; cursor:pointer; color:rgba(255,255,255,0.4); padding:3px; border-radius:5px; display:flex; align-items:center; transition:color .15s }
         .mon-icon-btn:hover { color:rgba(255,255,255,0.85) }
+        .mon-maint-banner { background:rgba(245,158,11,0.18); border-bottom:1px solid rgba(245,158,11,0.35); padding:7px 16px; display:flex; align-items:center; gap:8px }
       `}</style>
 
-      {/* ── Floating Button ── */}
-      <div style={{ position:'fixed', bottom:24, right:24, zIndex: 50 }}>
+      <div style={{ position: 'fixed', bottom: 24, right: 24, zIndex: 50 }}>
 
-        {/* Panel */}
         {open && (
           <div className="mon-slide" style={panelStyle}>
 
             {/* Header */}
-            <div style={{ padding:'14px 16px 10px', borderBottom:'1px solid rgba(255,255,255,0.07)', display:'flex', alignItems:'center', gap:10, flexShrink:0 }}>
+            <div style={{ padding: '14px 16px 10px', borderBottom: '1px solid rgba(255,255,255,0.07)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
               <Server size={15} color="#94a3b8" />
-              <span style={{ flex:1, fontSize:13, fontWeight:700, color:'#fff', letterSpacing:'0.03em' }}>Monitor Sistem</span>
+              <span style={{ flex: 1, fontSize: 13, fontWeight: 700, color: '#fff', letterSpacing: '0.03em' }}>Monitor Sistem</span>
               {loading && <RefreshCw size={13} color="#64748b" className="mon-spin" />}
               {lastRefresh && !loading && (
-                <span style={{ fontSize:10, color:'rgba(255,255,255,0.3)' }}>
-                  {lastRefresh.toLocaleTimeString('id-ID', { hour:'2-digit', minute:'2-digit', second:'2-digit' })}
+                <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)' }}>
+                  {lastRefresh.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                 </span>
               )}
-              {/* Tombol Fullscreen */}
-              <button
-                className="mon-icon-btn"
-                title={fullscreen ? 'Keluar fullscreen (Esc)' : 'Fullscreen'}
-                onClick={() => setFullscreen(f => !f)}
-              >
+              {/* Poin 7: Uptime session */}
+              <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', display: 'flex', alignItems: 'center', gap: 3 }} title="Waktu sejak panel dibuka">
+                <Timer size={10} /> {uptimeDisplay}
+              </span>
+              <button className="mon-icon-btn" title={fullscreen ? 'Keluar fullscreen (Esc)' : 'Fullscreen'} onClick={() => setFullscreen(f => !f)}>
                 {fullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
               </button>
               <button className="mon-icon-btn" title="Tutup" onClick={() => setOpen(false)}>
@@ -192,93 +260,128 @@ export default function MonitoringPanel() {
               </button>
             </div>
 
+            {/* Poin 8: Maintenance Banner */}
+            {data?.maintenanceAktif && (
+              <div className="mon-maint-banner">
+                <AlertCircle size={13} color="#f59e0b" />
+                <span style={{ fontSize: 11, color: '#fcd34d', fontWeight: 700 }}>MODE MAINTENANCE AKTIF</span>
+                <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)', marginLeft: 'auto' }}>Siswa tidak bisa login</span>
+              </div>
+            )}
+
             {/* Status Bar */}
             {data && (
-              <div style={{ padding:'10px 16px', background: cfg.bg, borderBottom:'1px solid rgba(255,255,255,0.06)', display:'flex', alignItems:'center', gap:10, flexShrink:0 }}>
-                <span className="mon-pulse" style={{ width:8, height:8, borderRadius:'50%', background:cfg.color, display:'inline-block', flexShrink:0 }} />
-                <span style={{ fontSize:12, fontWeight:800, color:cfg.color, letterSpacing:'0.08em' }}>{cfg.label}</span>
-                <span style={{ marginLeft:'auto', fontSize:11, color:'rgba(255,255,255,0.4)' }}>DB {data.server.dbResponseMs}ms</span>
+              <div style={{ padding: '10px 16px', background: cfg.bg, borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+                <span className="mon-pulse" style={{ width: 8, height: 8, borderRadius: '50%', background: cfg.color, display: 'inline-block', flexShrink: 0 }} />
+                <span style={{ fontSize: 12, fontWeight: 800, color: cfg.color, letterSpacing: '0.08em' }}>{cfg.label}</span>
+                <span style={{ marginLeft: 'auto', fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>DB {data.server.dbResponseMs}ms</span>
+                {/* Poin 4b: DB sparkline mini */}
+                {dbHistory.current.length >= 2 && (
+                  <Sparkline values={dbHistory.current} color={data.server.dbResponseMs > 500 ? '#ef4444' : '#10b981'} height={20} />
+                )}
               </div>
             )}
 
             {/* Error State */}
             {error && !loading && (
-              <div style={{ padding:'10px 16px', background:'rgba(239,68,68,0.1)', borderBottom:'1px solid rgba(239,68,68,0.2)', display:'flex', alignItems:'center', gap:8 }}>
+              <div style={{ padding: '10px 16px', background: 'rgba(239,68,68,0.1)', borderBottom: '1px solid rgba(239,68,68,0.2)', display: 'flex', alignItems: 'center', gap: 8 }}>
                 <AlertTriangle size={13} color="#ef4444" />
-                <span style={{ fontSize:12, color:'#fca5a5', flex:1 }}>{error}</span>
-                <button className="mon-icon-btn" onClick={fetch_} style={{ fontSize:11, color:'#fca5a5' }}>
+                <span style={{ fontSize: 12, color: '#fca5a5', flex: 1 }}>{error}</span>
+                <button className="mon-icon-btn" onClick={fetch_} style={{ fontSize: 11, color: '#fca5a5' }}>
                   <RefreshCw size={12} />
                 </button>
               </div>
             )}
 
             {/* Tabs */}
-            <div style={{ display:'flex', padding:'8px 12px', gap:4, borderBottom:'1px solid rgba(255,255,255,0.06)', flexShrink:0 }}>
-              {(['server','aktivitas','log'] as const).map(t => (
-                <button key={t} className={`mon-tab${tab===t?' active':''}`} onClick={()=>setTab(t)}>
-                  {t==='server'?'Server':t==='aktivitas'?'Aktivitas':'Log'}
+            <div style={{ display: 'flex', padding: '8px 12px', gap: 4, borderBottom: '1px solid rgba(255,255,255,0.06)', flexShrink: 0 }}>
+              {(['server', 'aktivitas', 'log'] as const).map(t => (
+                <button key={t} className={`mon-tab${tab === t ? ' active' : ''}`} onClick={() => setTab(t)}>
+                  {t === 'server' ? 'Server' : t === 'aktivitas' ? 'Aktivitas' : 'Log'}
                 </button>
               ))}
             </div>
 
-            {/* Content — scrollable */}
-            <div style={{ padding: fullscreen ? '20px 24px' : '12px 16px 14px', flex:1, overflow:'hidden', display:'flex', flexDirection:'column' }}>
+            {/* Content */}
+            <div style={{ padding: fullscreen ? '20px 24px' : '12px 16px 14px', flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
 
               {!data && loading && (
-                <div style={{ textAlign:'center', paddingTop:40, color:'rgba(255,255,255,0.4)', fontSize:13, display:'flex', flexDirection:'column', alignItems:'center', gap:12 }}>
+                <div style={{ textAlign: 'center', paddingTop: 40, color: 'rgba(255,255,255,0.4)', fontSize: 13, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
                   <RefreshCw size={22} color="#64748b" className="mon-spin" />
                   <span>Memuat data server...</span>
                 </div>
               )}
 
               {!data && !loading && !error && (
-                <div style={{ textAlign:'center', paddingTop:40, color:'rgba(255,255,255,0.3)', fontSize:13 }}>Klik refresh untuk memuat</div>
+                <div style={{ textAlign: 'center', paddingTop: 40, color: 'rgba(255,255,255,0.3)', fontSize: 13 }}>Klik refresh untuk memuat</div>
               )}
 
               {/* TAB: SERVER */}
               {tab === 'server' && data && (
-                <div style={{ display:'flex', flexDirection:'column', gap:12, flex:1, overflow:'auto' }} className="mon-scroll">
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12, flex: 1, overflow: 'auto' }} className="mon-scroll">
 
-                  {/* Score bar */}
+                  {/* Score bar + sparkline */}
                   <div>
-                    <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
-                      <span style={{ fontSize:11, color:'rgba(255,255,255,0.45)', display:'flex', alignItems:'center', gap:5 }}>
-                        <Activity size={11}/> Beban Sistem
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, alignItems: 'center' }}>
+                      <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', display: 'flex', alignItems: 'center', gap: 5 }}>
+                        <Activity size={11} /> Beban Sistem
                       </span>
-                      <span style={{ fontSize:11, fontWeight:700, color:cfg.color }}>{data.server.score}%</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        {/* Poin 4: Score sparkline */}
+                        {scoreHistory.current.length >= 2 && (
+                          <Sparkline values={scoreHistory.current} color={cfg.color} />
+                        )}
+                        <span style={{ fontSize: 11, fontWeight: 700, color: cfg.color }}>{data.server.score}%</span>
+                      </div>
                     </div>
                     <div className="mon-bar">
-                      <div className="mon-bar-fill" style={{ width:`${data.server.score}%`, background:cfg.color }} />
+                      <div className="mon-bar-fill" style={{ width: `${data.server.score}%`, background: cfg.color }} />
                     </div>
                   </div>
 
                   {/* Metric cards */}
-                  <div style={{ display:'grid', gridTemplateColumns: fullscreen ? '1fr 1fr' : '1fr', gap:8 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: fullscreen ? '1fr 1fr' : '1fr', gap: 8 }}>
                     {[
-                      { icon:<Database size={13}/>, label:'Response DB', value:`${data.server.dbResponseMs} ms`, ok: data.server.dbResponseMs < 500 },
-                      { icon:<Wifi size={13}/>, label:'Sesi Ujian Aktif', value:`${data.aktivitas.sesiUjianAktif} sesi`, ok: data.aktivitas.sesiUjianAktif < 10 },
-                      { icon:<Zap size={13}/>, label:'Aktivitas 5 Menit', value:`${data.aktivitas.aktifitas5MenitTerakhir} aksi`, ok: data.aktivitas.aktifitas5MenitTerakhir < 50 },
-                      { icon:<Shield size={13}/>, label:'Pelanggaran Hari Ini', value:`${data.aktivitas.pelanggaranHariIni} kasus`, ok: data.aktivitas.pelanggaranHariIni === 0 },
-                    ].map((m,i) => (
-                      <div key={i} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 10px', borderRadius:10, background:'rgba(255,255,255,0.05)', border:`1px solid ${m.ok?'rgba(16,185,129,0.2)':'rgba(245,158,11,0.25)'}` }}>
-                        <span style={{ color: m.ok?'#10b981':'#f59e0b' }}>{m.icon}</span>
-                        <span style={{ flex:1, fontSize:12, color:'rgba(255,255,255,0.55)' }}>{m.label}</span>
-                        <span style={{ fontSize:12, fontWeight:700, color: m.ok?'#10b981':'#f59e0b' }}>{m.value}</span>
+                      { icon: <Database size={13} />, label: 'Response DB', value: `${data.server.dbResponseMs} ms`, ok: data.server.dbResponseMs < 500 },
+                      { icon: <Wifi size={13} />, label: 'Sesi Ujian Aktif', value: `${data.aktivitas.sesiUjianAktif} sesi`, ok: data.aktivitas.sesiUjianAktif < 10 },
+                      // Poin 5: Siswa aktif mengerjakan
+                      { icon: <Users size={13} />, label: 'Siswa Mengerjakan', value: `${data.aktivitas.siswaAktifMengerjakan} siswa`, ok: true },
+                      // Poin 6: Submit hari ini
+                      { icon: <CheckCircle size={13} />, label: 'Submit Hari Ini', value: `${data.aktivitas.submitHariIni} siswa`, ok: true },
+                      { icon: <Zap size={13} />, label: 'Aktivitas 5 Menit', value: `${data.aktivitas.aktifitas5MenitTerakhir} aksi`, ok: data.aktivitas.aktifitas5MenitTerakhir < 50 },
+                      { icon: <Shield size={13} />, label: 'Pelanggaran Hari Ini', value: `${data.aktivitas.pelanggaranHariIni} kasus`, ok: data.aktivitas.pelanggaranHariIni === 0 },
+                    ].map((m, i) => (
+                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 10, background: 'rgba(255,255,255,0.05)', border: `1px solid ${m.ok ? 'rgba(16,185,129,0.2)' : 'rgba(245,158,11,0.25)'}` }}>
+                        <span style={{ color: m.ok ? '#10b981' : '#f59e0b' }}>{m.icon}</span>
+                        <span style={{ flex: 1, fontSize: 12, color: 'rgba(255,255,255,0.55)' }}>{m.label}</span>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: m.ok ? '#10b981' : '#f59e0b' }}>{m.value}</span>
                       </div>
                     ))}
                   </div>
 
-                  {/* Sesi aktif list */}
+                  {/* Poin 1 & 2: Sesi aktif dengan nama mapel + durasi */}
                   {data.sesiAktif.length > 0 && (
                     <div>
-                      <div style={{ fontSize:11, color:'rgba(255,255,255,0.35)', marginBottom:6, display:'flex', alignItems:'center', gap:5 }}>
-                        <Eye size={11}/> Ujian Berlangsung
+                      <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 5 }}>
+                        <Eye size={11} /> Ujian Berlangsung
                       </div>
-                      <div className="mon-scroll" style={{ maxHeight: fullscreen ? 300 : 100 }}>
+                      <div className="mon-scroll" style={{ maxHeight: fullscreen ? 300 : 120 }}>
                         {data.sesiAktif.map(s => (
-                          <div key={s.id} style={{ display:'flex', justifyContent:'space-between', padding:'5px 0', borderBottom:'1px solid rgba(255,255,255,0.05)', fontSize:11 }}>
-                            <span style={{ color:'#c4b5fd' }}>Kelas {s.kelas}</span>
-                            <span style={{ color:'rgba(255,255,255,0.4)' }}>{s.jumlah_peserta} siswa</span>
+                          <div key={s.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: 11, gap: 8 }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                              {/* Poin 1: Nama mapel */}
+                              <span style={{ color: '#c4b5fd', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: fullscreen ? 300 : 160 }}>
+                                {s.nama_mapel}
+                              </span>
+                              <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 10 }}>Kelas {s.kelas}</span>
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', flexShrink: 0, gap: 2 }}>
+                              <span style={{ color: 'rgba(255,255,255,0.5)' }}>{s.jumlah_peserta} siswa</span>
+                              {/* Poin 2: Durasi berjalan */}
+                              <span style={{ color: '#f59e0b', fontSize: 10, display: 'flex', alignItems: 'center', gap: 3 }}>
+                                <BookOpen size={9} /> {s.durasi_menit}m berjalan
+                              </span>
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -289,31 +392,39 @@ export default function MonitoringPanel() {
 
               {/* TAB: AKTIVITAS */}
               {tab === 'aktivitas' && data && (
-                <div style={{ display:'flex', flexDirection:'column', gap:10, flex:1, overflow:'auto' }} className="mon-scroll">
-                  <div style={{ display:'grid', gridTemplateColumns: fullscreen ? '1fr 1fr' : '1fr', gap:10 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10, flex: 1, overflow: 'auto' }} className="mon-scroll">
+                  <div style={{ display: 'grid', gridTemplateColumns: fullscreen ? '1fr 1fr' : '1fr', gap: 10 }}>
                     {[
-                      { icon:<TrendingUp size={14}/>, label:'Login Hari Ini', value: data.aktivitas.loginHariIni, color:'#6366f1' },
-                      { icon:<Activity size={14}/>, label:'Aktivitas 5 Menit Terakhir', value: data.aktivitas.aktifitas5MenitTerakhir, color:'#10b981' },
-                      { icon:<Users size={14}/>, label:'Sesi Ujian Aktif', value: data.aktivitas.sesiUjianAktif, color:'#3b82f6' },
-                      { icon:<AlertTriangle size={14}/>, label:'Pelanggaran Hari Ini', value: data.aktivitas.pelanggaranHariIni, color: data.aktivitas.pelanggaranHariIni > 0 ? '#ef4444' : '#10b981' },
-                    ].map((m,i) => (
-                      <div key={i} style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', borderRadius:10, background:'rgba(255,255,255,0.05)' }}>
-                        <span style={{ color:m.color }}>{m.icon}</span>
-                        <span style={{ flex:1, fontSize:12, color:'rgba(255,255,255,0.6)' }}>{m.label}</span>
-                        <span style={{ fontSize: fullscreen ? 24 : 18, fontWeight:800, color:m.color }}>{m.value}</span>
+                      { icon: <TrendingUp size={14} />, label: 'Login Hari Ini', value: data.aktivitas.loginHariIni, color: '#6366f1' },
+                      { icon: <Activity size={14} />, label: 'Aktivitas 5 Menit Terakhir', value: data.aktivitas.aktifitas5MenitTerakhir, color: '#10b981' },
+                      { icon: <Users size={14} />, label: 'Sesi Ujian Aktif', value: data.aktivitas.sesiUjianAktif, color: '#3b82f6' },
+                      // Poin 5
+                      { icon: <Users size={14} />, label: 'Siswa Mengerjakan', value: data.aktivitas.siswaAktifMengerjakan, color: '#06b6d4' },
+                      // Poin 6
+                      { icon: <CheckCircle size={14} />, label: 'Submit Hari Ini', value: data.aktivitas.submitHariIni, color: '#8b5cf6' },
+                      { icon: <AlertTriangle size={14} />, label: 'Pelanggaran Hari Ini', value: data.aktivitas.pelanggaranHariIni, color: data.aktivitas.pelanggaranHariIni > 0 ? '#ef4444' : '#10b981' },
+                    ].map((m, i) => (
+                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 10, background: 'rgba(255,255,255,0.05)' }}>
+                        <span style={{ color: m.color }}>{m.icon}</span>
+                        <span style={{ flex: 1, fontSize: 12, color: 'rgba(255,255,255,0.6)' }}>{m.label}</span>
+                        <span style={{ fontSize: fullscreen ? 24 : 18, fontWeight: 800, color: m.color }}>{m.value}</span>
                       </div>
                     ))}
                   </div>
 
-                  {/* Pelanggaran terbaru */}
+                  {/* Poin 3: Pelanggaran terbaru dengan nama siswa */}
                   {data.pelanggaran.length > 0 && (
-                    <div style={{ marginTop:4 }}>
-                      <div style={{ fontSize:11, color:'rgba(255,255,255,0.35)', marginBottom:6 }}>Pelanggaran Terbaru</div>
+                    <div style={{ marginTop: 4 }}>
+                      <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginBottom: 6 }}>Pelanggaran Terbaru</div>
                       {data.pelanggaran.map(p => (
-                        <div key={p.id} style={{ display:'flex', gap:8, padding:'5px 0', borderBottom:'1px solid rgba(255,255,255,0.05)', fontSize:11 }}>
-                          <span style={{ color:'#fca5a5' }}>{p.nis}</span>
-                          <span style={{ flex:1, color:'rgba(255,255,255,0.45)', textTransform:'capitalize' }}>{p.jenis?.toLowerCase()}</span>
-                          <span style={{ color:'rgba(255,255,255,0.3)' }}>{formatAgo(p.created_at)}</span>
+                        <div key={p.id} style={{ display: 'flex', gap: 8, padding: '5px 0', borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: 11, alignItems: 'flex-start' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
+                            {/* Poin 3: Nama siswa */}
+                            <span style={{ color: '#fca5a5', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.nama_siswa}</span>
+                            <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 10 }}>{p.nis}</span>
+                          </div>
+                          <span style={{ color: 'rgba(255,255,255,0.45)', textTransform: 'capitalize', flexShrink: 0, fontSize: 10 }}>{p.jenis?.toLowerCase()}</span>
+                          <span style={{ color: 'rgba(255,255,255,0.3)', flexShrink: 0 }}>{formatAgo(p.created_at)}</span>
                         </div>
                       ))}
                     </div>
@@ -323,25 +434,25 @@ export default function MonitoringPanel() {
 
               {/* TAB: LOG */}
               {tab === 'log' && data && (
-                <div style={{ flex:1, overflow:'hidden', display:'flex', flexDirection:'column' }}>
-                  <div style={{ fontSize:11, color:'rgba(255,255,255,0.35)', marginBottom:8 }}>30 Aktivitas Terbaru</div>
-                  <div className="mon-scroll" style={{ flex:1, maxHeight: scrollHeight }}>
+                <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginBottom: 8 }}>30 Aktivitas Terbaru</div>
+                  <div className="mon-scroll" style={{ flex: 1, maxHeight: scrollHeight }}>
                     {data.logs.length === 0 && (
-                      <p style={{ color:'rgba(255,255,255,0.3)', fontSize:12, textAlign:'center', paddingTop:20 }}>Belum ada log</p>
+                      <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: 12, textAlign: 'center', paddingTop: 20 }}>Belum ada log</p>
                     )}
                     {data.logs.map(l => (
                       <div key={l.id} className="mon-log-row">
-                        <span style={{ width:6, height:6, borderRadius:'50%', background:roleColor(l.aksi), flexShrink:0, marginTop:5 }} />
-                        <div style={{ flex:1, minWidth:0 }}>
-                          <div style={{ display:'flex', gap:6, alignItems:'center' }}>
-                            <span style={{ fontSize:10, fontWeight:700, color:roleColor(l.aksi), textTransform:'uppercase', letterSpacing:'0.06em' }}>{roleLabel(l.aksi)}</span>
-                            <span style={{ fontSize:11, color:'rgba(255,255,255,0.7)', fontWeight:600 }}>{l.aksi}</span>
+                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: roleColor(l.aksi), flexShrink: 0, marginTop: 5 }} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                            <span style={{ fontSize: 10, fontWeight: 700, color: roleColor(l.aksi), textTransform: 'uppercase', letterSpacing: '0.06em' }}>{roleLabel(l.aksi)}</span>
+                            <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)', fontWeight: 600 }}>{l.aksi}</span>
                           </div>
-                          <div style={{ fontSize:10, color:'rgba(255,255,255,0.35)', marginTop:2, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
+                          <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {l.user_id} {l.detail ? `· ${l.detail}` : ''}
                           </div>
                         </div>
-                        <span style={{ fontSize:10, color:'rgba(255,255,255,0.25)', flexShrink:0, marginTop:1 }}>{formatAgo(l.created_at)}</span>
+                        <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', flexShrink: 0, marginTop: 1 }}>{formatAgo(l.created_at)}</span>
                       </div>
                     ))}
                   </div>
@@ -350,18 +461,18 @@ export default function MonitoringPanel() {
             </div>
 
             {/* Footer */}
-            <div style={{ padding:'8px 16px', borderTop:'1px solid rgba(255,255,255,0.06)', display:'flex', justifyContent:'space-between', alignItems:'center', flexShrink:0 }}>
-              <span style={{ fontSize:10, color:'rgba(255,255,255,0.25)', display:'flex', alignItems:'center', gap:4 }}>
-                <Clock size={10}/> Refresh otomatis 15 detik
+            <div style={{ padding: '8px 16px', borderTop: '1px solid rgba(255,255,255,0.06)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
+              <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                <Clock size={10} /> Refresh otomatis 15 detik
               </span>
-              <button onClick={fetch_} style={{ fontSize:10, color:'rgba(255,255,255,0.4)', background:'none', border:'none', cursor:'pointer', display:'flex', alignItems:'center', gap:4 }}>
-                <RefreshCw size={10}/> Refresh
+              <button onClick={fetch_} style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
+                <RefreshCw size={10} /> Refresh
               </button>
             </div>
           </div>
         )}
 
-        {/* Floating Button — sembunyikan saat fullscreen */}
+        {/* Floating Button */}
         {!fullscreen && (
           <button
             onClick={() => setOpen(o => !o)}
@@ -376,12 +487,19 @@ export default function MonitoringPanel() {
               position: 'relative',
             }}
           >
+            {/* Poin 8: Maintenance dot indicator di tombol */}
+            {data?.maintenanceAktif && (
+              <span style={{
+                position: 'absolute', top: -3, left: -3,
+                width: 12, height: 12, borderRadius: '50%',
+                background: '#f59e0b', border: '2px solid #0f0b2e',
+              }} title="Maintenance Aktif" />
+            )}
             {data && (
               <span className="mon-pulse" style={{
-                position:'absolute', top:-2, right:-2,
-                width:10, height:10, borderRadius:'50%',
-                background: cfg.color,
-                border:'2px solid #0f0b2e',
+                position: 'absolute', top: -2, right: -2,
+                width: 10, height: 10, borderRadius: '50%',
+                background: cfg.color, border: '2px solid #0f0b2e',
               }} />
             )}
             {open
