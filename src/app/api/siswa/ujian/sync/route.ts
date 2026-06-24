@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
   const { user } = auth
 
   const db = createAdminClient()
-  const { sesiId, jawaban } = await req.json()
+  const { sesiId, jawaban, deviceId } = await req.json()
 
   if (!sesiId) return NextResponse.json({ error: 'sesiId diperlukan' }, { status: 400 })
 
@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
   // bisa terus mengirim & menyimpan jawaban sampai ujian selesai.
   const { data: siswaUjian } = await db
     .from('siswa_ujian')
-    .select('status')
+    .select('status, device_id')
     .eq('sesi_id', sesiId)
     .eq('nis', user.nis!)
     .single()
@@ -46,6 +46,17 @@ export async function POST(req: NextRequest) {
       { status: 403 }
     )
   }
+
+  // ── Tolak sync dari device yang sudah diambil alih ───────────────────────
+  // Kalau device lain sudah login (device_id di DB berbeda), device ini tidak
+  // boleh lagi menulis jawaban — hanya device aktif yang berhak sync.
+  if (deviceId && siswaUjian?.device_id && siswaUjian.device_id !== deviceId) {
+    return NextResponse.json(
+      { error: 'Sesi ujian Anda sedang aktif di perangkat lain. Jawaban tidak bisa disimpan dari perangkat ini.' },
+      { status: 409 }
+    )
+  }
+  // ─────────────────────────────────────────────────────────────────────────
 
   if (Array.isArray(jawaban) && jawaban.length > 0) {
     const records = jawaban.map((j: { soal_id: string; jawaban: string }) => ({
