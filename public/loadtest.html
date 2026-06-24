@@ -435,6 +435,7 @@ const state = {
   guruUsername: null,
   mapelId: null,
   mapelNama: null,
+  usingForeignMapel: false,
   paketId: null,
   firstSoalId: null,
   jadwalId: null,
@@ -593,7 +594,7 @@ async function api(method, path, body, token) {
   // `role` kalau response punya field tersebut — bukan satu baseline tunggal
   // per endpoint. Endpoint tanpa field `role` tetap memakai baseline tunggal
   // seperti sebelumnya.
-  if (res.ok && json && typeof json === 'object' && !Array.isArray(json)) {
+  if (res.ok && json && typeof json === 'object' && !Array.isArray(json) && !SIGNATURE_CHECK_EXCLUDED_ENDPOINTS.has(endpointKey)) {
     const sig = Object.keys(json).sort().join('|');
     const variantKey = json.role ? `${endpointKey}::role=${json.role}` : endpointKey;
     if (!state.responseSignatures[variantKey]) {
@@ -655,8 +656,11 @@ function analyzeEndpointLatency(endpointKey, label) {
 // Jika endpoint ada di sini, checkEndpoint akan memvalidasi struktur body-nya.
 // Format: { fields: ['field1','field2'], arrayField: 'nama_array_field' }
 const ENDPOINT_SCHEMAS = {
-  'GET /api/admin/dashboard':     { fields: ['totalSiswa','totalGuru','totalMapel'] },
-  'GET /api/guru/dashboard':      { fields: ['totalSoal'] },
+  // PENTING: dashboard admin/guru membungkus angka-angkanya di dalam objek
+  // "stats" (lihat src/app/api/admin/dashboard/route.ts & guru/dashboard/route.ts),
+  // jadi field wajibnya ditulis dengan path "stats.xxx", bukan field di root.
+  'GET /api/admin/dashboard':     { fields: ['stats.totalSiswa','stats.totalGuru','stats.totalMapel'] },
+  'GET /api/guru/dashboard':      { fields: ['stats.totalSoal'] },
   'GET /api/siswa/dashboard':     { fields: [] },
   'GET /api/admin/mapel':         { arrayField: 'data' },
   'GET /api/admin/kelas':         { arrayField: 'data' },
@@ -667,7 +671,10 @@ const ENDPOINT_SCHEMAS = {
   'GET /api/guru/nilai':          { arrayField: 'data' },
   'GET /api/siswa/nilai':         { arrayField: 'data' },
   'GET /api/siswa/jadwal':        { arrayField: 'data' },
-  'GET /api/notif':               { arrayField: 'data' },
+  // /api/notif BUKAN endpoint list — ini badge counter tunggal yang bentuknya
+  // sengaja beda per role: { validasiSoal: n } untuk ADMIN, { bankSoal: n }
+  // untuk GURU (lihat src/app/api/notif/route.ts). Jangan validasi arrayField
+  // ataupun samakan strukturnya antar role di Smart Detection.
   'GET /api/admin/kisi-kisi':     { arrayField: 'data' },
   'GET /api/guru/kisi-kisi':      { arrayField: 'data' },
   'GET /api/pengawas/jadwal':     { arrayField: 'data' },
@@ -675,7 +682,9 @@ const ENDPOINT_SCHEMAS = {
   'GET /api/kepsek/nilai':        { arrayField: 'data' },
   'GET /api/admin/analisis-ujian': { fields: ['data'] },
   'GET /api/guru/analisis-ujian':  { fields: ['data'] },
-  'GET /api/public/pengaturan':   { fields: ['nama_sekolah'] },
+  // Field aslinya camelCase ("namaSekolah"), bukan snake_case — lihat
+  // src/app/api/public/pengaturan/route.ts.
+  'GET /api/public/pengaturan':   { fields: ['namaSekolah'] },
   'GET /api/admin/jadwal/rangkuman': { fields: [] },
   'GET /api/guru/wali-kelas':     { fields: [] },
   'GET /api/guru/jadwal-pengawasan': { arrayField: 'data' },
@@ -683,6 +692,20 @@ const ENDPOINT_SCHEMAS = {
   'GET /api/kepsek/dashboard':    { fields: [] },
   'GET /api/kepsek/monitoring':   { fields: [] },
 };
+
+// Endpoint yang SENGAJA boleh punya struktur response berbeda antar
+// panggilan (bukan bug) — jadi dikecualikan dari pengecekan "response
+// signature drift" di Smart Detection. Contoh: endpoint validasi yang
+// hasilnya bercabang valid/invalid dengan field yang berbeda.
+const SIGNATURE_CHECK_EXCLUDED_ENDPOINTS = new Set([
+  'POST /api/siswa/ujian/validasi', // { valid:false, message } vs { valid:true, sesiId, ... }
+  'GET /api/notif',                 // bentuknya sengaja beda per role (lihat catatan skema di atas)
+]);
+
+// Ambil nilai dari path bertitik, mis. getByPath(obj, 'stats.totalSiswa')
+function getByPath(obj, path) {
+  return path.split('.').reduce((acc, key) => (acc && typeof acc === 'object' ? acc[key] : undefined), obj);
+}
 
 // (BUG_CATEGORIES dan LATENCY_*_MS sudah dideklarasikan di atas)
 
@@ -732,7 +755,7 @@ async function checkEndpoint(label, method, path, body, token) {
   if (schema) {
     // Cek field wajib
     if (schema.fields?.length > 0) {
-      const missingFields = schema.fields.filter(f => !(f in r.data));
+      const missingFields = schema.fields.filter(f => getByPath(r.data, f) === undefined);
       if (missingFields.length > 0) {
         recordBugCat(
           BUG_CATEGORIES.STRUKTUR,
@@ -1042,18 +1065,53 @@ async function phaseSetup() {
   }
   state.guruToken = guruLogin.data.token;
 
-  // Ambil daftar mapel yang sudah ada — pakai satu yang sudah ada (mapel
-  // tidak unik per kelas, jadi aman dipakai bersama mapel sekolah asli)
-  setAction('Mengambil daftar mata pelajaran…');
-  const mapelRes = await api('GET', '/api/admin/mapel', undefined, state.adminToken);
-  if (!mapelRes.ok || !mapelRes.data?.data?.length) {
-    recordBug('Tidak ada data mapel', JSON.stringify(mapelRes.data), 'GET /api/admin/mapel');
-    throw new Error('Tidak ada mata pelajaran tersedia di aplikasi ini untuk dipakai testing.');
+  // Buat mapel testing milik guru testing SENDIRI (bukan menumpang mapel
+  // sekolah asli). Ini penting: kalau mapel dipinjam dari guru lain,
+  // GET /api/guru/nilai (yang hanya menampilkan mapel berdasarkan
+  // `mapel.guru_id === user.username`, lihat src/app/api/guru/nilai/route.ts)
+  // akan selalu mengembalikan 0 baris untuk guru testing meski
+  // GET /api/admin/nilai menunjukkan data ada — ini BUKAN bug aplikasi,
+  // cuma kesalahan setup test (riwayat: pernah salah dilaporkan sebagai
+  // "Inkonsistensi Data" karena ini).
+  setAction('Membuat mata pelajaran testing…');
+  state.mapelNama = `LOADTEST ${state.runId}`;
+  const mapelBuatRes = await api('POST', '/api/admin/mapel', {
+    nama: state.mapelNama,
+    guru_id: state.guruUsername,
+    kelas_list: state.kelasNama,
+    jumlah_opsi: 4,
+    kkm: 75,
+  }, state.adminToken);
+
+  if (mapelBuatRes.ok) {
+    const mapelListRes = await api('GET', '/api/admin/mapel', undefined, state.adminToken);
+    const found = (mapelListRes.data?.data ?? []).find(
+      m => m.nama === state.mapelNama.toUpperCase() && m.guru_id === state.guruUsername
+    );
+    if (found) {
+      state.mapelId = found.id;
+      log(`Mata pelajaran testing dibuat & dimiliki guru testing: ${state.mapelNama}`, 'ok');
+    }
   }
-  const mapel = mapelRes.data.data[0];
-  state.mapelId = mapel.id;
-  state.mapelNama = mapel.nama;
-  log(`Memakai mata pelajaran yang sudah ada: ${state.mapelNama}`, 'info');
+
+  // Fallback: kalau pembuatan mapel testing gagal (mis. tabrakan kelas di
+  // sekolah yang sudah padat), tetap pakai mapel yang sudah ada agar test
+  // bisa lanjut — tapi catat sebagai limitasi, bukan bug aplikasi, dan
+  // lewati pengecekan konsistensi admin-vs-guru nilai karena datanya
+  // memang tidak bisa apple-to-apple dalam kondisi ini.
+  if (!state.mapelId) {
+    state.usingForeignMapel = true;
+    setAction('Mengambil daftar mata pelajaran (fallback)…');
+    const mapelRes = await api('GET', '/api/admin/mapel', undefined, state.adminToken);
+    if (!mapelRes.ok || !mapelRes.data?.data?.length) {
+      recordBug('Tidak ada data mapel', JSON.stringify(mapelRes.data), 'GET /api/admin/mapel');
+      throw new Error('Tidak ada mata pelajaran tersedia di aplikasi ini untuk dipakai testing.');
+    }
+    const mapel = mapelRes.data.data[0];
+    state.mapelId = mapel.id;
+    state.mapelNama = mapel.nama;
+    log(`Gagal membuat mapel testing sendiri — memakai mata pelajaran yang sudah ada: ${state.mapelNama} (perbandingan admin-vs-guru nilai akan dilewati karena guru testing bukan pengampu mapel ini)`, 'warn');
+  }
 
   log('Fase setup selesai', 'ok');
 }
@@ -1398,7 +1456,7 @@ async function phaseFeatures() {
       await checkEndpoint('Dashboard kepsek', 'GET', '/api/kepsek/dashboard', undefined, state.kepsekToken);
       await checkEndpoint('Jadwal kepsek', 'GET', '/api/kepsek/jadwal', undefined, state.kepsekToken);
       await checkEndpoint('Monitoring kepsek', 'GET', '/api/kepsek/monitoring', undefined, state.kepsekToken);
-      await checkEndpoint('Rekap nilai kepsek', 'GET', `/api/kepsek/nilai?mapel_id=${state.mapelId}`, undefined, state.kepsekToken);
+      await checkEndpoint('Rekap nilai kepsek', 'GET', `/api/kepsek/nilai?mapel_id=${state.mapelId}&kelas=${state.kelasNama}`, undefined, state.kepsekToken);
     } else {
       recordBug('Login kepsek testing gagal', JSON.stringify(kepsekLogin.data), 'POST /api/auth/login');
     }
@@ -1701,7 +1759,7 @@ async function phaseFeatures() {
     'GET /api/admin/kisi-kisi',
     'GET /api/admin/monitoring',
     'GET /api/admin/pelanggaran',
-    'GET /api/admin/susulan',
+    'POST /api/admin/susulan',
     'GET /api/admin/pengaturan',
     'GET /api/guru/paket',
     'GET /api/guru/soal',
@@ -1748,7 +1806,7 @@ async function phaseFeatures() {
   const ENDPOINT_BELUM_DITEST = [
     'GET /api/admin/monitoring',
     'GET /api/admin/pelanggaran',
-    'GET /api/admin/susulan',
+    'POST /api/admin/susulan',
     'GET /api/admin/pengaturan',
     'GET /api/guru/soal',
     'GET /api/siswa/ujian/cek-sesi',
@@ -1770,7 +1828,18 @@ async function phaseFeatures() {
   setAction('Menguji endpoint admin yang belum tercakup…');
   await checkEndpoint('Monitoring admin', 'GET', '/api/admin/monitoring', undefined, state.adminToken);
   await checkEndpoint('Pelanggaran admin', 'GET', `/api/admin/pelanggaran?sesi_id=${state.sesiId}`, undefined, state.adminToken);
-  await checkEndpoint('Susulan admin', 'GET', '/api/admin/susulan', undefined, state.adminToken);
+  // POST tanpa body sengaja dikirim untuk memverifikasi validasi
+  // "jadwalId diperlukan" berjalan (HTTP 400 terkontrol) — TIDAK membuka
+  // sesi susulan sungguhan karena tidak ada jadwalId/pengawasUsername.
+  const susulanProbe = await api('POST', '/api/admin/susulan', {}, state.adminToken);
+  if (susulanProbe.status !== 400) {
+    recordBugCat(
+      BUG_CATEGORIES.FUNGSIONAL,
+      'Susulan admin → validasi input tidak sesuai harapan',
+      `Mengirim POST tanpa body ke /api/admin/susulan seharusnya ditolak dengan HTTP 400 ("jadwalId diperlukan"). Status yang diterima: ${susulanProbe.status}. Body: ${JSON.stringify(susulanProbe.data)}`,
+      'POST /api/admin/susulan'
+    );
+  }
   await checkEndpoint('Pengaturan admin', 'GET', '/api/admin/pengaturan', undefined, state.adminToken);
   await checkEndpoint('Daftar soal guru', 'GET', `/api/guru/soal?paket_id=${state.paketId}`, undefined, state.guruToken);
   if (state.siswaList[0]?.token) {
@@ -1779,6 +1848,9 @@ async function phaseFeatures() {
 
   // ── 6r. Cek response konsistensi data siswa di endpoint dashboard vs nilai ─
   setAction('Memverifikasi konsistensi data antar endpoint…');
+  if (state.usingForeignMapel) {
+    log('⊘ Lewati pengecekan konsistensi admin-vs-guru nilai: guru testing memakai mapel pinjaman, bukan pengampu aslinya (lihat catatan fase setup).', 'warn');
+  } else {
   const adminNilai = await api('GET', `/api/admin/nilai?mapel_id=${state.mapelId}`, undefined, state.adminToken);
   const guruNilai  = await api('GET', `/api/guru/nilai?mapel_id=${state.mapelId}`, undefined, state.guruToken);
   if (adminNilai.ok && guruNilai.ok) {
@@ -1794,6 +1866,7 @@ async function phaseFeatures() {
     } else {
       log(`✓ Jumlah nilai konsisten antar admin dan guru (${adminCount} baris)`, 'ok');
     }
+  }
   }
 
   // ── 6s. Cek endpoint GET /api/guru/soal — apakah mengembalikan soal dengan field lengkap ─
@@ -2151,6 +2224,9 @@ async function phaseSmartDetection() {
   // Bisa disebabkan oleh race di kalkulasi, rounding berbeda, atau kunci jawaban
   // yang berubah setelah ujian berlangsung.
   setAction('Verifikasi konsistensi nilai submit vs rekap…');
+  if (state.usingForeignMapel) {
+    log('⊘ Lewati verifikasi konsistensi nilai submit vs rekap: guru testing memakai mapel pinjaman.', 'warn');
+  } else {
   const rekapAdmin = await api('GET', `/api/admin/nilai?mapel_id=${state.mapelId}`, undefined, state.adminToken);
   const rekapGuru  = await api('GET', `/api/guru/nilai?mapel_id=${state.mapelId}`, undefined, state.guruToken);
 
@@ -2181,6 +2257,7 @@ async function phaseSmartDetection() {
     } else if (adminData.length > 0) {
       log(`✓ Konsistensi nilai admin vs guru: OK (${adminData.length} siswa diperiksa)`, 'ok');
     }
+  }
   }
 
   // ── 7j. BANYAK SISWA SUBMIT DI MENIT TERAKHIR SERENTAK ──
