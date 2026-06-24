@@ -3,13 +3,18 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 
+// Threshold: kalau last_heartbeat device lama lebih muda dari ini,
+// anggap device lama masih aktif → tolak login device baru.
+// Kalau lebih tua (device lama sudah lama tidak polling), izinkan takeover.
+const DEVICE_STALE_MS = 2 * 60 * 1000 // 2 menit
+
 export async function POST(req: NextRequest) {
   const auth = requireRole(req, ['SISWA'])
   if ('error' in auth) return auth.error
   const { user } = auth
 
   const db = createAdminClient()
-  const { kodeSesi, nis } = await req.json()
+  const { kodeSesi, nis, deviceId } = await req.json()
 
   if (nis !== user.nis) return NextResponse.json({ valid: false, message: 'NIS tidak sesuai' })
 
@@ -53,17 +58,13 @@ export async function POST(req: NextRequest) {
     { data: mapel },
   ] = await Promise.all([
     db.from('nilai').select('id').eq('sesi_id', sesi.id).eq('nis', nis).single(),
-    db.from('siswa_ujian').select('status, waktu_mulai, waktu_mulai_awal').eq('sesi_id', sesi.id).eq('nis', nis).single(),
+    db.from('siswa_ujian').select('status, waktu_mulai, waktu_mulai_awal, device_id, last_heartbeat').eq('sesi_id', sesi.id).eq('nis', nis).single(),
     db.from('paket_soal').select('id, acak').eq('mapel_id', sesi.mapel_id).eq('kelas_id', kelasId).eq('status', 'DISETUJUI').limit(1).single(),
     db.from('mapel').select('nama').eq('id', sesi.mapel_id).single(),
   ])
 
   // FIX: .single() mengembalikan error (PGRST116) kalau baris belum ada
-  // sama sekali — itu wajar untuk siswa baru. Tapi error LAIN (misal kolom
-  // tidak ada di skema, koneksi gagal, dst) harus dianggap kegagalan nyata,
-  // bukan "siswa belum pernah masuk". Kalau ini dibiarkan tanpa cek, error
-  // semacam itu membuat siswa dianggap selalu "entry baru" tanpa pernah
-  // benar-benar tersimpan di siswa_ujian (lihat riwayat bug LOADTEST).
+  // sama sekali — itu wajar untuk siswa baru. Tapi error LAIN harus dianggap kegagalan nyata.
   if (siswaUjianError && siswaUjianError.code !== 'PGRST116') {
     return NextResponse.json(
       { valid: false, message: 'Gagal memeriksa status ujian Anda. Coba lagi beberapa saat.' },
@@ -76,6 +77,23 @@ export async function POST(req: NextRequest) {
   if (siswaUjian?.status === 'RESET') {
     return NextResponse.json({ valid: false, perlu_kode_reset: true, sesiId: sesi.id, message: 'Akun Anda di-reset oleh pengawas karena pelanggaran. Masukkan kode 7 digit dari pengawas untuk melanjutkan ujian.' })
   }
+
+  // ── DETEKSI LOGIN GANDA (multi-device) ───────────────────────────────────
+  // Kalau ada device_id berbeda yang masih aktif (heartbeat segar < 2 menit),
+  // tolak login ini. Kalau device lama sudah stale (> 2 menit tidak heartbeat),
+  // izinkan takeover — artinya siswa pindah perangkat karena laptop rusak dll.
+  if (deviceId && siswaUjian?.device_id && siswaUjian.device_id !== deviceId) {
+    const lastHb = siswaUjian.last_heartbeat ? new Date(siswaUjian.last_heartbeat).getTime() : 0
+    const deviceLamaMasihAktif = lastHb > 0 && (Date.now() - lastHb) < DEVICE_STALE_MS
+    if (deviceLamaMasihAktif) {
+      return NextResponse.json({
+        valid: false,
+        message: 'Ujian Anda sedang aktif di perangkat lain. Tutup browser di perangkat lain terlebih dahulu, lalu coba lagi.',
+      })
+    }
+    // Device lama sudah stale — lanjut, device baru akan mengambil alih
+  }
+  // ─────────────────────────────────────────────────────────────────────────
 
   const isNewEntry = !siswaUjian
 
@@ -90,31 +108,50 @@ export async function POST(req: NextRequest) {
 
   const now = new Date().toISOString()
 
-  // FIX race condition: gunakan upsert dengan ignoreDuplicates
-  // agar submit ganda dari klik 2x tidak menghasilkan 2 row di siswa_ujian
   const [{ data: soalList }, siswaUjianWriteResult] = await Promise.all([
     soalQuery,
     isNewEntry
-      ? db.from('siswa_ujian').upsert({   // ← FIX: was insert
+      ? db.from('siswa_ujian').upsert({
           sesi_id: sesi.id, nis,
           waktu_daftar: now,
           waktu_mulai: now,
           waktu_mulai_awal: now,
           status: 'AKTIF',
-        }, { onConflict: 'sesi_id,nis', ignoreDuplicates: true })
-      : db.from('siswa_ujian').update({ status: 'AKTIF' }).eq('sesi_id', sesi.id).eq('nis', nis),
+          device_id: deviceId ?? null,
+          last_heartbeat: now,
+        }, { onConflict: 'sesi_id,nis', ignoreDuplicates: false })
+      : db.from('siswa_ujian').update({
+          status: 'AKTIF',
+          device_id: deviceId ?? siswaUjian?.device_id ?? null,
+          last_heartbeat: now,
+        }).eq('sesi_id', sesi.id).eq('nis', nis),
   ])
 
-  // FIX: kalau penulisan ke siswa_ujian gagal, JANGAN tetap balas valid:true.
-  // Sebelumnya error di sini diabaikan total — siswa tetap bisa mulai ujian
-  // padahal baris siswa_ujian-nya tidak pernah tersimpan, sehingga monitoring
-  // pengawas selalu kosong dan timer/anti-kecurangan tidak punya data.
   if (siswaUjianWriteResult.error) {
     return NextResponse.json(
       { valid: false, message: 'Gagal mendaftarkan Anda ke sesi ujian. Coba lagi beberapa saat.' },
       { status: 500 }
     )
   }
+
+  // ── Tutup race condition login bersamaan ──────────────────────────────────
+  // Setelah upsert, baca ulang device_id yang sebenarnya tersimpan.
+  // Kalau berbeda (device lain "menang" dalam race bersamaan), tolak device ini.
+  if (deviceId) {
+    const { data: aktualRow } = await db
+      .from('siswa_ujian')
+      .select('device_id')
+      .eq('sesi_id', sesi.id)
+      .eq('nis', nis)
+      .single()
+    if (aktualRow?.device_id && aktualRow.device_id !== deviceId) {
+      return NextResponse.json({
+        valid: false,
+        message: 'Ujian Anda sedang aktif di perangkat lain. Tutup browser di perangkat lain terlebih dahulu, lalu coba lagi.',
+      })
+    }
+  }
+  // ─────────────────────────────────────────────────────────────────────────
 
   if (!soalList?.length) return NextResponse.json({ valid: false, message: 'Tidak ada soal tersedia untuk ujian ini. Pastikan paket soal sudah disetujui.' })
 
