@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
+import { stripHtmlTags } from '@/lib/utils'
 
 interface Ctx { params: { id: string } }
 
@@ -23,22 +24,22 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
   const { error } = await db.from('soal').update({
     mapel_id: body.mapel_id,
     kelas_id: body.kelas_id,
-    teks: body.teks,
+    teks: stripHtmlTags(body.teks),
     // FIX: gunakan nama kolom yang sama dengan POST dan SELECT (gambar_pertanyaan, gambar_opsi_*)
     // Bug sebelumnya memakai gambar_url / gambar_a–e (nama lama) sehingga gambar hilang setelah diedit
     gambar_pertanyaan: body.gambar_pertanyaan || null,
-    opsi_a: body.opsi_a,
-    opsi_b: body.opsi_b,
-    opsi_c: body.opsi_c,
-    opsi_d: body.opsi_d || null,
-    opsi_e: body.opsi_e || null,
+    opsi_a: stripHtmlTags(body.opsi_a),
+    opsi_b: stripHtmlTags(body.opsi_b),
+    opsi_c: stripHtmlTags(body.opsi_c),
+    opsi_d: body.opsi_d ? stripHtmlTags(body.opsi_d) : null,
+    opsi_e: body.opsi_e ? stripHtmlTags(body.opsi_e) : null,
     gambar_opsi_a: body.gambar_opsi_a || null,
     gambar_opsi_b: body.gambar_opsi_b || null,
     gambar_opsi_c: body.gambar_opsi_c || null,
     gambar_opsi_d: body.gambar_opsi_d || null,
     gambar_opsi_e: body.gambar_opsi_e || null,
     kunci: body.kunci,
-    pembahasan: body.pembahasan || null,
+    pembahasan: body.pembahasan ? stripHtmlTags(body.pembahasan) : null,
     tingkat: body.tingkat,
     jumlah_opsi: parseInt(body.jumlah_opsi) || 4,
     status: existing.status === 'DITOLAK' ? 'DRAFT' : existing.status,
