@@ -68,14 +68,38 @@ export async function POST(req: NextRequest) {
     })
   }
 
-  // Ambil sesi dulu (butuh mapel_id dan kelas untuk query berikutnya)
+  // Ambil sesi dulu (butuh mapel_id, kelas, dan durasi untuk validasi waktu)
   const { data: sesi } = await db
     .from('sesi_ujian')
-    .select('mapel_id, kelas')
+    .select('mapel_id, kelas, durasi')
     .eq('id', sesiId)
     .single()
 
   if (!sesi) return NextResponse.json({ error: 'Sesi tidak ditemukan' }, { status: 404 })
+
+  // ── VALIDASI WAKTU SERVER ─────────────────────────────────────────────────
+  // Cek apakah submit masih dalam jendela waktu yang sah.
+  // waktu_mulai_awal adalah referensi tunggal yang tidak pernah berubah
+  // (bahkan setelah reset pelanggaran). Toleransi 60 detik untuk mengakomodasi
+  // jeda jaringan wajar saat auto-submit timeout.
+  const { data: siswaUjianWaktu } = await db
+    .from('siswa_ujian')
+    .select('waktu_mulai_awal')
+    .eq('sesi_id', sesiId)
+    .eq('nis', nis)
+    .single()
+
+  if (siswaUjianWaktu?.waktu_mulai_awal && sesi.durasi) {
+    const batasWaktu = new Date(siswaUjianWaktu.waktu_mulai_awal).getTime() + sesi.durasi * 60 * 1000
+    const toleransiMs = 60 * 1000 // 60 detik grace period untuk jeda jaringan
+    if (Date.now() > batasWaktu + toleransiMs) {
+      return NextResponse.json(
+        { error: 'Waktu ujian Anda sudah habis. Jawaban yang sudah tersimpan akan dinilai secara otomatis oleh sistem.' },
+        { status: 409 }
+      )
+    }
+  }
+  // ─────────────────────────────────────────────────────────────────────────
 
   // FIX: sesi.kelas = nama kelas, tapi paket_soal.kelas_id = ID dari tabel kelas
   // Lookup ID kelas terlebih dahulu
