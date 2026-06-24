@@ -61,6 +61,7 @@ export default function KepsekDashboard() {
   const [fetchedAt, setFetchedAt] = useState(Date.now())
   const [nowMs, setNowMs] = useState(Date.now())
   const [showTidakHadir, setShowTidakHadir] = useState(false)
+  const [siteInfo, setSiteInfo] = useState({ namaSekolah: '', tahunAjaran: '' })
 
   const load = useCallback(async () => {
     try {
@@ -70,7 +71,28 @@ export default function KepsekDashboard() {
     } finally { setLoading(false) }
   }, [])
 
-  useEffect(() => { load() }, [load])
+  // Sama seperti Dashboard Admin: ambil nama sekolah & tahun ajaran dari
+  // pengaturan, bukan hardcode teks tetap. Sebelumnya subtitle di sini
+  // SELALU menampilkan "MTS Alkhairaat Tatakalai" apa pun isi pengaturan
+  // sekolah yang sebenarnya — bug ini yang dilaporkan.
+  const loadSiteInfo = useCallback(() => {
+    fetch('/api/public/pengaturan?t=' + Date.now(), { cache: 'no-store' })
+      .then(r => r.json())
+      .then(json => {
+        if (json?.data) setSiteInfo({
+          namaSekolah: json.data.namaSekolah ?? '',
+          tahunAjaran: json.data.tahunAjaran ?? '',
+        })
+      })
+      .catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    load()
+    loadSiteInfo()
+    window.addEventListener('pengaturan-changed', loadSiteInfo)
+    return () => window.removeEventListener('pengaturan-changed', loadSiteInfo)
+  }, [load, loadSiteInfo])
 
   // Refresh data tiap 30 detik agar status sesi tetap akurat
   useEffect(() => {
@@ -101,7 +123,11 @@ export default function KepsekDashboard() {
       <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
           <h1 className="page-title">Dashboard Kepala Sekolah</h1>
-          <p className="page-subtitle">Ringkasan akademik MTS Alkhairaat Tatakalai</p>
+          <p className="page-subtitle">
+            {siteInfo.namaSekolah
+              ? `Ringkasan akademik ${siteInfo.namaSekolah}${siteInfo.tahunAjaran ? ' · Tahun Ajaran ' + siteInfo.tahunAjaran : ''}`
+              : 'Ringkasan akademik sekolah'}
+          </p>
         </div>
         <Link href="/kepsek/jadwal" className="btn-secondary btn-sm">
           <CalendarClock className="w-4 h-4" /> Lihat Semua Jadwal
