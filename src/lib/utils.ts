@@ -75,6 +75,68 @@ export function generateId(prefix: string): string {
   return `${prefix}_${Date.now()}_${random}`
 }
 
+// Konten soal (teks pertanyaan, opsi jawaban, pembahasan) seharusnya teks
+// polos, bukan HTML — jadi paling aman dibuang seluruhnya, bukan dicoba
+// "dibersihkan" jadi HTML aman.
+function stripOneTagPass(str: string): string {
+  let result = ''
+  let i = 0
+  while (i < str.length) {
+    const ch = str[i]
+    if (ch === '<' && /^[a-zA-Z!/]/.test(str[i + 1] ?? '')) {
+      const nextLt = str.indexOf('<', i + 1)
+      const nextGt = str.indexOf('>', i + 1)
+      if (nextGt !== -1 && (nextLt === -1 || nextGt < nextLt)) {
+        // Tag valid ditemukan: lompat ke setelah '>' penutupnya, buang isinya.
+        i = nextGt + 1
+        continue
+      }
+    }
+    result += ch
+    i++
+  }
+  return result
+}
+
+// Ini lapisan pertahanan KEDUA (defense-in-depth) — semua titik render
+// saat ini (src/app/siswa/ujian/page.tsx, src/app/guru/**,
+// src/app/admin/soal/page.tsx) sudah memakai JSX text interpolation
+// ({soal.teks}) yang otomatis di-escape React, jadi XSS TIDAK bisa
+// tereksekusi lewat jalur manapun yang ada saat ini. Sanitasi di server
+// ini menjaga keamanan tetap terjaga seandainya nanti ada fitur baru yang
+// merender field ini lewat innerHTML/dangerouslySetInnerHTML (mis. fitur
+// rich-text/equation-editor di masa depan), atau kalau data soal di-export
+// ke sistem lain yang merender HTML mentah.
+//
+// Pendekatan yang dipakai: scanner kiri-ke-kanan dengan lookahead,
+// dijalankan berulang sampai fixed-point (bukan sekali) supaya tahan
+// terhadap tag yang ditumpuk/disembunyikan berlapis
+// (mis. "<<script>script>...</script>/script>"). '<' hanya dianggap awal
+// tag kalau diikuti huruf/'/'/'!' DAN ada '>' penutup sebelum '<'
+// berikutnya — ini menjaga simbol perbandingan matematika berspasi macam
+// "3 < x < 7" atau "a < b dan c > d" tetap aman.
+//
+// Trade-off yang disadari dan diterima: pola sangat spesifik berupa
+// variabel satu-huruf tanpa spasi diikuti '>' lain di tempat tak terduga
+// (mis. "x<y dan p>q dan <script>...") bisa salah memangkas sedikit teks
+// di antaranya, karena 'y' setelah '<' valid sebagai awal nama tag HTML.
+// Kasus ini dianggap dapat diterima karena: (1) sangat tidak lazim dalam
+// penulisan soal nyata (variabel matematika lazimnya ditulis dengan
+// spasi: "x < y"), dan (2) alternatif yang mencoba menutup celah ini
+// (depth-counter, HTML-entity-encoding) masing-masing terbukti merusak
+// kasus matematika yang jauh lebih umum/lazim ditulis guru — lihat
+// histori perubahan fungsi ini untuk detail percobaan yang ditolak.
+export function stripHtmlTags(input: unknown): string {
+  if (input === null || input === undefined) return ''
+  let text = String(input)
+  let prev: string
+  do {
+    prev = text
+    text = stripOneTagPass(text)
+  } while (text !== prev)
+  return text.trim()
+}
+
 export function apiRequest<T = unknown>(
   url: string,
   options?: RequestInit
