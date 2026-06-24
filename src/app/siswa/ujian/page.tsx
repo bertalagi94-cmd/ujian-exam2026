@@ -73,6 +73,21 @@ function clearBackup(sesiId: string, nis: string) {
   try { localStorage.removeItem(backupKey(sesiId, nis)) } catch { /* abaikan */ }
 }
 
+// ── Device ID — identitas unik per browser/device ────────────────────────
+// Dibuat sekali, disimpan di localStorage, dipakai konsisten sepanjang sesi.
+// Digunakan server untuk mendeteksi login ganda dari device berbeda.
+function getDeviceId(): string {
+  try {
+    const stored = localStorage.getItem('ujian_device_id')
+    if (stored) return stored
+    const id = `dev_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`
+    localStorage.setItem('ujian_device_id', id)
+    return id
+  } catch {
+    return `dev_fallback_${Math.random().toString(36).slice(2, 9)}`
+  }
+}
+
 export default function SiswaUjianPage() {
   const [phase, setPhase] = useState<Phase>('KODE')
   const [kode, setKode] = useState('')
@@ -119,6 +134,7 @@ export default function SiswaUjianPage() {
   const [pendingResetSesiId, setPendingResetSesiId] = useState<string | null>(null)
 
   // Logout paksa karena pelanggaran melebihi batas
+  const [diambilAlihDevice, setDiambilAlihDevice] = useState(false)
   const [dikeluarkan, setDikeluarkan] = useState(false)
   const [batasPelanggaran, setBatasPelanggaran] = useState(3)
 
@@ -348,10 +364,19 @@ export default function SiswaUjianPage() {
     const currentPhase = phaseRef.current
     if (!currentSesi || currentPhase !== 'UJIAN') return
     try {
-      const res = await apiRequest<{ sesi_status?: string; siswa_status?: string } | null>(
-        `/api/siswa/ujian/cek-sesi?sesiId=${currentSesi.sesiId}`
+      const res = await apiRequest<{ sesi_status?: string; siswa_status?: string; diambil_alih_device_lain?: boolean } | null>(
+        `/api/siswa/ujian/cek-sesi?sesiId=${currentSesi.sesiId}&deviceId=${getDeviceId()}`
       )
       if (!res) return
+
+      // Deteksi takeover oleh device lain — hentikan semua interval, tampilkan overlay
+      if ((res as { diambil_alih_device_lain?: boolean }).diambil_alih_device_lain) {
+        clearInterval(timerRef.current!)
+        clearInterval(syncRef.current!)
+        clearInterval(sesiPollRef.current!)
+        setDiambilAlihDevice(true)
+        return
+      }
 
       // FIX BUG A+B: cek status SISWA (TERKUNCI) selain status SESI (SELESAI).
       // Sebelumnya polling hanya bereaksi kalau sesi ditutup pengawas — kalau
@@ -445,6 +470,7 @@ export default function SiswaUjianPage() {
           body: JSON.stringify({
             sesiId: currentSesi.sesiId,
             jawaban: entries.map(([soal_id, jwb]) => ({ soal_id, jawaban: jwb })),
+            deviceId: getDeviceId(),
           }),
         })
         setSyncStatus('synced')
@@ -458,9 +484,13 @@ export default function SiswaUjianPage() {
         // beri tahu pemanggil agar bisa menampilkan pesan yang tepat.
         const status = (e as { status?: number } | undefined)?.status
         if (status === 409) {
+          const msg = (e as { data?: { error?: string } } | undefined)?.data?.error ?? ''
+          const isTakeover = msg.includes('perangkat lain')
           setSyncStatus('error')
-          setSyncErrorMsg('Sesi ujian sudah ditutup oleh pengawas.')
-          return { ok: false, totalSynced: 0, sesiClosed: true }
+          setSyncErrorMsg(isTakeover
+            ? 'Sesi Anda diambil alih perangkat lain.'
+            : 'Sesi ujian sudah ditutup oleh pengawas.')
+          return { ok: false, totalSynced: 0, sesiClosed: !isTakeover }
         }
         if (attempt < MAX_SYNC_RETRY) {
           // Backoff bertahap: 1.5s, 3s, 4.5s — beri waktu jaringan/server pulih
@@ -528,7 +558,7 @@ export default function SiswaUjianPage() {
         sesiId?: string
       } & SesiInfo>('/api/siswa/ujian/validasi', {
         method: 'POST',
-        body: JSON.stringify({ kodeSesi: kode.trim().toUpperCase(), nis: user.nis }),
+        body: JSON.stringify({ kodeSesi: kode.trim().toUpperCase(), nis: user.nis, deviceId: getDeviceId() }),
       })
 
       // Siswa dalam status RESET — perlu kode 7 digit dari pengawas
@@ -574,7 +604,7 @@ export default function SiswaUjianPage() {
         const user = JSON.parse(localStorage.getItem('user') ?? '{}')
         const sesiRes = await apiRequest<{ valid: boolean; message?: string } & SesiInfo>('/api/siswa/ujian/validasi', {
           method: 'POST',
-          body: JSON.stringify({ kodeSesi: kode.trim().toUpperCase(), nis: user.nis }),
+          body: JSON.stringify({ kodeSesi: kode.trim().toUpperCase(), nis: user.nis, deviceId: getDeviceId() }),
         })
         if (!sesiRes.valid) { setError(sesiRes.message ?? 'Gagal masuk ujian'); setPhase('KODE'); return }
         setSesiInfo(sesiRes)
@@ -832,6 +862,29 @@ export default function SiswaUjianPage() {
           <p className="mt-4 text-xs text-slate-400">
             Hubungi pengawas di ruangan untuk mendapatkan kode reset.
           </p>
+        </div>
+      </div>
+    )
+  }
+
+  // ── Phase: DIAMBIL ALIH DEVICE LAIN ──────────────────────────────────────
+  if (diambilAlihDevice) {
+    return (
+      <div className="max-w-md mx-auto animate-fade-in">
+        <div className="card text-center">
+          <div className="w-20 h-20 bg-amber-100 rounded-3xl flex items-center justify-center mx-auto mb-4">
+            <AlertTriangle className="w-10 h-10 text-amber-600" />
+          </div>
+          <h2 className="text-xl font-bold text-slate-900 mb-2">Sesi Diambil Alih Perangkat Lain</h2>
+          <p className="text-sm text-slate-500 mb-4">
+            Akun Anda login dari perangkat lain. Browser ini tidak lagi bisa menyimpan jawaban.
+          </p>
+          <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-6">
+            <p className="text-xs text-amber-700">Jika ini kesalahan, tutup browser di perangkat lain dan masuk kembali dari sini. Hubungi pengawas jika butuh bantuan.</p>
+          </div>
+          <button onClick={() => window.location.reload()} className="btn-secondary w-full justify-center">
+            Coba Masuk Lagi
+          </button>
         </div>
       </div>
     )
