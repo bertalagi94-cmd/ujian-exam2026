@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 import { generateId } from '@/lib/utils'
+import { cachedFetch } from '@/lib/cache'
 
 export async function POST(req: NextRequest) {
   const auth = requireRole(req, ['SISWA'])
@@ -19,9 +20,14 @@ export async function POST(req: NextRequest) {
   // dan jawabannya tetap dihitung. Sekarang ditolak — kecuali nilai SUDAH ada
   // (misal hasil kunci_permanen) sehingga early-return di bawah tetap berfungsi
   // untuk menampilkan hasil yang sudah final.
+  //
+  // FIX PERFORMA (load test 25 Jun 2026, 05.37): query ini sebelumnya dipecah
+  // jadi 2 round-trip terpisah ke tabel siswa_ujian (satu untuk `status`, satu
+  // lagi belakangan untuk `waktu_mulai_awal`). Sekarang digabung jadi SATU
+  // query — keduanya dari baris yang sama, tidak ada alasan dipisah.
   const { data: siswaUjianCheck } = await db
     .from('siswa_ujian')
-    .select('status')
+    .select('status, waktu_mulai_awal')
     .eq('sesi_id', sesiId)
     .eq('nis', nis)
     .single()
@@ -68,29 +74,83 @@ export async function POST(req: NextRequest) {
     })
   }
 
-  // Ambil sesi dulu (butuh mapel_id, kelas, dan durasi untuk validasi waktu)
-  const { data: sesi } = await db
-    .from('sesi_ujian')
-    .select('mapel_id, kelas, durasi')
-    .eq('id', sesiId)
-    .single()
+  // FIX PERFORMA (load test 25 Jun 2026, 05.37): data di bawah ini — sesi,
+  // ID kelas, KKM mapel, paket soal yang dipakai, jumlah soal, dan kunci semua
+  // soal di paket — SAMA untuk SEMUA siswa di sesi ujian yang sama. Sebelumnya
+  // semua ini di-query ULANG dari Supabase setiap kali SATU siswa submit.
+  // Saat banyak siswa submit hampir bersamaan (mis. mendekati waktu habis),
+  // ini jadi puluhan query IDENTIK menghantam DB berbarengan → antrian/kontensi
+  // → latency melonjak (load test mencatat respons sampai ~65 detik) →
+  // sebagian request timeout/connection drop ("Submit selesai gagal").
+  //
+  // Sekarang di-cache 5 menit per sesi_id (memakai cachedFetch yang sama
+  // dengan src/app/api/public/pengaturan/route.ts) — jadi cuma di-query SEKALI
+  // per sesi, dipakai bersama oleh semua siswa yang submit dalam 5 menit itu.
+  // Trade-off: kalau admin mengubah paket/kunci soal di tengah sesi berjalan,
+  // perubahan baru terasa maks. 5 menit kemudian — sama seperti trade-off yang
+  // sudah diterima di endpoint pengaturan.
+  const sesiCache = await cachedFetch(`selesai:sesi:${sesiId}`, 300, async () => {
+    const { data: sesi } = await db
+      .from('sesi_ujian')
+      .select('mapel_id, kelas, durasi')
+      .eq('id', sesiId)
+      .single()
+    if (!sesi) return null
 
-  if (!sesi) return NextResponse.json({ error: 'Sesi tidak ditemukan' }, { status: 404 })
+    // FIX: sesi.kelas = nama kelas, tapi paket_soal.kelas_id = ID dari tabel kelas
+    const { data: kelasRow } = await db
+      .from('kelas')
+      .select('id')
+      .eq('nama', String(sesi.kelas))
+      .maybeSingle()
+    const kelasId = kelasRow?.id ?? String(sesi.kelas)
+
+    const [{ data: mapel }, { data: paketData }] = await Promise.all([
+      db.from('mapel').select('kkm').eq('id', sesi.mapel_id).single(),
+      db.from('paket_soal')
+        .select('id, jumlah_soal')
+        .eq('mapel_id', sesi.mapel_id)
+        .eq('kelas_id', kelasId)   // ← FIX: pakai kelasId bukan sesi.kelas
+        .eq('status', 'DISETUJUI')
+        .limit(1)
+        .single(),
+    ])
+
+    const [{ count: totalSoalCount }, { data: soalList }] = await Promise.all([
+      db.from('soal')
+        .select('*', { count: 'exact', head: true })
+        .eq('mapel_id', sesi.mapel_id)
+        .eq('status', 'DISETUJUI')
+        .eq('paket_id', paketData?.id ?? ''),
+      // Ambil kunci SEMUA soal di paket ini sekaligus (bukan per-siswa
+      // berdasarkan soal yang dia jawab) — supaya satu hasil cache ini bisa
+      // dipakai untuk menghitung nilai siswa MANAPUN di sesi ini, bukan cuma
+      // siswa yang memicu query pertama kali.
+      db.from('soal')
+        .select('id, kunci')
+        .eq('mapel_id', sesi.mapel_id)
+        .eq('paket_id', paketData?.id ?? '')
+        .eq('status', 'DISETUJUI'),
+    ])
+
+    return {
+      sesi,
+      kkm: mapel?.kkm ?? 75,
+      totalSoal: totalSoalCount ?? paketData?.jumlah_soal ?? 0,
+      kunciMap: Object.fromEntries((soalList ?? []).map(s => [s.id, s.kunci])) as Record<string, string>,
+    }
+  })
+
+  if (!sesiCache) return NextResponse.json({ error: 'Sesi tidak ditemukan' }, { status: 404 })
+  const { sesi, kkm, totalSoal, kunciMap } = sesiCache
 
   // ── VALIDASI WAKTU SERVER ─────────────────────────────────────────────────
   // Cek apakah submit masih dalam jendela waktu yang sah.
   // waktu_mulai_awal adalah referensi tunggal yang tidak pernah berubah
   // (bahkan setelah reset pelanggaran). Toleransi 60 detik untuk mengakomodasi
   // jeda jaringan wajar saat auto-submit timeout.
-  const { data: siswaUjianWaktu } = await db
-    .from('siswa_ujian')
-    .select('waktu_mulai_awal')
-    .eq('sesi_id', sesiId)
-    .eq('nis', nis)
-    .single()
-
-  if (siswaUjianWaktu?.waktu_mulai_awal && sesi.durasi) {
-    const batasWaktu = new Date(siswaUjianWaktu.waktu_mulai_awal).getTime() + sesi.durasi * 60 * 1000
+  if (siswaUjianCheck?.waktu_mulai_awal && sesi.durasi) {
+    const batasWaktu = new Date(siswaUjianCheck.waktu_mulai_awal).getTime() + sesi.durasi * 60 * 1000
     const toleransiMs = 60 * 1000 // 60 detik grace period untuk jeda jaringan
     if (Date.now() > batasWaktu + toleransiMs) {
       return NextResponse.json(
@@ -101,52 +161,13 @@ export async function POST(req: NextRequest) {
   }
   // ─────────────────────────────────────────────────────────────────────────
 
-  // FIX: sesi.kelas = nama kelas, tapi paket_soal.kelas_id = ID dari tabel kelas
-  // Lookup ID kelas terlebih dahulu
-  const { data: kelasRow } = await db
-    .from('kelas')
-    .select('id')
-    .eq('nama', String(sesi.kelas))
-    .maybeSingle()
-  const kelasId = kelasRow?.id ?? String(sesi.kelas)
+  // Jawaban siswa ini TETAP harus di-query per-siswa (berbeda untuk tiap
+  // siswa, tidak bisa di-cache bersama).
+  const { data: jawabanSiswa } = await db
+    .from('jawaban').select('soal_id, jawaban').eq('sesi_id', sesiId).eq('nis', nis)
 
-  // Query mapel, paket, jawaban siswa — semua PARALEL (tidak saling bergantung)
-  const [
-    { data: mapel },
-    { data: paketData },
-    { data: jawabanSiswa },
-  ] = await Promise.all([
-    db.from('mapel').select('kkm').eq('id', sesi.mapel_id).single(),
-    db.from('paket_soal')
-      .select('id, jumlah_soal')
-      .eq('mapel_id', sesi.mapel_id)
-      .eq('kelas_id', kelasId)   // ← FIX: pakai kelasId bukan sesi.kelas
-      .eq('status', 'DISETUJUI')
-      .limit(1)
-      .single(),
-    db.from('jawaban').select('soal_id, jawaban').eq('sesi_id', sesiId).eq('nis', nis),
-  ])
-
-  const kkm = mapel?.kkm ?? 75
-
-  // Hitung jumlah soal & ambil kunci — PARALEL
-  const [{ count: totalSoalCount }, { data: soalKunci }] = await Promise.all([
-    db.from('soal')
-      .select('*', { count: 'exact', head: true })
-      .eq('mapel_id', sesi.mapel_id)
-      .eq('status', 'DISETUJUI')
-      .eq('paket_id', paketData?.id ?? ''),
-    jawabanSiswa?.length
-      ? db.from('soal').select('id, kunci').in('id', jawabanSiswa.map(j => j.soal_id))
-      : Promise.resolve({ data: [] }),
-  ])
-
-  const totalSoal = totalSoalCount ?? paketData?.jumlah_soal ?? 0
-
-  // Hitung nilai
-  const kunciMap: Record<string, string> = Object.fromEntries(
-    (soalKunci ?? []).map(s => [s.id, s.kunci])
-  )
+  // Hitung nilai — kunciMap sudah didapat dari cache di atas, tidak perlu
+  // query soal lagi di sini.
   let benar = 0
   const total = totalSoal > 0 ? totalSoal : (jawabanSiswa?.length ?? 0)
 
