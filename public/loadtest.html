@@ -1408,6 +1408,42 @@ async function phaseExam() {
 
   log(`Sync jawaban: ${syncOk} berhasil, ${syncFail} gagal`, syncFail === 0 ? 'ok' : 'warn');
 
+  // ---------- 5b-bis. Simulasi polling cek-sesi SERENTAK (heartbeat burst) ----------
+  // Di aplikasi asli, SETIAP siswa yang sedang ujian melakukan polling
+  // GET /api/siswa/ujian/cek-sesi berkala (mis. tiap beberapa detik) untuk:
+  // - cek apakah sesi masih BERJALAN / sudah ditutup pengawas
+  // - deteksi device takeover
+  // - update last_heartbeat
+  // Ini BERBEDA dari endpoint admin (dipakai 1-2 orang) — cek-sesi dipanggil
+  // oleh SEMUA siswa aktif SECARA BERSAMAAN dan BERULANG selama ujian
+  // berlangsung, sehingga lebih representatif diuji sebagai burst konkuren
+  // (Promise.all sungguhan), bukan satu per satu seperti checkEndpoint biasa.
+  if (loggedInSiswa.length > 0) {
+    setAction(`Simulasi ${loggedInSiswa.length} siswa polling cek-sesi serentak (heartbeat)…`);
+    const ROUNDS = 3; // simulasikan beberapa siklus heartbeat, bukan cuma sekali
+    let pollOk = 0, pollFail = 0;
+    for (let round = 0; round < ROUNDS; round++) {
+      if (state.stopRequested) break;
+      const burstResults = await Promise.all(loggedInSiswa.map(siswa =>
+        api('GET', `/api/siswa/ujian/cek-sesi?sesiId=${state.sesiId}&deviceId=${siswa.nis}_device`, undefined, siswa.token)
+          .catch(e => ({ ok: false, status: 0, error: e.message }))
+      ));
+      for (const r of burstResults) { if (r.ok) pollOk++; else pollFail++; }
+      setProgress(((round + 1) / ROUNDS) * 100, `Heartbeat ${round + 1}/${ROUNDS} (${loggedInSiswa.length} siswa serentak)`);
+      if (round < ROUNDS - 1) await sleep(800); // jeda antar siklus heartbeat, mirip interval polling asli
+    }
+    log(`Polling cek-sesi serentak: ${pollOk} sukses, ${pollFail} gagal (${ROUNDS} siklus × ${loggedInSiswa.length} siswa)`, pollFail === 0 ? 'ok' : 'warn');
+    if (pollFail > loggedInSiswa.length * ROUNDS * 0.05) { // toleransi 5%
+      recordBugCat(
+        BUG_CATEGORIES.LATENSI,
+        `Polling cek-sesi serentak banyak gagal saat ${loggedInSiswa.length} siswa heartbeat bersamaan`,
+        `Dari ${ROUNDS} siklus × ${loggedInSiswa.length} siswa = ${ROUNDS * loggedInSiswa.length} panggilan GET /api/siswa/ujian/cek-sesi serentak, ${pollFail} gagal. Endpoint ini dipanggil oleh SEMUA siswa aktif secara berkala selama ujian berlangsung, jadi kegagalan di sini berdampak langsung ke pengalaman ujian real (siswa bisa salah dianggap "device takeover" atau gagal update heartbeat).`,
+        'GET /api/siswa/ujian/cek-sesi (burst serentak)'
+      );
+    }
+    analyzeEndpointLatency('GET /api/siswa/ujian/cek-sesi', 'GET /api/siswa/ujian/cek-sesi (polling serentak)');
+  }
+
   // Submit selesai ujian
   setAction('Mensimulasikan siswa submit ujian…');
   let selesaiOk = 0;
@@ -1756,7 +1792,31 @@ async function phaseFeatures() {
     'warn'
   );
 
-  // ── 6p. Deteksi endpoint yang ada di API tapi belum pernah ditest ────────
+  // ── 6p (bagian 1). Uji endpoint yang sebelumnya tidak tercakup ───────────
+  setAction('Menguji endpoint admin yang belum tercakup…');
+  await checkEndpoint('Monitoring admin', 'GET', '/api/admin/monitoring', undefined, state.adminToken);
+  await checkEndpoint('Pelanggaran admin', 'GET', `/api/admin/pelanggaran?sesi_id=${state.sesiId}`, undefined, state.adminToken);
+  // POST tanpa body sengaja dikirim untuk memverifikasi validasi
+  // "jadwalId diperlukan" berjalan (HTTP 400 terkontrol) — TIDAK membuka
+  // sesi susulan sungguhan karena tidak ada jadwalId/pengawasUsername.
+  const susulanProbe = await api('POST', '/api/admin/susulan', {}, state.adminToken);
+  if (susulanProbe.status !== 400) {
+    recordBugCat(
+      BUG_CATEGORIES.FUNGSIONAL,
+      'Susulan admin → validasi input tidak sesuai harapan',
+      `Mengirim POST tanpa body ke /api/admin/susulan seharusnya ditolak dengan HTTP 400 ("jadwalId diperlukan"). Status yang diterima: ${susulanProbe.status}. Body: ${JSON.stringify(susulanProbe.data)}`,
+      'POST /api/admin/susulan'
+    );
+  }
+  await checkEndpoint('Pengaturan admin', 'GET', '/api/admin/pengaturan', undefined, state.adminToken);
+  await checkEndpoint('Daftar soal guru', 'GET', `/api/guru/soal?paket_id=${state.paketId}`, undefined, state.guruToken);
+  if (state.siswaList[0]?.token) {
+    await checkEndpoint('Cek status sesi (siswa polling)', 'GET', `/api/siswa/ujian/cek-sesi?sesiId=${state.sesiId}`, undefined, state.siswaList[0].token);
+  }
+
+  // ── 6p (bagian 2). Deteksi endpoint yang ada di API tapi MASIH belum pernah ditest ──
+  // Dijalankan SETELAH blok pengujian di atas, supaya endpoint yang baru
+  // saja diuji tidak salah dilaporkan sebagai "belum diuji".
   setAction('Memeriksa cakupan endpoint yang diuji…');
   const SEMUA_ENDPOINT_DIKETAHUI = [
     'GET /api/admin/dashboard',
@@ -1808,25 +1868,21 @@ async function phaseFeatures() {
     'POST /api/siswa/ujian/selesai',
     'POST /api/siswa/ujian/pelanggaran',
     'POST /api/siswa/ujian/verifikasi-reset',
-    'POST /api/siswa/ujian/cek-sesi',
+    'GET /api/siswa/ujian/cek-sesi',
     // Endpoint yang BELUM diuji otomatis (destruktif/berat)
     // 'POST /api/admin/backup', 'POST /api/admin/restore', 'POST /api/admin/reset'
     // 'POST /api/admin/import', 'GET /api/admin/cetak', 'POST /api/guru/paket/[id]/duplicate'
   ];
 
-  // Endpoint yang DITEST di sesi ini (dikumpulkan dari seluruh panggilan api())
-  // Kita gunakan pendekatan sederhana: cek mana dari daftar di atas yang TIDAK
-  // tersentuh berdasarkan endpoint_schemas + logika test yang kita tahu.
-  // Endpoint yang tidak ada di ENDPOINT_SCHEMAS dan tidak masuk alur test utama:
-  const ENDPOINT_BELUM_DITEST = [
-    'GET /api/admin/monitoring',
-    'GET /api/admin/pelanggaran',
-    'POST /api/admin/susulan',
-    'GET /api/admin/pengaturan',
-    'GET /api/guru/soal',
-    'GET /api/siswa/ujian/cek-sesi',
-    'POST /api/siswa/ujian/cek-sesi',
-  ];
+  // Cek endpoint yang benar-benar belum dipanggil sama sekali sepanjang
+  // sesi test ini, berdasarkan state.endpointCallCount (diisi otomatis oleh
+  // fungsi api() setiap kali ada panggilan). Pendekatan dinamis ini lebih
+  // akurat dibanding daftar hardcoded — daftar hardcoded sebelumnya bisa
+  // melaporkan endpoint sebagai "belum diuji" padahal sebenarnya SUDAH
+  // diuji di blok 6p bagian 1 di atas.
+  const ENDPOINT_BELUM_DITEST = SEMUA_ENDPOINT_DIKETAHUI.filter(
+    ep => !state.endpointCallCount[ep]
+  );
 
   if (ENDPOINT_BELUM_DITEST.length > 0) {
     recordBugCat(
@@ -1837,28 +1893,6 @@ async function phaseFeatures() {
     );
   } else {
     log('✓ Semua endpoint yang diketahui sudah diuji', 'ok');
-  }
-
-  // ── 6q. Cek response body untuk pelanggaran/susulan admin ────────────────
-  setAction('Menguji endpoint admin yang belum tercakup…');
-  await checkEndpoint('Monitoring admin', 'GET', '/api/admin/monitoring', undefined, state.adminToken);
-  await checkEndpoint('Pelanggaran admin', 'GET', `/api/admin/pelanggaran?sesi_id=${state.sesiId}`, undefined, state.adminToken);
-  // POST tanpa body sengaja dikirim untuk memverifikasi validasi
-  // "jadwalId diperlukan" berjalan (HTTP 400 terkontrol) — TIDAK membuka
-  // sesi susulan sungguhan karena tidak ada jadwalId/pengawasUsername.
-  const susulanProbe = await api('POST', '/api/admin/susulan', {}, state.adminToken);
-  if (susulanProbe.status !== 400) {
-    recordBugCat(
-      BUG_CATEGORIES.FUNGSIONAL,
-      'Susulan admin → validasi input tidak sesuai harapan',
-      `Mengirim POST tanpa body ke /api/admin/susulan seharusnya ditolak dengan HTTP 400 ("jadwalId diperlukan"). Status yang diterima: ${susulanProbe.status}. Body: ${JSON.stringify(susulanProbe.data)}`,
-      'POST /api/admin/susulan'
-    );
-  }
-  await checkEndpoint('Pengaturan admin', 'GET', '/api/admin/pengaturan', undefined, state.adminToken);
-  await checkEndpoint('Daftar soal guru', 'GET', `/api/guru/soal?paket_id=${state.paketId}`, undefined, state.guruToken);
-  if (state.siswaList[0]?.token) {
-    await checkEndpoint('Cek status sesi (siswa polling)', 'GET', `/api/siswa/ujian/cek-sesi?sesiId=${state.sesiId}`, undefined, state.siswaList[0].token);
   }
 
   // ── 6r. Cek response konsistensi data siswa di endpoint dashboard vs nilai ─
@@ -2217,6 +2251,9 @@ async function phaseSmartDetection() {
     ['GET /api/admin/dashboard', '/api/admin/dashboard', state.adminToken],
     ['GET /api/guru/nilai', `/api/guru/nilai?mapel_id=${state.mapelId}`, state.guruToken],
     ['GET /api/admin/nilai', `/api/admin/nilai?mapel_id=${state.mapelId}`, state.adminToken],
+    // Ambil seluruh tabel siswa & mapel tanpa filter setiap dipanggil — layak
+    // dipantau juga seiring jumlah siswa/log aktivitas bertambah.
+    ['GET /api/admin/monitoring', '/api/admin/monitoring', state.adminToken],
   ];
   for (const [key, path, token] of endpointsToCheck) {
     // Ambil 3 sampel latensi sekarang (data sudah banyak)
