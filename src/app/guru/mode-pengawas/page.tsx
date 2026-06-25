@@ -102,9 +102,9 @@ function KodeSesiDisplay({ kode }: { kode: string }) {
   return (
     <div className="flex flex-col items-center gap-4 py-6">
       <div className="text-sm font-semibold text-slate-500 uppercase tracking-widest">Kode Sesi Ujian</div>
-      <div className="flex items-center gap-2">
+      <div className="flex items-center justify-center gap-1.5 flex-wrap px-2">
         {kode.split('').map((char, i) => (
-          <div key={i} className="w-11 h-14 rounded-xl bg-gradient-to-b from-emerald-500 to-emerald-600 flex items-center justify-center text-white text-2xl font-black shadow-lg select-all">
+          <div key={i} className="w-9 h-11 sm:w-11 sm:h-14 rounded-xl bg-gradient-to-b from-emerald-500 to-emerald-600 flex items-center justify-center text-white text-xl sm:text-2xl font-black shadow-lg select-all">
             {char}
           </div>
         ))}
@@ -434,11 +434,12 @@ export default function ModePengawasPage() {
                               <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Peserta Ujian</div>
                               <div className="space-y-1.5 max-h-72 overflow-y-auto">
                                 {siswaList.map(sw => (
-                                  <div key={sw.nis} className={`flex items-center gap-3 px-3 py-2 rounded-xl text-sm ${sw.status === 'TERKUNCI' ? 'bg-red-50 border border-red-100' : sw.status === 'RESET' ? 'bg-amber-50 border border-amber-100' : sw.status === 'SELESAI' ? 'bg-slate-50' : 'bg-white border border-slate-100'}`}>
-                                    <div className="flex-1 min-w-0">
+                                  <div key={sw.nis} className={`flex items-center gap-2 flex-wrap px-3 py-2 rounded-xl text-sm ${sw.status === 'TERKUNCI' ? 'bg-red-50 border border-red-100' : sw.status === 'RESET' ? 'bg-amber-50 border border-amber-100' : sw.status === 'SELESAI' ? 'bg-slate-50' : 'bg-white border border-slate-100'}`}>
+                                    <div className="flex-1 min-w-0 basis-32">
                                       <div className="font-medium text-slate-800 truncate">{sw.nama}</div>
                                       <div className="text-xs text-slate-400 font-mono">{sw.nis}</div>
                                     </div>
+                                    <div className="flex items-center gap-2 flex-wrap">
                                     <span className={`text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${sw.status === 'AKTIF' ? 'bg-emerald-100 text-emerald-700' : sw.status === 'SELESAI' ? 'bg-blue-100 text-blue-700' : sw.status === 'RESET' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}>
                                       {sw.status === 'AKTIF' ? '● Ujian' : sw.status === 'SELESAI' ? '✓ Selesai' : sw.status === 'RESET' ? '⏳ Tunggu Kode' : '🔒 Terkunci'}
                                     </span>
@@ -460,6 +461,7 @@ export default function ModePengawasPage() {
                                         <KeyRound className="w-3 h-3" />{sw.kode_reset}
                                       </div>
                                     )}
+                                    </div>
                                   </div>
                                 ))}
                               </div>
@@ -474,11 +476,12 @@ export default function ModePengawasPage() {
                               </div>
                               <div className="space-y-1 max-h-48 overflow-y-auto">
                                 {pelList.map(p => (
-                                  <div key={p.id} className="flex items-center gap-2 px-3 py-2 bg-red-50 rounded-xl text-xs">
-                                    <div className="flex-1 min-w-0">
-                                      <span className="font-semibold text-slate-800">{p.nama_siswa}</span>
+                                  <div key={p.id} className="flex items-start gap-2 flex-wrap px-3 py-2 bg-red-50 rounded-xl text-xs">
+                                    <div className="flex-1 min-w-0 basis-28">
+                                      <span className="font-semibold text-slate-800 break-words">{p.nama_siswa}</span>
                                       <span className="text-slate-400 font-mono ml-1">{p.nis}</span>
                                     </div>
+                                    <div className="flex items-center gap-2 flex-wrap">
                                     <span className="bg-red-100 text-red-700 font-bold px-2 py-0.5 rounded-full">{terjemahJenis(p.jenis)}</span>
                                     <span className="text-slate-400">{new Date(p.created_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}</span>
                                     <button
@@ -487,6 +490,7 @@ export default function ModePengawasPage() {
                                     >
                                       <RotateCcw className="w-3 h-3" /> Reset
                                     </button>
+                                    </div>
                                   </div>
                                 ))}
                               </div>
