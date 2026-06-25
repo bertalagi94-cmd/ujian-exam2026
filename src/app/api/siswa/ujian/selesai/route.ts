@@ -42,6 +42,7 @@ export async function POST(req: NextRequest) {
 
     if (nilaiSudahAda) {
       return NextResponse.json({
+        id: nilaiSudahAda.id,
         nilai: nilaiSudahAda.nilai,
         grade: nilaiSudahAda.grade,
         benar: nilaiSudahAda.benar,
@@ -66,6 +67,7 @@ export async function POST(req: NextRequest) {
 
   if (nilaiExist) {
     return NextResponse.json({
+      id: nilaiExist.id,
       nilai: nilaiExist.nilai,
       grade: nilaiExist.grade,
       benar: nilaiExist.benar,
@@ -208,5 +210,18 @@ export async function POST(req: NextRequest) {
       .eq('nis', nis),
   ])
 
-  return NextResponse.json({ nilai: nilaiAngka, grade, benar, total, lulus })
+  // FIX: ignoreDuplicates berarti kalau ada race (klik 2x / retry jaringan)
+  // dan baris untuk (sesi_id, nis) ini SUDAH ada duluan dari request lain,
+  // insert kita di-skip diam-diam — nilaiData.id yang kita generate di atas
+  // BUKAN id yang benar-benar tersimpan di tabel. Ambil ulang id sebenarnya
+  // supaya link "lihat rincian" yang dikirim ke client selalu valid.
+  const { data: nilaiTersimpan } = await db
+    .from('nilai')
+    .select('id')
+    .eq('sesi_id', sesiId)
+    .eq('nis', nis)
+    .single()
+  const nilaiIdFinal = nilaiTersimpan?.id ?? nilaiData.id
+
+  return NextResponse.json({ id: nilaiIdFinal, nilai: nilaiAngka, grade, benar, total, lulus })
 }
