@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { BarChart3, TrendingUp, Trophy, BookOpen } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { BarChart3, TrendingUp, Trophy, BookOpen, ChevronRight } from 'lucide-react'
 import { PageLoader, EmptyState, Badge } from '@/components/ui'
 import { apiRequest, formatDateTime, nilaiColor } from '@/lib/utils'
 import { Nilai } from '@/types'
@@ -9,6 +10,7 @@ import { Nilai } from '@/types'
 interface NilaiStats { totalUjian: number; rataRata: number; nilaiTertinggi: number; nilaiTerendah: number }
 
 export default function SiswaNilaiPage() {
+  const router = useRouter()
   const [nilaiList, setNilaiList] = useState<Nilai[]>([])
   const [stats, setStats] = useState<NilaiStats | null>(null)
   const [loading, setLoading] = useState(true)
@@ -67,11 +69,12 @@ export default function SiswaNilaiPage() {
                   <th>KKM</th>
                   <th>Status</th>
                   <th>Tanggal</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
                 {nilaiList.map((n, i) => (
-                  <tr key={n.id}>
+                  <tr key={n.id} onClick={() => router.push(`/siswa/nilai/${n.id}`)} className="cursor-pointer hover:bg-slate-50">
                     <td className="text-slate-400 text-xs">{i + 1}</td>
                     <td className="font-medium text-slate-800">{n.nama_mapel}</td>
                     <td>
@@ -93,6 +96,11 @@ export default function SiswaNilaiPage() {
                       </span>
                     </td>
                     <td className="text-xs text-slate-400">{formatDateTime(n.timestamp)}</td>
+                    <td className="text-right">
+                      <span className="inline-flex items-center gap-1 text-xs font-medium text-brand-600">
+                        Rincian <ChevronRight className="w-3.5 h-3.5" />
+                      </span>
+                    </td>
                   </tr>
                 ))}
               </tbody>
