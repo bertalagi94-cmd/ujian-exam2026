@@ -185,7 +185,7 @@ export default function AdminNilaiPage() {
                         className="btn-secondary btn-sm whitespace-nowrap"
                         title="Reset nilai agar siswa dapat ujian ulang"
                       >
-                        <RotateCcw className="w-3.5 h-3.5" /> Ujian Ulang
+                        <RotateCcw className="w-3.5 h-3.5" /> Reset Nilai
                       </button>
                     </td>
                   </tr>
