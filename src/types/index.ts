@@ -71,6 +71,10 @@ export interface Jadwal {
   // Hanya relevan ketika status === 'BERJALAN'.
   pengawas_aktif?: string | null
   is_pengawas_susulan?: boolean
+  // Diisi khusus untuk akun siswa: true kalau siswa ini sudah submit
+  // jawaban untuk jadwal ini (lihat src/app/api/siswa/jadwal/route.ts).
+  sudah_ikut?: boolean
+  nilai_id?: string | null
 }
 
 export interface PaketSoal {
