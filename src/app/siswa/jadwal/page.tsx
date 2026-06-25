@@ -1,10 +1,33 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { Calendar, Clock } from 'lucide-react'
+import Link from 'next/link'
+import { Calendar, Clock, CheckCircle2 } from 'lucide-react'
 import { PageLoader, EmptyState, StatusBadge } from '@/components/ui'
 import { apiRequest, formatDate } from '@/lib/utils'
 import { Jadwal } from '@/types'
+
+function StatusJadwalSiswa({ j }: { j: Jadwal }) {
+  // Siswa yang sudah submit jawaban ditampilkan "sudah mengikuti", bukan
+  // status sesi mentah (yang masih "Berjalan" sampai pengawas menutup sesi,
+  // padahal buat siswa ini sendiri urusannya sudah selesai). Detail nilai
+  // SENGAJA tidak ditampilkan di sini — sudah ada di menu Nilai, link saja.
+  if (j.sudah_ikut) {
+    return (
+      <div className="flex flex-col items-end gap-1">
+        <span className="badge badge-green flex items-center gap-1 whitespace-nowrap">
+          <CheckCircle2 className="w-3.5 h-3.5" /> Anda sudah mengikuti ujian ini
+        </span>
+        {j.nilai_id && (
+          <Link href={`/siswa/nilai/${j.nilai_id}`} className="text-xs font-medium text-brand-600 hover:underline">
+            Lihat nilai →
+          </Link>
+        )}
+      </div>
+    )
+  }
+  return <StatusBadge status={j.status} />
+}
 
 export default function SiswaJadwalPage() {
   const [jadwal, setJadwal] = useState<Jadwal[]>([])
@@ -74,7 +97,7 @@ export default function SiswaJadwalPage() {
                         <span>Sesi {j.sesi}</span>
                       </div>
                     </div>
-                    <StatusBadge status={j.status} />
+                    <StatusJadwalSiswa j={j} />
                   </div>
                 ))}
               </div>
@@ -109,7 +132,7 @@ export default function SiswaJadwalPage() {
                         <span>Sesi {j.sesi}</span>
                       </div>
                     </div>
-                    <StatusBadge status={j.status} />
+                    <StatusJadwalSiswa j={j} />
                   </div>
                 ))}
               </div>
@@ -131,7 +154,7 @@ export default function SiswaJadwalPage() {
                       <div className="font-medium text-slate-700">{j.nama_mapel}</div>
                       <div className="text-xs text-slate-400">{j.jam_mulai} – {j.jam_selesai}</div>
                     </div>
-                    <StatusBadge status={j.status} />
+                    <StatusJadwalSiswa j={j} />
                   </div>
                 ))}
               </div>
