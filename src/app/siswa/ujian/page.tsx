@@ -99,7 +99,7 @@ export default function SiswaUjianPage() {
   const [error, setError] = useState('')
   const [confirmSelesai, setConfirmSelesai] = useState(false)
   const [submitting, setSubmitting] = useState(false)
-  const [hasilNilai, setHasilNilai] = useState<{ nilai: number; benar: number; total: number; grade: string; lulus: boolean } | null>(null)
+  const [hasilNilai, setHasilNilai] = useState<{ id?: string; nilai: number; benar: number; total: number; grade: string; lulus: boolean } | null>(null)
 
   // ── Status sinkronisasi jawaban ke server ─────────────────────────────────
   // 'idle' = belum ada perubahan yang perlu disinkron
@@ -686,7 +686,7 @@ export default function SiswaUjianPage() {
     try {
       const user = JSON.parse(localStorage.getItem('user') ?? '{}')
       const currentSesi = sesiInfoRef.current
-      const res = await apiRequest<{ nilai: number; benar: number; total: number; grade: string; lulus: boolean }>('/api/siswa/ujian/selesai', {
+      const res = await apiRequest<{ id?: string; nilai: number; benar: number; total: number; grade: string; lulus: boolean }>('/api/siswa/ujian/selesai', {
         method: 'POST',
         body: JSON.stringify({
           sesiId: currentSesi!.sesiId,
@@ -969,6 +969,15 @@ export default function SiswaUjianPage() {
           <button onClick={() => window.location.href = '/siswa'} className="btn-primary w-full justify-center">
             Kembali ke Beranda
           </button>
+
+          {hasilNilai.id && (
+            <button
+              onClick={() => window.location.href = `/siswa/nilai/${hasilNilai.id}`}
+              className="btn-secondary w-full justify-center mt-3"
+            >
+              Yuk, Lihat Rincian Per Soal 😊
+            </button>
+          )}
         </div>
       </div>
     )
