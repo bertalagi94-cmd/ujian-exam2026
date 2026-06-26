@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Save, Settings, School, Shield, WrenchIcon,
   ToggleLeft, ToggleRight, Upload, Trash2, Image, AlertTriangle,
-  Download, FolderOpen, RotateCcw, DatabaseZap, CheckSquare, Square,
+  Download, FolderOpen, RotateCcw, DatabaseZap, CheckSquare, Square, Clock,
 } from 'lucide-react'
 import { Toast, Spinner, Confirm } from '@/components/ui'
 import { HackerPopup, HackerPopupType } from '@/components/ui/HackerPopup'
@@ -42,6 +42,8 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   tahunAjaran: '',
   batasPelanggaran: '3',
   jumlahOpsi: '4',
+  minSubmitAktif: 'false',
+  minSubmitMenit: '45',
   logoUrl: '',
   maintenanceAktif: 'false',
   maintenancePesan: '',
@@ -86,6 +88,8 @@ export default function AdminPengaturanPage() {
   const [hackerFile, setHackerFile] = useState<string>()
   const [hackerSize, setHackerSize] = useState<string>()
   const hackerDoneRef = useRef<() => void>()
+
+  const [togglingMinSubmit, setTogglingMinSubmit] = useState(false)
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => setToast({ msg, type })
 
@@ -329,6 +333,28 @@ export default function AdminPengaturanPage() {
     'bg-slate-100 text-slate-600'
 
   const isMaintenance = values.maintenanceAktif === 'true'
+  const isMinSubmitAktif = values.minSubmitAktif === 'true'
+
+  async function handleToggleMinSubmit() {
+    setTogglingMinSubmit(true)
+    try {
+      const targetAktif = !isMinSubmitAktif
+      const res = await apiRequest<{ message: string }>('/api/admin/pengaturan/batas-submit', {
+        method: 'POST',
+        body: JSON.stringify({
+          aktif: targetAktif,
+          menit: parseInt(values.minSubmitMenit) || 45,
+        }),
+      })
+      set('minSubmitAktif', String(targetAktif))
+      showToast(res.message)
+      window.dispatchEvent(new Event('pengaturan-changed'))
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Gagal mengubah pengaturan', 'error')
+    } finally {
+      setTogglingMinSubmit(false)
+    }
+  }
 
   if (loading) {
     return (
@@ -557,6 +583,70 @@ export default function AdminPengaturanPage() {
             </div>
           </div>
 
+          {/* ── Batas Minimal Waktu Submit ── */}
+          <div className={`card space-y-4 ${isMinSubmitAktif ? 'border-2 border-brand-400' : ''}`}>
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <Clock className="w-4 h-4 text-brand-600" />
+                <h2 className="font-semibold text-slate-900">Batas Minimal Waktu Submit</h2>
+                {isMinSubmitAktif && (
+                  <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-brand-100 text-brand-700">AKTIF</span>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={handleToggleMinSubmit}
+                disabled={togglingMinSubmit}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  isMinSubmitAktif
+                    ? 'bg-brand-100 text-brand-700 hover:bg-brand-200'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                {togglingMinSubmit
+                  ? <Spinner size="sm" />
+                  : isMinSubmitAktif
+                  ? <><ToggleRight className="w-4 h-4" /> Nonaktifkan</>
+                  : <><ToggleLeft className="w-4 h-4" /> Aktifkan</>}
+              </button>
+            </div>
+
+            <p className="text-sm text-slate-500">
+              Jika diaktifkan, siswa tidak dapat mengirim jawaban sebelum durasi minimal tercapai — meskipun semua soal sudah terjawab. Berlaku untuk sesi yang dibuka setelah pengaturan ini diaktifkan. Tidak dapat diubah saat ada sesi yang sedang berjalan.
+            </p>
+
+            <div className="flex items-end gap-4 flex-wrap">
+              <div className="flex-1 min-w-[160px] max-w-xs">
+                <label className="label">Durasi Minimal (menit)</label>
+                <input
+                  type="number"
+                  className="input"
+                  min={1}
+                  max={300}
+                  value={values.minSubmitMenit}
+                  onChange={e => set('minSubmitMenit', e.target.value)}
+                  placeholder="Contoh: 45"
+                />
+                <p className="text-xs text-slate-400 mt-1">Siswa baru bisa submit setelah menit ke-{values.minSubmitMenit || '?'}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => saveSection(['minSubmitMenit'], 'Durasi Minimal Submit')}
+                className="btn-secondary btn-sm mb-6"
+                disabled={savingSection === 'Durasi Minimal Submit'}
+              >
+                {savingSection === 'Durasi Minimal Submit' ? <Spinner size="sm" /> : <><Save className="w-4 h-4" /> Simpan Durasi</>}
+              </button>
+            </div>
+
+            {isMinSubmitAktif && (
+              <div className="flex items-start gap-2 p-3 bg-brand-50 border border-brand-200 rounded-lg text-sm text-brand-800">
+                <Shield className="w-4 h-4 mt-0.5 shrink-0" />
+                <span>Aktif: siswa wajib mengerjakan minimal <strong>{values.minSubmitMenit} menit</strong> sebelum bisa mengirim jawaban.</span>
+              </div>
+            )}
+          </div>
+
           {/* Info ringkasan keamanan */}
           <div className="card space-y-4">
             <div className="flex items-center gap-2 pb-3 border-b border-slate-100">
@@ -568,6 +658,7 @@ export default function AdminPengaturanPage() {
                 { label: 'Batas Pelanggaran', value: values.batasPelanggaran + 'x', desc: 'Sebelum siswa dikunci' },
                 { label: 'Jumlah Opsi Default', value: values.jumlahOpsi + ' opsi', desc: 'Untuk soal baru' },
                 { label: 'Maintenance', value: isMaintenance ? 'Aktif' : 'Nonaktif', desc: 'Status saat ini', highlight: isMaintenance },
+                { label: 'Min. Waktu Submit', value: isMinSubmitAktif ? values.minSubmitMenit + ' menit' : 'Nonaktif', desc: isMinSubmitAktif ? 'Siswa wajib tunggu' : 'Tidak dibatasi', highlight: isMinSubmitAktif },
               ].map(item => (
                 <div key={item.label} className={`p-3 rounded-lg border ${item.highlight ? 'bg-amber-50 border-amber-200' : 'bg-slate-50 border-slate-100'}`}>
                   <div className={`font-semibold text-base ${item.highlight ? 'text-amber-700' : 'text-slate-800'}`}>{item.value}</div>
