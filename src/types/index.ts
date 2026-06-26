@@ -66,6 +66,7 @@ export interface Jadwal {
   nama_mapel?: string
   nama_pengawas?: string
   status_soal?: 'BELUM_ADA' | 'DRAFT' | 'MENUNGGU' | 'DITOLAK' | 'DISETUJUI'
+  status_soal_guru?: string | null
   // Pengawas yang BENAR-BENAR aktif sekarang (bisa pengawas asli, atau
   // pengawas susulan yang ditugaskan admin saat membuka ujian susulan).
   // Hanya relevan ketika status === 'BERJALAN'.
