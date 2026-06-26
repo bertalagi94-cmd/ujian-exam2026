@@ -909,7 +909,8 @@ export default function SiswaUjianPage() {
     // Sesi sudah ditutup pengawas dan siswa belum sempat ikut
     if (sesiSudahTutup.length > 0 && jadwalHariIni.length === 0) {
       return (
-        <div className="max-w-md mx-auto animate-fade-in">
+        <div className="max-w-md mx-auto animate-fade-in space-y-4">
+          {/* Banner peringatan sesi ditutup */}
           <div className="card">
             <div className="w-14 h-14 bg-red-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
               <AlertTriangle className="w-7 h-7 text-red-500" />
@@ -930,8 +931,17 @@ export default function SiswaUjianPage() {
                 </div>
               ))}
             </div>
-            <div className="bg-amber-50 border border-amber-100 rounded-xl px-4 py-3 text-sm text-amber-700">
-              Hubungi guru atau pengawas jika kamu merasa ini adalah kesalahan.
+            <div className="bg-amber-50 border border-amber-100 rounded-xl px-4 py-3 text-sm text-amber-700 mb-4">
+              Anda tidak sempat ikut ujian ini. Minta Guru atau pengawas untuk mengikuti ujian susulan.
+            </div>
+            <div className="pt-2 border-t border-slate-100">
+              <p className="text-xs text-slate-400 mb-3 text-center">
+                Jika ada sesi susulan yang dibuka pengawas, tekan tombol di bawah untuk memperbarui.
+              </p>
+              <button onClick={handleRefreshJadwal} disabled={loadingJadwal}
+                className="btn-secondary w-full justify-center gap-2">
+                {loadingJadwal ? <Spinner size="sm" /> : <><RefreshCw className="w-4 h-4" /> Cek Ulang Sesi</>}
+              </button>
             </div>
           </div>
         </div>
