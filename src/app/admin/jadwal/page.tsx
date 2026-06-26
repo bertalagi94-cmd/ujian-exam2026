@@ -346,6 +346,14 @@ export default function AdminJadwalPage() {
   const [page, setPage] = useState(1)
   const [modalOpen, setModalOpen] = useState(false)
   const [editData, setEditData] = useState<Partial<Jadwal> | null>(null)
+  // Nilai form yang dipantau real-time (di luar React Hook Form bawaan) khusus
+  // untuk menghitung peringatan bentrok jadwal SEBELUM admin klik Simpan.
+  // Input form tetap uncontrolled (defaultValue) seperti semula — state ini
+  // hanya "cermin" ringan yang diperbarui lewat onChange agar tidak mengubah
+  // perilaku submit (FormData) yang sudah berjalan baik.
+  const [formWatch, setFormWatch] = useState<{
+    tanggal?: string; jam_mulai?: string; jam_selesai?: string; kelas?: string; pengawas?: string
+  }>({})
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [perluLengkapiPengaturan, setPerluLengkapiPengaturan] = useState(false)
@@ -431,6 +439,50 @@ export default function AdminJadwalPage() {
   })
 
   const paginated = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE)
+
+  // Buka modal Tambah (tanpa argumen) atau Edit (dengan data jadwal).
+  // Mengganti pola lama yang menulis 4 setState terpisah di setiap tombol,
+  // sekaligus mengisi formWatch agar peringatan bentrok langsung akurat
+  // saat membuka form Edit (bukan menunggu admin mengubah sesuatu dulu).
+  function openModal(j?: Jadwal) {
+    setEditData(j ?? {})
+    setSelectedMapelId(j?.mapel_id ?? '')
+    setPerluLengkapiPengaturan(false)
+    setFormWatch({
+      tanggal: j?.tanggal?.slice(0, 10) ?? '',
+      jam_mulai: j?.jam_mulai ?? '',
+      jam_selesai: j?.jam_selesai ?? '',
+      kelas: j?.kelas ?? '',
+      pengawas: j?.pengawas ?? '',
+    })
+    setModalOpen(true)
+  }
+
+  // Peringatan bentrok real-time — dihitung dari data jadwal yang sudah ada
+  // di memori (state `jadwal`), jadi tidak perlu panggilan API tambahan.
+  // Ini HANYA peringatan di sisi tampilan; validasi sebenarnya tetap di
+  // backend (route.ts) supaya tidak bisa dilewati lewat request langsung.
+  const konflikKelas = (() => {
+    const { tanggal, jam_mulai, jam_selesai, kelas } = formWatch
+    if (!tanggal || !jam_mulai || !jam_selesai || !kelas) return null
+    return jadwal.find(j =>
+      j.id !== editData?.id &&
+      j.kelas === kelas &&
+      j.tanggal.slice(0, 10) === tanggal &&
+      jam_mulai < j.jam_selesai && jam_selesai > j.jam_mulai
+    ) ?? null
+  })()
+
+  const konflikPengawas = (() => {
+    const { tanggal, jam_mulai, jam_selesai, pengawas } = formWatch
+    if (!tanggal || !jam_mulai || !jam_selesai || !pengawas) return null
+    return jadwal.find(j =>
+      j.id !== editData?.id &&
+      j.pengawas === pengawas &&
+      j.tanggal.slice(0, 10) === tanggal &&
+      jam_mulai < j.jam_selesai && jam_selesai > j.jam_mulai
+    ) ?? null
+  })()
 
   async function handleSave(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -775,7 +827,7 @@ export default function AdminJadwalPage() {
               Hapus Jadwal Selesai
             </button>
           )}
-          <button onClick={() => { setEditData({}); setSelectedMapelId(''); setPerluLengkapiPengaturan(false); setModalOpen(true) }} className="btn-primary btn-sm">
+          <button onClick={() => openModal()} className="btn-primary btn-sm">
             <Plus className="w-4 h-4" /> Tambah Jadwal
           </button>
         </div>
@@ -849,7 +901,7 @@ export default function AdminJadwalPage() {
                         </button>
                         {j.status === 'AKTIF' && (
                           <>
-                            <button onClick={() => { setEditData(j); setSelectedMapelId(j.mapel_id ?? ''); setPerluLengkapiPengaturan(false); setModalOpen(true) }}
+                            <button onClick={() => { openModal(j) }}
                               className="btn-ghost btn-icon btn-sm text-slate-600 hover:bg-slate-50">
                               <Pencil className="w-3.5 h-3.5" />
                             </button>
@@ -938,7 +990,7 @@ export default function AdminJadwalPage() {
                   </button>
                   {j.status === 'AKTIF' && (
                     <>
-                      <button onClick={() => { setEditData(j); setSelectedMapelId(j.mapel_id ?? ''); setPerluLengkapiPengaturan(false); setModalOpen(true) }}
+                      <button onClick={() => { openModal(j) }}
                         className="btn-ghost btn-icon btn-sm text-slate-600">
                         <Pencil className="w-4 h-4" />
                       </button>
@@ -1056,7 +1108,8 @@ export default function AdminJadwalPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="label">Tanggal *</label>
-              <input name="tanggal" type="date" className="input" required defaultValue={editData?.tanggal?.slice(0, 10)} />
+              <input name="tanggal" type="date" className="input" required defaultValue={editData?.tanggal?.slice(0, 10)}
+                onChange={e => setFormWatch(prev => ({ ...prev, tanggal: e.target.value }))} />
             </div>
             <div>
               <label className="label">Sesi</label>
@@ -1103,7 +1156,8 @@ export default function AdminJadwalPage() {
           </div>
           <div>
             <label className="label">Kelas *</label>
-            <select name="kelas" className="select" required defaultValue={editData?.kelas ?? ''}>
+            <select name="kelas" className="select" required defaultValue={editData?.kelas ?? ''}
+              onChange={e => setFormWatch(prev => ({ ...prev, kelas: e.target.value }))}>
               <option value="">Pilih Kelas</option>
               {(() => {
                 // Batasi pilihan kelas sesuai kelas_list mapel yang dipilih, agar
@@ -1132,15 +1186,27 @@ export default function AdminJadwalPage() {
                 Hanya menampilkan kelas yang diampu untuk mapel ini{!editData?.id ? ' dan belum memiliki jadwal' : ''}.
               </p>
             )}
+            {konflikKelas && (
+              <div className="mt-1.5 flex items-start gap-2 p-2.5 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700">
+                <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                <span>
+                  Bentrok! Kelas <strong>{konflikKelas.kelas}</strong> sudah ada jadwal ujian{' '}
+                  <strong>{konflikKelas.nama_mapel ?? konflikKelas.mapel_id}</strong> pada jam{' '}
+                  {konflikKelas.jam_mulai}–{konflikKelas.jam_selesai} di hari yang sama. Atur jam yang tidak bertabrakan.
+                </span>
+              </div>
+            )}
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
               <label className="label">Jam Mulai *</label>
-              <input name="jam_mulai" type="time" className="input" required defaultValue={editData?.jam_mulai} />
+              <input name="jam_mulai" type="time" className="input" required defaultValue={editData?.jam_mulai}
+                onChange={e => setFormWatch(prev => ({ ...prev, jam_mulai: e.target.value }))} />
             </div>
             <div>
               <label className="label">Jam Selesai *</label>
-              <input name="jam_selesai" type="time" className="input" required defaultValue={editData?.jam_selesai} />
+              <input name="jam_selesai" type="time" className="input" required defaultValue={editData?.jam_selesai}
+                onChange={e => setFormWatch(prev => ({ ...prev, jam_selesai: e.target.value }))} />
             </div>
             <div>
               <label className="label">Durasi (menit)</label>
@@ -1155,7 +1221,8 @@ export default function AdminJadwalPage() {
               const excluded = guruList.find(g => g.username === guruMapel)
               return (
                 <>
-                  <select name="pengawas" className="select" defaultValue={editData?.pengawas ?? ''}>
+                  <select name="pengawas" className="select" defaultValue={editData?.pengawas ?? ''}
+                    onChange={e => setFormWatch(prev => ({ ...prev, pengawas: e.target.value }))}>
                     <option value="">- Pilih Pengawas -</option>
                     {available.map(p => (
                       <option key={p.username} value={p.username}>{p.nama}</option>
@@ -1168,6 +1235,17 @@ export default function AdminJadwalPage() {
                   )}
                   {available.length === 0 && (
                     <p className="mt-1.5 text-xs text-slate-400">Tidak ada guru yang tersedia sebagai pengawas.</p>
+                  )}
+                  {konflikPengawas && (
+                    <div className="mt-1.5 flex items-start gap-2 p-2.5 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700">
+                      <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                      <span>
+                        Bentrok! Pengawas ini sudah bertugas mengawas{' '}
+                        <strong>{konflikPengawas.nama_mapel ?? konflikPengawas.mapel_id}</strong> kelas{' '}
+                        <strong>{konflikPengawas.kelas}</strong> pada jam {konflikPengawas.jam_mulai}–{konflikPengawas.jam_selesai}{' '}
+                        di hari yang sama. Pilih pengawas lain atau atur jam yang tidak bertabrakan.
+                      </span>
+                    </div>
                   )}
                 </>
               )
