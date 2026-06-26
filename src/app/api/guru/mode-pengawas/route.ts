@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 import { generateId } from '@/lib/utils'
 import { getZonaWaktuSekolah, tanggalHariIni } from '@/lib/pengaturan-waktu'
+import { computeStatusSoalMap, getStatusSoal, isStatusSoalSiap, pesanStatusSoal } from '@/lib/soal-status'
 
 function generateKodeSesi7(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
@@ -129,6 +130,12 @@ export async function GET(req: NextRequest) {
     namaGuruSusulanMap = Object.fromEntries((guruSusulanList ?? []).map(g => [g.username, g.nama]))
   }
 
+  // ── 5c. Enrich status_soal supaya UI bisa menonaktifkan tombol "Mulai
+  // Ujian" untuk jadwal yang soalnya belum disetujui ────────────────────────
+  const statusSoalMap = await computeStatusSoalMap(
+    jadwalList.map(j => ({ mapel_id: j.mapel_id, kelas: String(j.kelas) }))
+  )
+
   // ── 6. Enrich tiap jadwal ─────────────────────────────────────────────────
   const enrichedJadwal = jadwalList.map(j => {
     const sesiUntukJadwal = (sesiList).filter(s => s.jadwal_id === j.id)
@@ -153,6 +160,7 @@ export async function GET(req: NextRequest) {
       status,
       nama_mapel: mapelMap[j.mapel_id] ?? j.mapel_id,
       nama_kelas: kelasMap[j.kelas] ?? j.kelas,
+      status_soal: statusSoalMap[`${j.mapel_id}__${j.kelas}`] ?? 'BELUM_ADA',
       // Jika sesi sudah diambil-alih pengawas lain, jangan kirim detail sesi
       // (kode sesi, dll) ke pengawas asli — cukup info ringkas untuk pesan.
       sesi_ujian: sesiTerkait && !diambilAlih ? {
@@ -189,6 +197,18 @@ export async function POST(req: NextRequest) {
     .single()
 
   if (!jadwal) return NextResponse.json({ error: 'Jadwal tidak ditemukan atau Anda bukan pengawas' }, { status: 404 })
+
+  // Cek kesiapan soal: sesi ujian TIDAK BOLEH dibuka kalau paket soal untuk
+  // kombinasi mapel + kelas pada jadwal ini belum disetujui. Sama persis
+  // dengan validasi di /api/pengawas/sesi — diletakkan di server supaya
+  // tidak bisa dilewati lewat panggilan API langsung.
+  const statusSoal = await getStatusSoal(jadwal.mapel_id, String(jadwal.kelas))
+  if (!isStatusSoalSiap(statusSoal)) {
+    return NextResponse.json(
+      { error: pesanStatusSoal(statusSoal), statusSoal },
+      { status: 400 }
+    )
+  }
 
   // ── ANTI-TABRAKAN: satu pengawas hanya boleh fokus pada SATU sesi aktif ──
   // Kalau guru ini punya jadwal lain (jam sama atau beda) yang sesinya sedang
