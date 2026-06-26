@@ -27,6 +27,25 @@ export { isStatusSoalSiap, labelStatusSoal, pesanStatusSoal } from '@/lib/soal-s
 
 const STATUS_PRIORITY: Record<string, number> = { DISETUJUI: 4, MENUNGGU: 3, DITOLAK: 2, DRAFT: 1 }
 
+// Normalisasi nama kelas untuk KEPERLUAN PENCOCOKAN SAJA (bukan untuk
+// ditampilkan). Data nama kelas kadang punya selisih spasi di awal/akhir atau
+// beda kapitalisasi antara tabel `kelas`, `jadwal.kelas`, dan input manual —
+// tanpa normalisasi ini, kombinasi yang SEBENARNYA sama bisa gagal match dan
+// berakhir dianggap "BELUM_ADA" padahal soalnya sudah ada.
+function normalizeKelas(v: unknown): string {
+  return String(v ?? '').trim().toUpperCase()
+}
+
+/**
+ * Bangun key lookup yang konsisten dengan key yang dipakai di dalam
+ * computeStatusSoalDetailMap / computeStatusSoalMap. WAJIB dipakai oleh
+ * pemanggil saat membaca hasil map (jangan bangun key manual sendiri),
+ * supaya tidak gagal cocok akibat selisih spasi/kapitalisasi nama kelas.
+ */
+export function buildStatusSoalKey(mapelId: string, kelas: string): string {
+  return `${mapelId}__${normalizeKelas(kelas)}`
+}
+
 export type StatusSoalDetail = {
   status: StatusSoal
   /**
@@ -94,7 +113,7 @@ export async function computeStatusSoalDetailMap(
 
   for (const p of paketList) {
     const namaKelasPaket = idToNamaKelas[p.kelas_id] ?? p.kelas_id
-    const key = `${p.mapel_id}__${namaKelasPaket}`
+    const key = buildStatusSoalKey(p.mapel_id, namaKelasPaket)
     const status = (p.status as StatusSoal) ?? 'BELUM_ADA'
 
     const namaGuru = p.guru_id ? (idToNamaGuru[p.guru_id] ?? p.guru_id) : null
@@ -118,9 +137,9 @@ export async function computeStatusSoalDetailMap(
     }
   }
 
-  // Pastikan semua kombinasi yang diminta punya entry (default BELUM_ADA)
+  // Pastikan semua kombinasi yang diminta punya entry (default BELUM_ADA).
   for (const item of items) {
-    const key = `${item.mapel_id}__${item.kelas}`
+    const key = buildStatusSoalKey(item.mapel_id, item.kelas)
     if (!result[key]) result[key] = { status: 'BELUM_ADA', namaGuru: null }
   }
 
@@ -147,7 +166,7 @@ export async function computeStatusSoalMap(
  */
 export async function getStatusSoal(mapelId: string, kelas: string): Promise<StatusSoal> {
   const map = await computeStatusSoalMap([{ mapel_id: mapelId, kelas }])
-  return map[`${mapelId}__${kelas}`] ?? 'BELUM_ADA'
+  return map[buildStatusSoalKey(mapelId, kelas)] ?? 'BELUM_ADA'
 }
 
 /**
@@ -157,5 +176,5 @@ export async function getStatusSoal(mapelId: string, kelas: string): Promise<Sta
  */
 export async function getStatusSoalDetail(mapelId: string, kelas: string): Promise<StatusSoalDetail> {
   const map = await computeStatusSoalDetailMap([{ mapel_id: mapelId, kelas }])
-  return map[`${mapelId}__${kelas}`] ?? { status: 'BELUM_ADA', namaGuru: null }
+  return map[buildStatusSoalKey(mapelId, kelas)] ?? { status: 'BELUM_ADA', namaGuru: null }
 }
