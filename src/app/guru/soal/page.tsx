@@ -85,7 +85,8 @@ function EditSoalForm({
         </div>
         <div>
           <label className="label">Kunci Jawaban *</label>
-          <select name="kunci" className="select" required defaultValue={soal.kunci ?? 'A'}>
+          <select name="kunci" className="select" required defaultValue={soal.kunci ?? ''}>
+            {!soal.kunci && <option value="" disabled>Pilih Kunci Jawaban</option>}
             {opsiLabels.slice(0, jumlahOpsi).map(l => <option key={l} value={l}>{l}</option>)}
           </select>
         </div>
@@ -236,7 +237,8 @@ function TambahSoalForm({
           </div>
           <div>
             <label className="label">Kunci Jawaban *</label>
-            <select name="kunci" className="select" required defaultValue="A">
+            <select name="kunci" className="select" required defaultValue="">
+              <option value="" disabled>Pilih Kunci Jawaban</option>
               {opsiLabels.slice(0, jumlahOpsi).map(l => <option key={l} value={l}>{l}</option>)}
             </select>
           </div>
