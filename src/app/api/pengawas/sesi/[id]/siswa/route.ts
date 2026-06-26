@@ -36,12 +36,10 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     .eq('sesi_id', sesiId)
     .in('nis', nisList)
 
-  // Hitung jumlah pelanggaran (level tertinggi) per siswa
+  // Hitung jumlah pelanggaran per siswa (count seluruh entri)
   const pelanggaranMap: Record<string, number> = {}
   for (const p of pelanggaranList ?? []) {
-    if (!pelanggaranMap[p.nis] || p.level > pelanggaranMap[p.nis]) {
-      pelanggaranMap[p.nis] = p.level
-    }
+    pelanggaranMap[p.nis] = (pelanggaranMap[p.nis] ?? 0) + 1
   }
 
   // Ambil kode reset aktif (kode 7 digit untuk siswa yang di-reset)
