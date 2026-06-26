@@ -502,31 +502,15 @@ export default function ModePengawasPage() {
                                 <ShieldAlert className="w-3.5 h-3.5" /> Log Pelanggaran
                               </div>
                               <div className="space-y-1 max-h-48 overflow-y-auto">
-                                {/* Group per siswa — 1 baris per siswa */}
-                                {Array.from(
-                                  pelList.reduce((map, p) => {
-                                    if (!map.has(p.nis)) map.set(p.nis, { nis: p.nis, nama: p.nama_siswa, items: [] })
-                                    map.get(p.nis)!.items.push(p)
-                                    return map
-                                  }, new Map<string, { nis: string; nama: string; items: Pelanggaran[] }>())
-                                  .values()
-                                ).map(group => (
-                                  <div key={group.nis} className="px-3 py-2 bg-red-50 rounded-xl text-xs">
-                                    <div className="flex items-center gap-2 flex-wrap mb-1">
-                                      <span className="font-semibold text-slate-800">{group.nama}</span>
-                                      <span className="text-slate-400 font-mono">{group.nis}</span>
-                                      <span className="bg-red-100 text-red-700 font-bold px-2 py-0.5 rounded-full">
-                                        {group.items.length}× pelanggaran
-                                      </span>
+                                {pelList.map(p => (
+                                  <div key={p.id} className="flex items-start gap-2 flex-wrap px-3 py-2 bg-red-50 rounded-xl text-xs">
+                                    <div className="flex-1 min-w-0 basis-28">
+                                      <span className="font-semibold text-slate-800 break-words">{p.nama_siswa}</span>
+                                      <span className="text-slate-400 font-mono ml-1">{p.nis}</span>
                                     </div>
-                                    <div className="flex flex-wrap gap-1">
-                                      {group.items.map(p => (
-                                        <span key={p.id} className="flex items-center gap-1 bg-white border border-red-100 text-slate-600 px-2 py-0.5 rounded-lg">
-                                          {terjemahJenis(p.jenis)}
-                                          <span className="text-slate-300">·</span>
-                                          <span className="text-slate-400">{new Date(p.created_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}</span>
-                                        </span>
-                                      ))}
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <span className="bg-red-100 text-red-700 font-bold px-2 py-0.5 rounded-full">{terjemahJenis(p.jenis)}</span>
+                                      <span className="text-slate-400">{new Date(p.created_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}</span>
                                     </div>
                                   </div>
                                 ))}
