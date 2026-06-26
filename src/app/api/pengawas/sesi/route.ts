@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 import { generateId } from '@/lib/utils'
-import { getStatusSoal, isStatusSoalSiap, pesanStatusSoal } from '@/lib/soal-status'
+import { getStatusSoalDetail, isStatusSoalSiap, pesanStatusSoal } from '@/lib/soal-status'
 
 export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['GURU', 'ADMIN'])
@@ -47,10 +47,10 @@ export async function POST(req: NextRequest) {
   // masih draft, masih menunggu validasi, atau ditolak admin). Validasi ini
   // sengaja diletakkan di server (bukan cuma di tombol UI) supaya tidak bisa
   // dilewati dengan memanggil API secara langsung.
-  const statusSoal = await getStatusSoal(jadwal.mapel_id, String(jadwal.kelas))
+  const { status: statusSoal, namaGuru } = await getStatusSoalDetail(jadwal.mapel_id, String(jadwal.kelas))
   if (!isStatusSoalSiap(statusSoal)) {
     return NextResponse.json(
-      { error: pesanStatusSoal(statusSoal), statusSoal },
+      { error: pesanStatusSoal(statusSoal, namaGuru), statusSoal },
       { status: 400 }
     )
   }
