@@ -4,10 +4,11 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Shield, Play, Square, Clock, Copy, CheckCircle,
   RefreshCw, AlertTriangle, BookOpen, Users, Lock, Unlock,
-  ShieldAlert, RotateCcw, KeyRound, Eye, ChevronDown, ChevronUp
+  ShieldAlert, RotateCcw, KeyRound, Eye, ChevronDown, ChevronUp, FileQuestion
 } from 'lucide-react'
 import { apiRequest, formatDate } from '@/lib/utils'
 import { PageLoader, Spinner } from '@/components/ui'
+import { isStatusSoalSiap, labelStatusSoal, pesanStatusSoal } from '@/lib/soal-status-shared'
 
 interface SesiUjianInfo {
   id: string
@@ -32,6 +33,7 @@ interface JadwalHariIni {
   nama_kelas: string
   sesi_ujian: SesiUjianInfo | null
   diambil_alih_pengawas: { username: string; nama: string } | null
+  status_soal?: 'BELUM_ADA' | 'DRAFT' | 'MENUNGGU' | 'DITOLAK' | 'DISETUJUI'
 }
 
 interface SiswaAktif {
@@ -90,6 +92,24 @@ function getMinutesUntilStart(jamMulai: string): number {
 
 function isBolehMulai(j: JadwalHariIni): boolean {
   return getMinutesUntilStart(j.jam_mulai) <= 15
+}
+
+// Badge kecil status kesiapan soal — sama gayanya dengan yang dipakai di
+// halaman /pengawas (lihat SoalStatusBadge di src/app/pengawas/page.tsx).
+function SoalStatusBadge({ status }: { status?: string }) {
+  const siap = isStatusSoalSiap(status)
+  const warna = siap
+    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+    : status === 'MENUNGGU'
+      ? 'bg-amber-50 text-amber-700 border-amber-200'
+      : status === 'DITOLAK'
+        ? 'bg-red-50 text-red-700 border-red-200'
+        : 'bg-slate-50 text-slate-500 border-slate-200'
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border ${warna}`}>
+      <FileQuestion className="w-3 h-3" /> {labelStatusSoal(status)}
+    </span>
+  )
 }
 
 function KodeSesiDisplay({ kode }: { kode: string }) {
@@ -344,6 +364,7 @@ export default function ModePengawasPage() {
             const isRunning = j.status === 'BERJALAN' && j.sesi_ujian?.status === 'BERJALAN'
             const isDone = j.status === 'SELESAI' || j.sesi_ujian?.status === 'SELESAI'
             const boleh = isBolehMulai(j)
+            const soalSiap = isStatusSoalSiap(j.status_soal)
             const sesiId = j.sesi_ujian?.id
             const siswaList = sesiId ? (siswaMap[sesiId] ?? []) : []
             const pelList = sesiId ? (pelanggaranMap[sesiId] ?? []) : []
@@ -369,6 +390,11 @@ export default function ModePengawasPage() {
                         <span className="flex items-center gap-1"><Clock className="w-3.5 h-3.5" />{j.jam_mulai} – {j.jam_selesai}</span>
                         <span className="text-slate-400">{j.durasi} menit</span>
                       </div>
+                      {!isRunning && !isDone && !diambilAlih && !soalSiap && (
+                        <div className="mt-1.5">
+                          <SoalStatusBadge status={j.status_soal} />
+                        </div>
+                      )}
                     </div>
                     <span className={`text-xs px-2.5 py-1 rounded-full font-semibold flex-shrink-0 ${diambilAlih ? 'bg-purple-100 text-purple-700' : isRunning ? 'bg-amber-100 text-amber-700' : isDone ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>
                       {diambilAlih ? '● Berlangsung' : isRunning ? '● Berlangsung' : isDone ? '✓ Selesai' : '◷ Akan Datang'}
@@ -513,9 +539,17 @@ export default function ModePengawasPage() {
                   {!isDone && !diambilAlih && (
                     <div className="flex items-center justify-between gap-3 flex-wrap">
                       {!isRunning && !boleh && <CountdownTimer jamMulai={j.jam_mulai} />}
-                      {!isRunning && boleh && (
+                      {!isRunning && boleh && soalSiap && (
                         <div className="flex items-center gap-1.5 text-xs text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-lg font-medium">
                           <Unlock className="w-3.5 h-3.5" /> Siap dimulai
+                        </div>
+                      )}
+                      {!isRunning && boleh && !soalSiap && (
+                        <div
+                          className="flex items-center gap-1.5 text-xs text-slate-500 bg-slate-50 px-3 py-1.5 rounded-lg font-medium"
+                          title={pesanStatusSoal(j.status_soal)}
+                        >
+                          <AlertTriangle className="w-3.5 h-3.5 text-amber-400" /> Soal belum siap — sesi belum dapat dibuka
                         </div>
                       )}
                       {isRunning && <div className="flex-1" />}
@@ -523,10 +557,11 @@ export default function ModePengawasPage() {
                         {!isRunning && (
                           <button
                             onClick={() => handleMulai(j)}
-                            disabled={!boleh || starting === j.id}
-                            className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all shadow-sm ${boleh ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : 'bg-slate-100 text-slate-400 cursor-not-allowed'}`}
+                            disabled={!boleh || !soalSiap || starting === j.id}
+                            title={!soalSiap ? pesanStatusSoal(j.status_soal) : undefined}
+                            className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all shadow-sm ${boleh && soalSiap ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : 'bg-slate-100 text-slate-400 cursor-not-allowed'}`}
                           >
-                            {starting === j.id ? <RefreshCw className="w-4 h-4 animate-spin" /> : boleh ? <Play className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
+                            {starting === j.id ? <RefreshCw className="w-4 h-4 animate-spin" /> : (boleh && soalSiap) ? <Play className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
                             {starting === j.id ? 'Memulai...' : 'Mulai Ujian'}
                           </button>
                         )}
