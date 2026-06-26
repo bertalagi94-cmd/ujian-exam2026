@@ -671,11 +671,11 @@ export default function PengawasDashboard() {
                   )}
                   {!alreadyRunning && j.status === 'AKTIF' && !soalSiap && (
                     <span
-                      className="text-xs text-slate-400 flex-shrink-0 flex items-center gap-1 max-w-[10rem] text-right"
-                      title={pesanStatusSoal(j.status_soal)}
+                      className="text-xs text-slate-400 flex-shrink-0 flex items-center gap-1 max-w-[14rem] text-right"
+                      title={pesanStatusSoal(j.status_soal, j.status_soal_guru)}
                     >
                       <AlertTriangle className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
-                      Soal belum siap
+                      {pesanStatusSoal(j.status_soal, j.status_soal_guru)}
                     </span>
                   )}
                   {alreadyRunning && (
