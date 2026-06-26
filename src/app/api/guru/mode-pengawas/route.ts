@@ -3,7 +3,7 @@ import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 import { generateId } from '@/lib/utils'
 import { getZonaWaktuSekolah, tanggalHariIni } from '@/lib/pengaturan-waktu'
-import { computeStatusSoalMap, getStatusSoal, isStatusSoalSiap, pesanStatusSoal } from '@/lib/soal-status'
+import { computeStatusSoalDetailMap, getStatusSoalDetail, isStatusSoalSiap, pesanStatusSoal } from '@/lib/soal-status'
 
 function generateKodeSesi7(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
@@ -132,7 +132,7 @@ export async function GET(req: NextRequest) {
 
   // ── 5c. Enrich status_soal supaya UI bisa menonaktifkan tombol "Mulai
   // Ujian" untuk jadwal yang soalnya belum disetujui ────────────────────────
-  const statusSoalMap = await computeStatusSoalMap(
+  const statusSoalMap = await computeStatusSoalDetailMap(
     jadwalList.map(j => ({ mapel_id: j.mapel_id, kelas: String(j.kelas) }))
   )
 
@@ -154,13 +154,16 @@ export async function GET(req: NextRequest) {
       : undefined
     const diambilAlih = !!pengawasSusulanUsername && pengawasSusulanUsername !== user.username
 
+    const statusSoalDetail = statusSoalMap[`${j.mapel_id}__${j.kelas}`] ?? { status: 'BELUM_ADA', namaGuru: null }
+
     return {
       ...j,
       tanggal: j.tanggal?.slice(0, 10) ?? j.tanggal,
       status,
       nama_mapel: mapelMap[j.mapel_id] ?? j.mapel_id,
       nama_kelas: kelasMap[j.kelas] ?? j.kelas,
-      status_soal: statusSoalMap[`${j.mapel_id}__${j.kelas}`] ?? 'BELUM_ADA',
+      status_soal: statusSoalDetail.status,
+      status_soal_guru: statusSoalDetail.namaGuru,
       // Jika sesi sudah diambil-alih pengawas lain, jangan kirim detail sesi
       // (kode sesi, dll) ke pengawas asli — cukup info ringkas untuk pesan.
       sesi_ujian: sesiTerkait && !diambilAlih ? {
@@ -202,10 +205,10 @@ export async function POST(req: NextRequest) {
   // kombinasi mapel + kelas pada jadwal ini belum disetujui. Sama persis
   // dengan validasi di /api/pengawas/sesi — diletakkan di server supaya
   // tidak bisa dilewati lewat panggilan API langsung.
-  const statusSoal = await getStatusSoal(jadwal.mapel_id, String(jadwal.kelas))
+  const { status: statusSoal, namaGuru } = await getStatusSoalDetail(jadwal.mapel_id, String(jadwal.kelas))
   if (!isStatusSoalSiap(statusSoal)) {
     return NextResponse.json(
-      { error: pesanStatusSoal(statusSoal), statusSoal },
+      { error: pesanStatusSoal(statusSoal, namaGuru), statusSoal },
       { status: 400 }
     )
   }
