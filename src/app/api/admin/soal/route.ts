@@ -56,6 +56,51 @@ export async function POST(req: NextRequest) {
   else if (action === 'BATAL_SETUJUI') newStatus = 'DRAFT'
   else return NextResponse.json({ error: 'Action tidak valid' }, { status: 400 })
 
+  // FIX BUG KRITIS: cegah lebih dari satu paket_soal berstatus DISETUJUI untuk
+  // kombinasi mapel_id + kelas_id yang sama. Sebelumnya tidak ada pengecekan
+  // sama sekali, sehingga kalau ada 2 paket DISETUJUI sekaligus (misal team-
+  // teaching, atau guru membuat ulang paket), endpoint /validasi (saat siswa
+  // mulai ujian), /selesai, dan /tutup (saat menilai) masing-masing mengambil
+  // paket DISETUJUI secara independen TANPA urutan yang pasti — bisa-bisa soal
+  // yang dikerjakan siswa berasal dari paket A, tapi kunci jawaban yang dipakai
+  // untuk menilai berasal dari paket B → soal_id tidak match → nilai siswa
+  // salah total (biasanya jadi 0) walau jawabannya benar.
+  //
+  // Solusinya: begitu admin menyetujui satu paket (action SETUJUI), paket LAIN
+  // yang sudah DISETUJUI untuk mapel+kelas yang sama otomatis dikembalikan ke
+  // DRAFT (beserta soal-soal di dalamnya) — supaya pada satu waktu HANYA ADA
+  // SATU paket DISETUJUI per kombinasi mapel+kelas.
+  if (newStatus === 'DISETUJUI') {
+    const { data: paketAkanDisetujui } = await db
+      .from('paket_soal')
+      .select('mapel_id, kelas_id')
+      .eq('id', paket_id)
+      .single()
+
+    if (paketAkanDisetujui) {
+      const { data: paketLainDisetujui } = await db
+        .from('paket_soal')
+        .select('id')
+        .eq('mapel_id', paketAkanDisetujui.mapel_id)
+        .eq('kelas_id', paketAkanDisetujui.kelas_id)
+        .eq('status', 'DISETUJUI')
+        .neq('id', paket_id)
+
+      const idPaketLain = (paketLainDisetujui ?? []).map(p => p.id)
+      if (idPaketLain.length > 0) {
+        await Promise.all([
+          db.from('paket_soal')
+            .update({ status: 'DRAFT', notif_dibaca: false, catatan: 'Otomatis dikembalikan ke draft karena paket lain untuk mapel+kelas ini disetujui.' })
+            .in('id', idPaketLain),
+          db.from('soal')
+            .update({ status: 'DRAFT' })
+            .in('paket_id', idPaketLain)
+            .eq('status', 'DISETUJUI'),
+        ])
+      }
+    }
+  }
+
   // Update paket + set notif_dibaca=false agar guru dapat badge notifikasi
   const { error: paketErr } = await db
     .from('paket_soal')
