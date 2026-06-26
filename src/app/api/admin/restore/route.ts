@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 
-// Urutan hapus: reverse FK agar tidak melanggar constraint
+// Tabel yang BENAR-BENAR ada di schema database
+// kisi_kisi DIHAPUS karena tidak ada di schema (01_schema.sql)
 const DELETE_ORDER = [
   'log_aktivitas',
   'log_reset',
@@ -12,7 +13,6 @@ const DELETE_ORDER = [
   'siswa_ujian',
   'sesi_ujian',
   'soal',
-  'kisi_kisi',
   'paket_soal',
   'jadwal',
   'users',
@@ -23,7 +23,6 @@ const DELETE_ORDER = [
   'pengaturan',
 ]
 
-// Urutan insert: parent dulu
 const INSERT_ORDER = [
   'pengaturan',
   'kelas',
@@ -34,7 +33,6 @@ const INSERT_ORDER = [
   'jadwal',
   'paket_soal',
   'soal',
-  'kisi_kisi',
   'sesi_ujian',
   'siswa_ujian',
   'jawaban',
@@ -44,11 +42,16 @@ const INSERT_ORDER = [
   'log_aktivitas',
 ]
 
-// Filter delete per tabel sesuai kolom yang tersedia
+// Tabel yang diketahui ada di schema (untuk validasi backup)
+const SCHEMA_TABLES = new Set(DELETE_ORDER)
+
 async function clearTable(
   db: ReturnType<typeof import('@/lib/supabase').createAdminClient>,
   table: string
 ): Promise<string | null> {
+  // Skip tabel yang tidak ada di schema agar tidak error
+  if (!SCHEMA_TABLES.has(table)) return null
+
   try {
     let error: { message: string } | null = null
 
@@ -56,7 +59,7 @@ async function clearTable(
       // users: hapus semua kecuali ADMIN
       ;({ error } = await (db as any).from('users').delete().neq('role', 'ADMIN'))
     } else if (table === 'pengaturan') {
-      // pengaturan: PK = key (TEXT), pakai updated_at
+      // pengaturan: PK = key (TEXT)
       ;({ error } = await (db as any).from('pengaturan').delete().not('key', 'is', null))
     } else if (table === 'siswa') {
       // siswa: PK = nis (TEXT)
@@ -65,13 +68,26 @@ async function clearTable(
       // BIGSERIAL PK — pakai gt 0
       ;({ error } = await (db as any).from(table).delete().gt('id', 0))
     } else {
-      // Semua tabel lain (termasuk kisi_kisi) punya id TEXT
+      // Tabel lain punya id TEXT
       ;({ error } = await (db as any).from(table).delete().not('id', 'is', null))
     }
 
-    return error ? `${table}: ${error.message}` : null
+    if (error) {
+      // Jika tabel tidak exist di DB (42P01), skip saja — jangan gagalkan restore
+      if (
+        error.message.includes('does not exist') ||
+        error.message.includes('42P01')
+      ) {
+        return null
+      }
+      return `${table}: ${error.message}`
+    }
+    return null
   } catch (e) {
-    return `${table}: ${e instanceof Error ? e.message : 'error'}`
+    const msg = e instanceof Error ? e.message : 'error'
+    // Skip jika tabel tidak exist
+    if (msg.includes('does not exist') || msg.includes('42P01')) return null
+    return `${table}: ${msg}`
   }
 }
 
@@ -98,7 +114,6 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  // Validasi tambahan: pastikan file memang dari SmartExam (bukan JSON acak)
   if (payload.app && payload.app !== 'SmartExam') {
     return NextResponse.json(
       { error: 'File backup bukan dari aplikasi SmartExam.' },
@@ -106,10 +121,9 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  // Pastikan minimal ada satu tabel yang dikenal di dalam backup
-  const KNOWN_TABLES = new Set(DELETE_ORDER)
+  // Validasi: minimal ada satu tabel schema yang dikenal
   const tableKeys = Object.keys(payload.tables)
-  const hasKnownTable = tableKeys.some(k => KNOWN_TABLES.has(k))
+  const hasKnownTable = tableKeys.some(k => SCHEMA_TABLES.has(k))
   if (!hasKnownTable) {
     return NextResponse.json(
       { error: 'File backup tidak mengandung data yang dikenali. Pastikan file adalah backup SmartExam yang valid.' },
@@ -120,7 +134,7 @@ export async function POST(req: NextRequest) {
   const db = createAdminClient()
   const deleteErrors: string[] = []
 
-  // 1. Hapus data lama
+  // 1. Hapus data lama — hanya tabel yang ada di schema DAN ada di backup
   for (const table of DELETE_ORDER) {
     if (!(table in payload.tables)) continue
     const err = await clearTable(db, table)
@@ -139,14 +153,19 @@ export async function POST(req: NextRequest) {
   const stats: Record<string, number> = {}
 
   for (const table of INSERT_ORDER) {
+    // Skip tabel yang tidak ada di schema (misal: kisi_kisi dari backup lama)
+    if (!SCHEMA_TABLES.has(table)) {
+      stats[table] = 0
+      continue
+    }
+
     let rows = payload.tables[table]
     if (!rows || !Array.isArray(rows) || rows.length === 0) {
       stats[table] = 0
       continue
     }
 
-    // Tabel users: skip row ADMIN karena tidak dihapus saat clear,
-    // sehingga tidak akan terjadi duplicate key yang menghentikan seluruh insert
+    // users: skip row ADMIN (tidak dihapus saat clear, hindari duplicate key)
     if (table === 'users') {
       rows = rows.filter((r: any) => r.role !== 'ADMIN')
       if (rows.length === 0) {
