@@ -22,7 +22,7 @@ export const STATUS_LABEL: Record<StatusSoal, string> = {
 // menghubungi siapa. Kalau nama guru tidak diketahui, dipakai placeholder
 // "-".
 export const STATUS_MESSAGE: Record<StatusSoal, string> = {
-  BELUM_ADA: 'Soal untuk mata pelajaran dan kelas ini belum dibuat oleh guru. Sesi ujian belum dapat dibuka.',
+  BELUM_ADA: 'Soal untuk mata pelajaran dan kelas ini belum dibuat oleh guru. Sesi ujian belum dapat dibuka. Kemungkinan ujian di mapel ini belum dapat dilaksanakan hari ini.',
   DRAFT: 'Soal masih dalam proses pembuatan (draft) oleh guru dan belum diajukan untuk divalidasi. Sesi ujian belum dapat dibuka.',
   MENUNGGU: 'Soal sudah dibuat tetapi masih menunggu validasi/persetujuan admin. Sesi ujian belum dapat dibuka.',
   DITOLAK: 'Soal untuk mata pelajaran dan kelas ini ditolak saat validasi dan perlu direvisi oleh guru. Sesi ujian belum dapat dibuka.',
@@ -46,7 +46,7 @@ export function pesanStatusSoal(status?: string | null, namaGuru?: string | null
   const guru = namaGuru?.trim() || '-'
   switch ((status as StatusSoal) ?? 'BELUM_ADA') {
     case 'BELUM_ADA':
-      return `Soal belum dibuat. Nama Guru : ${guru}`
+      return `Soal belum dibuat. Nama Guru : ${guru}. Kemungkinan ujian di mapel ini belum dapat dilaksanakan hari ini.`
     case 'DRAFT':
       return `Soal Sedang dibuat. Sampaikan ke Guru ${guru} untuk mengirim soal ke admin agar dapat di setujui sehingga tombol mulai ujian bisa aktif.`
     case 'MENUNGGU':
