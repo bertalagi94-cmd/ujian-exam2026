@@ -107,6 +107,7 @@ export default function SiswaUjianPage() {
   const [jadwalTerpilih, setJadwalTerpilih] = useState<JadwalHariIni | null>(null)
   const [loadingJadwal, setLoadingJadwal] = useState(true)
   const [jadwalTerdekat, setJadwalTerdekat] = useState<JadwalHariIni | null>(null)
+  const [sesiSudahTutup, setSesiSudahTutup] = useState<JadwalHariIni[]>([])
   const [kode, setKode] = useState('')
   const [sesiInfo, setSesiInfo] = useState<SesiInfo | null>(null)
   const [jawaban, setJawaban] = useState<JawabanMap>({})
@@ -214,8 +215,16 @@ export default function SiswaUjianPage() {
         const shifted = new Date(Date.now() + zona * 60 * 60 * 1000)
         const today = shifted.toISOString().slice(0, 10)
 
-        const hariIni = (res.data ?? []).filter(j => j.tanggal?.slice(0, 10) === today && !j.sudah_ikut)
+        const semuaHariIni = (res.data ?? []).filter(j => j.tanggal?.slice(0, 10) === today)
+        // Yang belum diikuti dan belum selesai — ini yang aktif ditangani
+        const hariIni = semuaHariIni.filter(j => !j.sudah_ikut && j.status !== 'SELESAI')
+        // Yang sudah ditutup tapi siswa belum sempat ikut
+        const sudahTutup = semuaHariIni.filter(j => !j.sudah_ikut && j.status === 'SELESAI')
         setJadwalHariIni(hariIni)
+        if (sudahTutup.length > 0 && hariIni.length === 0) {
+          // Semua jadwal hari ini sudah tutup dan siswa belum ikut satupun
+          setSesiSudahTutup(sudahTutup)
+        }
 
         // Cari jadwal terdekat (mendatang) untuk ditampilkan kalau tidak ada hari ini
         if (hariIni.length === 0) {
@@ -655,8 +664,15 @@ export default function SiswaUjianPage() {
       const zona = res.zonaWaktu?.utcOffsetJam ?? 7
       const shifted = new Date(Date.now() + zona * 60 * 60 * 1000)
       const today = shifted.toISOString().slice(0, 10)
-      const hariIni = (res.data ?? []).filter(j => j.tanggal?.slice(0, 10) === today && !j.sudah_ikut)
+      const semuaHariIni2 = (res.data ?? []).filter(j => j.tanggal?.slice(0, 10) === today)
+      const hariIni = semuaHariIni2.filter(j => !j.sudah_ikut && j.status !== 'SELESAI')
+      const sudahTutup2 = semuaHariIni2.filter(j => !j.sudah_ikut && j.status === 'SELESAI')
       setJadwalHariIni(hariIni)
+      if (sudahTutup2.length > 0 && hariIni.length === 0) {
+        setSesiSudahTutup(sudahTutup2)
+      } else {
+        setSesiSudahTutup([])
+      }
       const sesiAktif = hariIni.filter(j => j.status === 'BERJALAN')
       if (sesiAktif.length === 1) {
         setJadwalTerpilih(sesiAktif[0])
@@ -889,6 +905,38 @@ export default function SiswaUjianPage() {
 
     const sesiAktif = jadwalHariIni.filter(j => j.status === 'BERJALAN')
     const belumDibuka = jadwalHariIni.filter(j => j.status === 'AKTIF')
+
+    // Sesi sudah ditutup pengawas dan siswa belum sempat ikut
+    if (sesiSudahTutup.length > 0 && jadwalHariIni.length === 0) {
+      return (
+        <div className="max-w-md mx-auto animate-fade-in">
+          <div className="card">
+            <div className="w-14 h-14 bg-red-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+              <AlertTriangle className="w-7 h-7 text-red-500" />
+            </div>
+            <h1 className="text-xl font-bold text-slate-900 mb-1 text-center">Sesi Ujian Sudah Ditutup</h1>
+            <p className="text-sm text-slate-500 mb-4 text-center">
+              Kamu tidak sempat mengikuti ujian berikut karena sesi sudah ditutup oleh pengawas.
+            </p>
+            <div className="space-y-2 mb-5">
+              {sesiSudahTutup.map(j => (
+                <div key={j.id} className="bg-red-50 border border-red-100 rounded-xl px-4 py-3">
+                  <div className="font-semibold text-slate-800 text-sm">{j.nama_mapel}</div>
+                  <div className="flex items-center gap-1.5 text-xs text-slate-500 mt-1">
+                    <Clock className="w-3 h-3" />
+                    {j.jam_mulai} – {j.jam_selesai} · {j.durasi} menit
+                  </div>
+                  <p className="text-xs text-red-500 font-medium mt-1.5">Sesi sudah ditutup</p>
+                </div>
+              ))}
+            </div>
+            <div className="bg-amber-50 border border-amber-100 rounded-xl px-4 py-3 text-sm text-amber-700">
+              Hubungi guru atau pengawas jika kamu merasa ini adalah kesalahan.
+            </div>
+          </div>
+        </div>
+      )
+    }
 
     // Tidak ada jadwal hari ini
     if (jadwalHariIni.length === 0) {
