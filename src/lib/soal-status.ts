@@ -143,6 +143,55 @@ export async function computeStatusSoalDetailMap(
     if (!result[key]) result[key] = { status: 'BELUM_ADA', namaGuru: null }
   }
 
+  // ── Fallback nama guru dari PENUGASAN (tabel `mapel`), bukan dari paket_soal ──
+  // Kalau suatu kombinasi mapel+kelas belum punya paket_soal sama sekali (atau
+  // paket_soal-nya tidak mengisi guru_id), kita tidak boleh menampilkan "-".
+  // Guru yang BERTUGAS mengajar mapel itu tetap bisa diketahui dari
+  // mapel.guru_id (kolom penugasan) + mapel.kelas_list (daftar kelas yang
+  // diampu, format "10,11,12"). Ini berlaku untuk SEMUA status, bukan hanya
+  // BELUM_ADA, supaya konsisten — tapi prioritas tetap ke namaGuru pemilik
+  // paket_soal kalau itu sudah ada.
+  const keysButuhFallback = Object.entries(result)
+    .filter(([, v]) => !v.namaGuru)
+    .map(([k]) => k)
+
+  if (keysButuhFallback.length > 0) {
+    const { data: mapelRowsRaw } = await db
+      .from('mapel')
+      .select('id, guru_id, kelas_list')
+      .in('id', mapelIds)
+    const mapelRows = (mapelRowsRaw ?? []) as { id: string; guru_id: string | null; kelas_list: string | null }[]
+    const mapelById = Object.fromEntries(mapelRows.map(m => [m.id, m]))
+
+    const guruIdPenugasan = [...new Set(mapelRows.map(m => m.guru_id).filter(Boolean))] as string[]
+    const guruIdBelumDiketahui = guruIdPenugasan.filter(g => !idToNamaGuru[g])
+    if (guruIdBelumDiketahui.length > 0) {
+      const { data: guruTambahanRaw } = await db
+        .from('users')
+        .select('username, nama')
+        .in('username', guruIdBelumDiketahui)
+      for (const g of (guruTambahanRaw ?? []) as { username: string; nama: string }[]) {
+        idToNamaGuru[g.username] = g.nama
+      }
+    }
+
+    for (const item of items) {
+      const key = buildStatusSoalKey(item.mapel_id, item.kelas)
+      if (result[key]?.namaGuru) continue // sudah ada dari paket_soal, jangan timpa
+
+      const mapelRow = mapelById[item.mapel_id]
+      if (!mapelRow?.guru_id) continue
+
+      const kelasDiampu = (mapelRow.kelas_list ?? '')
+        .split(',')
+        .map(k => normalizeKelas(k))
+        .filter(Boolean)
+      if (!kelasDiampu.includes(normalizeKelas(item.kelas))) continue
+
+      result[key].namaGuru = idToNamaGuru[mapelRow.guru_id] ?? mapelRow.guru_id
+    }
+  }
+
   return result
 }
 
