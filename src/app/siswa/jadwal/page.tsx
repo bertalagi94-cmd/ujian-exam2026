@@ -36,9 +36,14 @@ function StatusJadwalSiswa({ j }: { j: Jadwal }) {
   // Sesi sudah ditutup, siswa tidak sempat ikut
   if (j.status === 'SELESAI') {
     return (
-      <span className="badge badge-red flex items-center gap-1 whitespace-nowrap">
-        <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" /> Tidak Sempat Ikut
-      </span>
+      <div className="flex flex-col items-end gap-1">
+        <span className="badge badge-red flex items-center gap-1 whitespace-nowrap">
+          <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" /> Tidak Sempat Ikut
+        </span>
+        <span className="text-xs text-slate-500 text-right max-w-[200px]">
+          Anda tidak sempat ikut ujian ini. Minta Guru atau pengawas untuk mengikuti ujian susulan.
+        </span>
+      </div>
     )
   }
 
