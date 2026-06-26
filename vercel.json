@@ -1,4 +1,12 @@
 {
+  "functions": {
+    "src/app/api/admin/restore/route.ts": {
+      "maxDuration": 60
+    },
+    "src/app/api/admin/backup/route.ts": {
+      "maxDuration": 60
+    }
+  },
   "crons": [
     {
       "path": "/api/cron/reminder-soal",
