@@ -56,11 +56,13 @@ export async function POST(req: NextRequest) {
     { data: siswaUjian, error: siswaUjianError },
     { data: paketData },
     { data: mapel },
+    { data: pengaturanRows },
   ] = await Promise.all([
     db.from('nilai').select('id').eq('sesi_id', sesi.id).eq('nis', nis).single(),
     db.from('siswa_ujian').select('status, waktu_mulai, waktu_mulai_awal, device_id, last_heartbeat').eq('sesi_id', sesi.id).eq('nis', nis).single(),
     db.from('paket_soal').select('id, acak').eq('mapel_id', sesi.mapel_id).eq('kelas_id', kelasId).eq('status', 'DISETUJUI').limit(1).single(),
     db.from('mapel').select('nama').eq('id', sesi.mapel_id).single(),
+    db.from('pengaturan').select('key, value').in('key', ['minSubmitAktif', 'minSubmitMenit']),
   ])
 
   // FIX: .single() mengembalikan error (PGRST116) kalau baris belum ada
@@ -177,6 +179,13 @@ export async function POST(req: NextRequest) {
   // Gunakan waktu_mulai_awal sebagai referensi timer
   const waktuMulaiRef = siswaUjian?.waktu_mulai_awal ?? siswaUjian?.waktu_mulai ?? now
 
+  // Hitung batas minimal submit dari pengaturan
+  const pgMap = Object.fromEntries(
+    (pengaturanRows ?? []).map((r: { key: string; value: string }) => [r.key, r.value])
+  )
+  const minSubmitAktif = pgMap['minSubmitAktif'] === 'true'
+  const minSubmitMenit = minSubmitAktif ? (parseInt(pgMap['minSubmitMenit']) || 45) : 0
+
   return NextResponse.json({
     valid: true,
     sesiId: sesi.id,
@@ -186,5 +195,6 @@ export async function POST(req: NextRequest) {
     durasi: sesi.durasi,
     waktu_mulai: waktuMulaiRef,
     soalList: finalSoal,
+    minSubmitMenit,
   })
 }
