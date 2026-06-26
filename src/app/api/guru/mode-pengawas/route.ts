@@ -3,7 +3,7 @@ import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 import { generateId } from '@/lib/utils'
 import { getZonaWaktuSekolah, tanggalHariIni } from '@/lib/pengaturan-waktu'
-import { computeStatusSoalDetailMap, getStatusSoalDetail, isStatusSoalSiap, pesanStatusSoal } from '@/lib/soal-status'
+import { computeStatusSoalDetailMap, getStatusSoalDetail, isStatusSoalSiap, pesanStatusSoal, buildStatusSoalKey } from '@/lib/soal-status'
 
 function generateKodeSesi7(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
@@ -154,7 +154,7 @@ export async function GET(req: NextRequest) {
       : undefined
     const diambilAlih = !!pengawasSusulanUsername && pengawasSusulanUsername !== user.username
 
-    const statusSoalDetail = statusSoalMap[`${j.mapel_id}__${j.kelas}`] ?? { status: 'BELUM_ADA', namaGuru: null }
+    const statusSoalDetail = statusSoalMap[buildStatusSoalKey(j.mapel_id, j.kelas)] ?? { status: 'BELUM_ADA', namaGuru: null }
 
     return {
       ...j,
