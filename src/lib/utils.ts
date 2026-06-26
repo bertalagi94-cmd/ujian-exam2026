@@ -137,47 +137,80 @@ export function stripHtmlTags(input: unknown): string {
   return text.trim()
 }
 
+// ── FIX: apiRequest dengan AbortController + timeout 10 detik ────────────────
+// Sebelumnya fetch() tidak punya batas waktu sama sekali. Ketika device idle
+// beberapa menit, OS (terutama HP) menutup koneksi TCP di background untuk
+// hemat baterai/resource. Saat pengguna kembali dan klik menu, fetch baru
+// mencoba konek tapi koneksi TCP sudah "mati" — fetch menggantung tanpa batas
+// hingga server timeout sendiri (30–60 detik), membuat halaman terasa beku.
+//
+// Solusi: setiap request diberi AbortController dengan timeout 10 detik.
+// Jika server tidak merespons dalam 10 detik, request dibatalkan otomatis
+// dan error dilempar — halaman bisa menanganinya (toast error, retry, dll.)
+// daripada terus menggantung tanpa kabar.
 export function apiRequest<T = unknown>(
   url: string,
-  options?: RequestInit
+  options?: RequestInit & { timeoutMs?: number }
 ): Promise<T> {
   const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
+
+  // Timeout default 10 detik. Bisa di-override per-call lewat options.timeoutMs.
+  const timeoutMs = options?.timeoutMs ?? 10_000
+  const controller = new AbortController()
+  const timerId = setTimeout(() => controller.abort(), timeoutMs)
+
+  // Pisahkan timeoutMs dari options supaya tidak ikut dikirim ke fetch()
+  const { timeoutMs: _omit, ...fetchOptions } = options ?? {}
+  void _omit
+
   return fetch(url, {
-    ...options,
+    ...fetchOptions,
+    signal: controller.signal,
     headers: {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...options?.headers,
+      ...fetchOptions?.headers,
     },
-  }).then(async (res) => {
-    // Safely parse JSON — body bisa kosong (204) atau bukan JSON
-    let data: Record<string, unknown> = {}
-    const text = await res.text()
-    if (text) {
-      try {
-        data = JSON.parse(text)
-      } catch {
-        // Response bukan JSON (misal HTML error page dari server)
-        if (!res.ok) throw new Error(`Server error (${res.status})`)
-        return data as T
-      }
-    }
-
-    if (!res.ok) {
-      // Kalau 401, token mungkin expired — arahkan ke login
-      if (res.status === 401) {
-        if (typeof window !== 'undefined') {
-          localStorage.removeItem('token')
-          window.location.href = '/login'
-        }
-        throw new Error('Sesi berakhir, silakan login kembali')
-      }
-      const err = new Error((data.error as string) || `Request gagal (${res.status})`) as Error & { data: Record<string, unknown>; status: number }
-      err.data = data
-      err.status = res.status
-      throw err
-    }
-
-    return data as T
   })
+    .then(async (res) => {
+      clearTimeout(timerId)
+
+      // Safely parse JSON — body bisa kosong (204) atau bukan JSON
+      let data: Record<string, unknown> = {}
+      const text = await res.text()
+      if (text) {
+        try {
+          data = JSON.parse(text)
+        } catch {
+          // Response bukan JSON (misal HTML error page dari server)
+          if (!res.ok) throw new Error(`Server error (${res.status})`)
+          return data as T
+        }
+      }
+
+      if (!res.ok) {
+        // Kalau 401, token mungkin expired — arahkan ke login
+        if (res.status === 401) {
+          if (typeof window !== 'undefined') {
+            localStorage.removeItem('token')
+            window.location.href = '/login'
+          }
+          throw new Error('Sesi berakhir, silakan login kembali')
+        }
+        const err = new Error((data.error as string) || `Request gagal (${res.status})`) as Error & { data: Record<string, unknown>; status: number }
+        err.data = data
+        err.status = res.status
+        throw err
+      }
+
+      return data as T
+    })
+    .catch((err: unknown) => {
+      clearTimeout(timerId)
+      // Jika AbortError (timeout kita sendiri), beri pesan yang jelas
+      if (err instanceof Error && err.name === 'AbortError') {
+        throw new Error('Koneksi terlalu lama. Periksa jaringan dan coba lagi.')
+      }
+      throw err
+    })
 }
