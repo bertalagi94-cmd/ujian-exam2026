@@ -1,12 +1,24 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { BookOpen, Clock, AlertTriangle, CheckCircle, ChevronLeft, ChevronRight, Send, Maximize, KeyRound, LogOut } from 'lucide-react'
+import { BookOpen, Clock, AlertTriangle, CheckCircle, ChevronLeft, ChevronRight, Send, Maximize, KeyRound, LogOut, RefreshCw, Calendar, CheckCircle2 } from 'lucide-react'
 import { apiRequest } from '@/lib/utils'
 import { Soal } from '@/types'
 import { Confirm, Spinner } from '@/components/ui'
 
-type Phase = 'KODE' | 'UJIAN' | 'SELESAI' | 'RESET_KODE'
+type Phase = 'CEK_JADWAL' | 'PERSIAPAN' | 'KODE' | 'UJIAN' | 'SELESAI' | 'RESET_KODE'
+
+interface JadwalHariIni {
+  id: string
+  nama_mapel: string
+  tanggal: string
+  jam_mulai: string
+  jam_selesai: string
+  durasi: number
+  sesi: number
+  status: string
+  sudah_ikut: boolean
+}
 
 interface SesiInfo {
   sesiId: string
@@ -90,7 +102,11 @@ function getDeviceId(): string {
 }
 
 export default function SiswaUjianPage() {
-  const [phase, setPhase] = useState<Phase>('KODE')
+  const [phase, setPhase] = useState<Phase>('CEK_JADWAL')
+  const [jadwalHariIni, setJadwalHariIni] = useState<JadwalHariIni[]>([])
+  const [jadwalTerpilih, setJadwalTerpilih] = useState<JadwalHariIni | null>(null)
+  const [loadingJadwal, setLoadingJadwal] = useState(true)
+  const [jadwalTerdekat, setJadwalTerdekat] = useState<JadwalHariIni | null>(null)
   const [kode, setKode] = useState('')
   const [sesiInfo, setSesiInfo] = useState<SesiInfo | null>(null)
   const [jawaban, setJawaban] = useState<JawabanMap>({})
@@ -150,7 +166,7 @@ export default function SiswaUjianPage() {
   const pelanggaranActiveRef = useRef(false)
   const jawabanRef = useRef<JawabanMap>({})
   const sesiInfoRef = useRef<SesiInfo | null>(null)
-  const phaseRef = useRef<Phase>('KODE')
+  const phaseRef = useRef<Phase>('CEK_JADWAL')
 
   useEffect(() => { jawabanRef.current = jawaban }, [jawaban])
   useEffect(() => { sesiInfoRef.current = sesiInfo }, [sesiInfo])
@@ -186,6 +202,49 @@ export default function SiswaUjianPage() {
         if (!isNaN(batas) && batas > 0) setBatasPelanggaran(batas)
       })
       .catch(() => {})
+  }, [])
+
+  // ── Cek jadwal hari ini saat pertama kali masuk halaman ─────────────────
+  useEffect(() => {
+    async function cekJadwal() {
+      setLoadingJadwal(true)
+      try {
+        const res = await apiRequest<{ data: JadwalHariIni[]; zonaWaktu?: { utcOffsetJam: number } }>('/api/siswa/jadwal')
+        const zona = res.zonaWaktu?.utcOffsetJam ?? 7
+        const shifted = new Date(Date.now() + zona * 60 * 60 * 1000)
+        const today = shifted.toISOString().slice(0, 10)
+
+        const hariIni = (res.data ?? []).filter(j => j.tanggal?.slice(0, 10) === today && !j.sudah_ikut)
+        setJadwalHariIni(hariIni)
+
+        // Cari jadwal terdekat (mendatang) untuk ditampilkan kalau tidak ada hari ini
+        if (hariIni.length === 0) {
+          const nowStr = shifted.toISOString().slice(0, 10)
+          const mendatang = (res.data ?? [])
+            .filter(j => j.tanggal?.slice(0, 10) > nowStr && !j.sudah_ikut)
+            .sort((a, b) => a.tanggal.localeCompare(b.tanggal))
+          setJadwalTerdekat(mendatang[0] ?? null)
+        }
+
+        // Kalau ada sesi BERJALAN, langsung ke persiapan
+        const sesiAktif = hariIni.filter(j => j.status === 'BERJALAN')
+        if (sesiAktif.length === 1) {
+          setJadwalTerpilih(sesiAktif[0])
+          setPhase('PERSIAPAN')
+        } else if (sesiAktif.length > 1) {
+          // Lebih dari 1 sesi berjalan — tampilkan pilihan
+          setPhase('PERSIAPAN')
+        } else {
+          setPhase('CEK_JADWAL')
+        }
+      } catch {
+        setPhase('CEK_JADWAL')
+      } finally {
+        setLoadingJadwal(false)
+      }
+    }
+    cekJadwal()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // ── Minta izin blokir notifikasi saat ujian dimulai ───────────────────────
@@ -358,7 +417,7 @@ export default function SiswaUjianPage() {
 
   // ── Keluar fullscreen saat ujian selesai ──────────────────────────────────
   useEffect(() => {
-    if ((phase === 'SELESAI' || phase === 'RESET_KODE') && isFullscreen()) {
+    if ((phase === 'SELESAI' || phase === 'RESET_KODE' || phase === 'CEK_JADWAL' || phase === 'PERSIAPAN') && isFullscreen()) {
       exitFullscreen().catch(() => {})
     }
   }, [phase])
@@ -589,6 +648,29 @@ export default function SiswaUjianPage() {
     } finally { setLoading(false) }
   }
 
+  async function handleRefreshJadwal() {
+    setLoadingJadwal(true)
+    try {
+      const res = await apiRequest<{ data: JadwalHariIni[]; zonaWaktu?: { utcOffsetJam: number } }>('/api/siswa/jadwal')
+      const zona = res.zonaWaktu?.utcOffsetJam ?? 7
+      const shifted = new Date(Date.now() + zona * 60 * 60 * 1000)
+      const today = shifted.toISOString().slice(0, 10)
+      const hariIni = (res.data ?? []).filter(j => j.tanggal?.slice(0, 10) === today && !j.sudah_ikut)
+      setJadwalHariIni(hariIni)
+      const sesiAktif = hariIni.filter(j => j.status === 'BERJALAN')
+      if (sesiAktif.length === 1) {
+        setJadwalTerpilih(sesiAktif[0])
+        setPhase('PERSIAPAN')
+      } else if (sesiAktif.length > 1) {
+        setJadwalTerpilih(null)
+        setPhase('PERSIAPAN')
+      } else {
+        setPhase('CEK_JADWAL')
+      }
+    } catch { /* silent */ }
+    finally { setLoadingJadwal(false) }
+  }
+
   async function handleVerifikasiReset() {
     if (!kodeReset.trim()) { setKodeResetError('Masukkan kode reset dari pengawas'); return }
     if (!pendingResetSesiId) return
@@ -785,6 +867,203 @@ export default function SiswaUjianPage() {
   const totalDijawab = Object.values(jawaban).filter(Boolean).length
   const opsiLabels = ['A', 'B', 'C', 'D', 'E']
 
+  // ── Helper: jam sekarang vs jam_mulai ────────────────────────────────────
+  function hitungSelisihMenit(jam_mulai: string): number {
+    const now = new Date()
+    const [h, m] = jam_mulai.split(':').map(Number)
+    const mulai = new Date(now)
+    mulai.setHours(h, m, 0, 0)
+    return Math.floor((mulai.getTime() - now.getTime()) / 60000)
+  }
+
+  // ── Phase: CEK_JADWAL ────────────────────────────────────────────────────
+  if (phase === 'CEK_JADWAL') {
+    if (loadingJadwal) {
+      return (
+        <div className="flex flex-col items-center justify-center py-24 gap-3">
+          <Spinner size="lg" />
+          <p className="text-sm text-slate-400">Memeriksa jadwal ujian...</p>
+        </div>
+      )
+    }
+
+    const sesiAktif = jadwalHariIni.filter(j => j.status === 'BERJALAN')
+    const belumDibuka = jadwalHariIni.filter(j => j.status === 'AKTIF')
+
+    // Tidak ada jadwal hari ini
+    if (jadwalHariIni.length === 0) {
+      return (
+        <div className="max-w-md mx-auto animate-fade-in">
+          <div className="card text-center">
+            <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+              <Calendar className="w-8 h-8 text-slate-400" />
+            </div>
+            <h1 className="text-xl font-bold text-slate-900 mb-2">Tidak Ada Ujian Hari Ini</h1>
+            <p className="text-sm text-slate-500 mb-4">Kamu tidak memiliki jadwal ujian untuk hari ini.</p>
+            {jadwalTerdekat && (
+              <div className="bg-brand-50 border border-brand-100 rounded-xl px-4 py-3 text-left mb-4">
+                <p className="text-xs text-brand-500 font-semibold mb-1">Ujian terdekat:</p>
+                <p className="text-sm font-semibold text-brand-800">{jadwalTerdekat.nama_mapel}</p>
+                <p className="text-xs text-brand-600 mt-0.5">
+                  {new Date(jadwalTerdekat.tanggal).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long' })} · {jadwalTerdekat.jam_mulai}
+                </p>
+              </div>
+            )}
+            <button onClick={handleRefreshJadwal} disabled={loadingJadwal}
+              className="btn-secondary w-full justify-center gap-2">
+              <RefreshCw className="w-4 h-4" /> Refresh
+            </button>
+          </div>
+        </div>
+      )
+    }
+
+    // Ada jadwal hari ini tapi semua masih AKTIF (belum dibuka pengawas)
+    if (sesiAktif.length === 0 && belumDibuka.length > 0) {
+      return (
+        <div className="max-w-md mx-auto animate-fade-in space-y-3">
+          <div className="card">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 bg-amber-100 rounded-xl flex items-center justify-center flex-shrink-0">
+                <Clock className="w-5 h-5 text-amber-600" />
+              </div>
+              <div>
+                <h1 className="text-base font-bold text-slate-900">Jadwal Ujian Hari Ini</h1>
+                <p className="text-xs text-slate-400">Menunggu pengawas membuka sesi</p>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              {belumDibuka.map(j => {
+                const selisih = hitungSelisihMenit(j.jam_mulai)
+                const sudahWaktunya = selisih <= 0
+                return (
+                  <div key={j.id} className={`rounded-xl border px-4 py-3 ${sudahWaktunya ? 'bg-amber-50 border-amber-200' : 'bg-slate-50 border-slate-200'}`}>
+                    <div className="font-semibold text-slate-900 text-sm">{j.nama_mapel}</div>
+                    <div className="flex items-center gap-1.5 text-xs text-slate-500 mt-1">
+                      <Clock className="w-3 h-3" />
+                      {j.jam_mulai} – {j.jam_selesai} · {j.durasi} menit
+                    </div>
+                    {sudahWaktunya ? (
+                      <p className="text-xs text-amber-700 font-medium mt-2">
+                        Waktu ujian sudah tiba, pengawas belum membuka sesi.
+                      </p>
+                    ) : (
+                      <p className="text-xs text-slate-500 mt-2">
+                        Dimulai dalam {selisih >= 60
+                          ? `${Math.floor(selisih / 60)} jam ${selisih % 60} menit`
+                          : `${selisih} menit`}
+                      </p>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+
+            <div className="mt-4 pt-4 border-t border-slate-100">
+              <p className="text-xs text-slate-400 mb-3 text-center">
+                Tekan tombol di bawah jika kamu rasa sesi ujian sudah dibuka pengawas.
+              </p>
+              <button onClick={handleRefreshJadwal} disabled={loadingJadwal}
+                className="btn-primary w-full justify-center gap-2">
+                {loadingJadwal ? <Spinner size="sm" /> : <><RefreshCw className="w-4 h-4" /> Cek Ulang Sesi</>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )
+    }
+
+    // Fallback (tidak seharusnya terjadi — sesi aktif sudah ditangani di useEffect)
+    return <div className="flex justify-center py-20"><Spinner size="lg" /></div>
+  }
+
+  // ── Phase: PERSIAPAN ─────────────────────────────────────────────────────
+  if (phase === 'PERSIAPAN') {
+    const sesiAktif = jadwalHariIni.filter(j => j.status === 'BERJALAN')
+
+    // Lebih dari 1 sesi berjalan — siswa pilih dulu
+    if (sesiAktif.length > 1 && !jadwalTerpilih) {
+      return (
+        <div className="max-w-md mx-auto animate-fade-in">
+          <div className="card">
+            <div className="w-12 h-12 bg-brand-100 rounded-xl flex items-center justify-center mb-4">
+              <BookOpen className="w-6 h-6 text-brand-600" />
+            </div>
+            <h1 className="text-lg font-bold text-slate-900 mb-1">Pilih Ujian</h1>
+            <p className="text-sm text-slate-500 mb-4">Ada beberapa sesi ujian yang sedang berjalan. Pilih ujian yang akan kamu kerjakan.</p>
+            <div className="space-y-2">
+              {sesiAktif.map(j => (
+                <button key={j.id} onClick={() => setJadwalTerpilih(j)}
+                  className="w-full text-left border border-slate-200 hover:border-brand-400 hover:bg-brand-50 rounded-xl px-4 py-3 transition-colors">
+                  <div className="font-semibold text-slate-900 text-sm">{j.nama_mapel}</div>
+                  <div className="text-xs text-slate-500 mt-0.5 flex items-center gap-1">
+                    <Clock className="w-3 h-3" /> {j.jam_mulai} – {j.jam_selesai} · {j.durasi} menit
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )
+    }
+
+    const ujian = jadwalTerpilih ?? sesiAktif[0]
+    const checklist = [
+      'Pastikan koneksi internet kamu stabil',
+      'Pastikan baterai HP/laptop cukup atau sudah terhubung charger',
+      'Layar akan otomatis masuk mode fullscreen saat ujian dimulai',
+      'Jangan berpindah tab atau aplikasi selama ujian berlangsung',
+      'Jawaban tersimpan otomatis setiap 30 detik',
+    ]
+
+    return (
+      <div className="max-w-md mx-auto animate-fade-in">
+        <div className="card">
+          <div className="w-14 h-14 bg-brand-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+            <BookOpen className="w-7 h-7 text-brand-600" />
+          </div>
+
+          {/* Info ujian */}
+          <div className="bg-brand-50 border border-brand-100 rounded-xl px-4 py-3 mb-5 text-center">
+            <p className="text-xs text-brand-500 font-medium mb-0.5">Ujian yang akan dikerjakan</p>
+            <p className="text-base font-bold text-brand-900">{ujian?.nama_mapel}</p>
+            <p className="text-xs text-brand-600 mt-0.5 flex items-center justify-center gap-1">
+              <Clock className="w-3 h-3" />
+              {ujian?.jam_mulai} – {ujian?.jam_selesai} · {ujian?.durasi} menit
+            </p>
+          </div>
+
+          {/* Checklist persiapan */}
+          <div className="mb-5">
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Sebelum Mulai</p>
+            <div className="space-y-2">
+              {checklist.map((item, i) => (
+                <div key={i} className="flex items-start gap-2.5">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-500 flex-shrink-0 mt-0.5" />
+                  <p className="text-sm text-slate-600">{item}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <button
+            onClick={() => setPhase('KODE')}
+            className="btn-primary w-full justify-center py-3 text-base"
+          >
+            Saya Siap, Masukkan Kode Ujian
+          </button>
+          {sesiAktif.length > 1 && (
+            <button onClick={() => setJadwalTerpilih(null)}
+              className="btn-ghost w-full justify-center mt-2 text-sm text-slate-400">
+              ← Pilih ujian lain
+            </button>
+          )}
+        </div>
+      </div>
+    )
+  }
+
   // ── Phase: KODE ──────────────────────────────────────────────────────────
   if (phase === 'KODE') {
     return (
@@ -793,8 +1072,18 @@ export default function SiswaUjianPage() {
           <div className="w-16 h-16 bg-brand-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
             <BookOpen className="w-8 h-8 text-brand-600" />
           </div>
-          <h1 className="text-xl font-bold text-slate-900 mb-2">Masuk Ujian</h1>
-          <p className="text-sm text-slate-500 mb-6">Masukkan kode sesi yang diberikan pengawas</p>
+          <h1 className="text-xl font-bold text-slate-900 mb-1">Masukkan Kode Ujian</h1>
+          <p className="text-sm text-slate-500 mb-4">Minta kode 7 digit kepada pengawas di ruangan</p>
+
+          {jadwalTerpilih && (
+            <div className="bg-slate-50 rounded-xl px-3 py-2 mb-4 flex items-center gap-2 text-left">
+              <BookOpen className="w-4 h-4 text-brand-500 flex-shrink-0" />
+              <div>
+                <p className="text-xs font-semibold text-slate-700">{jadwalTerpilih.nama_mapel}</p>
+                <p className="text-xs text-slate-400">{jadwalTerpilih.jam_mulai} – {jadwalTerpilih.jam_selesai}</p>
+              </div>
+            </div>
+          )}
 
           {error && (
             <div className="alert-error mb-4 text-left">
@@ -818,12 +1107,10 @@ export default function SiswaUjianPage() {
             {loading ? <Spinner size="sm" /> : 'Masuk Ujian'}
           </button>
 
-          <div className="mt-4 text-xs text-slate-400 space-y-1">
-            <p>• Pastikan koneksi internet stabil sebelum memulai</p>
-            <p>• Layar akan otomatis masuk mode fullscreen saat ujian dimulai</p>
-            <p>• Jangan berpindah tab/aplikasi saat ujian berlangsung</p>
-            <p>• Jawaban tersimpan otomatis setiap 30 detik</p>
-          </div>
+          <button onClick={() => { setError(''); setKode(''); setPhase('PERSIAPAN') }}
+            className="btn-ghost w-full justify-center mt-2 text-sm text-slate-400">
+            ← Kembali
+          </button>
         </div>
       </div>
     )
