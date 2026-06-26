@@ -205,10 +205,40 @@ function useBadgeCounts(role: 'ADMIN' | 'GURU') {
     roleRef.current = role
   }, [role])
 
+  // FIX: Berhenti polling saat tab tidak aktif (document.hidden).
+  // Sebelumnya setInterval terus berjalan di background. Browser mobile
+  // men-throttle interval saat tab tidak aktif, lalu melepas semua
+  // "hutang" interval sekaligus saat tab aktif kembali — menyebabkan
+  // beberapa request menumpuk bersamaan dan membuat UI terasa beku.
+  // Solusi: pause interval saat hidden, resume + langsung fetch sekali
+  // saat tab aktif kembali supaya badge langsung terupdate.
   useEffect(() => {
     fetch_()
-    const id = setInterval(fetch_, 30_000)
-    return () => clearInterval(id)
+
+    let id: ReturnType<typeof setInterval> | null = setInterval(fetch_, 30_000)
+
+    function onVisibility() {
+      if (document.hidden) {
+        // Tab tidak aktif — hentikan polling
+        if (id !== null) {
+          clearInterval(id)
+          id = null
+        }
+      } else {
+        // Tab aktif kembali — fetch langsung sekali, lalu mulai polling lagi
+        fetch_()
+        if (id === null) {
+          id = setInterval(fetch_, 30_000)
+        }
+      }
+    }
+
+    document.addEventListener('visibilitychange', onVisibility)
+
+    return () => {
+      if (id !== null) clearInterval(id)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
   }, [fetch_])
 
   return counts
