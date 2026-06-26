@@ -16,13 +16,13 @@ export type ResetCategory =
 
 // Map kategori → tabel yang dihapus (urutan reverse FK)
 const CATEGORY_MAP: Record<ResetCategory, string[]> = {
-  jawaban_nilai: ['pelanggaran', 'nilai', 'jawaban'],
-  sesi_ujian: ['pelanggaran', 'nilai', 'jawaban', 'siswa_ujian', 'sesi_ujian'],
-  soal_paket: ['pelanggaran', 'nilai', 'jawaban', 'siswa_ujian', 'sesi_ujian', 'soal', 'kisi_kisi', 'paket_soal'],
-  jadwal: ['pelanggaran', 'nilai', 'jawaban', 'siswa_ujian', 'sesi_ujian', 'soal', 'kisi_kisi', 'paket_soal', 'jadwal'],
-  siswa: ['pelanggaran', 'nilai', 'jawaban', 'siswa_ujian', 'siswa'],
-  kelas_mapel: ['pelanggaran', 'nilai', 'jawaban', 'siswa_ujian', 'sesi_ujian', 'soal', 'kisi_kisi', 'paket_soal', 'jadwal', 'kelas_mapel', 'mapel', 'kelas'],
-  users: ['users'],
+  jawaban_nilai: ['pelanggaran', 'log_reset', 'nilai', 'jawaban'],
+  sesi_ujian: ['pelanggaran', 'log_reset', 'nilai', 'jawaban', 'siswa_ujian', 'sesi_ujian'],
+  soal_paket: ['pelanggaran', 'log_reset', 'nilai', 'jawaban', 'siswa_ujian', 'sesi_ujian', 'soal', 'kisi_kisi', 'paket_soal'],
+  jadwal: ['pelanggaran', 'log_reset', 'nilai', 'jawaban', 'siswa_ujian', 'sesi_ujian', 'soal', 'kisi_kisi', 'paket_soal', 'jadwal'],
+  siswa: ['pelanggaran', 'log_reset', 'nilai', 'jawaban', 'siswa_ujian', 'siswa'],
+  kelas_mapel: ['pelanggaran', 'log_reset', 'nilai', 'jawaban', 'siswa_ujian', 'sesi_ujian', 'soal', 'kisi_kisi', 'paket_soal', 'jadwal', 'siswa', 'kelas_mapel', 'mapel', 'kelas'],
+  users: ['log_aktivitas', 'log_reset', 'users'],
   log: ['log_aktivitas', 'log_reset'],
   pengaturan: ['pengaturan'],
   semua: [
