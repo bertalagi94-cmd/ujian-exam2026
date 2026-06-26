@@ -345,18 +345,39 @@ export function KepsekSidebar() {
 }
 
 export function SiswaSidebar() {
+  const [adaJadwalHariIni, setAdaJadwalHariIni] = useState(true) // default true agar tidak kedip saat load
+
+  useEffect(() => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
+    if (!token) return
+    fetch('/api/siswa/jadwal', { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' })
+      .then(r => r.ok ? r.json() : { data: [] })
+      .then(json => {
+        const zonaOffset = (json.zonaWaktu?.utcOffsetJam ?? 7) as number
+        const shifted = new Date(Date.now() + zonaOffset * 60 * 60 * 1000)
+        const today = shifted.toISOString().slice(0, 10)
+        const jadwalHariIni = (json.data ?? []).filter((j: { tanggal: string; sudah_ikut: boolean; status: string }) =>
+          j.tanggal?.slice(0, 10) === today && !j.sudah_ikut && j.status !== 'SELESAI'
+        )
+        setAdaJadwalHariIni(jadwalHariIni.length > 0)
+      })
+      .catch(() => {})
+  }, [])
+
+  const navItems: NavItem[] = [
+    { label: 'Beranda', href: '/siswa', icon: LayoutDashboard },
+    { label: 'Kisi-kisi', href: '/siswa/kisi-kisi', icon: FileText },
+    ...(adaJadwalHariIni ? [{ label: 'Mulai Ujian', href: '/siswa/ujian', icon: BookOpen } as NavItem] : []),
+    { label: 'Nilai Saya', href: '/siswa/nilai', icon: BarChart3 },
+    { label: 'Jadwal', href: '/siswa/jadwal', icon: Calendar },
+  ]
+
   return (
     <Sidebar
       role="SISWA"
       roleColor="bg-cyan-600"
       roleLabel="Siswa"
-      navItems={[
-        { label: 'Beranda', href: '/siswa', icon: LayoutDashboard },
-        { label: 'Kisi-kisi', href: '/siswa/kisi-kisi', icon: FileText },
-        { label: 'Mulai Ujian', href: '/siswa/ujian', icon: BookOpen },
-        { label: 'Nilai Saya', href: '/siswa/nilai', icon: BarChart3 },
-        { label: 'Jadwal', href: '/siswa/jadwal', icon: Calendar },
-      ]}
+      navItems={navItems}
     />
   )
 }
