@@ -1139,7 +1139,7 @@ export default function SiswaUjianPage() {
             return (
               <div className="text-[11px] mt-1 flex items-center gap-1 text-amber-600 font-medium">
                 <Clock className="w-3 h-3" />
-                Submit tersedia dalam {m}:{String(d).padStart(2, '0')} menit
+                Tombol kirim akan aktif dalam {m}:{String(d).padStart(2, '0')} menit
               </div>
             )
           })()}
