@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 
-// Tabel yang dibackup — urutan penting untuk restore (parent dulu)
+// Hanya tabel yang ada di schema (kisi_kisi DIHAPUS - tidak ada di 01_schema.sql)
 const BACKUP_TABLES = [
   'pengaturan',
   'kelas',
@@ -13,7 +13,6 @@ const BACKUP_TABLES = [
   'jadwal',
   'paket_soal',
   'soal',
-  'kisi_kisi',
   'sesi_ujian',
   'siswa_ujian',
   'jawaban',
@@ -40,7 +39,7 @@ export async function GET(req: NextRequest) {
         .order('id' as never, { ascending: true })
 
       if (error) {
-        // Coba tanpa order jika kolom id tidak ada
+        // Coba tanpa order jika kolom id tidak ada (contoh: pengaturan, siswa)
         const fallback = await db.from(table as never).select('*')
         if (fallback.error || !fallback.data) {
           errors.push(`${table}: ${error.message}`)
