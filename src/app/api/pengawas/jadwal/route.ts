@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 import { getZonaWaktuSekolah } from '@/lib/pengaturan-waktu'
-import { computeStatusSoalMap } from '@/lib/soal-status'
+import { computeStatusSoalDetailMap } from '@/lib/soal-status'
 
 export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['PENGAWAS', 'GURU', 'ADMIN'])
@@ -38,16 +38,20 @@ export async function GET(req: NextRequest) {
   // Enrich status_soal supaya pengawas bisa melihat (dan UI bisa menonaktifkan
   // tombol "Buka Sesi") sebelum mencoba membuka sesi untuk jadwal yang soalnya
   // belum siap.
-  const statusSoalMap = await computeStatusSoalMap(
+  const statusSoalMap = await computeStatusSoalDetailMap(
     data.map(j => ({ mapel_id: j.mapel_id, kelas: String(j.kelas) }))
   )
 
   return NextResponse.json({
-    data: data.map(j => ({
-      ...j,
-      nama_mapel: mapelMap[j.mapel_id] ?? j.mapel_id,
-      status_soal: statusSoalMap[`${j.mapel_id}__${j.kelas}`] ?? 'BELUM_ADA',
-    })),
+    data: data.map(j => {
+      const detail = statusSoalMap[`${j.mapel_id}__${j.kelas}`] ?? { status: 'BELUM_ADA', namaGuru: null }
+      return {
+        ...j,
+        nama_mapel: mapelMap[j.mapel_id] ?? j.mapel_id,
+        status_soal: detail.status,
+        status_soal_guru: detail.namaGuru,
+      }
+    }),
     zonaWaktu,
   })
 }
