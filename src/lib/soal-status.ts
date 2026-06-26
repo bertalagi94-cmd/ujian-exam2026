@@ -27,17 +27,34 @@ export { isStatusSoalSiap, labelStatusSoal, pesanStatusSoal } from '@/lib/soal-s
 
 const STATUS_PRIORITY: Record<string, number> = { DISETUJUI: 4, MENUNGGU: 3, DITOLAK: 2, DRAFT: 1 }
 
+export type StatusSoalDetail = {
+  status: StatusSoal
+  /**
+   * Nama guru pemilik paket soal untuk kombinasi mapel+kelas ini.
+   * Kalau ada lebih dari satu guru yang berkontribusi pada status tertinggi
+   * (misal team-teaching), nama-nama digabung dengan ", " (contoh:
+   * "Budi Santoso, Siti Aminah"). null kalau tidak ada paket_soal sama sekali
+   * (status BELUM_ADA tanpa guru_id) atau guru_id tidak diisi.
+   */
+  namaGuru: string | null
+}
+
 /**
- * Hitung status_soal untuk sekumpulan kombinasi (mapel_id, kelas) sekaligus.
- * Lebih efisien daripada query satu-satu kalau dipakai untuk list jadwal.
+ * Hitung status_soal (+ nama guru pembuat soal) untuk sekumpulan kombinasi
+ * (mapel_id, kelas) sekaligus. Lebih efisien daripada query satu-satu kalau
+ * dipakai untuk list jadwal.
+ *
+ * Nama guru disertakan agar UI (mode pengawas, baik untuk akun GURU maupun
+ * PENGAWAS/ADMIN) bisa menampilkan pesan seperti "Soal belum dibuat. Nama
+ * Guru : (Nama Guru)" tanpa perlu request tambahan.
  *
  * @param items daftar kombinasi { mapel_id, kelas } yang ingin dicek.
- * @returns map dengan key `${mapel_id}__${kelas}` -> StatusSoal
+ * @returns map dengan key `${mapel_id}__${kelas}` -> StatusSoalDetail
  */
-export async function computeStatusSoalMap(
+export async function computeStatusSoalDetailMap(
   items: { mapel_id: string; kelas: string }[]
-): Promise<Record<string, StatusSoal>> {
-  const result: Record<string, StatusSoal> = {}
+): Promise<Record<string, StatusSoalDetail>> {
+  const result: Record<string, StatusSoalDetail> = {}
   const mapelIds = [...new Set(items.map(i => i.mapel_id).filter(Boolean))]
   if (mapelIds.length === 0) return result
 
@@ -50,27 +67,78 @@ export async function computeStatusSoalMap(
 
   const { data: paketListRaw } = await db
     .from('paket_soal')
-    .select('mapel_id, kelas_id, status')
+    .select('mapel_id, kelas_id, status, guru_id')
     .in('mapel_id', mapelIds)
 
-  const paketList = (paketListRaw ?? []) as { mapel_id: string; kelas_id: string; status: string }[]
+  const paketList = (paketListRaw ?? []) as { mapel_id: string; kelas_id: string; status: string; guru_id: string | null }[]
+
+  // Resolve guru_id -> nama guru (sekali query untuk semua guru yang muncul).
+  const guruIds = [...new Set(paketList.map(p => p.guru_id).filter(Boolean))] as string[]
+  let idToNamaGuru: Record<string, string> = {}
+  if (guruIds.length > 0) {
+    const { data: guruListRaw } = await db
+      .from('users')
+      .select('username, nama')
+      .in('username', guruIds)
+    idToNamaGuru = Object.fromEntries(((guruListRaw ?? []) as { username: string; nama: string }[]).map(g => [g.username, g.nama]))
+  }
+
+  // Catatan: satu kombinasi mapel+kelas bisa diajar oleh LEBIH DARI SATU guru
+  // (misal team-teaching, atau guru pengganti yang juga membuat paket_soal
+  // sendiri). Jadi kita tidak boleh asal menyimpan SATU guru_id terakhir yang
+  // match status tertinggi — kita kumpulkan dulu SEMUA nama guru yang
+  // berkontribusi pada status tertinggi tersebut, baru digabung jadi satu
+  // string (dipisah ", ") untuk ditampilkan di pesan.
+  const namaGuruByKeyStatus: Record<string, Set<string>> = {} // key: `${mapelKelasKey}__${status}`
+  const bestStatusByKey: Record<string, StatusSoal> = {}
 
   for (const p of paketList) {
     const namaKelasPaket = idToNamaKelas[p.kelas_id] ?? p.kelas_id
     const key = `${p.mapel_id}__${namaKelasPaket}`
-    const existing = result[key]
-    if (!existing || (STATUS_PRIORITY[p.status] ?? 0) > (STATUS_PRIORITY[existing] ?? 0)) {
-      result[key] = (p.status as StatusSoal) ?? 'BELUM_ADA'
+    const status = (p.status as StatusSoal) ?? 'BELUM_ADA'
+
+    const namaGuru = p.guru_id ? (idToNamaGuru[p.guru_id] ?? p.guru_id) : null
+    if (namaGuru) {
+      const statusKey = `${key}__${status}`
+      if (!namaGuruByKeyStatus[statusKey]) namaGuruByKeyStatus[statusKey] = new Set()
+      namaGuruByKeyStatus[statusKey].add(namaGuru)
+    }
+
+    const existingBest = bestStatusByKey[key]
+    if (!existingBest || (STATUS_PRIORITY[status] ?? 0) > (STATUS_PRIORITY[existingBest] ?? 0)) {
+      bestStatusByKey[key] = status
+    }
+  }
+
+  for (const [key, status] of Object.entries(bestStatusByKey)) {
+    const namaGuruSet = namaGuruByKeyStatus[`${key}__${status}`]
+    result[key] = {
+      status,
+      namaGuru: namaGuruSet && namaGuruSet.size > 0 ? [...namaGuruSet].join(', ') : null,
     }
   }
 
   // Pastikan semua kombinasi yang diminta punya entry (default BELUM_ADA)
   for (const item of items) {
     const key = `${item.mapel_id}__${item.kelas}`
-    if (!result[key]) result[key] = 'BELUM_ADA'
+    if (!result[key]) result[key] = { status: 'BELUM_ADA', namaGuru: null }
   }
 
   return result
+}
+
+/**
+ * Hitung status_soal untuk sekumpulan kombinasi (mapel_id, kelas) sekaligus.
+ * Lebih efisien daripada query satu-satu kalau dipakai untuk list jadwal.
+ *
+ * @param items daftar kombinasi { mapel_id, kelas } yang ingin dicek.
+ * @returns map dengan key `${mapel_id}__${kelas}` -> StatusSoal
+ */
+export async function computeStatusSoalMap(
+  items: { mapel_id: string; kelas: string }[]
+): Promise<Record<string, StatusSoal>> {
+  const detail = await computeStatusSoalDetailMap(items)
+  return Object.fromEntries(Object.entries(detail).map(([k, v]) => [k, v.status]))
 }
 
 /**
@@ -80,4 +148,14 @@ export async function computeStatusSoalMap(
 export async function getStatusSoal(mapelId: string, kelas: string): Promise<StatusSoal> {
   const map = await computeStatusSoalMap([{ mapel_id: mapelId, kelas }])
   return map[`${mapelId}__${kelas}`] ?? 'BELUM_ADA'
+}
+
+/**
+ * Versi single-lookup yang juga mengembalikan nama guru pemilik paket soal.
+ * Dipakai saat akan menampilkan pesan error yang menyebut nama guru (misal
+ * saat akun GURU/PENGAWAS mencoba membuka sesi tapi soal belum siap).
+ */
+export async function getStatusSoalDetail(mapelId: string, kelas: string): Promise<StatusSoalDetail> {
+  const map = await computeStatusSoalDetailMap([{ mapel_id: mapelId, kelas }])
+  return map[`${mapelId}__${kelas}`] ?? { status: 'BELUM_ADA', namaGuru: null }
 }
