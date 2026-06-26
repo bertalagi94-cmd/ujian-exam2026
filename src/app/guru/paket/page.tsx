@@ -465,7 +465,8 @@ export default function GuruBuatSoalPage() {
               </div>
               <div>
                 <label className="label">Kunci Jawaban *</label>
-                <select name="kunci" className="select" required defaultValue="A">
+                <select name="kunci" className="select" required defaultValue="">
+                  <option value="" disabled>Pilih Kunci Jawaban</option>
                   {opsiLabels.slice(0, globalJumlahOpsi).map(l => <option key={l} value={l}>{l}</option>)}
                 </select>
               </div>
@@ -788,7 +789,8 @@ export default function GuruBuatSoalPage() {
           </div>
           <div>
             <label className="label">Kunci Jawaban *</label>
-            <select name="kunci" className="select" required defaultValue={editSoal.kunci ?? 'A'}>
+            <select name="kunci" className="select" required defaultValue={editSoal.kunci ?? ''}>
+              {!editSoal.kunci && <option value="" disabled>Pilih Kunci Jawaban</option>}
               {opsiLabels.slice(0, editSoal.jumlah_opsi || 4).map(l => <option key={l} value={l}>{l}</option>)}
             </select>
           </div>
