@@ -16,6 +16,7 @@ interface SesiInfo {
   durasi: number
   waktu_mulai: string
   soalList: SoalUjian[]
+  minSubmitMenit: number  // 0 = tidak ada batas
 }
 
 interface SoalUjian extends Soal {
@@ -137,6 +138,10 @@ export default function SiswaUjianPage() {
   const [diambilAlihDevice, setDiambilAlihDevice] = useState(false)
   const [dikeluarkan, setDikeluarkan] = useState(false)
   const [batasPelanggaran, setBatasPelanggaran] = useState(3)
+
+  // Waktu terpakai (detik) — diupdate tiap detik bersama countdown,
+  // digunakan untuk menegakkan batas minimal waktu sebelum submit.
+  const [waktuTerpakai, setWaktuTerpakai] = useState(0)
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const syncRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -435,6 +440,7 @@ export default function SiswaUjianPage() {
         }
         return prev - 1
       })
+      setWaktuTerpakai(prev => prev + 1)
     }, 1000)
     return () => clearInterval(timerRef.current!)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -573,6 +579,7 @@ export default function SiswaUjianPage() {
       await resumeJawaban(res.sesiId, user.nis)
       const terpakai1 = Math.floor((Date.now() - new Date(res.waktu_mulai).getTime()) / 1000)
       setSisaWaktu(Math.max(0, res.durasi * 60 - terpakai1))
+      setWaktuTerpakai(terpakai1)
       setPhase('UJIAN')
       setTimeout(() => {
         requestFullscreen(document.documentElement).catch(() => {})
@@ -616,6 +623,7 @@ export default function SiswaUjianPage() {
         const waktuAcuan = res.waktu_mulai ?? sesiRes.waktu_mulai
         const terpakai2 = Math.floor((Date.now() - new Date(waktuAcuan).getTime()) / 1000)
         setSisaWaktu(Math.max(0, sesiRes.durasi * 60 - terpakai2))
+        setWaktuTerpakai(terpakai2)
 
         // FIX Bug #2: reset pelanggaranActiveRef agar event anti-cheat
         // berikutnya (keluar fullscreen, ganti tab, blur) kembali aktif.
@@ -1083,24 +1091,38 @@ export default function SiswaUjianPage() {
             </div>
             <button
               onClick={() => {
+                const minDetik = (sesiInfo?.minSubmitMenit ?? 0) * 60
+                const belumCukupWaktu = minDetik > 0 && waktuTerpakai < minDetik
                 if (totalDijawab < soalList.length) {
                   // Arahkan ke soal pertama yang belum dijawab
                   const idxBelum = soalList.findIndex(s => !jawaban[s.id])
                   if (idxBelum !== -1) setCurrentIdx(idxBelum)
-                } else {
+                } else if (!belumCukupWaktu) {
                   setConfirmSelesai(true)
                 }
               }}
               className={`btn-sm flex items-center gap-1.5 font-semibold transition-all flex-shrink-0 ${
-                totalDijawab < soalList.length
-                  ? 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'
-                  : 'btn-success'
+                (() => {
+                  const minDetik = (sesiInfo?.minSubmitMenit ?? 0) * 60
+                  const belumCukupWaktu = minDetik > 0 && waktuTerpakai < minDetik
+                  return (totalDijawab < soalList.length || belumCukupWaktu)
+                    ? 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'
+                    : 'btn-success'
+                })()
               }`}
-              disabled={submitting}
+              disabled={submitting || ((sesiInfo?.minSubmitMenit ?? 0) > 0 && waktuTerpakai < (sesiInfo?.minSubmitMenit ?? 0) * 60)}
               title={
                 totalDijawab < soalList.length
                   ? `${soalList.length - totalDijawab} soal belum dijawab`
-                  : 'Selesaikan ujian'
+                  : (() => {
+                      const minDetik = (sesiInfo?.minSubmitMenit ?? 0) * 60
+                      const sisa = minDetik - waktuTerpakai
+                      if (sisa > 0) {
+                        const m = Math.floor(sisa / 60), d = sisa % 60
+                        return `Tunggu ${m}:${String(d).padStart(2,'0')} lagi sebelum bisa submit`
+                      }
+                      return 'Selesaikan ujian'
+                    })()
               }
             >
               <Send className="w-3.5 h-3.5" />
@@ -1108,6 +1130,19 @@ export default function SiswaUjianPage() {
               <span className="xs:hidden">{submitting ? '...' : 'Kirim'}</span>
             </button>
           </div>
+          {/* Indikator countdown batas minimal submit */}
+          {(() => {
+            const minDetik = (sesiInfo?.minSubmitMenit ?? 0) * 60
+            const sisa = minDetik - waktuTerpakai
+            if (sisa <= 0) return null
+            const m = Math.floor(sisa / 60), d = sisa % 60
+            return (
+              <div className="text-[11px] mt-1 flex items-center gap-1 text-amber-600 font-medium">
+                <Clock className="w-3 h-3" />
+                Submit tersedia dalam {m}:{String(d).padStart(2, '0')} menit
+              </div>
+            )
+          })()}
           <div className={`text-[11px] mt-1.5 flex items-center gap-1 ${
             syncStatus === 'error' ? 'text-red-600 font-semibold' :
             syncStatus === 'syncing' ? 'text-amber-500' :
