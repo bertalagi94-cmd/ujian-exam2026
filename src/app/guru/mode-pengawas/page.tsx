@@ -34,6 +34,7 @@ interface JadwalHariIni {
   sesi_ujian: SesiUjianInfo | null
   diambil_alih_pengawas: { username: string; nama: string } | null
   status_soal?: 'BELUM_ADA' | 'DRAFT' | 'MENUNGGU' | 'DITOLAK' | 'DISETUJUI'
+  status_soal_guru?: string | null
 }
 
 interface SiswaAktif {
@@ -546,10 +547,11 @@ export default function ModePengawasPage() {
                       )}
                       {!isRunning && boleh && !soalSiap && (
                         <div
-                          className="flex items-center gap-1.5 text-xs text-slate-500 bg-slate-50 px-3 py-1.5 rounded-lg font-medium"
-                          title={pesanStatusSoal(j.status_soal)}
+                          className="flex items-center gap-1.5 text-xs text-slate-500 bg-slate-50 px-3 py-1.5 rounded-lg font-medium max-w-md"
+                          title={pesanStatusSoal(j.status_soal, j.status_soal_guru)}
                         >
-                          <AlertTriangle className="w-3.5 h-3.5 text-amber-400" /> Soal belum siap — sesi belum dapat dibuka
+                          <AlertTriangle className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
+                          {pesanStatusSoal(j.status_soal, j.status_soal_guru)}
                         </div>
                       )}
                       {isRunning && <div className="flex-1" />}
@@ -558,7 +560,7 @@ export default function ModePengawasPage() {
                           <button
                             onClick={() => handleMulai(j)}
                             disabled={!boleh || !soalSiap || starting === j.id}
-                            title={!soalSiap ? pesanStatusSoal(j.status_soal) : undefined}
+                            title={!soalSiap ? pesanStatusSoal(j.status_soal, j.status_soal_guru) : undefined}
                             className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all shadow-sm ${boleh && soalSiap ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : 'bg-slate-100 text-slate-400 cursor-not-allowed'}`}
                           >
                             {starting === j.id ? <RefreshCw className="w-4 h-4 animate-spin" /> : (boleh && soalSiap) ? <Play className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
