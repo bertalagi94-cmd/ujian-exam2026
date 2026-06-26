@@ -1,10 +1,11 @@
 'use client'
 import { useMonitorRealtime } from '@/hooks/useMonitorRealtime'
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Play, Square, Clock, Copy, CheckCircle, RefreshCw, AlertTriangle, ShieldAlert, Eye, Users, RotateCcw, LogOut } from 'lucide-react'
+import { Play, Square, Clock, Copy, CheckCircle, RefreshCw, AlertTriangle, ShieldAlert, Eye, Users, RotateCcw, LogOut, FileQuestion } from 'lucide-react'
 import { PageLoader, StatusBadge, Spinner, Toast, Confirm, Modal } from '@/components/ui'
 import { apiRequest, formatDate, generateKodeSesi } from '@/lib/utils'
 import { Jadwal, SesiUjian, Siswa } from '@/types'
+import { isStatusSoalSiap, labelStatusSoal, pesanStatusSoal } from '@/lib/soal-status-shared'
 
 interface SusulanResult {
   bisa: boolean
@@ -54,6 +55,25 @@ const JENIS_LABEL: Record<string, { label: string; color: string; icon: string }
 
 function jenisInfo(jenis: string) {
   return JENIS_LABEL[jenis] ?? { label: jenis, color: 'bg-slate-100 text-slate-600 border-slate-200', icon: '⚠' }
+}
+
+// Badge kecil status kesiapan soal, ditampilkan di samping jadwal hari ini
+// supaya pengawas tahu kenapa tombol "Buka Sesi" tidak muncul kalau soal
+// belum siap (belum dibuat / masih draft / masih menunggu validasi / ditolak).
+function SoalStatusBadge({ status }: { status?: string }) {
+  const siap = isStatusSoalSiap(status)
+  const warna = siap
+    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+    : status === 'MENUNGGU'
+      ? 'bg-amber-50 text-amber-700 border-amber-200'
+      : status === 'DITOLAK'
+        ? 'bg-red-50 text-red-700 border-red-200'
+        : 'bg-slate-50 text-slate-500 border-slate-200'
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border ${warna}`}>
+      <FileQuestion className="w-3 h-3" /> {labelStatusSoal(status)}
+    </span>
+  )
 }
 
 function formatWaktuSingkat(iso: string) {
@@ -626,6 +646,7 @@ export default function PengawasDashboard() {
           <div className="space-y-2">
             {jadwal.filter(j => j.tanggal === today).map(j => {
               const alreadyRunning = sesiAktif.some(s => s.jadwal_id === j.id)
+              const soalSiap = isStatusSoalSiap(j.status_soal)
               return (
                 <div key={j.id} className="card py-4 flex items-center gap-4">
                   <div className="w-10 h-10 bg-brand-50 rounded-xl flex items-center justify-center flex-shrink-0">
@@ -636,12 +657,26 @@ export default function PengawasDashboard() {
                     <div className="text-sm text-slate-500">
                       Kelas {j.kelas} · {j.jam_mulai}–{j.jam_selesai} · {j.durasi} menit
                     </div>
+                    {!alreadyRunning && !soalSiap && (
+                      <div className="mt-1.5 flex items-center gap-1.5">
+                        <SoalStatusBadge status={j.status_soal} />
+                      </div>
+                    )}
                   </div>
                   <StatusBadge status={j.status} />
-                  {!alreadyRunning && j.status === 'AKTIF' && (
+                  {!alreadyRunning && j.status === 'AKTIF' && soalSiap && (
                     <button onClick={() => setMulaiId(j.id)} className="btn-success btn-sm flex-shrink-0">
                       <Play className="w-3.5 h-3.5" /> Buka Sesi
                     </button>
+                  )}
+                  {!alreadyRunning && j.status === 'AKTIF' && !soalSiap && (
+                    <span
+                      className="text-xs text-slate-400 flex-shrink-0 flex items-center gap-1 max-w-[10rem] text-right"
+                      title={pesanStatusSoal(j.status_soal)}
+                    >
+                      <AlertTriangle className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
+                      Soal belum siap
+                    </span>
                   )}
                   {alreadyRunning && (
                     <span className="badge-green flex-shrink-0">Sedang berjalan</span>
