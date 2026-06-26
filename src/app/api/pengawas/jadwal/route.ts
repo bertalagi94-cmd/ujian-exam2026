@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 import { getZonaWaktuSekolah } from '@/lib/pengaturan-waktu'
-import { computeStatusSoalDetailMap } from '@/lib/soal-status'
+import { computeStatusSoalDetailMap, buildStatusSoalKey } from '@/lib/soal-status'
 
 export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['PENGAWAS', 'GURU', 'ADMIN'])
@@ -44,7 +44,7 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     data: data.map(j => {
-      const detail = statusSoalMap[`${j.mapel_id}__${j.kelas}`] ?? { status: 'BELUM_ADA', namaGuru: null }
+      const detail = statusSoalMap[buildStatusSoalKey(j.mapel_id, j.kelas)] ?? { status: 'BELUM_ADA', namaGuru: null }
       return {
         ...j,
         nama_mapel: mapelMap[j.mapel_id] ?? j.mapel_id,
