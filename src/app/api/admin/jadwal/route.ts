@@ -201,6 +201,35 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // Cegah bentrok kelas: kelas yang sama tidak boleh punya 2 jadwal ujian
+  // (mapel berbeda) di hari yang sama dengan jam yang bertabrakan, karena
+  // siswa di kelas tersebut tidak bisa mengikuti 2 ujian sekaligus.
+  if (body.kelas && body.tanggal && body.jam_mulai && body.jam_selesai) {
+    const { data: jadwalKelas } = await db
+      .from('jadwal')
+      .select('id, mapel_id, jam_mulai, jam_selesai')
+      .eq('kelas', String(body.kelas))
+      .eq('tanggal', body.tanggal)
+
+    const typedJadwalKelas = (jadwalKelas ?? []) as { id: string; mapel_id: string; jam_mulai: string; jam_selesai: string }[]
+    const bentrokKelas = typedJadwalKelas.find(j => {
+      return body.jam_mulai < j.jam_selesai && body.jam_selesai > j.jam_mulai
+    })
+
+    if (bentrokKelas) {
+      const { data: mapelBentrok } = await (db as any)
+        .from('mapel')
+        .select('nama')
+        .eq('id', bentrokKelas.mapel_id)
+        .single()
+      const namaMapelBentrok = mapelBentrok?.nama ?? 'mata pelajaran lain'
+      return NextResponse.json(
+        { error: `Kelas ${body.kelas} sudah ada jadwal ujian ${namaMapelBentrok} di hari yang sama pada jam ${bentrokKelas.jam_mulai}–${bentrokKelas.jam_selesai}. Atur jam yang tidak bertabrakan.` },
+        { status: 409 }
+      )
+    }
+  }
+
   const { error } = await (db as any).from('jadwal').insert({
     id: generateId('JDW'),
     tanggal: body.tanggal,
@@ -261,6 +290,34 @@ export async function PUT(req: NextRequest) {
     if (bentrok) {
       return NextResponse.json(
         { error: `Pengawas ini sudah bertugas di hari yang sama pada jam ${bentrok.jam_mulai}–${bentrok.jam_selesai}. Pilih pengawas lain atau atur jam yang tidak bertabrakan.` },
+        { status: 409 }
+      )
+    }
+  }
+
+  // Cegah bentrok kelas saat edit (lihat penjelasan di POST)
+  if (update.kelas && update.tanggal && update.jam_mulai && update.jam_selesai) {
+    const { data: jadwalKelas } = await db
+      .from('jadwal')
+      .select('id, mapel_id, jam_mulai, jam_selesai')
+      .eq('kelas', String(update.kelas))
+      .eq('tanggal', update.tanggal)
+      .neq('id', id)
+
+    const typedJadwalKelas2 = (jadwalKelas ?? []) as { id: string; mapel_id: string; jam_mulai: string; jam_selesai: string }[]
+    const bentrokKelas = typedJadwalKelas2.find(j => {
+      return update.jam_mulai < j.jam_selesai && update.jam_selesai > j.jam_mulai
+    })
+
+    if (bentrokKelas) {
+      const { data: mapelBentrok } = await (db as any)
+        .from('mapel')
+        .select('nama')
+        .eq('id', bentrokKelas.mapel_id)
+        .single()
+      const namaMapelBentrok = mapelBentrok?.nama ?? 'mata pelajaran lain'
+      return NextResponse.json(
+        { error: `Kelas ${update.kelas} sudah ada jadwal ujian ${namaMapelBentrok} di hari yang sama pada jam ${bentrokKelas.jam_mulai}–${bentrokKelas.jam_selesai}. Atur jam yang tidak bertabrakan.` },
         { status: 409 }
       )
     }
