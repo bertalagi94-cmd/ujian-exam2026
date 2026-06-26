@@ -81,6 +81,7 @@ export async function POST(req: NextRequest) {
     }
 
     else if (tabel === 'users') {
+      const BCRYPT_COST = 6
       const prepared = await Promise.all(
         rows.map(async (r) => {
           const username = clean(r['Username'])
@@ -89,7 +90,7 @@ export async function POST(req: NextRequest) {
           if (!username || !password || !nama) return null
           return {
             username,
-            password_hash: await bcrypt.hash(password, 10),
+            password_hash: await bcrypt.hash(password, BCRYPT_COST),
             nama,
             role: clean(r['Role']) ?? 'GURU',
             mapel_id: clean(r['MapelID']),
@@ -108,6 +109,8 @@ export async function POST(req: NextRequest) {
     }
 
     else if (tabel === 'siswa') {
+      // cost 6: ~15ms/hash — cukup aman untuk import massal (vs cost 10 = ~100ms/hash)
+      const BCRYPT_COST = 6
       const prepared = await Promise.all(
         rows.map(async (r) => {
           const nis = toNIS(r['NIS'])
@@ -118,7 +121,7 @@ export async function POST(req: NextRequest) {
           return {
             nis, nama,
             kelas: toKelas(r['Kelas']),
-            password_hash: await bcrypt.hash(password, 10),
+            password_hash: await bcrypt.hash(password, BCRYPT_COST),
             status: clean(r['Status']) ?? 'AKTIF',
             tempat_lahir: clean(r['TempatLahir']),
             tanggal_lahir: tanggalLahir ? tanggalLahir.split('T')[0] : null,
