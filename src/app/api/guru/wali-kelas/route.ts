@@ -2,6 +2,63 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 
+// POST /api/guru/wali-kelas
+// Body: { aksi: 'kembalikan', nilai_id: string, catatan?: string }
+// Wali kelas mengembalikan nilai ke guru pengampu untuk direvisi
+export async function POST(req: NextRequest) {
+  const auth = requireRole(req, ['GURU'])
+  if ('error' in auth) return auth.error
+  const { user } = auth
+
+  const db = createAdminClient()
+  const body = await req.json()
+  const { aksi, nilai_id, catatan } = body as { aksi: string; nilai_id: string; catatan?: string }
+
+  if (aksi !== 'kembalikan') {
+    return NextResponse.json({ error: 'Aksi tidak dikenali' }, { status: 400 })
+  }
+
+  // Verifikasi guru ini adalah wali kelas dari kelas yang berkaitan
+  const { data: kelasWali } = await db
+    .from('kelas')
+    .select('id, nama')
+    .eq('wali_kelas', user.username)
+    .single()
+
+  if (!kelasWali) {
+    return NextResponse.json({ error: 'Anda bukan wali kelas' }, { status: 403 })
+  }
+
+  // Ambil nilai dan pastikan nilai ini milik kelas yang diwali
+  const { data: nilaiRow } = await db
+    .from('nilai')
+    .select('id, kelas, dikirim_ke_wali')
+    .eq('id', nilai_id)
+    .single()
+
+  if (!nilaiRow || nilaiRow.kelas !== kelasWali.nama) {
+    return NextResponse.json({ error: 'Tidak diizinkan' }, { status: 403 })
+  }
+
+  if (!nilaiRow.dikirim_ke_wali) {
+    return NextResponse.json({ error: 'Nilai belum dikirim oleh guru' }, { status: 400 })
+  }
+
+  const { error } = await db
+    .from('nilai')
+    .update({
+      dikirim_ke_wali: false,
+      dikembalikan: true,
+      catatan_guru: catatan ?? null,
+      dikirim_at: null,
+    })
+    .eq('id', nilai_id)
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  return NextResponse.json({ message: 'Nilai berhasil dikembalikan ke guru untuk direvisi' })
+}
+
 export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['GURU'])
   if ('error' in auth) return auth.error
@@ -63,9 +120,10 @@ export async function GET(req: NextRequest) {
     .order('tanggal', { ascending: true })
 
   // Ambil nilai untuk semua siswa di kelas ini (sumber utama mapel yang sudah diujikan)
+  // Ambil semua kolom yang dibutuhkan termasuk info pengiriman
   const { data: nilaiList } = await db
     .from('nilai')
-    .select('nis, mapel_id, nilai, grade, lulus, sesi_id, timestamp')
+    .select('id, nis, mapel_id, nilai, grade, lulus, sesi_id, timestamp, nilai_edit, grade_edit, lulus_edit, dikirim_ke_wali, dikirim_at, dikembalikan, catatan_guru')
     .eq('kelas', kelasNama)
 
   // Ambil relasi kelas_mapel kalau ada (kompatibilitas dengan data hasil import lama)
@@ -107,22 +165,26 @@ export async function GET(req: NextRequest) {
     if (!mapelNamaMap.has(km.mapel_id) && km.nama_mapel) mapelNamaMap.set(km.mapel_id, km.nama_mapel)
   })
 
-  // Per mapel: hitung sudah berapa yang ujian, belum siapa
+  // Per mapel: hitung sudah berapa yang ujian, belum siapa, status kirim
   const mapelEnriched = mapelIds.map(mapelId => {
     // Cari jadwal terkait mapel ini
-    const jadwalMapel = (jadwalList ?? []).filter(j => j.mapel_id === mapelId)
+    const jadwalMapel = (jadwalList ?? []).filter((j: { mapel_id: string }) => j.mapel_id === mapelId)
     const lastJadwal = jadwalMapel[jadwalMapel.length - 1] ?? null
 
     // Cari nilai untuk mapel ini
-    const nilaiMapel = (nilaiList ?? []).filter(n => n.mapel_id === mapelId)
-    const sudahUjian = new Set(nilaiMapel.map(n => n.nis))
+    const nilaiMapel = (nilaiList ?? []).filter((n: { mapel_id: string }) => n.mapel_id === mapelId)
+    const sudahUjian = new Set(nilaiMapel.map((n: { nis: string }) => n.nis))
 
     // Siswa yang belum ujian
-    const belumUjian = (siswaList ?? []).filter(s => !sudahUjian.has(s.nis))
+    const belumUjian = (siswaList ?? []).filter((s: { nis: string }) => !sudahUjian.has(s.nis))
 
     const rataRata = nilaiMapel.length
-      ? Math.round(nilaiMapel.reduce((s, r) => s + (r.nilai || 0), 0) / nilaiMapel.length)
+      ? Math.round(nilaiMapel.reduce((s: number, r: { nilai: number }) => s + (r.nilai || 0), 0) / nilaiMapel.length)
       : null
+
+    // Status pengiriman: berapa sudah dikirim, berapa belum
+    const sudahDikirim = nilaiMapel.filter((n: { dikirim_ke_wali: boolean }) => n.dikirim_ke_wali).length
+    const adaDikembalikan = nilaiMapel.some((n: { dikembalikan: boolean }) => n.dikembalikan)
 
     return {
       mapel_id: mapelId,
@@ -130,18 +192,41 @@ export async function GET(req: NextRequest) {
       jadwal: lastJadwal,
       sudahUjian: sudahUjian.size,
       totalSiswa,
-      belumUjianSiswa: belumUjian.map(s => ({ nis: s.nis, nama: s.nama })),
+      belumUjianSiswa: belumUjian.map((s: { nis: string; nama: string }) => ({ nis: s.nis, nama: s.nama })),
       rataRata,
       nilaiList: nilaiMapel,
+      // Info pengiriman
+      totalNilai: nilaiMapel.length,
+      sudahDikirim,
+      adaDikembalikan,
     }
   })
 
   // Rekap nilai per siswa per mapel (untuk tabel)
-  const nilaiRekap = (siswaList ?? []).map(siswa => {
+  // PENTING: di halaman wali kelas, hanya tampilkan nilai yang sudah dikirim guru (dikirim_ke_wali = true)
+  // Gunakan nilai_edit jika ada (hasil remedial guru), jika tidak gunakan nilai asli
+  const nilaiRekap = (siswaList ?? []).map((siswa: { nis: string; nama: string }) => {
     const row: Record<string, unknown> = { nis: siswa.nis, nama: siswa.nama }
     mapelIds.forEach(mapelId => {
-      const nilaiSiswa = (nilaiList ?? []).find(n => n.nis === siswa.nis && n.mapel_id === mapelId)
-      row[mapelId] = nilaiSiswa ? { nilai: nilaiSiswa.nilai, grade: nilaiSiswa.grade, lulus: nilaiSiswa.lulus } : null
+      const n = (nilaiList ?? []).find((v: { nis: string; mapel_id: string; dikirim_ke_wali: boolean }) =>
+        v.nis === siswa.nis && v.mapel_id === mapelId && v.dikirim_ke_wali
+      ) as Record<string, unknown> | undefined
+
+      if (!n) {
+        row[mapelId] = null
+      } else {
+        // Jika ada nilai_edit, pakai itu. Jika tidak, pakai nilai asli
+        const nilaiTampil = n.nilai_edit != null ? n.nilai_edit : n.nilai
+        const gradeTampil = n.grade_edit != null ? n.grade_edit : n.grade
+        const lulusTampil = n.lulus_edit != null ? n.lulus_edit : n.lulus
+        row[mapelId] = {
+          nilai: nilaiTampil,
+          grade: gradeTampil,
+          lulus: lulusTampil,
+          nilai_id: n.id,
+          dikembalikan: n.dikembalikan,
+        }
+      }
     })
     return row
   })
