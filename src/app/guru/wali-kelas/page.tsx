@@ -433,7 +433,7 @@ export default function WaliKelasPage() {
 
         <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="text-sm" style={{ width: 'auto', minWidth: '100%' }}>
+            <table className="text-sm" style={{ width: 'auto' }}>
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50">
                   <th className="text-left px-4 py-3 font-semibold text-slate-600 text-xs uppercase tracking-wider whitespace-nowrap sticky left-0 bg-slate-50 z-10 border-r border-slate-100">
