@@ -11,6 +11,10 @@
     {
       "path": "/api/cron/reminder-soal",
       "schedule": "0 5 * * *"
+    },
+    {
+      "path": "/api/cron/deadline-nilai",
+      "schedule": "0 * * * *"
     }
   ]
 }
