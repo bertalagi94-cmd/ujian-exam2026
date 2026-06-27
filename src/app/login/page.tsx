@@ -309,9 +309,9 @@ const QA_ITEMS = [
   },
 ]
 
-function SchoolLogo({ size, siteInfo }: { size: 'sm' | 'lg'; siteInfo: SiteInfo }) {
-  const dim = size === 'lg' ? 'w-14 h-14' : 'w-10 h-10'
-  const iconDim = size === 'lg' ? 'w-7 h-7' : 'w-5 h-5'
+function SchoolLogo({ size, siteInfo }: { size: 'sm' | 'lg' | 'xl'; siteInfo: SiteInfo }) {
+  const dim = size === 'xl' ? 'w-16 h-16' : size === 'lg' ? 'w-14 h-14' : 'w-10 h-10'
+  const iconDim = size === 'xl' ? 'w-8 h-8' : size === 'lg' ? 'w-7 h-7' : 'w-5 h-5'
   const displayName = siteInfo.namaSekolah || 'SmartExam'
   if (siteInfo.logoUrl) {
     return (
@@ -781,21 +781,21 @@ export default function LoginPage() {
           className="absolute left-0 w-[52vw] max-w-[660px] min-w-[360px] h-auto select-none transition-transform duration-500 ease-out hover:animate-float hover:scale-[1.03] hover:drop-shadow-2xl"
           style={{ zIndex: 1, bottom: '-2%' }}
         />
-        <div className="relative z-10 space-y-7">
-          <div className="flex items-center gap-3 cursor-default w-fit"
+        <div className="relative z-10 space-y-8">
+          <div className="flex items-center gap-4 cursor-default w-fit"
             style={{ transition: 'transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1)' }}
             onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.transform = 'scale(1.14)' }}
             onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.transform = 'scale(1)' }}
           >
-            <SchoolLogo size="lg" siteInfo={siteInfo} />
+            <SchoolLogo size="xl" siteInfo={siteInfo} />
             <div className="min-w-0">
-              <p className="font-bold text-xl leading-tight line-clamp-2">{displayName}</p>
-              <p className="text-purple-300 text-sm">Sistem Ujian Digital Terpercaya</p>
+              <p className="font-bold text-2xl leading-tight line-clamp-2">{displayName}</p>
+              <p className="text-purple-300 text-base">Sistem Ujian Digital Terpercaya</p>
             </div>
           </div>
 
           <div>
-            <h1 className="text-4xl font-bold leading-tight mb-3 cursor-default w-fit"
+            <h1 className="text-5xl xl:text-6xl font-bold leading-tight mb-4 cursor-default w-fit"
               style={{ transition: 'transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1)', display: 'inline-block', transformOrigin: 'left center' }}
               onMouseEnter={e => { (e.currentTarget as HTMLHeadingElement).style.transform = 'scale(1.08)' }}
               onMouseLeave={e => { (e.currentTarget as HTMLHeadingElement).style.transform = 'scale(1)' }}
@@ -809,7 +809,7 @@ export default function LoginPage() {
                 Lebih Mudah & Adil
               </span>
             </h1>
-            <p className="text-purple-300 text-sm leading-relaxed max-w-xs">
+            <p className="text-purple-300 text-base leading-relaxed max-w-sm">
               Sistem CBT modern{siteInfo.namaSekolah ? ` untuk ${siteInfo.namaSekolah}` : ''}{' '}
               dengan fitur anti-nyontek, penilaian otomatis, dan monitoring real-time.
             </p>
