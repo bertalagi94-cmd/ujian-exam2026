@@ -17,6 +17,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 import { generateId } from '@/lib/utils'
+import { cekSesiBentrokKelas, pesanBentrokKelas } from '@/lib/sesi-kelas'
 
 function generateKode7(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
@@ -87,6 +88,23 @@ export async function POST(req: NextRequest) {
       konflik: true,
       sesiAktifId: sesiAktif.id,
       kodeSesi: sesiAktif.kode_sesi,
+    }, { status: 409 })
+  }
+
+  // ── ANTI-TABRAKAN LEVEL KELAS ──────────────────────────────────────────
+  // Cek tambahan: walau jadwal INI belum punya sesi aktif, kelas yang sama
+  // bisa saja sedang menjalankan sesi dari JADWAL LAIN (mapel lain). Tanpa
+  // cek ini, admin bisa membuka susulan untuk mapel B di kelas 10 padahal
+  // kelas 10 sedang ujian mapel A — dua sesi aktif bersamaan di kelas yang
+  // sama. Lihat src/lib/sesi-kelas.ts.
+  const bentrokKelas = await cekSesiBentrokKelas(db, String(jadwal.kelas), jadwalId)
+  if (bentrokKelas) {
+    return NextResponse.json({
+      error: pesanBentrokKelas(String(jadwal.kelas), bentrokKelas),
+      bentrokKelas: true,
+      sesiAktifId: bentrokKelas.sesiId,
+      kodeSesi: bentrokKelas.kodeSesi,
+      jadwalAktifId: bentrokKelas.jadwalId,
     }, { status: 409 })
   }
 
