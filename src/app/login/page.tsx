@@ -597,21 +597,42 @@ export default function LoginPage() {
       {/* glow blobs */}
       <div className="absolute inset-0" style={{ pointerEvents: 'none', zIndex: 0 }}>
         <div className="absolute -top-40 -left-32 w-[560px] h-[560px] rounded-full opacity-40 blur-[110px]"
-          style={{ background: 'radial-gradient(circle, #c026d3, transparent 70%)' }} />
+          style={{ background: 'radial-gradient(circle, #2dd4bf, transparent 70%)' }} />
         <div className="absolute top-1/3 -right-40 w-[640px] h-[640px] rounded-full opacity-30 blur-[120px]"
           style={{ background: 'radial-gradient(circle, #22d3ee, transparent 70%)' }} />
         <div className="absolute -bottom-48 left-1/4 w-[520px] h-[520px] rounded-full opacity-30 blur-[100px]"
-          style={{ background: 'radial-gradient(circle, #6366f1, transparent 70%)' }} />
+          style={{ background: 'radial-gradient(circle, #34d399, transparent 70%)' }} />
       </div>
+
+      {/* ── Motif batik transparan bergerak — vector ringan, full SVG/CSS ── */}
+      <svg className="absolute inset-0 w-full h-full batik-layer" style={{ pointerEvents: 'none', zIndex: 0, opacity: 0.16 }}
+        viewBox="0 0 800 800" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <pattern id="batikKawung" width="120" height="120" patternUnits="userSpaceOnUse" patternTransform="rotate(8)">
+            {/* motif kawung sederhana — garis lengkung berulang, gaya batik */}
+            <g fill="none" stroke="#5eead4" strokeWidth="1.4">
+              <ellipse cx="30" cy="30" rx="22" ry="14" transform="rotate(45 30 30)" />
+              <ellipse cx="90" cy="30" rx="22" ry="14" transform="rotate(45 90 30)" />
+              <ellipse cx="30" cy="90" rx="22" ry="14" transform="rotate(45 30 90)" />
+              <ellipse cx="90" cy="90" rx="22" ry="14" transform="rotate(45 90 90)" />
+              <circle cx="60" cy="60" r="6" stroke="#67e8f9" />
+              <path d="M0 60 Q 30 30 60 60 Q 90 90 120 60" stroke="#a7f3d0" strokeWidth="1" />
+              <path d="M60 0 Q 30 30 60 60 Q 90 90 60 120" stroke="#a7f3d0" strokeWidth="1" />
+            </g>
+          </pattern>
+        </defs>
+        <rect x="0" y="0" width="800" height="800" fill="url(#batikKawung)" />
+      </svg>
+
 
       {/* mesh lines */}
       <svg className="absolute inset-0 w-full h-full" style={{ pointerEvents: 'none', zIndex: 0 }}
         viewBox="0 0 1440 900" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
         <defs>
           <linearGradient id="lnViolet" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="#e879f9" stopOpacity="0" />
-            <stop offset="50%" stopColor="#e879f9" stopOpacity="0.65" />
-            <stop offset="100%" stopColor="#e879f9" stopOpacity="0" />
+            <stop offset="0%" stopColor="#5eead4" stopOpacity="0" />
+            <stop offset="50%" stopColor="#5eead4" stopOpacity="0.65" />
+            <stop offset="100%" stopColor="#5eead4" stopOpacity="0" />
           </linearGradient>
           <linearGradient id="lnCyan" x1="0%" y1="100%" x2="100%" y2="0%">
             <stop offset="0%" stopColor="#22d3ee" stopOpacity="0" />
@@ -619,9 +640,9 @@ export default function LoginPage() {
             <stop offset="100%" stopColor="#22d3ee" stopOpacity="0" />
           </linearGradient>
           <linearGradient id="lnIndigo" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor="#818cf8" stopOpacity="0" />
-            <stop offset="50%" stopColor="#c7d2fe" stopOpacity="0.5" />
-            <stop offset="100%" stopColor="#818cf8" stopOpacity="0" />
+            <stop offset="0%" stopColor="#34d399" stopOpacity="0" />
+            <stop offset="50%" stopColor="#a7f3d0" stopOpacity="0.5" />
+            <stop offset="100%" stopColor="#34d399" stopOpacity="0" />
           </linearGradient>
           <linearGradient id="lnAmber" x1="0%" y1="100%" x2="100%" y2="0%">
             <stop offset="0%" stopColor="#fbbf24" stopOpacity="0" />
@@ -649,14 +670,14 @@ export default function LoginPage() {
         <path d="M 1180 -60 L 1380 340 L 1160 900" stroke="url(#lnCyan)" strokeWidth="1.25" fill="none" />
         <path d="M 260 -60 L 60 380 L 320 900" stroke="url(#lnViolet)" strokeWidth="1" fill="none" />
         <g filter="url(#softGlow)">
-          <circle cx="360" cy="60" r="4" fill="#f0abfc" />
-          <circle cx="720" cy="190" r="4.5" fill="#a5b4fc" />
-          <circle cx="420" cy="320" r="3" fill="#c7d2fe" />
+          <circle cx="360" cy="60" r="4" fill="#a7f3d0" />
+          <circle cx="720" cy="190" r="4.5" fill="#5eead4" />
+          <circle cx="420" cy="320" r="3" fill="#a7f3d0" />
           <circle cx="660" cy="430" r="3.5" fill="#67e8f9" />
           <circle cx="1140" cy="860" r="4" fill="#67e8f9" />
-          <circle cx="760" cy="700" r="4.5" fill="#f0abfc" />
+          <circle cx="760" cy="700" r="4.5" fill="#a7f3d0" />
           <circle cx="820" cy="470" r="3" fill="#fcd34d" />
-          <circle cx="1220" cy="540" r="3.5" fill="#f0abfc" />
+          <circle cx="1220" cy="540" r="3.5" fill="#5eead4" />
         </g>
       </svg>
 
@@ -667,38 +688,38 @@ export default function LoginPage() {
         <div
           className="absolute top-4 right-5 z-20 hidden lg:flex items-center gap-3 select-none"
           style={{
-            background: 'linear-gradient(135deg, rgba(10,5,35,0.85) 0%, rgba(45,15,100,0.80) 100%)',
+            background: 'linear-gradient(135deg, rgba(5,25,30,0.85) 0%, rgba(8,60,65,0.80) 100%)',
             backdropFilter: 'blur(16px)',
             WebkitBackdropFilter: 'blur(16px)',
-            border: '1.5px solid rgba(192,132,252,0.45)',
+            border: '1.5px solid rgba(94,234,212,0.45)',
             borderRadius: '16px',
             padding: '10px 18px 10px 14px',
-            boxShadow: '0 4px 24px rgba(139,92,246,0.35), 0 0 0 1px rgba(255,255,255,0.06), inset 0 1px 0 rgba(255,255,255,0.08)',
+            boxShadow: '0 4px 24px rgba(20,184,166,0.35), 0 0 0 1px rgba(255,255,255,0.06), inset 0 1px 0 rgba(255,255,255,0.08)',
           }}
         >
           {/* Ikon jam */}
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
-            <circle cx="12" cy="12" r="9.5" stroke="#c084fc" strokeWidth="2" />
-            <path d="M12 7v5.5l3.5 2" stroke="#e879f9" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            <circle cx="12" cy="12" r="9.5" stroke="#5eead4" strokeWidth="2" />
+            <path d="M12 7v5.5l3.5 2" stroke="#2dd4bf" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
 
           {/* Hari & tanggal */}
-          <span style={{ fontSize: '14px', color: '#ddd6fe', fontWeight: 600, letterSpacing: '0.02em', lineHeight: 1 }}>
+          <span style={{ fontSize: '14px', color: '#ccfbf1', fontWeight: 600, letterSpacing: '0.02em', lineHeight: 1 }}>
             {witaTime.day}, {witaTime.date}
           </span>
 
           {/* Divider */}
-          <span style={{ width: '1.5px', height: '18px', background: 'rgba(192,132,252,0.4)', flexShrink: 0, borderRadius: '2px' }} />
+          <span style={{ width: '1.5px', height: '18px', background: 'rgba(94,234,212,0.4)', flexShrink: 0, borderRadius: '2px' }} />
 
           {/* Jam */}
           <span style={{
             fontSize: '17px',
             fontWeight: 800,
             letterSpacing: '0.08em',
-            color: '#f0abfc',
+            color: '#5eead4',
             fontVariantNumeric: 'tabular-nums',
             lineHeight: 1,
-            textShadow: '0 0 12px rgba(240,171,252,0.7), 0 0 24px rgba(217,70,239,0.4)',
+            textShadow: '0 0 12px rgba(94,234,212,0.7), 0 0 24px rgba(45,212,191,0.4)',
           }}>
             {witaTime.time}
           </span>
@@ -708,12 +729,12 @@ export default function LoginPage() {
             fontSize: '10.5px',
             fontWeight: 700,
             letterSpacing: '0.1em',
-            color: '#f5d0fe',
-            background: 'linear-gradient(135deg, rgba(139,92,246,0.5), rgba(217,70,239,0.4))',
+            color: '#d1fae5',
+            background: 'linear-gradient(135deg, rgba(20,184,166,0.5), rgba(34,211,238,0.4))',
             borderRadius: '7px',
             padding: '3px 7px',
             lineHeight: 1.3,
-            border: '1px solid rgba(192,132,252,0.3)',
+            border: '1px solid rgba(94,234,212,0.3)',
           }}>
             WITA
           </span>
@@ -752,7 +773,7 @@ export default function LoginPage() {
               onMouseLeave={e => { (e.currentTarget as HTMLHeadingElement).style.transform = 'scale(1)' }}
             >
               Ujian Digital<br />
-              <span className="bg-gradient-to-r from-fuchsia-300 via-violet-300 to-cyan-300 bg-clip-text text-transparent">
+              <span className="bg-gradient-to-r from-cyan-300 via-teal-300 to-emerald-300 bg-clip-text text-transparent">
                 Lebih Mudah & Adil
               </span>
             </h1>
@@ -848,7 +869,7 @@ export default function LoginPage() {
                 </div>
                 <div className="grid grid-cols-3 gap-2 pt-1">
                   {[
-                    { n: '🔒', l: 'Aman', from: 'from-fuchsia-50', to: 'to-violet-50', ring: 'ring-fuchsia-200', text: 'text-fuchsia-600' },
+                    { n: '🔒', l: 'Aman', from: 'from-teal-50', to: 'to-emerald-50', ring: 'ring-teal-200', text: 'text-teal-600' },
                     { n: '⚡', l: 'Cepat', from: 'from-amber-50', to: 'to-orange-50', ring: 'ring-amber-200', text: 'text-amber-600' },
                     { n: '📊', l: 'Akurat', from: 'from-cyan-50', to: 'to-sky-50', ring: 'ring-cyan-200', text: 'text-cyan-600' },
                   ].map(({ n, l, from, to, ring, text }) => (
@@ -1066,7 +1087,7 @@ export default function LoginPage() {
                     </div>
                     <div className="grid grid-cols-3 gap-2 pt-1">
                       {[
-                        { n: '🔒', l: 'Aman', from: 'from-fuchsia-50', to: 'to-violet-50', ring: 'ring-fuchsia-200', text: 'text-fuchsia-600' },
+                        { n: '🔒', l: 'Aman', from: 'from-teal-50', to: 'to-emerald-50', ring: 'ring-teal-200', text: 'text-teal-600' },
                         { n: '⚡', l: 'Cepat', from: 'from-amber-50', to: 'to-orange-50', ring: 'ring-amber-200', text: 'text-amber-600' },
                         { n: '📊', l: 'Akurat', from: 'from-cyan-50', to: 'to-sky-50', ring: 'ring-cyan-200', text: 'text-cyan-600' },
                       ].map(({ n, l, from, to, ring, text }) => (
@@ -1099,7 +1120,7 @@ export default function LoginPage() {
             {/* Header */}
             <div className="px-4 sm:px-6 py-4 sm:py-5 border-b border-slate-100 flex items-center justify-between flex-shrink-0">
               <div className="flex items-center gap-3">
-                <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-gradient-to-br from-brand-500 to-purple-600 flex items-center justify-center flex-shrink-0">
+                <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-gradient-to-br from-brand-500 to-emerald-600 flex items-center justify-center flex-shrink-0">
                   <BookMarked className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
                 </div>
                 <div>
