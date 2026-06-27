@@ -49,13 +49,16 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   maintenancePesan: '',
   maintenanceMulai: '',
   maintenanceSelesai: '',
+  deadline_kirim_nilai: '',
+  reminder_nilai_jam: '24',
 }
 
-type Tab = 'sekolah' | 'ujian' | 'maintenance' | 'backup' | 'reset'
+type Tab = 'sekolah' | 'ujian' | 'pengiriman_nilai' | 'maintenance' | 'backup' | 'reset'
 
 const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: 'sekolah', label: 'Informasi Sekolah', icon: <School className="w-4 h-4" /> },
   { id: 'ujian', label: 'Pengaturan Ujian', icon: <Settings className="w-4 h-4" /> },
+  { id: 'pengiriman_nilai', label: 'Pengiriman Nilai', icon: <Clock className="w-4 h-4" /> },
   { id: 'maintenance', label: 'Maintenance', icon: <WrenchIcon className="w-4 h-4" /> },
   { id: 'backup', label: 'Backup & Restore', icon: <DatabaseZap className="w-4 h-4" /> },
   { id: 'reset', label: 'Reset Data', icon: <RotateCcw className="w-4 h-4" /> },
@@ -667,6 +670,92 @@ export default function AdminPengaturanPage() {
                 </div>
               ))}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Tab: Pengiriman Nilai ── */}
+      {activeTab === 'pengiriman_nilai' && (
+        <div className="card space-y-6">
+          <div className="flex items-center gap-2 pb-3 border-b border-slate-100">
+            <Clock className="w-4 h-4 text-slate-400" />
+            <h2 className="font-semibold text-slate-900">Pengaturan Pengiriman Nilai ke Wali Kelas</h2>
+          </div>
+
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-800">
+            <p className="font-medium mb-1">Cara kerja:</p>
+            <ul className="space-y-1 text-xs list-disc list-inside text-blue-700">
+              <li>Nilai siswa langsung tampil di akun siswa dan guru pengampu setelah ujian selesai</li>
+              <li>Guru pengampu bisa isi nilai edit untuk remedial, lalu kirim ke wali kelas secara manual</li>
+              <li>Jika batas waktu di bawah habis dan guru belum kirim, nilai otomatis terkirim ke wali kelas</li>
+              <li>Wali kelas bisa kembalikan nilai ke guru untuk direvisi jika diperlukan</li>
+            </ul>
+          </div>
+
+          <div className="grid sm:grid-cols-2 gap-6">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                Batas Waktu Pengiriman Nilai (Deadline)
+              </label>
+              <input
+                type="datetime-local"
+                value={values.deadline_kirim_nilai ?? ''}
+                onChange={e => set('deadline_kirim_nilai', e.target.value)}
+                className="input w-full"
+              />
+              <p className="text-xs text-slate-400 mt-1">
+                Jika kosong, tidak ada auto-kirim otomatis. Isi dengan tanggal dan jam deadline.
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                Kirim Reminder WA ke Guru (Jam sebelum deadline)
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min={1}
+                  max={72}
+                  value={values.reminder_nilai_jam ?? '24'}
+                  onChange={e => set('reminder_nilai_jam', e.target.value)}
+                  className="input w-24"
+                />
+                <span className="text-sm text-slate-500">jam sebelum deadline</span>
+              </div>
+              <p className="text-xs text-slate-400 mt-1">
+                Cron job berjalan setiap jam. Guru mendapat notifikasi WA ketika waktu tersisa ≤ nilai ini.
+              </p>
+            </div>
+          </div>
+
+          {values.deadline_kirim_nilai && (
+            <div className={`flex items-center gap-3 p-3 rounded-xl text-sm ${
+              new Date(values.deadline_kirim_nilai) < new Date()
+                ? 'bg-red-50 border border-red-200 text-red-700'
+                : 'bg-emerald-50 border border-emerald-200 text-emerald-700'
+            }`}>
+              <Clock className="w-4 h-4 flex-shrink-0" />
+              <span>
+                Deadline saat ini: <strong>
+                  {new Date(values.deadline_kirim_nilai).toLocaleString('id-ID', {
+                    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+                    hour: '2-digit', minute: '2-digit',
+                  })}
+                </strong>
+                {new Date(values.deadline_kirim_nilai) < new Date() ? ' — sudah lewat' : ''}
+              </span>
+            </div>
+          )}
+
+          <div className="flex justify-end pt-2 border-t border-slate-100">
+            <button
+              onClick={() => saveSection(['deadline_kirim_nilai', 'reminder_nilai_jam'], 'Pengaturan Pengiriman Nilai')}
+              disabled={savingSection === 'Pengaturan Pengiriman Nilai'}
+              className="btn-primary btn-sm"
+            >
+              {savingSection === 'Pengaturan Pengiriman Nilai' ? 'Menyimpan...' : 'Simpan Pengaturan'}
+            </button>
           </div>
         </div>
       )}
