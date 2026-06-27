@@ -6,7 +6,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import {
   LayoutDashboard, Users, BookOpen, Calendar, ClipboardList,
   BarChart3, Settings, LogOut, Menu, X, ChevronRight,
-  GraduationCap, School, Bell, User, FileText, Eye, ShieldAlert
+  GraduationCap, School, Bell, User, FileText, Eye, ShieldAlert, Send
 } from 'lucide-react'
 import { cn, apiRequest } from '@/lib/utils'
 import { AuthUser } from '@/types'
@@ -388,6 +388,7 @@ export function GuruSidebar() {
       badge: counts.bankSoal || undefined,
     },
     { label: 'Rekap Nilai', href: '/guru/nilai', icon: BarChart3 },
+    { label: 'Kirim Nilai ke Wali Kelas', href: '/guru/kirim-nilai', icon: Send },
     { label: 'Analisis Ujian', href: '/guru/analisis-ujian', icon: BarChart3 },
   ]
 
