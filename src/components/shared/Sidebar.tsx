@@ -23,6 +23,8 @@ interface SidebarProps {
   role: string
   roleColor: string
   roleLabel: string
+  /** Hex color used for the glass/frosted accents (nav active state, sidebar tint, mobile toggle). */
+  accent?: string
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -41,16 +43,27 @@ interface SidebarContentProps {
   navItems: NavItem[]
   roleColor: string
   roleLabel: string
+  accent: string
   user: AuthUser | null
   onClose: () => void
   onLogout: () => void
 }
 
-function SidebarContent({ navItems, roleColor, roleLabel, user, onClose, onLogout }: SidebarContentProps) {
+function SidebarContent({ navItems, roleColor, roleLabel, accent, user, onClose, onLogout }: SidebarContentProps) {
   const pathname = usePathname()
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full relative">
+      {/* Subtle decorative accent — sits behind content, pure SVG, zero JS cost */}
+      <svg aria-hidden="true" className="pointer-events-none absolute inset-0 w-full h-full" style={{ zIndex: 0, opacity: 0.5 }}
+        viewBox="0 0 240 800" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="210" cy="60" r="90" fill="none" stroke={accent} strokeWidth="1" strokeOpacity="0.18"/>
+        <circle cx="20" cy="740" r="110" fill="none" stroke={accent} strokeWidth="1" strokeOpacity="0.16"/>
+        <polygon points="180,420 230,395 240,440 220,480 175,470" fill={accent} fillOpacity="0.05" stroke={accent} strokeWidth="0.8" strokeOpacity="0.16"/>
+        <line x1="0" y1="220" x2="160" y2="120" stroke={accent} strokeWidth="0.7" strokeOpacity="0.14"/>
+        <line x1="60" y1="800" x2="220" y2="640" stroke={accent} strokeWidth="0.7" strokeOpacity="0.12"/>
+      </svg>
+      <div className="relative z-10 flex flex-col h-full">
       {/* Logo */}
       <div className="px-4 py-5" style={{ borderBottom: '1px solid rgba(0,0,0,0.07)' }}>
         <div className="flex items-center gap-3">
@@ -73,10 +86,13 @@ function SidebarContent({ navItems, roleColor, roleLabel, user, onClose, onLogou
               key={item.href}
               href={item.href}
               onClick={onClose}
-              className={cn(
-                'nav-link group',
-                isActive ? 'nav-link-active' : 'nav-link-inactive'
-              )}
+              className={cn('nav-link group', !isActive && 'nav-link-inactive')}
+              style={isActive ? {
+                background: `linear-gradient(135deg, ${accent}E6, ${accent}CC)`,
+                color: '#ffffff',
+                boxShadow: `0 4px 14px ${accent}40, inset 0 1px 0 rgba(255,255,255,0.25)`,
+                backdropFilter: 'blur(8px)',
+              } : undefined}
             >
               <item.icon className="w-4 h-4 flex-shrink-0" />
               <span className="flex-1">{item.label}</span>
@@ -94,7 +110,11 @@ function SidebarContent({ navItems, roleColor, roleLabel, user, onClose, onLogou
       {/* User info + logout */}
       <div className="p-3" style={{ borderTop: '1px solid rgba(0,0,0,0.07)' }}>
         <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl mb-1"
-          style={{ background: 'rgba(0,0,0,0.04)' }}>
+          style={{
+            background: `${accent}14`,
+            border: `1px solid ${accent}22`,
+            backdropFilter: 'blur(8px)',
+          }}>
           <div className={cn('w-8 h-8 rounded-lg flex items-center justify-center text-white text-xs font-bold', roleColor)}>
             {user?.nama?.charAt(0) ?? 'U'}
           </div>
@@ -105,17 +125,23 @@ function SidebarContent({ navItems, roleColor, roleLabel, user, onClose, onLogou
         </div>
         <button
           onClick={onLogout}
-          className="nav-link-inactive w-full text-danger-600 hover:bg-danger-50 hover:text-danger-700"
+          className="nav-link w-full text-danger-600"
+          style={{
+            background: 'rgba(254,242,242,0.65)',
+            border: '1px solid rgba(252,165,165,0.5)',
+            backdropFilter: 'blur(8px)',
+          }}
         >
           <LogOut className="w-4 h-4" />
           <span>Keluar</span>
         </button>
       </div>
+      </div>
     </div>
   )
 }
 
-export function Sidebar({ navItems, role, roleColor, roleLabel }: SidebarProps) {
+export function Sidebar({ navItems, role, roleColor, roleLabel, accent = '#0891b2' }: SidebarProps) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const [user, setUser] = useState<AuthUser | null>(null)
@@ -137,10 +163,18 @@ export function Sidebar({ navItems, role, roleColor, roleLabel }: SidebarProps) 
 
   return (
     <>
-      {/* Mobile toggle */}
+      {/* Mobile toggle — glass/frosted, role-tinted */}
       <button
         onClick={() => setOpen(true)}
-        className="fixed top-4 left-4 z-40 lg:hidden btn-secondary btn-icon shadow-card-md"
+        className="fixed top-4 left-4 z-40 lg:hidden btn-icon"
+        style={{
+          background: 'rgba(255,255,255,0.6)',
+          border: `1px solid ${accent}33`,
+          backdropFilter: 'blur(12px)',
+          WebkitBackdropFilter: 'blur(12px)',
+          boxShadow: `0 4px 16px ${accent}26, inset 0 1px 0 rgba(255,255,255,0.5)`,
+          color: accent,
+        }}
       >
         <Menu className="w-5 h-5" />
       </button>
@@ -149,10 +183,22 @@ export function Sidebar({ navItems, role, roleColor, roleLabel }: SidebarProps) 
       {open && (
         <div className="fixed inset-0 z-50 lg:hidden">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={handleClose} />
-          <div className="absolute left-0 top-0 bottom-0 w-64 bg-white shadow-card-lg animate-slide-up">
+          <div className="absolute left-0 top-0 bottom-0 w-64 shadow-card-lg animate-slide-up"
+            style={{
+              background: `linear-gradient(165deg, ${accent}1F 0%, rgba(255,255,255,0.92) 45%)`,
+              backdropFilter: 'blur(20px)',
+              WebkitBackdropFilter: 'blur(20px)',
+            }}
+          >
             <button
               onClick={handleClose}
-              className="absolute top-3 right-3 btn-ghost btn-icon"
+              className="absolute top-3 right-3 btn-icon z-10"
+              style={{
+                background: 'rgba(255,255,255,0.6)',
+                border: `1px solid ${accent}33`,
+                backdropFilter: 'blur(8px)',
+                color: accent,
+              }}
             >
               <X className="w-4 h-4" />
             </button>
@@ -160,6 +206,7 @@ export function Sidebar({ navItems, role, roleColor, roleLabel }: SidebarProps) 
               navItems={navItems}
               roleColor={roleColor}
               roleLabel={roleLabel}
+              accent={accent}
               user={user}
               onClose={handleClose}
               onLogout={logout}
@@ -168,20 +215,21 @@ export function Sidebar({ navItems, role, roleColor, roleLabel }: SidebarProps) 
         </div>
       )}
 
-      {/* Desktop sidebar */}
+      {/* Desktop sidebar — frosted glass with role-tinted gradient wash */}
       <aside className="hidden lg:flex flex-col w-60 h-screen sticky top-0 flex-shrink-0"
         style={{
-          background: 'rgba(255,255,255,0.72)',
+          background: `linear-gradient(165deg, ${accent}1A 0%, rgba(255,255,255,0.78) 50%, ${accent}0D 100%)`,
           backdropFilter: 'blur(20px)',
           WebkitBackdropFilter: 'blur(20px)',
-          borderRight: '1px solid rgba(255,255,255,0.6)',
-          boxShadow: '4px 0 24px rgba(0,0,0,0.06)',
+          borderRight: `1px solid ${accent}26`,
+          boxShadow: `4px 0 24px ${accent}14`,
         }}
       >
         <SidebarContent
           navItems={navItems}
           roleColor={roleColor}
           roleLabel={roleLabel}
+          accent={accent}
           user={user}
           onClose={handleClose}
           onLogout={logout}
@@ -280,6 +328,7 @@ export function AdminSidebar() {
       role="ADMIN"
       roleColor="bg-brand-600"
       roleLabel="Administrator"
+      accent="#0891b2"
       navItems={navItems}
     />
   )
@@ -355,6 +404,7 @@ export function GuruSidebar() {
       role="GURU"
       roleColor="bg-emerald-600"
       roleLabel="Guru"
+      accent="#059669"
       navItems={navItems}
     />
   )
@@ -366,6 +416,7 @@ export function KepsekSidebar() {
       role="KEPSEK"
       roleColor="bg-purple-600"
       roleLabel="Kepala Sekolah"
+      accent="#7c3aed"
       navItems={[
         { label: 'Dashboard', href: '/kepsek', icon: LayoutDashboard },
         { label: 'Jadwal Ujian', href: '/kepsek/jadwal', icon: Calendar },
@@ -411,6 +462,7 @@ export function SiswaSidebar() {
       role="SISWA"
       roleColor="bg-cyan-600"
       roleLabel="Siswa"
+      accent="#0891b2"
       navItems={navItems}
     />
   )
