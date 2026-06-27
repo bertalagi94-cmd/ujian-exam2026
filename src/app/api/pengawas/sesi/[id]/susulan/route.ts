@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 import { generateId } from '@/lib/utils'
+import { cekSesiBentrokKelas, pesanBentrokKelas } from '@/lib/sesi-kelas'
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const auth = requireRole(req, ['PENGAWAS', 'GURU', 'ADMIN'])
@@ -58,6 +59,23 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       bisa: false,
       message: `Semua ${semuaNis.length} siswa kelas ${sesi.kelas} sudah mengikuti ujian. Ujian susulan tidak diperlukan.`,
     })
+  }
+
+  // ── ANTI-TABRAKAN LEVEL KELAS ──────────────────────────────────────────
+  // Sesi LAMA ini sendiri sudah SELESAI (dicek di atas), tapi kelas yang
+  // sama bisa saja sedang menjalankan sesi dari JADWAL LAIN (mapel lain).
+  // Tolak supaya tidak ada 2 sesi aktif bersamaan di kelas yang sama.
+  // Lihat src/lib/sesi-kelas.ts.
+  const bentrokKelas = await cekSesiBentrokKelas(db, String(sesi.kelas), sesi.jadwal_id)
+  if (bentrokKelas) {
+    return NextResponse.json({
+      bisa: false,
+      error: pesanBentrokKelas(String(sesi.kelas), bentrokKelas),
+      bentrokKelas: true,
+      sesiAktifId: bentrokKelas.sesiId,
+      kodeSesi: bentrokKelas.kodeSesi,
+      jadwalAktifId: bentrokKelas.jadwalId,
+    }, { status: 409 })
   }
 
   // Ada siswa yang belum ujian — buka sesi baru khusus susulan
