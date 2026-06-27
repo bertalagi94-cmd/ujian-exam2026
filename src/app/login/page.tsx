@@ -724,7 +724,7 @@ export default function LoginPage() {
         className="absolute z-20 hidden lg:flex items-center gap-2 select-none transition-all"
         style={{
           top: '1rem',
-          right: witaTime.time ? '18rem' : '1.25rem',
+          right: '1.25rem',
           background: 'linear-gradient(135deg, rgba(20,0,50,0.85) 0%, rgba(60,10,120,0.75) 100%)',
           backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
           border: '1.5px solid rgba(168,85,247,0.45)', borderRadius: '12px',
@@ -742,11 +742,12 @@ export default function LoginPage() {
         }
       </button>
 
-      {/* ── Jam WITA — sudut kanan atas ── */}
+      {/* ── Jam WITA — sudut kanan atas, di kiri tombol fullscreen ── */}
       {witaTime.time && (
         <div
-          className="absolute top-4 right-5 z-20 hidden lg:flex items-center gap-3 select-none"
+          className="absolute top-4 z-20 hidden lg:flex items-center gap-3 select-none"
           style={{
+            right: isFs ? '11rem' : '12.5rem',
             background: 'linear-gradient(135deg, rgba(20,0,50,0.85) 0%, rgba(60,10,120,0.75) 100%)',
             backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
             border: '1.5px solid rgba(168,85,247,0.45)', borderRadius: '16px',
