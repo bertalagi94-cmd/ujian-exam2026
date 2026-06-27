@@ -8,7 +8,7 @@ import {
   BarChart3, Settings, LogOut, Menu, X, ChevronRight,
   GraduationCap, School, Bell, User, FileText, Eye, ShieldAlert
 } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn, apiRequest } from '@/lib/utils'
 import { AuthUser } from '@/types'
 
 interface NavItem {
@@ -195,8 +195,7 @@ function useBadgeCounts(role: 'ADMIN' | 'GURU') {
   const fetch_ = useCallback(() => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
     if (!token) return
-    fetch('/api/notif', { headers: { Authorization: `Bearer ${token}` } })
-      .then(r => r.ok ? r.json() : {})
+    apiRequest<Record<string, number>>('/api/notif', { timeoutMs: 8_000 })
       .then(d => setCounts(d))
       .catch(() => {})
   }, []) // stable — no deps needed since we use ref
@@ -287,15 +286,12 @@ export function GuruSidebar() {
   useEffect(() => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
     if (!token) return
-    const headers = { Authorization: `Bearer ${token}` }
 
-    fetch('/api/guru/wali-kelas', { headers })
-      .then(r => r.json())
+    apiRequest<{ isWaliKelas?: boolean }>('/api/guru/wali-kelas', { timeoutMs: 8_000 })
       .then(d => { if (d.isWaliKelas) setIsWaliKelas(true) })
       .catch(() => {})
 
-    fetch('/api/guru/jadwal-pengawasan', { headers })
-      .then(r => r.json())
+    apiRequest<{ hasJadwal?: boolean; data?: unknown[] }>('/api/guru/jadwal-pengawasan', { timeoutMs: 8_000 })
       .then(d => { if (d.hasJadwal || (d.data && d.data.length > 0)) setHasPengawasan(true) })
       .catch(() => {})
   }, [])
@@ -315,10 +311,7 @@ export function GuruSidebar() {
     const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
     if (!token) return
     notifSentRef.current = true
-    fetch('/api/notif', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}` },
-    }).catch(() => {})
+    apiRequest('/api/notif', { method: 'POST', timeoutMs: 8_000 }).catch(() => {})
   }, [pathname])
 
   const navItems: NavItem[] = [
@@ -380,13 +373,15 @@ export function SiswaSidebar() {
   useEffect(() => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
     if (!token) return
-    fetch('/api/siswa/jadwal', { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' })
-      .then(r => r.ok ? r.json() : { data: [] })
+    apiRequest<{ data?: { tanggal: string; sudah_ikut: boolean; status: string }[]; zonaWaktu?: { utcOffsetJam: number } }>(
+      '/api/siswa/jadwal',
+      { timeoutMs: 8_000, cache: 'no-store' }
+    )
       .then(json => {
         const zonaOffset = (json.zonaWaktu?.utcOffsetJam ?? 7) as number
         const shifted = new Date(Date.now() + zonaOffset * 60 * 60 * 1000)
         const today = shifted.toISOString().slice(0, 10)
-        const jadwalHariIni = (json.data ?? []).filter((j: { tanggal: string; sudah_ikut: boolean; status: string }) =>
+        const jadwalHariIni = (json.data ?? []).filter((j) =>
           j.tanggal?.slice(0, 10) === today && !j.sudah_ikut && j.status !== 'SELESAI'
         )
         setAdaJadwalHariIni(jadwalHariIni.length > 0)
