@@ -8,6 +8,7 @@ import {
   BookMarked, LayoutDashboard, ClipboardList, BarChart2, Settings,
   HelpCircle, AlertTriangle, CheckCircle, Info, Monitor,
   Activity, Clock, CalendarDays, Trophy, Loader2, Radio,
+  Maximize, Minimize,
 } from 'lucide-react'
 
 interface SiteInfo {
@@ -364,6 +365,36 @@ export default function LoginPage() {
     }
   }
 
+  // ── Fullscreen ────────────────────────────────────────────────────────────
+  const [isFs, setIsFs] = useState(false)
+  useEffect(() => {
+    function onFsChange() {
+      const anyDoc = document as unknown as Record<string, Element | null>
+      setIsFs(!!(document.fullscreenElement || anyDoc.webkitFullscreenElement || anyDoc.mozFullScreenElement || anyDoc.msFullscreenElement))
+    }
+    document.addEventListener('fullscreenchange', onFsChange)
+    document.addEventListener('webkitfullscreenchange', onFsChange)
+    document.addEventListener('mozfullscreenchange', onFsChange)
+    document.addEventListener('MSFullscreenChange', onFsChange)
+    return () => {
+      document.removeEventListener('fullscreenchange', onFsChange)
+      document.removeEventListener('webkitfullscreenchange', onFsChange)
+      document.removeEventListener('mozfullscreenchange', onFsChange)
+      document.removeEventListener('MSFullscreenChange', onFsChange)
+    }
+  }, [])
+  function toggleFullscreen() {
+    const anyDoc = document as unknown as Record<string, Element | null>
+    const fsEl = document.fullscreenElement || anyDoc.webkitFullscreenElement || anyDoc.mozFullScreenElement || anyDoc.msFullscreenElement
+    if (fsEl) {
+      const d = document as unknown as Record<string, () => Promise<void>>
+      ;(document.exitFullscreen || d.webkitExitFullscreen || d.mozCancelFullScreen || d.msExitFullscreen || (() => {})).call(document)
+    } else {
+      const el = document.documentElement as unknown as Record<string, () => Promise<void>>
+      ;(el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen || el.msRequestFullscreen || (() => {})).call(document.documentElement)
+    }
+  }
+
   // ── Drape animation state (desktop only) ──────────────────────────────────
   const [drapeState, setDrapeState] = useState<'closed' | 'opening' | 'open' | 'closing'>('closed')
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -684,6 +715,32 @@ export default function LoginPage() {
       </svg>
 
       <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" style={{ pointerEvents: 'none', zIndex: 0 }} />
+
+      {/* ── Tombol Fullscreen — sudut kanan atas ── */}
+      <button
+        type="button"
+        onClick={toggleFullscreen}
+        title={isFs ? 'Keluar dari layar penuh' : 'Tampilkan layar penuh'}
+        className="absolute z-20 hidden lg:flex items-center gap-2 select-none transition-all"
+        style={{
+          top: '1rem',
+          right: witaTime.time ? '18rem' : '1.25rem',
+          background: 'linear-gradient(135deg, rgba(20,0,50,0.85) 0%, rgba(60,10,120,0.75) 100%)',
+          backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
+          border: '1.5px solid rgba(168,85,247,0.45)', borderRadius: '12px',
+          padding: '8px 14px',
+          boxShadow: '0 4px 24px rgba(168,85,247,0.25), 0 0 0 1px rgba(255,255,255,0.06), inset 0 1px 0 rgba(255,255,255,0.08)',
+          color: '#e9d5ff',
+          fontSize: '12px',
+          fontWeight: 600,
+          letterSpacing: '0.02em',
+        }}
+      >
+        {isFs
+          ? <><Minimize className="w-3.5 h-3.5" style={{ color: '#c084fc' }} /><span>Keluar Fullscreen</span></>
+          : <><Maximize className="w-3.5 h-3.5" style={{ color: '#c084fc' }} /><span>Layar Penuh</span></>
+        }
+      </button>
 
       {/* ── Jam WITA — sudut kanan atas ── */}
       {witaTime.time && (
