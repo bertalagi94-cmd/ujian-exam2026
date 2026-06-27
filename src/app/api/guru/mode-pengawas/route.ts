@@ -4,6 +4,7 @@ import { requireRole } from '@/lib/auth'
 import { generateId } from '@/lib/utils'
 import { getZonaWaktuSekolah, tanggalHariIni } from '@/lib/pengaturan-waktu'
 import { computeStatusSoalDetailMap, getStatusSoalDetail, isStatusSoalSiap, pesanStatusSoal, buildStatusSoalKey } from '@/lib/soal-status'
+import { cekSesiBentrokKelas, pesanBentrokKelas } from '@/lib/sesi-kelas'
 
 function generateKodeSesi7(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
@@ -283,6 +284,21 @@ export async function POST(req: NextRequest) {
       kodeSesi: existingSesi.kode_sesi,
       sudahAda: true,
     })
+  }
+
+  // ── ANTI-TABRAKAN LEVEL KELAS ──────────────────────────────────────────
+  // Tolak kalau kelas ini sudah punya sesi BERJALAN dari JADWAL LAIN
+  // (mapel lain / pengawas lain), supaya tidak ada 2 ujian aktif sekaligus
+  // di kelas yang sama. Lihat src/lib/sesi-kelas.ts untuk detail.
+  const bentrokKelas = await cekSesiBentrokKelas(db, String(jadwal.kelas), jadwalId)
+  if (bentrokKelas) {
+    return NextResponse.json({
+      error: pesanBentrokKelas(String(jadwal.kelas), bentrokKelas),
+      bentrokKelas: true,
+      sesiAktifId: bentrokKelas.sesiId,
+      kodeSesi: bentrokKelas.kodeSesi,
+      jadwalAktifId: bentrokKelas.jadwalId,
+    }, { status: 409 })
   }
 
   const sesiId = generateId('SES')
