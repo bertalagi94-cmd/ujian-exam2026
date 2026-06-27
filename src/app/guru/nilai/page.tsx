@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import * as XLSX from 'xlsx'
 import { Download, BarChart3, Trophy, TrendingUp, Users, CheckCircle } from 'lucide-react'
 import { PageLoader, EmptyState, SearchInput, StatCard } from '@/components/ui'
 import { apiRequest, formatDateTime, nilaiColor } from '@/lib/utils'
@@ -23,6 +24,7 @@ export default function GuruNilaiPage() {
   const [filterMapel, setFilterMapel] = useState('')
   const [filterKelas, setFilterKelas] = useState('')
   const [search, setSearch] = useState('')
+  const [exporting, setExporting] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -50,18 +52,74 @@ export default function GuruNilaiPage() {
     !search || (n.nama_siswa ?? '').toLowerCase().includes(search.toLowerCase())
   )
 
-  function exportCSV() {
-    const header = ['Nama Siswa', 'Kelas', 'Mata Pelajaran', 'Nilai', 'Grade', 'Benar', 'Total', 'KKM', 'Status', 'Tanggal']
-    const rows = filtered.map(n => [
-      n.nama_siswa, n.kelas, n.nama_mapel, n.nilai, n.grade,
-      n.benar, n.total, n.kkm, n.lulus ? 'Lulus' : 'Tidak Lulus', n.timestamp,
-    ])
-    const csv = [header, ...rows].map(r => r.join(',')).join('\n')
-    const blob = new Blob([csv], { type: 'text/csv' })
-    const a = document.createElement('a')
-    a.href = URL.createObjectURL(blob)
-    a.download = `rekap-nilai-guru-${Date.now()}.csv`
-    a.click()
+  // GANTI: sebelumnya export CSV satu lembar yang mencampur semua mata pelajaran
+  // jadi satu tabel besar — membingungkan kalau guru mengampu beberapa mapel.
+  // Sekarang export ke Excel (.xlsx) dengan SATU SHEET PER MAPEL yang diampu
+  // guru ini (judul sheet = nama mapel), termasuk mapel yang belum punya nilai
+  // sama sekali (ditampilkan sebagai pesan, bukan dihilangkan begitu saja).
+  async function exportExcel() {
+    if (!mapelList.length) return
+    setExporting(true)
+    try {
+      // Selalu ambil data LENGKAP (tanpa filter mapel/kelas yang sedang aktif di
+      // tabel) supaya setiap sheet mapel berisi rekap penuh, bukan cuma sebagian
+      // yang kebetulan sedang tersaring di tampilan.
+      let semuaNilai: Nilai[] = nilaiList
+      try {
+        const res = await apiRequest<{ data: Nilai[] }>('/api/guru/nilai')
+        semuaNilai = res.data ?? []
+      } catch {
+        // Kalau gagal refetch, tetap lanjut pakai data yang sudah tampil di halaman
+      }
+
+      const wb = XLSX.utils.book_new()
+      const namaSheetTerpakai = new Set<string>()
+
+      for (const mapel of mapelList) {
+        const nilaiMapel = semuaNilai.filter(n => n.mapel_id === mapel.id)
+
+        const rows = nilaiMapel.map((n, i) => ({
+          'No': i + 1,
+          'Nama Siswa': n.nama_siswa ?? n.nis,
+          'Kelas': n.kelas,
+          'Nilai': n.nilai,
+          'Grade': n.grade,
+          'Benar': n.benar,
+          'Total Soal': n.total,
+          'KKM': n.kkm,
+          'Status': n.lulus ? 'Lulus' : 'Tidak Lulus',
+          'Tanggal': formatDateTime(n.timestamp),
+        }))
+
+        const ws = rows.length
+          ? XLSX.utils.json_to_sheet(rows)
+          : XLSX.utils.aoa_to_sheet([[
+              'Mapel belum ujian atau tidak memiliki jadwal ujian. Hubungi admin jika Anda merasa ini keliru.',
+            ]])
+
+        ws['!cols'] = rows.length
+          ? [{ wch: 5 }, { wch: 26 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 10 }, { wch: 8 }, { wch: 13 }, { wch: 20 }]
+          : [{ wch: 90 }]
+
+        // Nama sheet Excel maksimal 31 karakter & tidak boleh berisi \ / ? * [ ] :
+        // Tambahkan juga pengaman kalau ada 2 mapel dengan nama sama (mis. mapel
+        // yang sama diampu untuk kelas berbeda dengan mapel_id berbeda).
+        let sheetName = (mapel.nama || 'Mapel').replace(/[\\/?*[\]:]/g, '').slice(0, 31)
+        if (namaSheetTerpakai.has(sheetName)) {
+          let i = 2
+          let kandidat = `${sheetName} (${i})`.slice(0, 31)
+          while (namaSheetTerpakai.has(kandidat)) { i++; kandidat = `${sheetName} (${i})`.slice(0, 31) }
+          sheetName = kandidat
+        }
+        namaSheetTerpakai.add(sheetName)
+
+        XLSX.utils.book_append_sheet(wb, ws, sheetName)
+      }
+
+      XLSX.writeFile(wb, `rekap-nilai-guru-${Date.now()}.xlsx`)
+    } finally {
+      setExporting(false)
+    }
   }
 
   if (loading) return <PageLoader />
@@ -77,9 +135,14 @@ export default function GuruNilaiPage() {
           <h1 className="page-title">Rekap Nilai</h1>
           <p className="page-subtitle">Nilai siswa dari mata pelajaran yang Anda ampu</p>
         </div>
-        {filtered.length > 0 && (
-          <button onClick={exportCSV} className="btn-secondary btn-sm">
-            <Download className="w-4 h-4" /> Export CSV
+        {mapelList.length > 0 && (
+          <button onClick={exportExcel} disabled={exporting} className="btn-secondary btn-sm">
+            {exporting ? (
+              <span className="w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <Download className="w-4 h-4" />
+            )}
+            {exporting ? 'Menyiapkan Excel...' : 'Export Excel'}
           </button>
         )}
       </div>
