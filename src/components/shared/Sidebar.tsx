@@ -52,13 +52,13 @@ function SidebarContent({ navItems, roleColor, roleLabel, user, onClose, onLogou
   return (
     <div className="flex flex-col h-full">
       {/* Logo */}
-      <div className="px-4 py-5 border-b border-slate-100">
+      <div className="px-4 py-5" style={{ borderBottom: '1px solid rgba(0,0,0,0.07)' }}>
         <div className="flex items-center gap-3">
           <div className={cn('w-9 h-9 rounded-xl flex items-center justify-center', roleColor)}>
             <GraduationCap className="w-5 h-5 text-white" />
           </div>
           <div>
-            <div className="font-bold text-slate-900 text-sm leading-tight">SmartExam</div>
+            <div className="font-bold text-slate-800 text-sm leading-tight">SmartExam</div>
             <div className="text-xs text-slate-400">{roleLabel}</div>
           </div>
         </div>
@@ -92,8 +92,9 @@ function SidebarContent({ navItems, roleColor, roleLabel, user, onClose, onLogou
       </nav>
 
       {/* User info + logout */}
-      <div className="p-3 border-t border-slate-100">
-        <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-slate-50 mb-1">
+      <div className="p-3" style={{ borderTop: '1px solid rgba(0,0,0,0.07)' }}>
+        <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl mb-1"
+          style={{ background: 'rgba(0,0,0,0.04)' }}>
           <div className={cn('w-8 h-8 rounded-lg flex items-center justify-center text-white text-xs font-bold', roleColor)}>
             {user?.nama?.charAt(0) ?? 'U'}
           </div>
@@ -168,7 +169,15 @@ export function Sidebar({ navItems, role, roleColor, roleLabel }: SidebarProps) 
       )}
 
       {/* Desktop sidebar */}
-      <aside className="hidden lg:flex flex-col w-60 bg-white border-r border-slate-100 h-screen sticky top-0 flex-shrink-0">
+      <aside className="hidden lg:flex flex-col w-60 h-screen sticky top-0 flex-shrink-0"
+        style={{
+          background: 'rgba(255,255,255,0.72)',
+          backdropFilter: 'blur(20px)',
+          WebkitBackdropFilter: 'blur(20px)',
+          borderRight: '1px solid rgba(255,255,255,0.6)',
+          boxShadow: '4px 0 24px rgba(0,0,0,0.06)',
+        }}
+      >
         <SidebarContent
           navItems={navItems}
           roleColor={roleColor}
