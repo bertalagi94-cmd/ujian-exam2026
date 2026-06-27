@@ -27,12 +27,6 @@ export async function GET(req: NextRequest) {
   // Gunakan kelasWali.nama agar query menghasilkan data yang benar.
   const kelasNama = kelasWali.nama
 
-  // Ambil semua mapel yang terdaftar di kelas ini (dari kelas_mapel)
-  const { data: kelasMapelList } = await db
-    .from('kelas_mapel')
-    .select('*')
-    .eq('kelas_id', kelasId)
-
   // Ambil semua siswa di kelas ini — selalu ambil, meski belum ada mapel
   const { data: siswaList } = await db
     .from('siswa')
@@ -41,8 +35,55 @@ export async function GET(req: NextRequest) {
     .eq('status', 'AKTIF')
     .order('nama')
 
-  // Jika belum ada mapel, tetap kembalikan siswa (bukan early return kosong)
-  if (!kelasMapelList || kelasMapelList.length === 0) {
+  const totalSiswa = siswaList?.length ?? 0
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // PERBAIKAN:
+  // Sebelumnya daftar mapel diambil HANYA dari tabel `kelas_mapel`, yang
+  // ternyata hanya pernah diisi lewat fitur Import/Restore (lihat
+  // scripts/import-data.js, admin/import, admin/restore). Saat admin
+  // membuat jadwal ujian secara normal lewat menu "Jadwal Ujian"
+  // (POST /api/admin/jadwal), baris `kelas_mapel` TIDAK pernah dibuat.
+  // Akibatnya halaman Wali Kelas selalu menunjukkan "0 mata pelajaran"
+  // meskipun jadwal ujian & nilai siswa sudah ada di database.
+  //
+  // Fix: turunkan daftar mapel langsung dari tabel `jadwal` dan `nilai`
+  // untuk kelas ini (sumber data yang sebenarnya selalu terisi pada flow
+  // normal), lalu ambil nama mapel dari tabel `mapel`. Tabel `kelas_mapel`
+  // tetap dipakai sebagai tambahan (kalau ada, misal dari hasil import)
+  // supaya tidak menghilangkan data lama, tapi BUKAN lagi satu-satunya
+  // sumber.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  // Ambil jadwal ujian untuk kelas ini (sumber utama mapel yang "aktif")
+  const { data: jadwalList } = await db
+    .from('jadwal')
+    .select('*')
+    .eq('kelas', kelasNama)
+    .order('tanggal', { ascending: true })
+
+  // Ambil nilai untuk semua siswa di kelas ini (sumber utama mapel yang sudah diujikan)
+  const { data: nilaiList } = await db
+    .from('nilai')
+    .select('nis, mapel_id, nilai, grade, lulus, sesi_id, timestamp')
+    .eq('kelas', kelasNama)
+
+  // Ambil relasi kelas_mapel kalau ada (kompatibilitas dengan data hasil import lama)
+  const { data: kelasMapelList } = await db
+    .from('kelas_mapel')
+    .select('*')
+    .eq('kelas_id', kelasId)
+
+  // Gabungkan semua kemungkinan sumber mapel_id menjadi satu set unik
+  const mapelIdSet = new Set<string>()
+  ;(jadwalList ?? []).forEach((j: { mapel_id: string }) => j.mapel_id && mapelIdSet.add(j.mapel_id))
+  ;(nilaiList ?? []).forEach((n: { mapel_id: string }) => n.mapel_id && mapelIdSet.add(n.mapel_id))
+  ;(kelasMapelList ?? []).forEach((km: { mapel_id: string }) => km.mapel_id && mapelIdSet.add(km.mapel_id))
+
+  const mapelIds = Array.from(mapelIdSet)
+
+  // Belum ada mapel sama sekali (tidak ada jadwal, nilai, maupun kelas_mapel)
+  if (mapelIds.length === 0) {
     const nilaiRekapKosong = (siswaList ?? []).map(s => ({ nis: s.nis, nama: s.nama }))
     return NextResponse.json({
       isWaliKelas: true,
@@ -53,32 +94,27 @@ export async function GET(req: NextRequest) {
     })
   }
 
-  const totalSiswa = siswaList?.length ?? 0
-  const mapelIds = kelasMapelList.map((km: { mapel_id: string }) => km.mapel_id)
+  // Ambil nama mapel dari tabel master `mapel`
+  const { data: mapelMasterList } = await db
+    .from('mapel')
+    .select('id, nama')
+    .in('id', mapelIds)
 
-  // Ambil jadwal ujian untuk kelas ini
-  const { data: jadwalList } = await db
-    .from('jadwal')
-    .select('*')
-    .eq('kelas', kelasNama)   // ← fix: gunakan nama kelas, bukan id
-    .in('mapel_id', mapelIds)
-    .order('tanggal', { ascending: true })
-
-  // Ambil nilai untuk semua siswa di kelas ini
-  const { data: nilaiList } = await db
-    .from('nilai')
-    .select('nis, mapel_id, nilai, grade, lulus, sesi_id, timestamp')
-    .eq('kelas', kelasNama)   // ← fix: gunakan nama kelas, bukan id
-    .in('mapel_id', mapelIds)
+  const mapelNamaMap = new Map<string, string>()
+  ;(mapelMasterList ?? []).forEach((m: { id: string; nama: string }) => mapelNamaMap.set(m.id, m.nama))
+  // Fallback ke nama_mapel dari kelas_mapel kalau master mapel tidak ketemu (data lama/import)
+  ;(kelasMapelList ?? []).forEach((km: { mapel_id: string; nama_mapel?: string }) => {
+    if (!mapelNamaMap.has(km.mapel_id) && km.nama_mapel) mapelNamaMap.set(km.mapel_id, km.nama_mapel)
+  })
 
   // Per mapel: hitung sudah berapa yang ujian, belum siapa
-  const mapelEnriched = kelasMapelList.map(km => {
+  const mapelEnriched = mapelIds.map(mapelId => {
     // Cari jadwal terkait mapel ini
-    const jadwalMapel = (jadwalList ?? []).filter(j => j.mapel_id === km.mapel_id)
+    const jadwalMapel = (jadwalList ?? []).filter(j => j.mapel_id === mapelId)
     const lastJadwal = jadwalMapel[jadwalMapel.length - 1] ?? null
 
     // Cari nilai untuk mapel ini
-    const nilaiMapel = (nilaiList ?? []).filter(n => n.mapel_id === km.mapel_id)
+    const nilaiMapel = (nilaiList ?? []).filter(n => n.mapel_id === mapelId)
     const sudahUjian = new Set(nilaiMapel.map(n => n.nis))
 
     // Siswa yang belum ujian
@@ -89,7 +125,8 @@ export async function GET(req: NextRequest) {
       : null
 
     return {
-      ...km,
+      mapel_id: mapelId,
+      nama_mapel: mapelNamaMap.get(mapelId) ?? mapelId,
       jadwal: lastJadwal,
       sudahUjian: sudahUjian.size,
       totalSiswa,
