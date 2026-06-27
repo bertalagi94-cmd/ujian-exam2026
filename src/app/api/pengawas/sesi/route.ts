@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 import { generateId } from '@/lib/utils'
 import { getStatusSoalDetail, isStatusSoalSiap, pesanStatusSoal } from '@/lib/soal-status'
+import { cekSesiBentrokKelas, pesanBentrokKelas } from '@/lib/sesi-kelas'
 
 export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['GURU', 'ADMIN'])
@@ -65,6 +66,20 @@ export async function POST(req: NextRequest) {
 
   if (existingSesi) {
     return NextResponse.json({ error: 'Sesi untuk jadwal ini sudah berjalan' }, { status: 409 })
+  }
+
+  // ── ANTI-TABRAKAN LEVEL KELAS ──────────────────────────────────────────
+  // Tolak kalau kelas ini sudah punya sesi BERJALAN dari JADWAL LAIN
+  // (mapel lain / pengawas lain). Lihat src/lib/sesi-kelas.ts.
+  const bentrokKelas = await cekSesiBentrokKelas(db, String(jadwal.kelas), jadwalId)
+  if (bentrokKelas) {
+    return NextResponse.json({
+      error: pesanBentrokKelas(String(jadwal.kelas), bentrokKelas),
+      bentrokKelas: true,
+      sesiAktifId: bentrokKelas.sesiId,
+      kodeSesi: bentrokKelas.kodeSesi,
+      jadwalAktifId: bentrokKelas.jadwalId,
+    }, { status: 409 })
   }
 
   // Create new sesi
