@@ -734,7 +734,7 @@ export default function LoginPage() {
               {/* Emoji + heading */}
               <div className="flex flex-col items-center mb-6">
                 <div className="text-5xl mb-3 select-none" style={{ filter: 'drop-shadow(0 0 12px rgba(249,115,22,0.5))' }}>😊</div>
-                <h2 className="text-2xl font-bold text-white">Selamat Datang Kembali!</h2>
+                <h2 className="text-2xl font-bold text-white">Selamat Datang &#128522;</h2>
                 <p className="text-white/60 text-sm mt-1">Silakan login untuk melanjutkan</p>
               </div>
 
@@ -862,7 +862,7 @@ export default function LoginPage() {
                 </div>
 
                 <div className="mt-6 mb-5">
-                  <h2 className="text-2xl font-bold text-white">Selamat Datang Kembali!</h2>
+                  <h2 className="text-2xl font-bold text-white">Selamat Datang &#128522;</h2>
                   <p className="text-white/55 text-sm mt-1">Silakan login untuk melanjutkan</p>
                 </div>
 
