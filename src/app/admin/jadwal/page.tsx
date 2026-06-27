@@ -101,6 +101,7 @@ function ModalSusulanAdmin({
         siswa?: Siswa[]
         error?: string
         konflik?: boolean
+        bentrokKelas?: boolean
       }>('/api/admin/susulan', {
         method: 'POST',
         body: JSON.stringify({ jadwalId: jadwal.id, pengawasUsername }),
@@ -115,8 +116,13 @@ function ModalSusulanAdmin({
       setKodeSesi(res.kodeSesi ?? null)
       setPhase('hasil')
     } catch (err: unknown) {
-      const data = (err as { data?: { konflik?: boolean; message?: string; kodeSesi?: string } })?.data
-      if (data?.konflik) {
+      const data = (err as { data?: { konflik?: boolean; bentrokKelas?: boolean; message?: string; kodeSesi?: string } })?.data
+      // konflik: jadwal INI sendiri sudah punya sesi berjalan.
+      // bentrokKelas: kelas yang sama sedang menjalankan sesi dari jadwal LAIN.
+      // Keduanya sama-sama "sudah ada sesi aktif" — tampilkan dengan UI
+      // peringatan yang sama (ikon kuning), bukan UI "tidak dapat dibuka"
+      // (ikon centang hijau) yang berarti kondisi aman/normal.
+      if (data?.konflik || data?.bentrokKelas) {
         setErrorMsg(err instanceof Error ? err.message : 'Sudah ada sesi yang sedang berjalan.')
         setKodeSesi(data.kodeSesi ?? null)
         setPhase('konflik')
