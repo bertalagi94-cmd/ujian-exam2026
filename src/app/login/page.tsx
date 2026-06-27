@@ -673,8 +673,8 @@ export default function LoginPage() {
         <img
           src="/images/siswa-sekolah.webp"
           alt="" aria-hidden="true"
-          className="absolute -bottom-6 left-0 w-[55vw] max-w-[700px] min-w-[380px] h-auto select-none transition-transform duration-500 ease-out hover:animate-float hover:scale-[1.03] hover:drop-shadow-2xl"
-          style={{ zIndex: 1 }}
+          className="absolute left-0 w-[52vw] max-w-[660px] min-w-[360px] h-auto select-none transition-transform duration-500 ease-out hover:animate-float hover:scale-[1.03] hover:drop-shadow-2xl"
+          style={{ zIndex: 1, bottom: '-2%' }}
         />
         <div className="relative z-10 space-y-7">
           <div className="flex items-center gap-3 cursor-default w-fit"
@@ -717,7 +717,7 @@ export default function LoginPage() {
 
       {/* ── RIGHT — login area ── */}
       <div className="flex-1 flex items-center justify-center p-6 relative z-10">
-        <div className="w-full max-w-sm">
+        <div className="w-full max-w-sm relative">
 
           {/* ── MOBILE ── */}
           <div className="lg:hidden">
@@ -817,9 +817,9 @@ export default function LoginPage() {
           </div>
 
           {/* ── DESKTOP: efek kain + welcome card premium ── */}
-          <div ref={formAreaRef} className="hidden lg:block" onMouseEnter={openDrape}>
+          <div ref={formAreaRef} className="hidden lg:block relative" onMouseEnter={openDrape}>
 
-            {/* Tombol "Login Disini" — closed state */}
+            {/* Tombol "Login Disini" — closed state (selalu render untuk jaga tinggi container) */}
             <div
               className="relative flex flex-col items-center gap-4"
               style={{
@@ -827,6 +827,7 @@ export default function LoginPage() {
                 opacity: drapeState === 'closed' ? 1 : 0,
                 pointerEvents: drapeState === 'closed' ? 'auto' : 'none',
                 transition: 'opacity 0.3s ease',
+                visibility: drapeState === 'closed' ? 'visible' : 'hidden',
               }}
               onMouseEnter={handleMascotEnter}
               onMouseLeave={handleMascotLeave}
@@ -902,12 +903,12 @@ export default function LoginPage() {
               </div>
             </div>
 
-            {/* ── Kain terurai — form login ── */}
+            {/* ── Kain terurai — form login (absolute overlay, tidak geser layout) ── */}
             {drapeState !== 'closed' && (
               <div
                 key={drapeState === 'opening' ? 'open' : drapeState}
                 className={drapeState === 'closing' ? 'drape-close' : 'drape-open'}
-                style={{ transformOrigin: 'top center', marginTop: '-1px', position: 'relative', zIndex: 1 }}
+                style={{ transformOrigin: 'top center', position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10 }}
                 onMouseEnter={resetIdleTimer}
                 onMouseMove={handleFormActivity}
               >
