@@ -433,7 +433,7 @@ export default function WaliKelasPage() {
 
         <div className="bg-white border border-slate-100 rounded-2xl shadow-sm overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="text-sm" style={{ width: 'auto', minWidth: '100%' }}>
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50">
                   <th className="text-left px-4 py-3 font-semibold text-slate-600 text-xs uppercase tracking-wider whitespace-nowrap sticky left-0 bg-slate-50 z-10 border-r border-slate-100">
@@ -446,7 +446,7 @@ export default function WaliKelasPage() {
                     ? mapelList.map(mp => (
                         <th
                           key={mp.mapel_id}
-                          className="text-center px-3 py-3 font-semibold text-slate-600 text-xs whitespace-nowrap min-w-[120px]"
+                          className="text-center px-2 py-3 font-semibold text-slate-600 text-xs whitespace-nowrap w-[100px]"
                         >
                           <div>{mp.nama_mapel}</div>
                           {mp.jadwal?.tanggal && (
@@ -490,14 +490,14 @@ export default function WaliKelasPage() {
                           const v = row[mp.mapel_id]
                           if (!v || typeof v === 'string') {
                             return (
-                              <td key={mp.mapel_id} className="px-3 py-3 text-center">
+                              <td key={mp.mapel_id} className="px-2 py-3 text-center">
                                 <span className="text-slate-300 text-xs">—</span>
                               </td>
                             )
                           }
                           const obj = v as { nilai: number; grade: string; lulus: boolean }
                           return (
-                            <td key={mp.mapel_id} className="px-3 py-3 text-center">
+                            <td key={mp.mapel_id} className="px-2 py-3 text-center">
                               <div className="flex flex-col items-center gap-1">
                                 <span className={`text-sm font-bold ${nilaiColor(obj.nilai)}`}>{obj.nilai}</span>
                                 <span className={`text-xs px-1.5 py-0.5 rounded-full border font-medium ${GRADE_STYLE[obj.grade] ?? 'bg-slate-100 text-slate-600 border-slate-200'}`}>
@@ -511,7 +511,7 @@ export default function WaliKelasPage() {
                           )
                         })
                       : (
-                          <td className="px-3 py-3 text-center">
+                          <td className="px-2 py-3 text-center">
                             <span className="text-slate-200 text-xs">—</span>
                           </td>
                         )
