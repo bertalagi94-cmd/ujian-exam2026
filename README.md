@@ -262,4 +262,4 @@ Jika ada masalah saat setup atau deployment, periksa:
 
 ---
 
-*SmartExam CBT v2.0 — MTS Alkhairaat Tatakalai, Banggai Kepulauan*
+*SmartExam CBT v2.0 — MTS Alkhairaat Tatakalai*
