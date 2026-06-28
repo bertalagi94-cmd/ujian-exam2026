@@ -20,24 +20,25 @@ function fmtTglPendek(d: string) {
 }
 
 interface Siswa { nis: string; nama: string }
+interface SekolahCetak {
+  namaSekolah?: string; npsn?: string; alamat?: string
+  kota?: string; tahunAjaran?: string; namaKepsek?: string; logoUrl?: string
+  label?: string
+}
 interface JadwalCetak {
   id: string; tanggal: string; sesi: number
   jam_mulai: string; jam_selesai: string; durasi: number
   kelas: string; nama_mapel: string; nama_pengawas: string
   siswa: Siswa[]
-}
-interface Sekolah {
-  namaSekolah?: string; npsn?: string; alamat?: string
-  kota?: string; tahunAjaran?: string; namaKepsek?: string; logoUrl?: string
+  sekolah: SekolahCetak | null
 }
 
 function CetakContent() {
   const params = useSearchParams()
   const tanggal = params.get('tanggal') ?? ''
-  const mode = params.get('mode') ?? 'daftar-hadir' // daftar-hadir | berita-acara
-  const jadwalId = params.get('id') // jika ada, cetak 1 jadwal saja
+  const mode = params.get('mode') ?? 'daftar-hadir'
+  const jadwalId = params.get('id')
 
-  const dataRef = useRef<{ jadwal: JadwalCetak[]; sekolah: Sekolah } | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
 
   const load = useCallback(async () => {
@@ -48,17 +49,30 @@ function CetakContent() {
     const json = await res.json()
     let jadwal: JadwalCetak[] = json.data ?? []
     if (jadwalId) jadwal = jadwal.filter((j: JadwalCetak) => j.id === jadwalId)
-    dataRef.current = { jadwal, sekolah: json.sekolah ?? {} }
-    renderHTML(jadwal, json.sekolah ?? {}, mode)
+    renderHTML(jadwal, mode)
   }, [tanggal, jadwalId, mode])
 
   useEffect(() => { if (tanggal) load() }, [load, tanggal])
 
-  function renderHTML(jadwal: JadwalCetak[], sekolah: Sekolah, mode: string) {
+  function renderHTML(jadwal: JadwalCetak[], mode: string) {
     if (!containerRef.current) return
-    const s = sekolah
 
     const pages = jadwal.map(j => {
+      // Sekolah diambil per-jadwal dari kelas, bukan global
+      const s: SekolahCetak = j.sekolah ?? {}
+
+      // Peringatan kalau sekolah belum diset untuk kelas ini
+      if (!j.sekolah) {
+        return `<div class="page" style="display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;">
+          <div style="font-size:14pt;font-weight:bold;color:#b91c1c;">⚠️ Sekolah Belum Dikonfigurasi</div>
+          <div style="font-size:11pt;color:#333;text-align:center;">
+            Kelas <strong>${j.kelas}</strong> belum diatur sekolahnya.<br>
+            Buka menu <strong>Data Kelas → Edit</strong> dan pilih sekolah untuk kelas ini,<br>
+            kemudian cetak ulang dokumen ini.
+          </div>
+        </div>`
+      }
+
       if (mode === 'berita-acara') {
         return `
         <div class="page">
@@ -76,7 +90,7 @@ function CetakContent() {
           <table class="info-table">
             <tr><td>Mata Pelajaran</td><td>:</td><td><strong>${j.nama_mapel}</strong></td></tr>
             <tr><td>Kelas</td><td>:</td><td>${j.kelas}</td></tr>
-            <tr><td>Pukul</td><td>:</td><td>${j.jam_mulai} s.d. ${j.jam_selesai} WITA (${j.durasi} menit)</td></tr>
+            <tr><td>Pukul</td><td>:</td><td>${j.jam_mulai} s.d. ${j.jam_selesai} (${j.durasi} menit)</td></tr>
             <tr><td>Sesi ke-</td><td>:</td><td>${j.sesi}</td></tr>
             <tr><td>Nama Pengawas</td><td>:</td><td>${j.nama_pengawas || '-'}</td></tr>
             <tr><td>Jumlah Peserta Terdaftar</td><td>:</td><td>${j.siswa.length} siswa</td></tr>
@@ -92,7 +106,7 @@ function CetakContent() {
               <div class="ttd-nama">${j.nama_pengawas || '_________________'}</div>
             </div>
             <div class="ttd-col" style="text-align:right;">
-              <div>${s.kota ?? 'Banggai Kepulauan'}, ${fmtTglPendek(j.tanggal)},</div>
+              <div>${s.kota ?? ''}, ${fmtTglPendek(j.tanggal)},</div>
               <div>Kepala ${s.namaSekolah ?? 'Sekolah'},</div>
               <div class="ttd-space"></div>
               <div class="ttd-nama">${s.namaKepsek ?? '_________________'}</div>
@@ -102,11 +116,11 @@ function CetakContent() {
       }
 
       // mode daftar hadir
-      const rows = j.siswa.map((s, i) => `
+      const rows = j.siswa.map((siswa, i) => `
         <tr>
           <td class="tc">${i + 1}</td>
-          <td>${s.nis}</td>
-          <td>${s.nama}</td>
+          <td>${siswa.nis}</td>
+          <td>${siswa.nama}</td>
           <td class="ttd-cell"></td>
         </tr>`).join('')
 
@@ -135,7 +149,7 @@ function CetakContent() {
           </tr>
           <tr>
             <td>Pukul</td><td>:</td>
-            <td>${j.jam_mulai} - ${j.jam_selesai} WITA</td>
+            <td>${j.jam_mulai} - ${j.jam_selesai}</td>
             <td>Pengawas</td><td>:</td><td>${j.nama_pengawas || '-'}</td>
           </tr>
           <tr>
@@ -158,7 +172,7 @@ function CetakContent() {
             <div class="ttd-nama">${j.nama_pengawas || '_________________'}</div>
           </div>
           <div class="ttd-col" style="text-align:right;">
-            <div>${s.kota ?? 'Banggai Kepulauan'}, ${fmtTglPendek(j.tanggal)}</div>
+            <div>${s.kota ?? ''}, ${fmtTglPendek(j.tanggal)}</div>
             <div>Mengetahui,</div>
             <div>Kepala ${s.namaSekolah ?? 'Sekolah'}</div>
             <div class="ttd-space"></div>
