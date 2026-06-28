@@ -27,7 +27,9 @@ export default function AdminNilaiPage() {
     try {
       const params = new URLSearchParams({
         page: String(page), per_page: String(PER_PAGE),
-        ...(filterMapel && { mapel_id: filterMapel }),
+        // filterMapel sekarang berisi NAMA mapel (bukan id), supaya satu nama mapel
+        // yang diampu beberapa guru tetap terfilter sebagai satu kesatuan.
+        ...(filterMapel && { mapel_nama: filterMapel }),
         ...(filterKelas && { kelas: filterKelas }),
       })
       const res = await apiRequest<{ data: Nilai[]; total: number }>(`/api/admin/nilai?${params}`)
@@ -43,6 +45,12 @@ export default function AdminNilaiPage() {
       apiRequest<{ data: Kelas[] }>('/api/admin/kelas'),
     ]).then(([m, k]) => { setMapelList(m.data); setKelasList(k.data) })
   }, [])
+
+  // Satu nama mapel bisa punya beberapa baris (mapel_id berbeda) karena diampu lebih
+  // dari satu guru (kelas berbeda). Untuk filter di Rekap Nilai, tampilkan masing-masing
+  // nama hanya SEKALI — yang menentukan data nilainya adalah kelasnya, bukan baris mapel
+  // yang mana, jadi memilih satu nama otomatis mencakup nilai dari semua guru pengampunya.
+  const uniqueMapelNames = [...new Set(mapelList.map(m => m.nama))].sort()
 
   const filtered = nilaiList.filter(n =>
     !search || (n.nama_siswa ?? '').toLowerCase().includes(search.toLowerCase())
@@ -124,7 +132,7 @@ export default function AdminNilaiPage() {
         <SearchInput value={search} onChange={setSearch} placeholder="Cari nama siswa..." className="flex-1 min-w-[200px]" />
         <select value={filterMapel} onChange={e => { setFilterMapel(e.target.value); setPage(1) }} className="select w-full sm:w-44">
           <option value="">Semua Mapel</option>
-          {mapelList.map(m => <option key={m.id} value={m.id}>{m.nama}</option>)}
+          {uniqueMapelNames.map(nama => <option key={nama} value={nama}>{nama}</option>)}
         </select>
         <select value={filterKelas} onChange={e => { setFilterKelas(e.target.value); setPage(1) }} className="select w-36">
           <option value="">Semua Kelas</option>
