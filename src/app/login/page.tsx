@@ -567,7 +567,7 @@ export default function LoginPage() {
       if (!res.ok) throw new Error(data.error || 'Login gagal')
       localStorage.setItem('token', data.token)
       localStorage.setItem('user', JSON.stringify({ username: data.username, nama: data.nama, role: data.role, nis: data.nis, kelas: data.kelas }))
-      const roleRoutes: Record<string, string> = { ADMIN: '/admin', GURU: '/guru', PENGAWAS: '/pengawas', KEPSEK: '/kepsek', SISWA: '/siswa' }
+      const roleRoutes: Record<string, string> = { ADMIN: '/admin', GURU: '/guru', KEPSEK: '/kepsek', SISWA: '/siswa' }
       router.push(roleRoutes[data.role] ?? '/login')
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Login gagal')
