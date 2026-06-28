@@ -4,6 +4,14 @@ import { requireRole } from '@/lib/auth'
 
 // Tabel yang BENAR-BENAR ada di schema database
 // kisi_kisi DIHAPUS karena tidak ada di schema (01_schema.sql)
+//
+// BUG FIX: tabel `sekolah` (fitur jenjang/Kepsek — lihat src/lib/kepsek-scope.ts)
+// sebelumnya tidak ada di sini sama sekali, padahal `kelas.sekolah_id` dan
+// `users.sekolah_id` adalah FK ke tabel ini. Akibatnya: backup tidak pernah
+// menyimpan data sekolah, dan restore ke environment lain bisa gagal (FK
+// violation) saat insert kelas/users yang sekolah_id-nya menunjuk ke baris
+// sekolah yang tidak ada. `sekolah` harus DIHAPUS SETELAH kelas & users
+// (dia induk dari keduanya), dan DI-INSERT SEBELUM kelas & users.
 const DELETE_ORDER = [
   'log_aktivitas',
   'log_reset',
@@ -20,11 +28,13 @@ const DELETE_ORDER = [
   'kelas_mapel',
   'mapel',
   'kelas',
+  'sekolah',
   'pengaturan',
 ]
 
 const INSERT_ORDER = [
   'pengaturan',
+  'sekolah',
   'kelas',
   'mapel',
   'kelas_mapel',
