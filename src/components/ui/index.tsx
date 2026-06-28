@@ -1,8 +1,26 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
-import { X, ChevronLeft, ChevronRight } from 'lucide-react'
+import { X, ChevronLeft, ChevronRight, ShieldAlert } from 'lucide-react'
 import { cn } from '@/lib/utils'
+
+// ── Scope Warning Banner ──────────────────────────────
+// Ditampilkan saat API mengembalikan `scopeWarning` — khususnya untuk akun
+// KEPSEK yang belum diset sekolah/jenjangnya oleh Admin (lihat src/lib/kepsek-scope.ts).
+// Tanpa ini, halaman Kepsek hanya akan terlihat kosong tanpa penjelasan.
+export function ScopeWarningBanner({ message }: { message: string }) {
+  return (
+    <div className="card-sm border-amber-200 bg-amber-50 flex items-start gap-3">
+      <div className="w-9 h-9 rounded-xl bg-amber-500 flex items-center justify-center flex-shrink-0">
+        <ShieldAlert className="w-4.5 h-4.5 text-white" />
+      </div>
+      <div className="flex-1">
+        <p className="text-sm font-semibold text-amber-800">Sekolah/jenjang belum diatur</p>
+        <p className="text-xs text-amber-700/80 mt-0.5">{message}</p>
+      </div>
+    </div>
+  )
+}
 
 // ── Modal ──────────────────────────────────────────────
 interface ModalProps {
