@@ -29,6 +29,13 @@ const CATEGORY_MAP: Record<ResetCategory, string[]> = {
   users:        ['log_aktivitas', 'log_reset', 'users'],
   log:          ['log_aktivitas', 'log_reset'],
   pengaturan:   ['pengaturan'],
+  // BUG FIX: tabel `sekolah` (fitur jenjang/Kepsek) sebelumnya tidak pernah
+  // ikut dihapus oleh kategori manapun, termasuk 'semua' (reset total).
+  // Ditambahkan di sini saja (bukan di 'kelas_mapel') karena 'kelas_mapel'
+  // tidak menghapus tabel `users`, dan `users.sekolah_id` adalah FK ke
+  // tabel ini — menghapus sekolah di kategori itu bisa melanggar FK kalau
+  // ada akun Kepsek yang masih menunjuk ke sekolah tersebut. Di 'semua',
+  // `users` dan `kelas` sudah dihapus lebih dulu sehingga aman.
   semua: [
     'log_aktivitas',
     'log_reset',
@@ -46,6 +53,7 @@ const CATEGORY_MAP: Record<ResetCategory, string[]> = {
     'kelas_mapel',
     'mapel',
     'kelas',
+    'sekolah',
     'pengaturan',
   ],
 }
