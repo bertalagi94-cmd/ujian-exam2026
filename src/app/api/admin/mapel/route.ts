@@ -43,7 +43,7 @@ async function findKelasConflict(
 }
 
 export async function GET(req: NextRequest) {
-  const auth = requireRole(req, ['ADMIN', 'GURU', 'PENGAWAS', 'KEPSEK', 'SISWA'])
+  const auth = requireRole(req, ['ADMIN', 'GURU', 'KEPSEK', 'SISWA'])
   if ('error' in auth) return auth.error
 
   const db = createAdminClient()
