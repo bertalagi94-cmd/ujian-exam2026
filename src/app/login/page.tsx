@@ -488,14 +488,7 @@ export default function LoginPage() {
   }, [])
 
   // ── Canvas bubbles ────────────────────────────────────────────────────────
-  // Dimatikan total di mobile (<lg) — bukan cuma disembunyikan via CSS — karena
-  // loop requestAnimationFrame tetap memakan CPU walau elemen tidak terlihat.
-  // Ini yang membuat input username/password terasa berat di HP. Tampilan
-  // desktop/laptop tidak berubah sama sekali.
   useEffect(() => {
-    if (typeof window !== 'undefined' && window.matchMedia('(max-width: 1023px)').matches) {
-      return
-    }
     const canvas = canvasRef.current
     if (!canvas) return
     const ctx = canvas.getContext('2d')
@@ -550,7 +543,7 @@ export default function LoginPage() {
     fetch('/api/public/pengaturan?t=' + Date.now(), { cache: 'no-store' })
       .then(r => r.json())
       .then(json => {
-        if (json?.data) setSiteInfo({ namaSekolah: json.data.namaSekolah ?? '', kota: json.data.kota ?? '', logoUrl: json.data.logoUrl ?? '' })
+        if (json?.data) setSiteInfo({ namaSekolah: json.data.namaSekolah ?? '', kota: json.data.kota ?? '', logoUrl: json.data.logoAplikasi || json.data.logoUrl || '' })
       })
       .catch(() => {})
   }, [])
@@ -612,121 +605,116 @@ export default function LoginPage() {
       style={{ background: 'linear-gradient(135deg, #1a0533 0%, #2d0b6b 20%, #1e1054 40%, #0f0a2e 60%, #0a1a4a 80%, #0d1b3e 100%)' }}
       onMouseMove={handleMouseMove}
     >
-      {/* ── Dekorasi berat (aurora, spotlight, SVG mesh, canvas bubbles) ──
-           Disembunyikan khusus di mobile (<lg) demi performa input form,
-           tampilan desktop/laptop TIDAK berubah sama sekali. ── */}
-      <div className="hidden lg:block">
-        {/* ── Mouse spotlight ── */}
-        <div
-          ref={spotlightRef}
-          style={{
-            position: 'fixed', pointerEvents: 'none', zIndex: 0,
-            width: '600px', height: '600px',
-            background: 'radial-gradient(circle, rgba(168,85,247,0.08) 0%, transparent 70%)',
-            borderRadius: '50%',
-            transform: 'translate(-50%, -50%)',
-            transition: 'left 0.1s ease-out, top 0.1s ease-out',
-            left: '-300px', top: '-300px',
-          }}
-        />
+      {/* ── Mouse spotlight ── */}
+      <div
+        ref={spotlightRef}
+        style={{
+          position: 'fixed', pointerEvents: 'none', zIndex: 0,
+          width: '600px', height: '600px',
+          background: 'radial-gradient(circle, rgba(168,85,247,0.08) 0%, transparent 70%)',
+          borderRadius: '50%',
+          transform: 'translate(-50%, -50%)',
+          transition: 'left 0.1s ease-out, top 0.1s ease-out',
+          left: '-300px', top: '-300px',
+        }}
+      />
 
-        {/* ── Aurora glow blobs ── */}
-        <div className="absolute inset-0 overflow-hidden" style={{ pointerEvents: 'none', zIndex: 0 }}>
-          {/* Ungu besar kiri atas */}
-          <div className="aurora-1 absolute -top-48 -left-48 w-[700px] h-[700px] rounded-full opacity-60"
-            style={{ background: 'radial-gradient(circle, rgba(168,85,247,0.55) 0%, rgba(139,69,197,0.3) 40%, transparent 70%)', filter: 'blur(60px)' }} />
-          {/* Pink kanan tengah */}
-          <div className="aurora-2 absolute top-1/3 -right-48 w-[600px] h-[600px] rounded-full opacity-50"
-            style={{ background: 'radial-gradient(circle, rgba(236,72,153,0.5) 0%, rgba(190,24,93,0.25) 45%, transparent 70%)', filter: 'blur(70px)' }} />
-          {/* Biru bawah kiri */}
-          <div className="aurora-3 absolute -bottom-56 left-1/4 w-[550px] h-[550px] rounded-full opacity-45"
-            style={{ background: 'radial-gradient(circle, rgba(59,130,246,0.5) 0%, rgba(37,99,235,0.2) 45%, transparent 70%)', filter: 'blur(65px)' }} />
-          {/* Oranye kecil accent */}
-          <div className="absolute bottom-1/4 right-1/3 w-[300px] h-[300px] rounded-full opacity-30"
-            style={{ background: 'radial-gradient(circle, rgba(249,115,22,0.45) 0%, transparent 70%)', filter: 'blur(50px)', animation: 'aurora3 22s ease-in-out infinite' }} />
-        </div>
-
-        {/* ── Motif batik transparan — SVG pattern ringan ── */}
-        <svg
-          className="absolute inset-0 w-full h-full batik-layer"
-          style={{ pointerEvents: 'none', zIndex: 0, opacity: 0.22 }}
-          viewBox="0 0 800 800" preserveAspectRatio="xMidYMid slice"
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          <defs>
-            <pattern id="batikPalem" width="160" height="160" patternUnits="userSpaceOnUse" patternTransform="rotate(12)">
-              <g fill="none" stroke="#c084fc" strokeWidth="1.2">
-                {/* Mega mendung / parang stilir */}
-                <path d="M0 40 Q40 0 80 40 Q120 80 160 40" />
-                <path d="M0 80 Q40 40 80 80 Q120 120 160 80" />
-                <path d="M0 120 Q40 80 80 120 Q120 160 160 120" />
-                <path d="M40 0 Q40 40 40 80" strokeWidth="0.8" stroke="#e879f9" />
-                <path d="M80 0 Q80 40 80 80" strokeWidth="0.8" stroke="#e879f9" />
-                <path d="M120 0 Q120 40 120 80" strokeWidth="0.8" stroke="#e879f9" />
-                <circle cx="40" cy="40" r="5" stroke="#f0abfc" strokeWidth="1" />
-                <circle cx="120" cy="120" r="5" stroke="#f0abfc" strokeWidth="1" />
-                <circle cx="80" cy="80" r="3" stroke="#a855f7" strokeWidth="1" />
-                {/* Kawung accent */}
-                <ellipse cx="40" cy="40" rx="14" ry="9" transform="rotate(45 40 40)" strokeWidth="0.9" stroke="#d8b4fe" />
-                <ellipse cx="120" cy="120" rx="14" ry="9" transform="rotate(45 120 120)" strokeWidth="0.9" stroke="#d8b4fe" />
-              </g>
-            </pattern>
-          </defs>
-          <rect x="0" y="0" width="800" height="800" fill="url(#batikPalem)" />
-        </svg>
-
-        {/* ── Mesh lines dekoratif ── */}
-        <svg
-          className="absolute inset-0 w-full h-full"
-          style={{ pointerEvents: 'none', zIndex: 0, opacity: 0.7 }}
-          viewBox="0 0 1440 900" preserveAspectRatio="xMidYMid slice"
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          <defs>
-            <linearGradient id="lgPurple" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="#a855f7" stopOpacity="0" />
-              <stop offset="50%" stopColor="#a855f7" stopOpacity="0.5" />
-              <stop offset="100%" stopColor="#a855f7" stopOpacity="0" />
-            </linearGradient>
-            <linearGradient id="lgPink" x1="0%" y1="100%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor="#ec4899" stopOpacity="0" />
-              <stop offset="50%" stopColor="#ec4899" stopOpacity="0.45" />
-              <stop offset="100%" stopColor="#ec4899" stopOpacity="0" />
-            </linearGradient>
-            <linearGradient id="lgBlue" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor="#3b82f6" stopOpacity="0" />
-              <stop offset="50%" stopColor="#60a5fa" stopOpacity="0.4" />
-              <stop offset="100%" stopColor="#3b82f6" stopOpacity="0" />
-            </linearGradient>
-            <filter id="softGlow2">
-              <feGaussianBlur stdDeviation="3" result="blur" />
-              <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
-            </filter>
-          </defs>
-          <g filter="url(#softGlow2)" opacity="0.8">
-            <path d="M -80 140 L 360 60 L 720 190 L 1080 40" stroke="url(#lgPurple)" strokeWidth="1.8" fill="none" />
-            <path d="M 360 60 L 420 320" stroke="url(#lgPink)" strokeWidth="1.4" fill="none" />
-            <path d="M 720 190 L 660 430" stroke="url(#lgBlue)" strokeWidth="1.4" fill="none" />
-            <path d="M -80 260 L 300 340 L 720 190" stroke="url(#lgBlue)" strokeWidth="1.2" fill="none" />
-          </g>
-          <g filter="url(#softGlow2)" opacity="0.7">
-            <path d="M 1540 760 L 1140 860 L 760 700 L 380 840" stroke="url(#lgPink)" strokeWidth="1.8" fill="none" />
-            <path d="M 1140 860 L 1080 600" stroke="url(#lgPurple)" strokeWidth="1.4" fill="none" />
-            <path d="M 760 700 L 820 470" stroke="url(#lgBlue)" strokeWidth="1.4" fill="none" />
-          </g>
-          <path d="M -80 500 L 480 380 L 1000 560 L 1540 420" stroke="url(#lgPurple)" strokeWidth="1" fill="none" opacity="0.5" />
-          <g filter="url(#softGlow2)">
-            <circle cx="360" cy="60" r="3.5" fill="#c084fc" />
-            <circle cx="720" cy="190" r="4" fill="#a855f7" />
-            <circle cx="420" cy="320" r="2.5" fill="#ec4899" />
-            <circle cx="660" cy="430" r="3" fill="#60a5fa" />
-            <circle cx="1140" cy="860" r="3.5" fill="#ec4899" />
-            <circle cx="760" cy="700" r="4" fill="#a855f7" />
-          </g>
-        </svg>
-
-        <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" style={{ pointerEvents: 'none', zIndex: 0 }} />
+      {/* ── Aurora glow blobs ── */}
+      <div className="absolute inset-0 overflow-hidden" style={{ pointerEvents: 'none', zIndex: 0 }}>
+        {/* Ungu besar kiri atas */}
+        <div className="aurora-1 absolute -top-48 -left-48 w-[700px] h-[700px] rounded-full opacity-60"
+          style={{ background: 'radial-gradient(circle, rgba(168,85,247,0.55) 0%, rgba(139,69,197,0.3) 40%, transparent 70%)', filter: 'blur(60px)' }} />
+        {/* Pink kanan tengah */}
+        <div className="aurora-2 absolute top-1/3 -right-48 w-[600px] h-[600px] rounded-full opacity-50"
+          style={{ background: 'radial-gradient(circle, rgba(236,72,153,0.5) 0%, rgba(190,24,93,0.25) 45%, transparent 70%)', filter: 'blur(70px)' }} />
+        {/* Biru bawah kiri */}
+        <div className="aurora-3 absolute -bottom-56 left-1/4 w-[550px] h-[550px] rounded-full opacity-45"
+          style={{ background: 'radial-gradient(circle, rgba(59,130,246,0.5) 0%, rgba(37,99,235,0.2) 45%, transparent 70%)', filter: 'blur(65px)' }} />
+        {/* Oranye kecil accent */}
+        <div className="absolute bottom-1/4 right-1/3 w-[300px] h-[300px] rounded-full opacity-30"
+          style={{ background: 'radial-gradient(circle, rgba(249,115,22,0.45) 0%, transparent 70%)', filter: 'blur(50px)', animation: 'aurora3 22s ease-in-out infinite' }} />
       </div>
+
+      {/* ── Motif batik transparan — SVG pattern ringan ── */}
+      <svg
+        className="absolute inset-0 w-full h-full batik-layer"
+        style={{ pointerEvents: 'none', zIndex: 0, opacity: 0.22 }}
+        viewBox="0 0 800 800" preserveAspectRatio="xMidYMid slice"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <defs>
+          <pattern id="batikPalem" width="160" height="160" patternUnits="userSpaceOnUse" patternTransform="rotate(12)">
+            <g fill="none" stroke="#c084fc" strokeWidth="1.2">
+              {/* Mega mendung / parang stilir */}
+              <path d="M0 40 Q40 0 80 40 Q120 80 160 40" />
+              <path d="M0 80 Q40 40 80 80 Q120 120 160 80" />
+              <path d="M0 120 Q40 80 80 120 Q120 160 160 120" />
+              <path d="M40 0 Q40 40 40 80" strokeWidth="0.8" stroke="#e879f9" />
+              <path d="M80 0 Q80 40 80 80" strokeWidth="0.8" stroke="#e879f9" />
+              <path d="M120 0 Q120 40 120 80" strokeWidth="0.8" stroke="#e879f9" />
+              <circle cx="40" cy="40" r="5" stroke="#f0abfc" strokeWidth="1" />
+              <circle cx="120" cy="120" r="5" stroke="#f0abfc" strokeWidth="1" />
+              <circle cx="80" cy="80" r="3" stroke="#a855f7" strokeWidth="1" />
+              {/* Kawung accent */}
+              <ellipse cx="40" cy="40" rx="14" ry="9" transform="rotate(45 40 40)" strokeWidth="0.9" stroke="#d8b4fe" />
+              <ellipse cx="120" cy="120" rx="14" ry="9" transform="rotate(45 120 120)" strokeWidth="0.9" stroke="#d8b4fe" />
+            </g>
+          </pattern>
+        </defs>
+        <rect x="0" y="0" width="800" height="800" fill="url(#batikPalem)" />
+      </svg>
+
+      {/* ── Mesh lines dekoratif ── */}
+      <svg
+        className="absolute inset-0 w-full h-full"
+        style={{ pointerEvents: 'none', zIndex: 0, opacity: 0.7 }}
+        viewBox="0 0 1440 900" preserveAspectRatio="xMidYMid slice"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <defs>
+          <linearGradient id="lgPurple" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="#a855f7" stopOpacity="0" />
+            <stop offset="50%" stopColor="#a855f7" stopOpacity="0.5" />
+            <stop offset="100%" stopColor="#a855f7" stopOpacity="0" />
+          </linearGradient>
+          <linearGradient id="lgPink" x1="0%" y1="100%" x2="100%" y2="0%">
+            <stop offset="0%" stopColor="#ec4899" stopOpacity="0" />
+            <stop offset="50%" stopColor="#ec4899" stopOpacity="0.45" />
+            <stop offset="100%" stopColor="#ec4899" stopOpacity="0" />
+          </linearGradient>
+          <linearGradient id="lgBlue" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stopColor="#3b82f6" stopOpacity="0" />
+            <stop offset="50%" stopColor="#60a5fa" stopOpacity="0.4" />
+            <stop offset="100%" stopColor="#3b82f6" stopOpacity="0" />
+          </linearGradient>
+          <filter id="softGlow2">
+            <feGaussianBlur stdDeviation="3" result="blur" />
+            <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+          </filter>
+        </defs>
+        <g filter="url(#softGlow2)" opacity="0.8">
+          <path d="M -80 140 L 360 60 L 720 190 L 1080 40" stroke="url(#lgPurple)" strokeWidth="1.8" fill="none" />
+          <path d="M 360 60 L 420 320" stroke="url(#lgPink)" strokeWidth="1.4" fill="none" />
+          <path d="M 720 190 L 660 430" stroke="url(#lgBlue)" strokeWidth="1.4" fill="none" />
+          <path d="M -80 260 L 300 340 L 720 190" stroke="url(#lgBlue)" strokeWidth="1.2" fill="none" />
+        </g>
+        <g filter="url(#softGlow2)" opacity="0.7">
+          <path d="M 1540 760 L 1140 860 L 760 700 L 380 840" stroke="url(#lgPink)" strokeWidth="1.8" fill="none" />
+          <path d="M 1140 860 L 1080 600" stroke="url(#lgPurple)" strokeWidth="1.4" fill="none" />
+          <path d="M 760 700 L 820 470" stroke="url(#lgBlue)" strokeWidth="1.4" fill="none" />
+        </g>
+        <path d="M -80 500 L 480 380 L 1000 560 L 1540 420" stroke="url(#lgPurple)" strokeWidth="1" fill="none" opacity="0.5" />
+        <g filter="url(#softGlow2)">
+          <circle cx="360" cy="60" r="3.5" fill="#c084fc" />
+          <circle cx="720" cy="190" r="4" fill="#a855f7" />
+          <circle cx="420" cy="320" r="2.5" fill="#ec4899" />
+          <circle cx="660" cy="430" r="3" fill="#60a5fa" />
+          <circle cx="1140" cy="860" r="3.5" fill="#ec4899" />
+          <circle cx="760" cy="700" r="4" fill="#a855f7" />
+        </g>
+      </svg>
+
+      <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" style={{ pointerEvents: 'none', zIndex: 0 }} />
 
       {/* ── Tombol Fullscreen — sudut kanan atas ── */}
       <button
@@ -847,7 +835,7 @@ export default function LoginPage() {
             </div>
 
             {/* Welcome card mobile — glass */}
-            <div className="login-glass-card-mobile rounded-3xl p-8 text-white">
+            <div className="login-glass-card rounded-3xl p-8 text-white">
               {/* Emoji + heading */}
               <div className="flex flex-col items-center mb-6">
                 <div className="text-5xl mb-3 select-none" style={{ filter: 'drop-shadow(0 0 12px rgba(249,115,22,0.5))' }}>😊</div>
