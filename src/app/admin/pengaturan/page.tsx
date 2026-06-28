@@ -4,8 +4,9 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Save, Settings, School, Shield, WrenchIcon,
   ToggleLeft, ToggleRight, Upload, Trash2, Image, AlertTriangle,
-  Download, FolderOpen, RotateCcw, DatabaseZap, CheckSquare, Square, Clock,
+  Download, FolderOpen, RotateCcw, DatabaseZap, CheckSquare, Square, Clock, ChevronRight,
 } from 'lucide-react'
+import Link from 'next/link'
 import { Toast, Spinner, Confirm } from '@/components/ui'
 import { HackerPopup, HackerPopupType } from '@/components/ui/HackerPopup'
 import { apiRequest } from '@/lib/utils'
@@ -31,15 +32,8 @@ const RESET_CATEGORIES: ResetCategory[] = [
 ]
 
 const DEFAULT_SETTINGS: Record<string, string> = {
-  namaSekolah: '',
-  npsn: '',
-  namaKepsek: '',
-  nipKepsek: '',
-  alamat: '',
-  kota: '',
   provinsiId: '',
   kabupaten: '',
-  tahunAjaran: '',
   batasPelanggaran: '3',
   jumlahOpsi: '4',
   minSubmitAktif: 'false',
@@ -53,10 +47,9 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   reminder_nilai_jam: '24',
 }
 
-type Tab = 'sekolah' | 'ujian' | 'pengiriman_nilai' | 'maintenance' | 'backup' | 'reset'
+type Tab = 'ujian' | 'pengiriman_nilai' | 'maintenance' | 'backup' | 'reset'
 
 const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
-  { id: 'sekolah', label: 'Informasi Sekolah', icon: <School className="w-4 h-4" /> },
   { id: 'ujian', label: 'Pengaturan Ujian', icon: <Settings className="w-4 h-4" /> },
   { id: 'pengiriman_nilai', label: 'Pengiriman Nilai', icon: <Clock className="w-4 h-4" /> },
   { id: 'maintenance', label: 'Maintenance', icon: <WrenchIcon className="w-4 h-4" /> },
@@ -65,7 +58,7 @@ const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
 ]
 
 export default function AdminPengaturanPage() {
-  const [activeTab, setActiveTab] = useState<Tab>('sekolah')
+  const [activeTab, setActiveTab] = useState<Tab>('ujian')
   const [values, setValues] = useState<Record<string, string>>(DEFAULT_SETTINGS)
   const [loading, setLoading] = useState(true)
   const [savingSection, setSavingSection] = useState<string | null>(null)
@@ -376,6 +369,18 @@ export default function AdminPengaturanPage() {
         <p className="page-subtitle">Kelola konfigurasi aplikasi SmartExam</p>
       </div>
 
+      {/* ── Link ke Sekolah & Jenjang ── */}
+      <Link href="/admin/pengaturan/sekolah" className="card flex items-center gap-4 hover:shadow-md transition-shadow cursor-pointer group">
+        <div className="w-10 h-10 rounded-xl bg-brand-50 flex items-center justify-center flex-shrink-0">
+          <School className="w-5 h-5 text-brand-600" />
+        </div>
+        <div className="flex-1">
+          <div className="font-semibold text-slate-900">Sekolah &amp; Jenjang</div>
+          <div className="text-sm text-slate-500">Kelola data sekolah, kepala sekolah, logo, dan jenjang (MTs, SMA/MA, dll)</div>
+        </div>
+        <ChevronRight className="w-5 h-5 text-slate-400 group-hover:text-brand-600 transition-colors" />
+      </Link>
+
       {/* ── Tab Navigation ── */}
       <div className="flex gap-1 bg-slate-100 p-1 rounded-xl overflow-x-auto">
         {TABS.map(tab => (
@@ -405,51 +410,17 @@ export default function AdminPengaturanPage() {
         ))}
       </div>
 
-      {/* ── Tab: Informasi Sekolah ── */}
-      {activeTab === 'sekolah' && (
-        <div className="card space-y-5">
-          <div className="flex items-center gap-2 pb-3 border-b border-slate-100">
-            <School className="w-4 h-4 text-brand-600" />
-            <h2 className="font-semibold text-slate-900">Informasi Sekolah</h2>
-          </div>
+      {/* ── Tab: Pengaturan Ujian ── */}
+      {activeTab === 'ujian' && (
+        <div className="space-y-5">
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="sm:col-span-2">
-              <label className="label">Nama Sekolah</label>
-              <input className="input" placeholder="Contoh: MTs Alkhairaat Tatakalai" value={values.namaSekolah} onChange={e => set('namaSekolah', e.target.value)} />
+          {/* ── Zona Waktu ── */}
+          <div className="card space-y-4">
+            <div className="flex items-center gap-2 pb-3 border-b border-slate-100">
+              <Clock className="w-4 h-4 text-brand-600" />
+              <h2 className="font-semibold text-slate-900">Zona Waktu Aplikasi</h2>
             </div>
-            <div>
-              <label className="label">NPSN</label>
-              <input className="input" placeholder="8 digit NPSN" value={values.npsn} onChange={e => set('npsn', e.target.value)} />
-            </div>
-            <div>
-              <label className="label">Tahun Ajaran</label>
-              <input className="input" placeholder="Contoh: 2025/2026" value={values.tahunAjaran} onChange={e => set('tahunAjaran', e.target.value)} />
-            </div>
-            <div>
-              <label className="label">Nama Kepala Sekolah</label>
-              <input className="input" placeholder="Nama lengkap kepala sekolah" value={values.namaKepsek} onChange={e => set('namaKepsek', e.target.value)} />
-            </div>
-            <div>
-              <label className="label">NIP Kepala Sekolah</label>
-              <input className="input" placeholder="NIP kepala sekolah" value={values.nipKepsek} onChange={e => set('nipKepsek', e.target.value)} />
-            </div>
-            <div className="sm:col-span-2">
-              <label className="label">Alamat Sekolah</label>
-              <input className="input" placeholder="Alamat lengkap sekolah" value={values.alamat} onChange={e => set('alamat', e.target.value)} />
-            </div>
-            <div>
-              <label className="label">Kota / Kabupaten (untuk kop surat)</label>
-              <input className="input" placeholder="Contoh: Banggai Kepulauan" value={values.kota} onChange={e => set('kota', e.target.value)} />
-            </div>
-          </div>
-
-          {/* Lokasi Sekolah — untuk deteksi zona waktu otomatis */}
-          <div className="pt-2 border-t border-slate-100">
-            <div className="flex items-center gap-2 mb-1">
-              <span className="label mb-0">Lokasi Sekolah (Provinsi & Kabupaten)</span>
-            </div>
-            <p className="text-xs text-slate-400 mb-3">
+            <p className="text-sm text-slate-500">
               Dipakai untuk mendeteksi zona waktu secara otomatis, agar status ujian
               (Akan Datang / Berlangsung / Selesai) dihitung dengan benar.
             </p>
@@ -461,11 +432,11 @@ export default function AdminPengaturanPage() {
                   value={values.provinsiId}
                   onChange={e => {
                     set('provinsiId', e.target.value)
-                    set('kabupaten', '') // reset kabupaten saat provinsi berubah
+                    set('kabupaten', '')
                   }}
                 >
                   <option value="">Pilih Provinsi</option>
-                  {DATA_WILAYAH.map(p => (
+                  {DATA_WILAYAH.map((p: { id: string; nama: string }) => (
                     <option key={p.id} value={p.id}>{p.nama}</option>
                   ))}
                 </select>
@@ -479,76 +450,34 @@ export default function AdminPengaturanPage() {
                   disabled={!values.provinsiId}
                 >
                   <option value="">Pilih Kabupaten/Kota</option>
-                  {(getProvinsiById(values.provinsiId)?.kabupaten ?? []).map(k => (
+                  {(getProvinsiById(values.provinsiId)?.kabupaten ?? []).map((k: string) => (
                     <option key={k} value={k}>{k}</option>
                   ))}
                 </select>
               </div>
             </div>
-            {values.provinsiId && (
-              <div className="mt-3 flex items-center gap-2 text-xs px-3 py-2 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200">
-                <span>
-                  Zona waktu terdeteksi: <strong>{ZONA_WAKTU_INFO[getProvinsiById(values.provinsiId)!.zona].label}</strong>
-                </span>
+            {values.provinsiId ? (
+              <div className="flex items-center gap-2 text-xs px-3 py-2 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200">
+                Zona waktu terdeteksi: <strong>{ZONA_WAKTU_INFO[getProvinsiById(values.provinsiId)!.zona]?.label ?? '-'}</strong>
               </div>
-            )}
-            {!values.provinsiId && (
-              <div className="mt-3 flex items-center gap-2 text-xs px-3 py-2 rounded-xl bg-amber-50 text-amber-700 border border-amber-200">
+            ) : (
+              <div className="flex items-center gap-2 text-xs px-3 py-2 rounded-xl bg-amber-50 text-amber-700 border border-amber-200">
                 <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
-                <span>Provinsi belum dipilih — status ujian akan dihitung sementara dengan zona waktu WIB sampai diisi.</span>
+                Provinsi belum dipilih — status ujian dihitung sementara dengan zona WIB.
               </div>
             )}
-          </div>
-
-          {/* Logo Sekolah */}
-          <div className="pt-2 border-t border-slate-100">
-            <div className="flex items-center gap-2 mb-3">
-              <Image className="w-4 h-4 text-slate-500" />
-              <span className="label mb-0">Logo Sekolah</span>
-            </div>
-            <div className="flex items-start gap-4 flex-wrap">
-              {logoPreview ? (
-                <div className="relative w-24 h-24 rounded-xl border border-slate-200 overflow-hidden bg-slate-50 flex items-center justify-center">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={logoPreview} alt="Logo sekolah" className="max-w-full max-h-full object-contain p-1" />
-                </div>
-              ) : (
-                <div className="w-24 h-24 rounded-xl border-2 border-dashed border-slate-200 bg-slate-50 flex flex-col items-center justify-center gap-1">
-                  <Image className="w-6 h-6 text-slate-300" />
-                  <span className="text-xs text-slate-400">Belum ada</span>
-                </div>
-              )}
-              <div className="flex flex-col gap-2">
-                <label className="btn-secondary btn-sm cursor-pointer">
-                  {uploadingLogo ? <><Spinner size="sm" /> Mengupload...</> : <><Upload className="w-4 h-4" /> Upload Logo</>}
-                  <input type="file" accept="image/*" className="sr-only" onChange={handleLogoUpload} disabled={uploadingLogo} />
-                </label>
-                {logoPreview && (
-                  <button type="button" onClick={() => setConfirmHapusLogo(true)} className="btn-ghost btn-sm text-danger-600 hover:bg-danger-50" disabled={saving}>
-                    <Trash2 className="w-4 h-4" /> Hapus Logo
-                  </button>
-                )}
-                <p className="text-xs text-slate-400">Format: JPG, PNG, SVG. Maks 2MB.</p>
-              </div>
+            <div className="pt-2 flex justify-end">
+              <button
+                type="button"
+                onClick={() => saveSection(['provinsiId', 'kabupaten'], 'Zona Waktu')}
+                className="btn-primary btn-sm"
+                disabled={savingSection === 'Zona Waktu'}
+              >
+                {savingSection === 'Zona Waktu' ? <Spinner size="sm" /> : <><Save className="w-4 h-4" /> Simpan</>}
+              </button>
             </div>
           </div>
 
-          <div className="pt-2 flex justify-end">
-            <button
-              type="button"
-              onClick={() => saveSection(['namaSekolah','npsn','namaKepsek','nipKepsek','alamat','kota','provinsiId','kabupaten','tahunAjaran','logoUrl'], 'Informasi Sekolah')}
-              className="btn-primary btn-sm"
-              disabled={savingSection === 'Informasi Sekolah'}
-            >
-              {savingSection === 'Informasi Sekolah' ? <Spinner size="sm" /> : <><Save className="w-4 h-4" /> Simpan</>}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* ── Tab: Pengaturan Ujian ── */}
-      {activeTab === 'ujian' && (
-        <div className="space-y-5">
           <div className="card space-y-5">
             <div className="flex items-center gap-2 pb-3 border-b border-slate-100">
               <Settings className="w-4 h-4 text-brand-600" />
