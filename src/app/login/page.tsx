@@ -73,7 +73,7 @@ const ROLES = [
       {
         title: 'Kelola Siswa & User',
         icon: <GraduationCap className="w-4 h-4" />,
-        detail: 'Tambah siswa satu per satu atau via import Excel. Buat akun guru, pengawas, dan kepala sekolah di menu Users. Password default bisa di-reset kapan saja.',
+        detail: 'Tambah siswa satu per satu atau via import Excel. Buat akun guru dan kepala sekolah di menu Users. Password default bisa di-reset kapan saja.',
       },
       {
         title: 'Jadwal & Monitoring Ujian',
