@@ -22,6 +22,62 @@ const BACKUP_TABLES = [
   'log_aktivitas',
 ]
 
+// Kolom unik untuk ORDER BY saat paginasi tiap tabel (default 'id' kalau tidak
+// disebutkan di sini). Wajib pakai kolom yang benar-benar unik & stabil agar
+// paginasi .range() tidak melompati atau menduplikasi baris antar halaman.
+const ORDER_COLUMN: Record<string, string> = {
+  pengaturan: 'key',
+  siswa: 'nis',
+  users: 'username',
+}
+
+// FIX BUG FATAL: Supabase/PostgREST membatasi SETIAP query .select() ke maksimal
+// 1000 baris secara default (db-max-rows) — TANPA error sama sekali kalau tabel
+// punya lebih banyak baris dari itu, sisanya diam-diam tidak ikut terbawa.
+//
+// Endpoint ini sebelumnya hanya melakukan SATU query .select('*') per tabel,
+// jadi untuk tabel besar (contoh nyata: tabel `jawaban` di data Anda sudah
+// berisi 33.196 baris — lihat komentar di supabase/04_seed_jawaban.sql) backup
+// yang dihasilkan hanya berisi ±1000 baris PERTAMA, kehilangan >96% datanya,
+// tanpa peringatan apa pun ke admin. File backup tetap "berhasil" di-download
+// padahal isinya sudah cacat — fatal khusus untuk fitur ini karena tujuannya
+// justru disaster-recovery: kalau backup-nya sendiri sudah cacat, restore pun
+// ikut membawa data yang cacat.
+//
+// FIX: ambil tiap tabel per halaman 1000 baris pakai .range(), diulang sampai
+// jumlah baris yang kembali < ukuran halaman (berarti sudah halaman terakhir),
+// lalu digabungkan jadi satu array lengkap.
+const PAGE_SIZE = 1000
+
+async function fetchAllRows(
+  db: ReturnType<typeof createAdminClient>,
+  table: string
+): Promise<{ rows: unknown[]; error?: string }> {
+  const orderCol = ORDER_COLUMN[table] ?? 'id'
+  const allRows: unknown[] = []
+  let from = 0
+
+  while (true) {
+    const { data, error } = await db
+      .from(table as never)
+      .select('*')
+      .order(orderCol as never, { ascending: true })
+      .range(from, from + PAGE_SIZE - 1)
+
+    if (error) {
+      return { rows: allRows, error: error.message }
+    }
+
+    const batch = (data ?? []) as unknown[]
+    allRows.push(...batch)
+
+    if (batch.length < PAGE_SIZE) break // sudah halaman terakhir
+    from += PAGE_SIZE
+  }
+
+  return { rows: allRows }
+}
+
 export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['ADMIN'])
   if ('error' in auth) return auth.error
@@ -32,24 +88,9 @@ export async function GET(req: NextRequest) {
 
   for (const table of BACKUP_TABLES) {
     try {
-      // Coba dengan order by id
-      const { data, error } = await db
-        .from(table as never)
-        .select('*')
-        .order('id' as never, { ascending: true })
-
-      if (error) {
-        // Coba tanpa order jika kolom id tidak ada (contoh: pengaturan, siswa)
-        const fallback = await db.from(table as never).select('*')
-        if (fallback.error || !fallback.data) {
-          errors.push(`${table}: ${error.message}`)
-          backupData[table] = []
-        } else {
-          backupData[table] = fallback.data as unknown[]
-        }
-      } else {
-        backupData[table] = (data ?? []) as unknown[]
-      }
+      const { rows, error } = await fetchAllRows(db, table)
+      backupData[table] = rows
+      if (error) errors.push(`${table}: ${error}`)
     } catch (e) {
       errors.push(`${table}: ${e instanceof Error ? e.message : 'Unknown error'}`)
       backupData[table] = []
@@ -61,6 +102,12 @@ export async function GET(req: NextRequest) {
     app: 'SmartExam',
     exported_at: new Date().toISOString(),
     errors: errors.length > 0 ? errors : undefined,
+    // Jumlah baris per tabel — supaya admin bisa langsung mengecek kewajaran
+    // angka ini (mis. dibandingkan dengan tampilan jumlah data di menu lain)
+    // tanpa harus membuka isi file JSON yang bisa sangat besar.
+    row_counts: Object.fromEntries(
+      BACKUP_TABLES.map(t => [t, backupData[t]?.length ?? 0])
+    ),
     tables: backupData,
   }
 
