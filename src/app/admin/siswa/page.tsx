@@ -8,6 +8,55 @@ import { Siswa, Kelas } from '@/types'
 
 const PER_PAGE = 20
 
+// Excel kadang menyimpan tanggal sebagai serial number (mis. 39943) alih-alih
+// teks "2009-05-30" — terjadi ketika sel kolom tanggal di file sumber
+// diformat sebagai "General"/"Number", bukan "Date". xlsx (SheetJS) lalu
+// membaca nilai itu mentah-mentah, dan kalau dikirim apa adanya ke Postgres
+// (kolom bertipe `date`) akan gagal dengan error "invalid input syntax for
+// type date". Fungsi ini menormalkan ketiga kemungkinan bentuk nilai sel
+// (serial number, objek Date hasil parsing SheetJS, atau teks tanggal biasa)
+// menjadi string YYYY-MM-DD yang valid untuk Postgres.
+function excelDateToISO(value: unknown): string | undefined {
+  if (value === null || value === undefined || value === '') return undefined
+
+  // Sel sudah berupa objek Date (SheetJS kadang sudah otomatis parse ini)
+  if (value instanceof Date) {
+    if (isNaN(value.getTime())) return undefined
+    return value.toISOString().slice(0, 10)
+  }
+
+  // Serial number Excel (hari sejak 1899-12-30, termasuk koreksi bug leap-year 1900)
+  if (typeof value === 'number') {
+    const parsed = XLSX.SSF.parse_date_code(value)
+    if (!parsed) return undefined
+    const y = String(parsed.y).padStart(4, '0')
+    const m = String(parsed.m).padStart(2, '0')
+    const d = String(parsed.d).padStart(2, '0')
+    return `${y}-${m}-${d}`
+  }
+
+  const str = String(value).trim()
+  if (!str) return undefined
+
+  // String berisi angka murni (artinya sudah di-stringify dari serial number
+  // sebelum sampai di sini, atau memang Excel menyimpannya sebagai teks angka)
+  if (/^\d+(\.\d+)?$/.test(str)) {
+    const parsed = XLSX.SSF.parse_date_code(Number(str))
+    if (parsed) {
+      const y = String(parsed.y).padStart(4, '0')
+      const m = String(parsed.m).padStart(2, '0')
+      const d = String(parsed.d).padStart(2, '0')
+      return `${y}-${m}-${d}`
+    }
+    return undefined
+  }
+
+  // Sudah berupa teks tanggal (YYYY-MM-DD, DD/MM/YYYY, dll) — kirim apa adanya,
+  // biar divalidasi oleh database. Tidak ditebak-tebak formatnya di sini supaya
+  // tidak salah menafsirkan format yang sudah benar.
+  return str
+}
+
 export default function AdminSiswaPage() {
   const [siswa, setSiswa] = useState<Siswa[]>([])
   const [kelas, setKelas] = useState<Kelas[]>([])
@@ -35,7 +84,8 @@ export default function AdminSiswaPage() {
     skipped: number
     errors: string[]
     recentItems: { nis: string; nama: string; ok: boolean }[]
-  }>({ phase: 'idle', current: 0, total: 0, inserted: 0, skipped: 0, errors: [], recentItems: [] })
+    duplicateWarning: { message: string; duplicateNis: string[] } | null
+  }>({ phase: 'idle', current: 0, total: 0, inserted: 0, skipped: 0, errors: [], recentItems: [], duplicateWarning: null })
   const importAbortRef = useRef<AbortController | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
@@ -217,9 +267,9 @@ export default function AdminSiswaPage() {
     reader.onload = (ev) => {
       try {
         const data = new Uint8Array(ev.target?.result as ArrayBuffer)
-        const wb = XLSX.read(data, { type: 'array' })
+        const wb = XLSX.read(data, { type: 'array', cellDates: true })
         const ws = wb.Sheets[wb.SheetNames[0]]
-        const rows = XLSX.utils.sheet_to_json<Record<string, string>>(ws)
+        const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws)
 
         const parsed: Partial<Siswa>[] = rows
           .filter(r => r['NIS'] && r['Nama Siswa'])
@@ -231,7 +281,7 @@ export default function AdminSiswaPage() {
               ? String(r['Jenis Kelamin']).trim().toUpperCase()
               : undefined,
             tempat_lahir: r['Tempat Lahir'] ? String(r['Tempat Lahir']).trim() : undefined,
-            tanggal_lahir: r['Tanggal Lahir'] ? String(r['Tanggal Lahir']).trim() : undefined,
+            tanggal_lahir: excelDateToISO(r['Tanggal Lahir']),
             status: r['Status'] ? String(r['Status']).trim().toUpperCase() : 'AKTIF',
           }))
 
@@ -255,7 +305,7 @@ export default function AdminSiswaPage() {
     if (importData.length === 0) return
     setImporting(true)
 
-    setImportProgress({ phase: 'running', current: 0, total: importData.length, inserted: 0, skipped: 0, errors: [], recentItems: [] })
+    setImportProgress({ phase: 'running', current: 0, total: importData.length, inserted: 0, skipped: 0, errors: [], recentItems: [], duplicateWarning: null })
 
     const token = typeof window !== 'undefined' ? localStorage.getItem('token') ?? '' : ''
 
@@ -306,9 +356,16 @@ export default function AdminSiswaPage() {
               inserted?: number
               skipped?: number
               errors?: string[]
+              message?: string
+              duplicateNis?: string[]
             }
 
-            if (evt.type === 'progress') {
+            if (evt.type === 'warning') {
+              setImportProgress(prev => ({
+                ...prev,
+                duplicateWarning: { message: evt.message ?? '', duplicateNis: evt.duplicateNis ?? [] },
+              }))
+            } else if (evt.type === 'progress') {
               setImportProgress(prev => ({
                 ...prev,
                 current: evt.current ?? prev.current,
@@ -590,7 +647,7 @@ export default function AdminSiswaPage() {
           if (importing) return // jangan tutup saat proses berlangsung
           setImportOpen(false)
           setImportData([])
-          setImportProgress({ phase: 'idle', current: 0, total: 0, inserted: 0, skipped: 0, errors: [], recentItems: [] })
+          setImportProgress({ phase: 'idle', current: 0, total: 0, inserted: 0, skipped: 0, errors: [], recentItems: [], duplicateWarning: null })
         }}
         title={
           importProgress.phase === 'idle'
@@ -617,7 +674,7 @@ export default function AdminSiswaPage() {
               onClick={() => {
                 setImportOpen(false)
                 setImportData([])
-                setImportProgress({ phase: 'idle', current: 0, total: 0, inserted: 0, skipped: 0, errors: [], recentItems: [] })
+                setImportProgress({ phase: 'idle', current: 0, total: 0, inserted: 0, skipped: 0, errors: [], recentItems: [], duplicateWarning: null })
               }}
               className="btn-primary"
             >
@@ -664,6 +721,16 @@ export default function AdminSiswaPage() {
         {/* ── PHASE: RUNNING ── */}
         {importProgress.phase === 'running' && (
           <div className="space-y-5 py-2">
+            {importProgress.duplicateWarning && (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                <p className="font-semibold">⚠ {importProgress.duplicateWarning.message}</p>
+                {importProgress.duplicateWarning.duplicateNis.length > 0 && (
+                  <p className="mt-1 text-xs text-amber-700 font-mono break-all">
+                    NIS terdampak: {importProgress.duplicateWarning.duplicateNis.join(', ')}
+                  </p>
+                )}
+              </div>
+            )}
             <div className="space-y-2">
               <div className="flex justify-between text-sm font-medium text-slate-700">
                 <span>Memproses siswa...</span>
@@ -739,6 +806,16 @@ export default function AdminSiswaPage() {
         {/* ── PHASE: DONE ── */}
         {importProgress.phase === 'done' && (
           <div className="space-y-4 py-2">
+            {importProgress.duplicateWarning && (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                <p className="font-semibold">⚠ {importProgress.duplicateWarning.message}</p>
+                {importProgress.duplicateWarning.duplicateNis.length > 0 && (
+                  <p className="mt-1 text-xs text-amber-700 font-mono break-all">
+                    NIS terdampak: {importProgress.duplicateWarning.duplicateNis.join(', ')}
+                  </p>
+                )}
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-3">
               <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 text-center">
                 <p className="text-3xl font-bold text-emerald-600">{importProgress.inserted.toLocaleString('id')}</p>
