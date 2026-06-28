@@ -52,7 +52,7 @@ export async function GET(req: NextRequest) {
 
   type SekolahRow = { id: string; label: string; nama_sekolah: string; npsn: string; nama_kepsek: string; nip_kepsek: string; alamat: string; kota: string; tahun_ajaran: string; logo_url: string }
   const kelasSekolahMap: Record<string, SekolahRow | null> = Object.fromEntries(
-    ((kelasRows ?? []) as { nama: string; sekolah: SekolahRow | null }[]).map(k => [k.nama, k.sekolah])
+    ((kelasRows ?? []) as unknown as { nama: string; sekolah: SekolahRow | null }[]).map(k => [k.nama, k.sekolah])
   )
 
   const mapelMap    = Object.fromEntries(
