@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Eye, Users, CheckCircle2, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react'
 import { apiRequest, formatDateTime } from '@/lib/utils'
-import { PageLoader, EmptyState } from '@/components/ui'
+import { PageLoader, EmptyState, ScopeWarningBanner } from '@/components/ui'
 
 interface MonitoringRow {
   kelas: string
@@ -19,6 +19,7 @@ interface MonitoringRow {
 interface MonitoringResponse {
   kelasList: string[]
   data: MonitoringRow[]
+  scopeWarning?: string
 }
 
 export default function KepsekMonitoringPage() {
@@ -27,6 +28,7 @@ export default function KepsekMonitoringPage() {
   const [kelasFilter, setKelasFilter] = useState('')
   const [loading, setLoading] = useState(true)
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [scopeWarning, setScopeWarning] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -36,6 +38,7 @@ export default function KepsekMonitoringPage() {
       const res = await apiRequest<MonitoringResponse>(`/api/kepsek/monitoring?${params}`)
       setData(res.data ?? [])
       setKelasList(res.kelasList ?? [])
+      setScopeWarning(res.scopeWarning ?? null)
     } finally { setLoading(false) }
   }, [kelasFilter])
 
@@ -58,6 +61,8 @@ export default function KepsekMonitoringPage() {
         <h1 className="page-title">Monitoring Ujian</h1>
         <p className="page-subtitle">Status pelaksanaan ujian per kelas dan daftar siswa yang belum mengikuti</p>
       </div>
+
+      {scopeWarning && <ScopeWarningBanner message={scopeWarning} />}
 
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
         <div className="card-sm">
