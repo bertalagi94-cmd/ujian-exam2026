@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 import { generateId } from '@/lib/utils'
+import { verifySesiOwnership } from '@/lib/sesi-ownership'
 
 // Fungsi generate kode reset 7 digit alfanumerik unik untuk siswa
 function generateKodeReset(): string {
@@ -26,6 +27,18 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const { nis } = await req.json()
 
   if (!nis) return NextResponse.json({ error: 'NIS diperlukan' }, { status: 400 })
+
+  // FIX: sebelumnya endpoint ini hanya mengecek role (GURU/ADMIN), tidak
+  // mengecek apakah guru pemanggil memang pengawas sesi ini — sehingga guru
+  // mana pun bisa mereset (atau bahkan mengunci permanen + nilai 0) siswa di
+  // sesi ujian guru lain kalau memanggil API ini langsung. ADMIN tetap tidak
+  // dibatasi.
+  if (auth.user.role === 'GURU') {
+    const sah = await verifySesiOwnership(db, sesiId, auth.user.username)
+    if (!sah) {
+      return NextResponse.json({ error: 'Anda bukan pengawas sesi ini' }, { status: 403 })
+    }
+  }
 
   // Ambil batasPelanggaran dari tabel pengaturan (default 3 jika tidak ada)
   const { data: settingData } = await db
