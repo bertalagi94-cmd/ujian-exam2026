@@ -21,6 +21,20 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
     return NextResponse.json({ error: 'Soal yang sudah dikirim/disetujui tidak bisa diedit' }, { status: 400 })
   }
 
+  // Validasi: teks opsi wajib diisi KECUALI kalau gambar opsi sudah ada.
+  const jumlahOpsi = parseInt(body.jumlah_opsi) || 4
+  const opsiWajib = ['a', 'b', 'c', ...(jumlahOpsi >= 4 ? ['d'] : []), ...(jumlahOpsi >= 5 ? ['e'] : [])]
+  const opsiKurang = opsiWajib.filter(l => {
+    const teks = stripHtmlTags(body[`opsi_${l}`])
+    const gambar = body[`gambar_opsi_${l}`] || null
+    return !teks && !gambar
+  })
+  if (opsiKurang.length > 0) {
+    return NextResponse.json({
+      error: `Opsi ${opsiKurang.map((l: string) => l.toUpperCase()).join(', ')} harus diisi teks atau gambar.`,
+    }, { status: 400 })
+  }
+
   const { error } = await db.from('soal').update({
     mapel_id: body.mapel_id,
     kelas_id: body.kelas_id,
