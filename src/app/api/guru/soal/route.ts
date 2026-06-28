@@ -53,6 +53,21 @@ export async function POST(req: NextRequest) {
   const db = createAdminClient()
   const body = await req.json()
 
+  // Validasi: teks opsi wajib diisi KECUALI kalau gambar opsi sudah ada.
+  // Opsi D dan E opsional sepenuhnya (tergantung jumlah_opsi).
+  const jumlahOpsi = parseInt(body.jumlah_opsi) || 4
+  const opsiWajib = ['a', 'b', 'c', ...(jumlahOpsi >= 4 ? ['d'] : []), ...(jumlahOpsi >= 5 ? ['e'] : [])]
+  const opsiKurang = opsiWajib.filter(l => {
+    const teks = stripHtmlTags(body[`opsi_${l}`])
+    const gambar = body[`gambar_opsi_${l}`] || null
+    return !teks && !gambar
+  })
+  if (opsiKurang.length > 0) {
+    return NextResponse.json({
+      error: `Opsi ${opsiKurang.map(l => l.toUpperCase()).join(', ')} harus diisi teks atau gambar.`,
+    }, { status: 400 })
+  }
+
   const { error } = await db.from('soal').insert({
     id: generateId('SL'),
     mapel_id: body.mapel_id,
