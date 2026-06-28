@@ -8,6 +8,8 @@ import { Mapel, User, Kelas } from '@/types'
 
 export default function AdminMapelPage() {
   const [mapel, setMapel] = useState<Mapel[]>([])
+  const [sekolahList, setSekolahList] = useState<import('@/types').Sekolah[]>([])
+  const [kelasSekolahMap, setKelasSekolahMap] = useState<Record<string, string>>({}) // nama kelas → label sekolah
   const [users, setUsers] = useState<User[]>([])
   const [kelas, setKelas] = useState<Kelas[]>([])
   const [loading, setLoading] = useState(true)
@@ -43,8 +45,15 @@ export default function AdminMapelPage() {
     apiRequest<{ data: User[] }>('/api/admin/users')
       .then(r => setUsers(r.data.filter(u => u.role === 'GURU')))
       .catch(() => {})
-    apiRequest<{ data: Kelas[] }>('/api/admin/kelas')
-      .then(r => setKelas(r.data))
+    apiRequest<{ data: import('@/types').Kelas[] }>('/api/admin/kelas')
+      .then(r => {
+        setKelas(r.data)
+        const map: Record<string, string> = {}
+        for (const k of r.data) {
+          if (k.nama && k.sekolah?.label) map[k.nama] = k.sekolah.label
+        }
+        setKelasSekolahMap(map)
+      })
       .catch(() => {})
   }, [])
 
@@ -175,9 +184,21 @@ export default function AdminMapelPage() {
                     <td>
                       <div className="flex flex-wrap gap-1">
                         {m.kelas_list
-                          ? m.kelas_list.split(',').map(k => (
-                              <span key={k} className="badge-blue">{k.trim()}</span>
-                            ))
+                          ? (() => {
+                              const kelasList = m.kelas_list.split(',').map((k: string) => k.trim()).filter(Boolean)
+                              // Cari label sekolah unik dari kelas-kelas yang diampu
+                              const labels = [...new Set(kelasList.map((k: string) => kelasSekolahMap[k]).filter(Boolean))]
+                              return (
+                                <>
+                                  {kelasList.map((k: string) => (
+                                    <span key={k} className="badge-blue">{k}</span>
+                                  ))}
+                                  {labels.map((label: string) => (
+                                    <span key={label} className="badge badge-purple ml-1">{label}</span>
+                                  ))}
+                                </>
+                              )
+                            })()
                           : <span className="text-slate-400 text-xs">-</span>
                         }
                       </div>
