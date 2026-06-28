@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 import { getZonaWaktuSekolah } from '@/lib/pengaturan-waktu'
+import { getKepsekScope } from '@/lib/kepsek-scope'
 
 export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['KEPSEK', 'ADMIN'])
@@ -12,14 +13,31 @@ export async function GET(req: NextRequest) {
   const status = searchParams.get('status')
   const kelas = searchParams.get('kelas')
 
+  const zonaWaktu = await getZonaWaktuSekolah()
+
+  // Batasi ke kelas-kelas di sekolah/jenjang yang diawasi Kepsek
+  let kelasScope: string[] | null = null
+  if (auth.user.role === 'KEPSEK') {
+    const scope = await getKepsekScope(auth.user.username)
+    if (scope.noScope) {
+      return NextResponse.json({
+        scopeWarning: 'Akun Kepsek Anda belum diset sekolah/jenjangnya oleh Admin.',
+        data: [], zonaWaktu,
+      })
+    }
+    kelasScope = scope.kelasList
+    if (kelasScope.length === 0) return NextResponse.json({ data: [], zonaWaktu })
+    // Kalau filter kelas dari client diisi tapi kelas itu di luar scope Kepsek, tolak diam-diam (anggap tidak ada hasil)
+    if (kelas && !kelasScope.includes(kelas)) return NextResponse.json({ data: [], zonaWaktu })
+  }
+
   let query = db.from('jadwal').select('*').order('tanggal', { ascending: false }).order('sesi')
   if (status) query = query.eq('status', status)
   if (kelas) query = query.eq('kelas', kelas)
+  else if (kelasScope) query = query.in('kelas', kelasScope)
 
   const { data: rawData, error } = await query
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-
-  const zonaWaktu = await getZonaWaktuSekolah()
 
   if (!rawData?.length) return NextResponse.json({ data: [], zonaWaktu })
 
