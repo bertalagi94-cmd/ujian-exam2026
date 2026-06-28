@@ -9,6 +9,12 @@ export async function GET(req: NextRequest) {
   const db = createAdminClient()
   const { searchParams } = new URL(req.url)
   const mapelId = searchParams.get('mapel_id')
+  // Nama mapel bisa diampu oleh lebih dari satu guru (mapel_id berbeda, nama sama —
+  // mis. KIMIA kelas 10 oleh Guru A, KIMIA kelas 12 oleh Guru B). Di menu Rekap Nilai,
+  // filter mapel ditampilkan & dipilih berdasarkan NAMA (satu opsi per nama, bukan per
+  // baris/guru), jadi di sini kita terima `mapel_nama` dan resolve ke seluruh mapel_id
+  // yang memiliki nama tersebut supaya nilai dari semua guru pengampu ikut ter-filter.
+  const mapelNama = searchParams.get('mapel_nama')
   const kelasId = searchParams.get('kelas')
   const page = parseInt(searchParams.get('page') ?? '1')
   const perPage = parseInt(searchParams.get('per_page') ?? '50')
@@ -18,7 +24,13 @@ export async function GET(req: NextRequest) {
     .select('*', { count: 'exact' })
     .order('timestamp', { ascending: false })
 
-  if (mapelId) query = query.eq('mapel_id', mapelId)
+  if (mapelNama) {
+    const { data: mapelRows } = await db.from('mapel').select('id').eq('nama', mapelNama)
+    const ids = (mapelRows ?? []).map(m => m.id)
+    query = query.in('mapel_id', ids.length ? ids : ['__none__'])
+  } else if (mapelId) {
+    query = query.eq('mapel_id', mapelId)
+  }
   if (kelasId) query = query.eq('kelas', kelasId)
 
   const from = (page - 1) * perPage
