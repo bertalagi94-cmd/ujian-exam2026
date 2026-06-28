@@ -6,7 +6,7 @@ import { getZonaWaktuSekolah } from '@/lib/pengaturan-waktu'
 import { computeStatusSoalDetailMap, buildStatusSoalKey } from '@/lib/soal-status'
 
 export async function GET(req: NextRequest) {
-  const auth = requireRole(req, ['PENGAWAS', 'GURU', 'ADMIN'])
+  const auth = requireRole(req, ['GURU', 'ADMIN'])
   if ('error' in auth) return auth.error
   const { user } = auth
 
@@ -19,10 +19,9 @@ export async function GET(req: NextRequest) {
     .order('tanggal', { ascending: true })
     .order('jam_mulai')
 
-  // Pengawas only sees their own jadwal
-  if (user.role === 'PENGAWAS') {
-    query = query.eq('pengawas', user.username)
-  }
+  // Catatan: "Pengawas" bukan role akun tersendiri — guru yang ditugaskan
+  // sebagai pengawas login dengan role GURU. Filter "hanya lihat jadwal
+  // sendiri" untuk jalur itu sudah ditangani di /api/guru/mode-pengawas.
 
   const { data, error } = await query
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
