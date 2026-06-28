@@ -6,18 +6,20 @@ import { Modal, Confirm, StatusBadge, SearchInput, EmptyState, Spinner, Toast } 
 import { apiRequest, formatDateTime } from '@/lib/utils'
 import { User, Mapel, Sekolah } from '@/types'
 
-const ALL_ROLES = ['ADMIN', 'GURU', 'KEPSEK', 'PENGAWAS'] as const
+// Role "Pengawas" SENGAJA tidak ada di sini. Pengawas bukan role akun yang
+// berdiri sendiri — kapabilitas mengawasi ujian otomatis aktif di akun GURU
+// ketika admin menugaskannya lewat menu Jadwal Ujian (kolom jadwal.pengawas
+// diisi username guru tersebut). Lihat src/app/guru/mode-pengawas.
+const ALL_ROLES = ['ADMIN', 'GURU', 'KEPSEK'] as const
 const ROLE_TABS = [
   { value: '', label: 'Semua' },
   { value: 'ADMIN', label: 'Admin' },
   { value: 'GURU', label: 'Guru' },
   { value: 'KEPSEK', label: 'Kepsek' },
-  { value: 'PENGAWAS', label: 'Pengawas' },
 ]
 const roleColors: Record<string, string> = {
   ADMIN: 'badge-red',
   GURU: 'badge-blue',
-  PENGAWAS: 'badge-yellow',
   KEPSEK: 'badge-purple',
 }
 
