@@ -6,7 +6,7 @@ import {
   BarChart3, Users, BookOpen, TrendingUp, Calendar, Clock,
   PlayCircle, AlertTriangle, ChevronRight, CalendarClock,
 } from 'lucide-react'
-import { StatCard, PageLoader, EmptyState, Badge } from '@/components/ui'
+import { StatCard, PageLoader, EmptyState, Badge, ScopeWarningBanner } from '@/components/ui'
 import { apiRequest, nilaiColor } from '@/lib/utils'
 
 interface JadwalHariIni {
@@ -41,6 +41,7 @@ interface SiswaTidakHadir {
 }
 
 interface KepsekData {
+  scopeWarning?: string
   stats: { totalSiswa: number; totalGuru: number; totalUjian: number; rataRata: number }
   nilaiPerKelas: Array<{ kelas: string; rata: number; total: number; lulus: number }>
   nilaiPerMapel: Array<{ nama: string; rata: number; total: number }>
@@ -133,6 +134,8 @@ export default function KepsekDashboard() {
           <CalendarClock className="w-4 h-4" /> Lihat Semua Jadwal
         </Link>
       </div>
+
+      {data?.scopeWarning && <ScopeWarningBanner message={data.scopeWarning} />}
 
       {/* Alert siswa tidak hadir */}
       {jumlahTidakHadir > 0 && (
