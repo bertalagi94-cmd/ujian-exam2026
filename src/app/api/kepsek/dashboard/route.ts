@@ -1,12 +1,34 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
+import { getKepsekScope } from '@/lib/kepsek-scope'
 
 export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['KEPSEK', 'ADMIN'])
   if ('error' in auth) return auth.error
 
   const db = createAdminClient()
+
+  // Batasi data ke kelas-kelas di sekolah/jenjang yang diawasi Kepsek.
+  // ADMIN tidak dibatasi (kelasScope = null artinya "semua kelas").
+  let kelasScope: string[] | null = null
+  if (auth.user.role === 'KEPSEK') {
+    const scope = await getKepsekScope(auth.user.username)
+    if (scope.noScope) {
+      return NextResponse.json({
+        scopeWarning: 'Akun Kepsek Anda belum diset sekolah/jenjangnya oleh Admin. Hubungi Admin untuk mengatur ini di menu Data Pengguna.',
+        stats: { totalSiswa: 0, totalGuru: 0, totalUjian: 0, rataRata: 0 },
+        nilaiPerKelas: [], nilaiPerMapel: [], ujianHariIni: [], sedangBerlangsung: [], siswaTidakHadir: [],
+      })
+    }
+    kelasScope = scope.kelasList
+    if (kelasScope.length === 0) {
+      return NextResponse.json({
+        stats: { totalSiswa: 0, totalGuru: 0, totalUjian: 0, rataRata: 0 },
+        nilaiPerKelas: [], nilaiPerMapel: [], ujianHariIni: [], sedangBerlangsung: [], siswaTidakHadir: [],
+      })
+    }
+  }
 
   // Rentang "hari ini" berdasarkan tanggal lokal (kolom `tanggal` adalah DATE)
   const now = new Date()
@@ -20,12 +42,22 @@ export async function GET(req: NextRequest) {
     { data: jadwalHariIni },
     { data: sesiBerjalan },
   ] = await Promise.all([
-    db.from('siswa').select('*', { count: 'exact', head: true }).eq('status', 'AKTIF'),
+    kelasScope
+      ? db.from('siswa').select('*', { count: 'exact', head: true }).eq('status', 'AKTIF').in('kelas', kelasScope)
+      : db.from('siswa').select('*', { count: 'exact', head: true }).eq('status', 'AKTIF'),
     db.from('users').select('*', { count: 'exact', head: true }).eq('status', 'AKTIF').eq('role', 'GURU'),
-    db.from('nilai').select('*', { count: 'exact', head: true }),
-    db.from('nilai').select('nilai, kelas, mapel_id, lulus'),
-    db.from('jadwal').select('*').eq('tanggal', todayStr).order('sesi', { ascending: true }),
-    db.from('sesi_ujian').select('*').eq('status', 'BERJALAN').order('waktu_mulai', { ascending: false }),
+    kelasScope
+      ? db.from('nilai').select('*', { count: 'exact', head: true }).in('kelas', kelasScope)
+      : db.from('nilai').select('*', { count: 'exact', head: true }),
+    kelasScope
+      ? db.from('nilai').select('nilai, kelas, mapel_id, lulus').in('kelas', kelasScope)
+      : db.from('nilai').select('nilai, kelas, mapel_id, lulus'),
+    kelasScope
+      ? db.from('jadwal').select('*').eq('tanggal', todayStr).in('kelas', kelasScope).order('sesi', { ascending: true })
+      : db.from('jadwal').select('*').eq('tanggal', todayStr).order('sesi', { ascending: true }),
+    kelasScope
+      ? db.from('sesi_ujian').select('*').eq('status', 'BERJALAN').in('kelas', kelasScope).order('waktu_mulai', { ascending: false })
+      : db.from('sesi_ujian').select('*').eq('status', 'BERJALAN').order('waktu_mulai', { ascending: false }),
   ])
 
   // Enrich nama_mapel & nama_pengawas untuk jadwal hari ini
@@ -72,11 +104,13 @@ export async function GET(req: NextRequest) {
   // siswa terdaftar (siswa_ujian) tapi tidak punya baris nilai untuk sesi itu
   // (konsisten dengan cara sistem menandai "sudah mengerjakan" di tempat lain)
   const since = new Date(nowMs - 24 * 60 * 60 * 1000).toISOString()
-  const { data: sesiBaruSelesai } = await db
+  let sesiBaruSelesaiQuery = db
     .from('sesi_ujian')
     .select('id, mapel_id, kelas, waktu_selesai')
     .eq('status', 'SELESAI')
     .gte('waktu_selesai', since)
+  if (kelasScope) sesiBaruSelesaiQuery = sesiBaruSelesaiQuery.in('kelas', kelasScope)
+  const { data: sesiBaruSelesai } = await sesiBaruSelesaiQuery
 
   let siswaTidakHadir: { nis: string; nama: string; kelas: string; mapel_id: string; nama_mapel: string; sesi_id: string }[] = []
 
