@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
+import { verifySesiOwnership } from '@/lib/sesi-ownership'
 
 export async function POST(req: NextRequest) {
   const auth = requireRole(req, ['GURU'])
@@ -8,6 +9,15 @@ export async function POST(req: NextRequest) {
 
   const db = createAdminClient()
   const { sesiId } = await req.json()
+
+  // FIX: sebelumnya endpoint ini hanya mengecek role GURU, tidak mengecek
+  // apakah guru pemanggil memang pengawas sesi ini — sehingga guru mana pun
+  // bisa menutup (dan memicu auto-grade) sesi ujian milik guru lain kalau
+  // memanggil API ini langsung.
+  const sah = await verifySesiOwnership(db, sesiId, auth.user.username)
+  if (!sah) {
+    return NextResponse.json({ error: 'Anda bukan pengawas sesi ini' }, { status: 403 })
+  }
 
   const { data: sesi } = await db
     .from('sesi_ujian')
