@@ -23,13 +23,17 @@ export async function POST(req: NextRequest) {
     : `logo-${sekolahId}.${ext}`
 
   const arrayBuffer = await file.arrayBuffer()
+  // Pakai bucket "assets" — bucket inilah yang sudah dibuat (Public) di
+  // Supabase Storage. Sebelumnya kode ini memanggil bucket "uploads" yang
+  // tidak pernah dibuat, sehingga upload selalu gagal dengan error
+  // "Bucket not found" walau preview lokal di browser tetap tampil.
   const { error: uploadError } = await db.storage
-    .from('uploads')
+    .from('assets')
     .upload(fileName, arrayBuffer, { contentType: file.type, upsert: true })
 
   if (uploadError) return NextResponse.json({ error: uploadError.message }, { status: 500 })
 
-  const { data: urlData } = db.storage.from('uploads').getPublicUrl(fileName)
+  const { data: urlData } = db.storage.from('assets').getPublicUrl(fileName)
   const url = urlData.publicUrl
 
   if (type === 'aplikasi') {
