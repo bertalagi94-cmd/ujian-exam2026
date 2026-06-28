@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
+import { verifySesiOwnership } from '@/lib/sesi-ownership'
 
 export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['GURU', 'ADMIN'])
@@ -9,6 +10,19 @@ export async function GET(req: NextRequest) {
   const db = createAdminClient()
   const { searchParams } = new URL(req.url)
   const sesiId = searchParams.get('sesiId')
+
+  // FIX: sebelumnya GURU bisa memanggil endpoint ini tanpa sesiId (atau
+  // dengan sesiId milik guru lain) dan tetap mendapat data pelanggaran —
+  // tidak ada pengecekan kepemilikan sesi. ADMIN tetap tidak dibatasi.
+  if (auth.user.role === 'GURU') {
+    if (!sesiId) {
+      return NextResponse.json({ error: 'sesiId diperlukan' }, { status: 400 })
+    }
+    const sah = await verifySesiOwnership(db, sesiId, auth.user.username)
+    if (!sah) {
+      return NextResponse.json({ error: 'Anda bukan pengawas sesi ini' }, { status: 403 })
+    }
+  }
 
   let query = db
     .from('pelanggaran')
