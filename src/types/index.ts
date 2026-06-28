@@ -1,5 +1,20 @@
 export type Role = 'ADMIN' | 'GURU' | 'PENGAWAS' | 'KEPSEK' | 'SISWA'
 
+export interface Sekolah {
+  id: string
+  label: string           // Label singkat, misal "MTs", "SMA/MA"
+  nama_sekolah: string
+  npsn?: string
+  nama_kepsek?: string
+  nip_kepsek?: string
+  alamat?: string
+  kota?: string
+  tahun_ajaran?: string
+  logo_url?: string
+  urutan?: number
+  created_at?: string
+}
+
 export interface User {
   username: string
   nama: string
@@ -8,6 +23,9 @@ export interface User {
   status: string
   is_tester?: string
   no_hp?: string | null
+  nip?: string
+  sekolah_id?: string | null
+  sekolah?: { id: string; label: string; nama_sekolah: string } | null
 }
 
 export interface Siswa {
@@ -29,6 +47,8 @@ export interface Kelas {
   jurusan?: string
   wali_kelas?: string
   jumlah?: number
+  sekolah_id?: string | null
+  sekolah?: { id: string; label: string; nama_sekolah: string } | null
 }
 
 export interface Mapel {
