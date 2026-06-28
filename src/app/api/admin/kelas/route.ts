@@ -30,9 +30,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ data: [] })
   }
 
-  // 2. Ambil info wali_kelas & jurusan dari tabel kelas (opsional)
-  const { data: kelasInfo } = await db.from('kelas').select('*')
-  const infoMap: Record<string, { id: string; wali_kelas?: string; jurusan?: string }> =
+  // 2. Ambil info wali_kelas, jurusan, sekolah_id dari tabel kelas (opsional)
+  const { data: kelasInfo } = await db.from('kelas').select('*, sekolah:sekolah_id(id, label, nama_sekolah)')
+  const infoMap: Record<string, { id: string; wali_kelas?: string; jurusan?: string; sekolah_id?: string; sekolah?: { id: string; label: string; nama_sekolah: string } | null }> =
     Object.fromEntries((kelasInfo ?? []).map((k) => [k.nama, k]))
 
   // 3. Gabungkan
@@ -43,6 +43,8 @@ export async function GET(req: NextRequest) {
       jumlah,
       wali_kelas: infoMap[nama]?.wali_kelas ?? null,
       jurusan: infoMap[nama]?.jurusan ?? null,
+      sekolah_id: infoMap[nama]?.sekolah_id ?? null,
+      sekolah: infoMap[nama]?.sekolah ?? null,
     }))
     .sort((a, b) => a.nama.localeCompare(b.nama, 'id', { numeric: true }))
 
@@ -58,7 +60,7 @@ export async function PUT(req: NextRequest) {
 
   const db = createAdminClient()
   const body = await req.json()
-  const { nama, wali_kelas, jurusan } = body
+  const { nama, wali_kelas, jurusan, sekolah_id } = body
 
   if (!nama) return NextResponse.json({ error: 'Nama kelas diperlukan' }, { status: 400 })
 
@@ -67,7 +69,11 @@ export async function PUT(req: NextRequest) {
   if (existing) {
     const { error } = await db
       .from('kelas')
-      .update({ wali_kelas: wali_kelas || null, jurusan: jurusan || '-' })
+      .update({
+        wali_kelas: wali_kelas || null,
+        jurusan: jurusan || '-',
+        sekolah_id: sekolah_id || null,
+      })
       .eq('nama', nama)
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   } else {
@@ -77,12 +83,13 @@ export async function PUT(req: NextRequest) {
       nama,
       wali_kelas: wali_kelas || null,
       jurusan: jurusan || '-',
+      sekolah_id: sekolah_id || null,
       jumlah: 0,
     })
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  return NextResponse.json({ message: 'Wali kelas berhasil disimpan' })
+  return NextResponse.json({ message: 'Data kelas berhasil disimpan' })
 }
 
 /**
