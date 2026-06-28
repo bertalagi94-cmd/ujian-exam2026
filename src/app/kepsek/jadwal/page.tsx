@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Calendar, Clock, Users, CheckCircle, PlayCircle, Timer, BookOpen } from 'lucide-react'
 import { apiRequest, formatDate } from '@/lib/utils'
-import { PageLoader, EmptyState } from '@/components/ui'
+import { PageLoader, EmptyState, ScopeWarningBanner } from '@/components/ui'
 
 interface JadwalRow {
   id: string
@@ -62,6 +62,7 @@ export default function KepsekJadwalPage() {
   const [kelasFilter, setKelasFilter] = useState<string>('')
   const [zonaWaktu, setZonaWaktu] = useState<ZonaWaktuInfo>(ZONA_FALLBACK)
   const [now] = useState(() => new Date())
+  const [scopeWarning, setScopeWarning] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -69,9 +70,10 @@ export default function KepsekJadwalPage() {
       const params = new URLSearchParams()
       if (statusFilter) params.set('status', statusFilter)
       if (kelasFilter) params.set('kelas', kelasFilter)
-      const res = await apiRequest<{ data: JadwalRow[]; zonaWaktu?: ZonaWaktuInfo }>(`/api/kepsek/jadwal?${params}`)
+      const res = await apiRequest<{ data: JadwalRow[]; zonaWaktu?: ZonaWaktuInfo; scopeWarning?: string }>(`/api/kepsek/jadwal?${params}`)
       setData(res.data ?? [])
       if (res.zonaWaktu) setZonaWaktu(res.zonaWaktu)
+      setScopeWarning(res.scopeWarning ?? null)
     } finally { setLoading(false) }
   }, [statusFilter, kelasFilter])
 
@@ -93,6 +95,8 @@ export default function KepsekJadwalPage() {
         <h1 className="page-title">Jadwal Ujian</h1>
         <p className="page-subtitle">Seluruh jadwal ujian yang telah diinput admin, lengkap dengan statusnya</p>
       </div>
+
+      {scopeWarning && <ScopeWarningBanner message={scopeWarning} />}
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="card-sm">
