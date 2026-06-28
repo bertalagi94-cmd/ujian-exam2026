@@ -307,7 +307,7 @@ export function AdminSidebar() {
   const navItems: NavItem[] = [
     { label: 'Dashboard', href: '/admin', icon: LayoutDashboard },
     { label: 'Data Siswa', href: '/admin/siswa', icon: Users },
-    { label: 'Data Guru', href: '/admin/users', icon: User },
+    { label: 'Data Pengguna', href: '/admin/users', icon: User },
     { label: 'Kelas', href: '/admin/kelas', icon: School },
     { label: 'Mata Pelajaran', href: '/admin/mapel', icon: BookOpen },
     { label: 'Jadwal Ujian', href: '/admin/jadwal', icon: Calendar },
