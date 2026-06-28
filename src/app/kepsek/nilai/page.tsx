@@ -3,11 +3,12 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { BarChart3, Trophy, Users, TrendingDown, TrendingUp, Medal } from 'lucide-react'
 import { apiRequest, nilaiColor, gradeColor } from '@/lib/utils'
-import { PageLoader, EmptyState, StatCard } from '@/components/ui'
+import { PageLoader, EmptyState, StatCard, ScopeWarningBanner } from '@/components/ui'
 
 interface OpsiResponse {
   kelasList: string[]
   mapelPerKelas: Record<string, { id: string; nama: string }[]>
+  scopeWarning?: string
 }
 
 interface NilaiRow {
@@ -85,6 +86,8 @@ export default function KepsekNilaiPage() {
         <h1 className="page-title">Hasil Ujian</h1>
         <p className="page-subtitle">Rekap nilai per kelas untuk mapel yang sudah dilaksanakan ujiannya</p>
       </div>
+
+      {opsi?.scopeWarning && <ScopeWarningBanner message={opsi.scopeWarning} />}
 
       {loadingOpsi ? <PageLoader /> : !opsi?.kelasList.length ? (
         <div className="card"><EmptyState message="Belum ada data nilai untuk ditampilkan" icon={BarChart3} /></div>
