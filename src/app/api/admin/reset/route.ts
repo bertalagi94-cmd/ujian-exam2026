@@ -19,7 +19,11 @@ const CATEGORY_MAP: Record<ResetCategory, string[]> = {
   jawaban_nilai: ['pelanggaran', 'log_reset', 'nilai', 'jawaban'],
   sesi_ujian:   ['pelanggaran', 'log_reset', 'nilai', 'jawaban', 'siswa_ujian', 'sesi_ujian'],
   soal_paket:   ['pelanggaran', 'log_reset', 'nilai', 'jawaban', 'siswa_ujian', 'sesi_ujian', 'soal', 'kisi_kisi', 'paket_soal'],
-  jadwal:       ['pelanggaran', 'log_reset', 'nilai', 'jawaban', 'siswa_ujian', 'sesi_ujian', 'soal', 'kisi_kisi', 'paket_soal', 'jadwal'],
+  // Sengaja HANYA menghapus tabel jadwal — nilai/jawaban adalah bukti
+  // siswa sudah mengikuti ujian dan tidak boleh ikut terhapus di sini.
+  // Kalau admin memang ingin reset nilai/jawaban juga, pakai kategori
+  // 'jawaban_nilai' secara terpisah (bisa dipilih bersamaan dari UI).
+  jadwal:       ['jadwal'],
   siswa:        ['pelanggaran', 'log_reset', 'nilai', 'jawaban', 'siswa_ujian', 'siswa'],
   kelas_mapel:  ['pelanggaran', 'log_reset', 'nilai', 'jawaban', 'siswa_ujian', 'sesi_ujian', 'soal', 'kisi_kisi', 'paket_soal', 'jadwal', 'siswa', 'kelas_mapel', 'mapel', 'kelas'],
   users:        ['log_aktivitas', 'log_reset', 'users'],
