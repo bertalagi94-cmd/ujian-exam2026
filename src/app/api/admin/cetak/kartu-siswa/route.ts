@@ -14,21 +14,41 @@ export async function GET(req: NextRequest) {
 
   if (!kelas) return NextResponse.json({ error: 'Parameter kelas diperlukan' }, { status: 400 })
 
-  const [{ data: siswaList, error }, { data: pengaturan }, { data: kelasData }] = await Promise.all([
+  type SekolahRow = { id: string; nama_sekolah: string; npsn: string; nama_kepsek: string; nip_kepsek: string; alamat: string; kota: string; tahun_ajaran: string; logo_url: string; label: string }
+
+  const [{ data: siswaList, error }, { data: kelasData }] = await Promise.all([
     db.from('siswa').select('nis, nama, kelas, jenis_kelamin, tempat_lahir, tanggal_lahir')
       .eq('kelas', kelas).eq('status', 'AKTIF').neq('is_tester', 'YES').order('nama'),
-    db.from('pengaturan').select('key, value')
-      .in('key', ['namaSekolah', 'npsn', 'tahunAjaran', 'logoUrl', 'kota']),
-    db.from('kelas').select('nama, jurusan').eq('nama', kelas).single(),
+    db.from('kelas')
+      .select('nama, jurusan, sekolah:sekolah_id(id, label, nama_sekolah, npsn, nama_kepsek, nip_kepsek, alamat, kota, tahun_ajaran, logo_url)')
+      .eq('nama', kelas).single(),
   ])
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  const settingMap = Object.fromEntries((pengaturan ?? [] as { key: string; value: string }[]).map(p => [p.key, p.value]))
+  // Validasi: kelas harus sudah punya sekolah
+  const sekolahRow = (kelasData as { nama: string; jurusan?: string; sekolah: SekolahRow | null } | null)?.sekolah ?? null
+  if (!sekolahRow) {
+    return NextResponse.json({
+      error: `Kelas ${kelas} belum diatur sekolahnya. Buka menu Kelas → Edit dan pilih sekolah terlebih dahulu.`
+    }, { status: 422 })
+  }
+
+  const sekolahMap = {
+    namaSekolah: sekolahRow.nama_sekolah,
+    npsn: sekolahRow.npsn,
+    namaKepsek: sekolahRow.nama_kepsek,
+    nipKepsek: sekolahRow.nip_kepsek,
+    alamat: sekolahRow.alamat,
+    kota: sekolahRow.kota,
+    tahunAjaran: sekolahRow.tahun_ajaran,
+    logoUrl: sekolahRow.logo_url,
+    label: sekolahRow.label,
+  }
 
   return NextResponse.json({
     siswa: siswaList ?? [],
-    sekolah: settingMap,
+    sekolah: sekolahMap,
     kelas: kelasData,
   })
 }
