@@ -5,6 +5,7 @@ import { requireRole } from '@/lib/auth'
 // Hanya tabel yang ada di schema (kisi_kisi DIHAPUS - tidak ada di 01_schema.sql)
 const BACKUP_TABLES = [
   'pengaturan',
+  'sekolah',
   'kelas',
   'mapel',
   'kelas_mapel',
