@@ -114,18 +114,46 @@ export async function POST(req: NextRequest) {
   const auth = requireRole(req, ['ADMIN'])
   if ('error' in auth) return auth.error
 
-  let body: { categories: ResetCategory[] }
+  let body: { categories: ResetCategory[]; force?: boolean }
   try {
     body = await req.json()
   } catch {
     return NextResponse.json({ error: 'Request tidak valid' }, { status: 400 })
   }
 
-  const { categories } = body
+  const { categories, force } = body
 
   if (!Array.isArray(categories) || categories.length === 0) {
     return NextResponse.json({ error: 'Pilih minimal satu kategori reset' }, { status: 400 })
   }
+
+  // ── CEK AKTIVITAS SEBELUM RESET ─────────────────────────────────────────
+  // Tolak reset jika ada sesi ujian yang sedang berjalan atau siswa yang
+  // sedang aktif mengerjakan. Admin harus konfirmasi paksa (force=true) hanya
+  // jika kondisi sudah diketahui dan tetap ingin dilanjutkan.
+  if (!force) {
+    const db = createAdminClient()
+    const [{ data: sesiAktif }, { data: siswaAktif }] = await Promise.all([
+      db.from('sesi_ujian').select('id', { count: 'exact', head: false }).eq('status', 'BERJALAN').limit(1),
+      db.from('siswa_ujian').select('id', { count: 'exact', head: false }).eq('status', 'AKTIF').limit(1),
+    ])
+
+    const adaSesi = (sesiAktif?.length ?? 0) > 0
+    const adaSiswa = (siswaAktif?.length ?? 0) > 0
+
+    if (adaSesi || adaSiswa) {
+      const pesan: string[] = []
+      if (adaSesi) pesan.push('ada sesi ujian yang sedang berjalan')
+      if (adaSiswa) pesan.push('ada siswa yang sedang mengerjakan ujian')
+      return NextResponse.json({
+        error: `Reset tidak bisa dilakukan karena ${pesan.join(' dan ')}. Tutup semua sesi terlebih dahulu, lalu coba lagi.`,
+        ada_aktivitas: true,
+        ada_sesi: adaSesi,
+        ada_siswa: adaSiswa,
+      }, { status: 409 })
+    }
+  }
+  // ─────────────────────────────────────────────────────────────────────────
 
   const validCategories = Object.keys(CATEGORY_MAP) as ResetCategory[]
   const invalid = categories.filter(c => !validCategories.includes(c))
