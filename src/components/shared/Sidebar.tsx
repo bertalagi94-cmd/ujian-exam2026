@@ -420,6 +420,7 @@ export function KepsekSidebar() {
       accent="#7c3aed"
       navItems={[
         { label: 'Dashboard', href: '/kepsek', icon: LayoutDashboard },
+        { label: 'Data Kelas', href: '/kepsek/kelas', icon: Users },
         { label: 'Jadwal Ujian', href: '/kepsek/jadwal', icon: Calendar },
         { label: 'Hasil Ujian', href: '/kepsek/nilai', icon: BarChart3 },
         { label: 'Monitoring Ujian', href: '/kepsek/monitoring', icon: Eye },
