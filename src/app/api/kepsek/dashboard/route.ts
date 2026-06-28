@@ -34,9 +34,59 @@ export async function GET(req: NextRequest) {
   const now = new Date()
   const todayStr = now.toISOString().slice(0, 10)
 
+  // ── Hitung Total Guru sesuai scope sekolah/jenjang Kepsek ──────────────────
+  // BUG SEBELUMNYA: totalGuru dihitung dari SEMUA users role=GURU tanpa
+  // filter apa pun, jadi Kepsek MTs dan Kepsek MA sama-sama melihat angka
+  // total guru se-aplikasi, bukan angka guru yang benar-benar mengajar di
+  // jenjangnya.
+  //
+  // Guru TIDAK punya kolom sekolah_id sendiri (beda dari Kepsek), karena
+  // satu guru bisa mengajar di lebih dari satu jenjang sekaligus (kasus
+  // nyata di sekolah ini). Sumber kebenaran yang sudah konsisten dipakai
+  // di seluruh aplikasi (lihat src/lib/rangkuman.ts, src/lib/soal-status.ts,
+  // halaman Wali Kelas) adalah kolom `mapel.kelas_list` — daftar nama kelas
+  // yang diampu oleh `mapel.guru_id`.
+  //
+  // Jadi: guru dihitung masuk ke sekolah/jenjang Kepsek HANYA JIKA salah
+  // satu kelas di kelas_list-nya ada di kelasScope Kepsek tersebut. Guru
+  // yang mengajar di kedua jenjang akan ikut terhitung di KEDUA dashboard
+  // Kepsek — ini disengaja, bukan duplikasi data, karena dia memang relevan
+  // untuk diawasi oleh kedua Kepsek tersebut.
+  let totalGuru = 0
+  if (kelasScope) {
+    const { data: mapelGuruRows } = await db
+      .from('mapel')
+      .select('guru_id, kelas_list')
+      .not('guru_id', 'is', null)
+
+    const guruIdSet = new Set<string>()
+    for (const m of (mapelGuruRows ?? []) as { guru_id: string; kelas_list: string | null }[]) {
+      const kelasDiampu = (m.kelas_list ?? '').split(',').map(s => s.trim()).filter(Boolean)
+      if (kelasDiampu.some(k => kelasScope!.includes(k))) guruIdSet.add(m.guru_id)
+    }
+
+    if (guruIdSet.size > 0) {
+      const { count } = await db
+        .from('users')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'AKTIF')
+        .eq('role', 'GURU')
+        .in('username', [...guruIdSet])
+      totalGuru = count ?? 0
+    }
+  } else {
+    // ADMIN: tidak dibatasi, hitung semua guru aktif seperti semula
+    const { count } = await db
+      .from('users')
+      .select('*', { count: 'exact', head: true })
+      .eq('status', 'AKTIF')
+      .eq('role', 'GURU')
+    totalGuru = count ?? 0
+  }
+  // ─────────────────────────────────────────────────────────────────────────
+
   const [
     { count: totalSiswa },
-    { count: totalGuru },
     { count: totalUjian },
     { data: nilaiAll },
     { data: jadwalHariIni },
@@ -45,7 +95,6 @@ export async function GET(req: NextRequest) {
     kelasScope
       ? db.from('siswa').select('*', { count: 'exact', head: true }).eq('status', 'AKTIF').in('kelas', kelasScope)
       : db.from('siswa').select('*', { count: 'exact', head: true }).eq('status', 'AKTIF'),
-    db.from('users').select('*', { count: 'exact', head: true }).eq('status', 'AKTIF').eq('role', 'GURU'),
     kelasScope
       ? db.from('nilai').select('*', { count: 'exact', head: true }).in('kelas', kelasScope)
       : db.from('nilai').select('*', { count: 'exact', head: true }),
