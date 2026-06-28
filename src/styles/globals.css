@@ -326,6 +326,18 @@
     inset 0 1px 0 rgba(255,255,255,0.14);
 }
 
+/* ── Versi ringan khusus mobile: tampilan serupa tanpa backdrop-filter,
+   karena backdrop-filter blur sangat berat di GPU HP dan menyebabkan
+   input form terasa lag. Desktop tetap pakai .login-glass-card asli. ── */
+.login-glass-card-mobile {
+  background: rgba(35, 18, 72, 0.78);
+  border: 1.5px solid rgba(255, 255, 255, 0.20);
+  box-shadow:
+    0 32px 80px rgba(0,0,0,0.40),
+    0 0 0 1px rgba(255,255,255,0.06),
+    inset 0 1px 0 rgba(255,255,255,0.14);
+}
+
 /* ── Aurora glow blobs ───────────────────────────────────────────────── */
 @keyframes aurora1 {
   0%,100% { transform: translate(0,0) scale(1); }
