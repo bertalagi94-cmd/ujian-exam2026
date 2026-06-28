@@ -223,5 +223,8 @@ export async function POST(req: NextRequest) {
     .single()
   const nilaiIdFinal = nilaiTersimpan?.id ?? nilaiData.id
 
-  return NextResponse.json({ id: nilaiIdFinal, nilai: nilaiAngka, grade, benar, total, lulus })
+  // FIX: sertakan `kkm` di response — sebelumnya tidak dikirim ke client,
+  // jadi halaman hasil ujian siswa tidak bisa menampilkan KKM atau menjelaskan
+  // dengan jelas kenapa siswa dinyatakan lulus/tidak lulus.
+  return NextResponse.json({ id: nilaiIdFinal, nilai: nilaiAngka, grade, benar, total, lulus, kkm })
 }
