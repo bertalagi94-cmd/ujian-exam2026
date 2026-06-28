@@ -40,7 +40,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Pilih guru yang akan menjadi pengawas sesi susulan' }, { status: 400 })
   }
 
-  // Pastikan guru yang dipilih valid (role GURU atau PENGAWAS, status AKTIF)
+  // Pastikan guru yang dipilih valid (role GURU/ADMIN/KEPSEK, status AKTIF).
+  // "Pengawas" bukan role akun tersendiri — siapa pun bisa ditugaskan asalkan
+  // akunnya aktif.
   const { data: guru } = await db
     .from('users')
     .select('username, nama, role, status')
@@ -50,7 +52,7 @@ export async function POST(req: NextRequest) {
   if (!guru) {
     return NextResponse.json({ error: 'Guru pengawas yang dipilih tidak ditemukan' }, { status: 404 })
   }
-  if (!['GURU', 'PENGAWAS', 'ADMIN', 'KEPSEK'].includes(guru.role)) {
+  if (!['GURU', 'ADMIN', 'KEPSEK'].includes(guru.role)) {
     return NextResponse.json({ error: 'Akun yang dipilih tidak dapat ditugaskan sebagai pengawas' }, { status: 400 })
   }
   if (guru.status !== 'AKTIF') {
