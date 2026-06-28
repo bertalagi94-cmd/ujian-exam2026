@@ -132,6 +132,31 @@ export async function POST(req: NextRequest) {
   }
 
   const db = createAdminClient()
+
+  // ── CEK AKTIVITAS SEBELUM RESTORE ───────────────────────────────────────
+  // Restore saat ujian berjalan akan menghapus semua jawaban dan nilai siswa
+  // yang sedang mengerjakan. Tolak jika ada sesi aktif atau siswa aktif.
+  const [{ data: sesiAktif }, { data: siswaAktif }] = await Promise.all([
+    db.from('sesi_ujian').select('id').eq('status', 'BERJALAN').limit(1),
+    db.from('siswa_ujian').select('id').eq('status', 'AKTIF').limit(1),
+  ])
+
+  const adaSesi = (sesiAktif?.length ?? 0) > 0
+  const adaSiswa = (siswaAktif?.length ?? 0) > 0
+
+  if (adaSesi || adaSiswa) {
+    const pesan: string[] = []
+    if (adaSesi) pesan.push('ada sesi ujian yang sedang berjalan')
+    if (adaSiswa) pesan.push('ada siswa yang sedang mengerjakan ujian')
+    return NextResponse.json({
+      error: `Restore tidak bisa dilakukan karena ${pesan.join(' dan ')}. Tutup semua sesi terlebih dahulu. Restore akan menghapus seluruh data yang ada termasuk jawaban siswa yang sedang mengerjakan.`,
+      ada_aktivitas: true,
+      ada_sesi: adaSesi,
+      ada_siswa: adaSiswa,
+    }, { status: 409 })
+  }
+  // ─────────────────────────────────────────────────────────────────────────
+
   const deleteErrors: string[] = []
 
   // 1. Hapus data lama — hanya tabel yang ada di schema DAN ada di backup
