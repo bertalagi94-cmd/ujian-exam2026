@@ -5,7 +5,7 @@ import { generateId } from '@/lib/utils'
 import { pastikanLokasiSekolahLengkap } from '@/lib/pengaturan-waktu'
 
 export async function GET(req: NextRequest) {
-  const auth = requireRole(req, ['ADMIN', 'GURU', 'PENGAWAS', 'KEPSEK', 'SISWA'])
+  const auth = requireRole(req, ['ADMIN', 'GURU', 'KEPSEK', 'SISWA'])
   if ('error' in auth) return auth.error
 
   const db = createAdminClient()
