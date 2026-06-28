@@ -1,4 +1,4 @@
-export type Role = 'ADMIN' | 'GURU' | 'PENGAWAS' | 'KEPSEK' | 'SISWA'
+export type Role = 'ADMIN' | 'GURU' | 'KEPSEK' | 'SISWA'
 
 export interface Sekolah {
   id: string
