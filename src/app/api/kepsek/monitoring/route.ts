@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
+import { getKepsekScope } from '@/lib/kepsek-scope'
 
 export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['KEPSEK', 'ADMIN'])
@@ -10,6 +11,21 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
   const kelasFilter = searchParams.get('kelas')
 
+  // Batasi ke kelas-kelas di sekolah/jenjang yang diawasi Kepsek
+  let kelasScope: string[] | null = null
+  if (auth.user.role === 'KEPSEK') {
+    const scope = await getKepsekScope(auth.user.username)
+    if (scope.noScope) {
+      return NextResponse.json({
+        scopeWarning: 'Akun Kepsek Anda belum diset sekolah/jenjangnya oleh Admin.',
+        kelasList: [], data: [],
+      })
+    }
+    kelasScope = scope.kelasList
+    if (kelasScope.length === 0) return NextResponse.json({ kelasList: [], data: [] })
+    if (kelasFilter && !kelasScope.includes(kelasFilter)) return NextResponse.json({ kelasList: [], data: [] })
+  }
+
   // Sumber kebenaran "mapel sudah diujiankan di kelas ini" = ada sesi_ujian SELESAI
   // untuk kombinasi mapel + kelas tersebut (konsisten dengan logika di admin/analisis-ujian).
   let sesiQuery = db
@@ -18,6 +34,7 @@ export async function GET(req: NextRequest) {
     .eq('status', 'SELESAI')
     .order('waktu_selesai', { ascending: false })
   if (kelasFilter) sesiQuery = sesiQuery.eq('kelas', kelasFilter)
+  else if (kelasScope) sesiQuery = sesiQuery.in('kelas', kelasScope)
 
   const { data: sesiSelesai, error } = await sesiQuery
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
@@ -45,7 +62,9 @@ export async function GET(req: NextRequest) {
     db.from('siswa').select('nis, nama, kelas').in('kelas', kelasIds).eq('status', 'AKTIF').neq('is_tester', 'YES'),
     db.from('mapel').select('id, nama').in('id', mapelIds),
     db.from('nilai').select('nis, kelas, mapel_id').or(orFilterNilai),
-    db.from('siswa').select('kelas').eq('status', 'AKTIF').neq('is_tester', 'YES'),
+    kelasScope
+      ? db.from('siswa').select('kelas').eq('status', 'AKTIF').neq('is_tester', 'YES').in('kelas', kelasScope)
+      : db.from('siswa').select('kelas').eq('status', 'AKTIF').neq('is_tester', 'YES'),
   ])
 
   const mapelMap = Object.fromEntries(((mapelList ?? []) as { id: string; nama: string }[]).map(m => [m.id, m.nama]))
