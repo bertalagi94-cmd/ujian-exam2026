@@ -30,6 +30,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Username, nama, role, dan password wajib diisi' }, { status: 400 })
   }
 
+  // Role akun yang sah hanya 4 ini ("Pengawas" bukan role akun — lihat
+  // catatan di src/lib/auth.ts). Divalidasi di server juga, bukan cuma
+  // disembunyikan dari dropdown, supaya tidak bisa dilewati lewat panggilan
+  // API langsung.
+  const VALID_ROLES = ['ADMIN', 'GURU', 'KEPSEK']
+  if (!VALID_ROLES.includes(role)) {
+    return NextResponse.json({ error: `Role tidak valid. Role yang diizinkan: ${VALID_ROLES.join(', ')}` }, { status: 400 })
+  }
+
   const password_hash = await bcrypt.hash(String(password), 10)
 
   const { error } = await db.from('users').insert({
