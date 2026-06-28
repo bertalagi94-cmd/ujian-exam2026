@@ -83,6 +83,25 @@ export async function GET(req: NextRequest) {
   if ('error' in auth) return auth.error
 
   const db = createAdminClient()
+
+  // ── CEK AKTIVITAS SEBELUM BACKUP ────────────────────────────────────────
+  // Backup saat ujian berjalan berisiko menghasilkan data tidak konsisten
+  // (sebagian jawaban belum tersimpan, nilai belum dihitung). Tolak kecuali
+  // tidak ada sesi aktif sama sekali.
+  const { data: sesiAktif } = await db
+    .from('sesi_ujian')
+    .select('id')
+    .eq('status', 'BERJALAN')
+    .limit(1)
+
+  if (sesiAktif && sesiAktif.length > 0) {
+    return NextResponse.json({
+      error: 'Backup tidak bisa dilakukan saat ada sesi ujian yang sedang berjalan. Tutup semua sesi terlebih dahulu agar data backup konsisten.',
+      ada_sesi: true,
+    }, { status: 409 })
+  }
+  // ─────────────────────────────────────────────────────────────────────────
+
   const backupData: Record<string, unknown[]> = {}
   const errors: string[] = []
 
