@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
+import { getKepsekScope } from '@/lib/kepsek-scope'
 
 export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['KEPSEK', 'ADMIN'])
@@ -11,10 +12,29 @@ export async function GET(req: NextRequest) {
   const kelas = searchParams.get('kelas')
   const mapelId = searchParams.get('mapel_id')
 
+  // Batasi ke kelas-kelas di sekolah/jenjang yang diawasi Kepsek
+  let kelasScope: string[] | null = null
+  if (auth.user.role === 'KEPSEK') {
+    const scope = await getKepsekScope(auth.user.username)
+    if (scope.noScope) {
+      return NextResponse.json({
+        scopeWarning: 'Akun Kepsek Anda belum diset sekolah/jenjangnya oleh Admin.',
+        kelasList: [], mapelPerKelas: {},
+      })
+    }
+    kelasScope = scope.kelasList
+    if (kelasScope.length === 0) return NextResponse.json({ kelasList: [], mapelPerKelas: {} })
+    if (kelas && !kelasScope.includes(kelas)) {
+      return NextResponse.json({ error: 'Kelas ini bukan bagian dari sekolah/jenjang yang Anda awasi' }, { status: 403 })
+    }
+  }
+
   // Mode "opsi": kembalikan daftar kombinasi kelas+mapel yang sudah punya nilai,
   // supaya dropdown filter di halaman hanya menampilkan pilihan yang valid (ada datanya).
   if (searchParams.get('mode') === 'opsi') {
-    const { data: nilaiRows, error } = await db.from('nilai').select('kelas, mapel_id')
+    let nilaiOpsiQuery = db.from('nilai').select('kelas, mapel_id')
+    if (kelasScope) nilaiOpsiQuery = nilaiOpsiQuery.in('kelas', kelasScope)
+    const { data: nilaiRows, error } = await nilaiOpsiQuery
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
     const kelasSet = new Set<string>()
