@@ -23,7 +23,7 @@ const RESET_CATEGORIES: ResetCategory[] = [
   { id: 'jawaban_nilai', label: 'Jawaban & Nilai', desc: 'Hapus semua jawaban siswa, nilai, pelanggaran, dan log reset', danger: 'medium' },
   { id: 'sesi_ujian', label: 'Sesi Ujian', desc: 'Hapus sesi ujian, peserta sesi, jawaban, nilai, pelanggaran, dan log reset', danger: 'high' },
   { id: 'soal_paket', label: 'Soal & Paket Soal', desc: 'Hapus semua soal, kisi-kisi, paket soal beserta sesi, jawaban, dan log reset', danger: 'high' },
-  { id: 'jadwal', label: 'Jadwal Ujian', desc: 'Hapus semua jadwal beserta soal, kisi-kisi, sesi, nilai, dan log reset', danger: 'high' },
+  { id: 'jadwal', label: 'Jadwal Ujian', desc: 'Hapus semua jadwal ujian saja (tidak menghapus nilai, jawaban, atau soal — pilih kategori "Nilai & Jawaban" terpisah jika itu juga ingin dihapus)', danger: 'medium' },
   { id: 'siswa', label: 'Data Siswa', desc: 'Hapus semua data siswa beserta jawaban, nilai, dan log reset terkait', danger: 'high' },
   { id: 'kelas_mapel', label: 'Kelas & Mata Pelajaran', desc: 'Hapus kelas, mapel, siswa, jadwal, soal, dan semua data turunannya', danger: 'high' },
   { id: 'users', label: 'Data User', desc: 'Hapus akun guru, pengawas, kepala sekolah, dan log aktivitas/reset mereka', danger: 'medium' },
