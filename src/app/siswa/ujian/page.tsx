@@ -117,7 +117,7 @@ export default function SiswaUjianPage() {
   const [error, setError] = useState('')
   const [confirmSelesai, setConfirmSelesai] = useState(false)
   const [submitting, setSubmitting] = useState(false)
-  const [hasilNilai, setHasilNilai] = useState<{ id?: string; nilai: number; benar: number; total: number; grade: string; lulus: boolean } | null>(null)
+  const [hasilNilai, setHasilNilai] = useState<{ id?: string; nilai: number; benar: number; total: number; grade: string; lulus: boolean; kkm: number } | null>(null)
 
   // ── Status sinkronisasi jawaban ke server ─────────────────────────────────
   // 'idle' = belum ada perubahan yang perlu disinkron
@@ -792,7 +792,7 @@ export default function SiswaUjianPage() {
     try {
       const user = JSON.parse(localStorage.getItem('user') ?? '{}')
       const currentSesi = sesiInfoRef.current
-      const res = await apiRequest<{ id?: string; nilai: number; benar: number; total: number; grade: string; lulus: boolean }>('/api/siswa/ujian/selesai', {
+      const res = await apiRequest<{ id?: string; nilai: number; benar: number; total: number; grade: string; lulus: boolean; kkm: number }>('/api/siswa/ujian/selesai', {
         method: 'POST',
         body: JSON.stringify({
           sesiId: currentSesi!.sesiId,
@@ -1281,9 +1281,23 @@ export default function SiswaUjianPage() {
             }
           </div>
           <h2 className="text-xl font-bold text-slate-900 mb-1">
-            {hasilNilai.lulus ? 'Selamat! Anda Lulus' : 'Ujian Selesai'}
+            {hasilNilai.lulus ? 'Selamat! Anda Lulus' : 'Belum Mencapai KKM'}
           </h2>
-          <p className="text-sm text-slate-500 mb-6">{sesiInfo?.namaMapel}</p>
+          <p className="text-sm text-slate-500 mb-4">{sesiInfo?.namaMapel}</p>
+
+          {/* FIX: sebelumnya kalau tidak lulus, satu-satunya penanda hanya warna
+              merah pada ikon — tidak ada teks yang menjelaskan secara eksplisit
+              bahwa siswa tidak lulus, dan KKM tidak ditampilkan sama sekali.
+              Sekarang statusnya ditulis jelas + dibandingkan langsung dengan KKM. */}
+          <div className={`rounded-xl p-3 mb-4 text-sm font-semibold ${
+            hasilNilai.lulus
+              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+              : 'bg-red-50 text-red-700 border border-red-200'
+          }`}>
+            {hasilNilai.lulus
+              ? `Status: LULUS — Nilai ${hasilNilai.nilai} mencapai KKM ${hasilNilai.kkm}`
+              : `Status: BELUM LULUS — Nilai ${hasilNilai.nilai} belum mencapai KKM ${hasilNilai.kkm}`}
+          </div>
 
           {sesiDitutupPaksa && (
             <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4 text-left flex items-start gap-2">
@@ -1294,10 +1308,14 @@ export default function SiswaUjianPage() {
             </div>
           )}
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
             <div className="bg-slate-50 rounded-xl p-4">
               <div className="text-3xl font-bold text-slate-900">{hasilNilai.nilai}</div>
               <div className="text-xs text-slate-400 mt-1">Nilai</div>
+            </div>
+            <div className="bg-slate-50 rounded-xl p-4">
+              <div className="text-3xl font-bold text-slate-600">{hasilNilai.kkm}</div>
+              <div className="text-xs text-slate-400 mt-1">KKM</div>
             </div>
             <div className={`rounded-xl p-4 ${
               hasilNilai.grade === 'A' ? 'bg-emerald-50' :
