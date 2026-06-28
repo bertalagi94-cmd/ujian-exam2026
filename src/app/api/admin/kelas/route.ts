@@ -8,7 +8,7 @@ import { generateId } from '@/lib/utils'
  * Info tambahan (wali_kelas, jurusan) digabung dari tabel kelas jika ada.
  */
 export async function GET(req: NextRequest) {
-  const auth = requireRole(req, ['ADMIN', 'GURU', 'PENGAWAS', 'KEPSEK'])
+  const auth = requireRole(req, ['ADMIN', 'GURU', 'KEPSEK'])
   if ('error' in auth) return auth.error
 
   const db = createAdminClient()
