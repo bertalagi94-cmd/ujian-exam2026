@@ -97,11 +97,18 @@ function EditSoalForm({
         {opsiLabels.slice(0, jumlahOpsi).map(label => {
           const lk = label.toLowerCase()
           const defaultVal = (soal as unknown as Record<string, string>)[`opsi_${lk}`] ?? ''
+          const adaGambar = !!imgOpsi[lk]
           return (
             <div key={label} className="space-y-1">
               <div className="flex items-center gap-2">
                 <span className="w-7 h-7 rounded-lg bg-slate-100 text-slate-600 font-bold text-xs flex items-center justify-center flex-shrink-0">{label}</span>
-                <input name={`opsi_${lk}`} className="input" placeholder={`Opsi ${label}`} required defaultValue={defaultVal} />
+                <input
+                  name={`opsi_${lk}`}
+                  className="input"
+                  placeholder={adaGambar ? `Opsi ${label} (opsional, gambar sudah ada)` : `Opsi ${label}`}
+                  required={!adaGambar}
+                  defaultValue={defaultVal}
+                />
                 <button type="button" onClick={() => onTriggerUpload(lk)}
                   className="btn-ghost btn-icon btn-sm text-slate-500 flex-shrink-0" disabled={!!uploadingImg}>
                   {uploadingImg === lk ? <Spinner size="sm" /> : <ImagePlus className="w-3.5 h-3.5" />}
@@ -247,11 +254,17 @@ function TambahSoalForm({
           <label className="label">Pilihan Jawaban</label>
           {opsiLabels.slice(0, jumlahOpsi).map(label => {
             const lk = label.toLowerCase()
+            const adaGambar = !!imgOpsi[lk]
             return (
               <div key={label} className="space-y-1">
                 <div className="flex items-center gap-2">
                   <span className="w-7 h-7 rounded-lg bg-slate-100 text-slate-600 font-bold text-xs flex items-center justify-center flex-shrink-0">{label}</span>
-                  <input name={`opsi_${lk}`} className="input" placeholder={`Opsi ${label}`} required />
+                  <input
+                    name={`opsi_${lk}`}
+                    className="input"
+                    placeholder={adaGambar ? `Opsi ${label} (opsional, gambar sudah ada)` : `Opsi ${label}`}
+                    required={!adaGambar}
+                  />
                   <button type="button" onClick={() => onTriggerUpload(`tambah_${lk}`)}
                     className="btn-ghost btn-icon btn-sm text-slate-500 flex-shrink-0" disabled={!!uploadingImg}>
                     {uploadingImg === `tambah_${lk}` ? <Spinner size="sm" /> : <ImagePlus className="w-3.5 h-3.5" />}
