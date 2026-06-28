@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
+import { verifySesiOwnership } from '@/lib/sesi-ownership'
 
 // GET /api/pengawas/sesi/[id]/siswa
 // Mengembalikan daftar siswa yang sudah masuk ujian dalam sesi tertentu
@@ -10,6 +11,17 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 
   const db = createAdminClient()
   const sesiId = params.id
+
+  // FIX: sebelumnya endpoint ini hanya mengecek role (GURU/ADMIN), tidak
+  // mengecek apakah guru pemanggil memang pengawas sesi ini — sehingga guru
+  // mana pun bisa melihat daftar siswa sesi ujian guru lain kalau memanggil
+  // API ini langsung. ADMIN tetap tidak dibatasi.
+  if (auth.user.role === 'GURU') {
+    const sah = await verifySesiOwnership(db, sesiId, auth.user.username)
+    if (!sah) {
+      return NextResponse.json({ error: 'Anda bukan pengawas sesi ini' }, { status: 403 })
+    }
+  }
 
   // Ambil semua siswa_ujian untuk sesi ini
   const { data: siswaUjian, error } = await db
