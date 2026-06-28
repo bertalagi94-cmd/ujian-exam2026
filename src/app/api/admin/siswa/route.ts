@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
+import { generateId } from '@/lib/utils'
 
 export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['ADMIN'])
@@ -62,7 +63,7 @@ export async function POST(req: NextRequest) {
 
   if (!kelasExist) {
     await db.from('kelas').insert({
-      id: kelasNama,
+      id: generateId('KLS'),
       nama: kelasNama,
       wali_kelas: null,
       jurusan: '-',
