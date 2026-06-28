@@ -93,7 +93,15 @@ export async function PUT(req: NextRequest) {
 }
 
 /**
- * DELETE — hapus kelas beserta SEMUA siswa yang ada di kelas tersebut.
+ * DELETE — hapus kelas beserta SEMUA siswa yang ada di kelas tersebut,
+ * termasuk semua data turunan milik siswa-siswa itu (nilai, jawaban,
+ * siswa_ujian, pelanggaran) supaya tidak ada data orphan yang nyangkut
+ * setelah siswa-nya dihapus dari tabel `siswa`.
+ *
+ * Urutan hapus PENTING — harus dari data "anak" dulu sebelum hapus
+ * baris `siswa` itu sendiri, karena tidak ada FK/CASCADE di schema
+ * yang menangani ini secara otomatis.
+ *
  * Body: { nama: string }  (nama kelas, bukan id)
  */
 export async function DELETE(req: NextRequest) {
@@ -104,10 +112,54 @@ export async function DELETE(req: NextRequest) {
   const { nama } = await req.json()
   if (!nama) return NextResponse.json({ error: 'Nama kelas diperlukan' }, { status: 400 })
 
+  // 1. Ambil semua NIS siswa di kelas ini — dipakai untuk membersihkan
+  //    data turunan sebelum siswa-nya sendiri dihapus.
+  const { data: siswaList, error: fetchError } = await db
+    .from('siswa')
+    .select('nis')
+    .eq('kelas', nama)
+
+  if (fetchError) return NextResponse.json({ error: fetchError.message }, { status: 500 })
+
+  const nisList = (siswaList ?? []).map((s) => s.nis)
+
+  if (nisList.length > 0) {
+    // 2. Hapus data turunan milik siswa-siswa ini.
+    //    Urutan tidak terlalu kritis di sini (tidak ada FK antar mereka),
+    //    tapi tetap dilakukan sebelum hapus baris `siswa` agar konsisten.
+    const { error: pelanggaranError } = await db
+      .from('pelanggaran')
+      .delete()
+      .in('nis', nisList)
+    if (pelanggaranError) return NextResponse.json({ error: pelanggaranError.message }, { status: 500 })
+
+    const { error: nilaiError } = await db
+      .from('nilai')
+      .delete()
+      .in('nis', nisList)
+    if (nilaiError) return NextResponse.json({ error: nilaiError.message }, { status: 500 })
+
+    const { error: jawabanError } = await db
+      .from('jawaban')
+      .delete()
+      .in('nis', nisList)
+    if (jawabanError) return NextResponse.json({ error: jawabanError.message }, { status: 500 })
+
+    const { error: siswaUjianError } = await db
+      .from('siswa_ujian')
+      .delete()
+      .in('nis', nisList)
+    if (siswaUjianError) return NextResponse.json({ error: siswaUjianError.message }, { status: 500 })
+  }
+
+  // 3. Baru sekarang hapus baris siswa itu sendiri.
   const { error: siswaError } = await db.from('siswa').delete().eq('kelas', nama)
   if (siswaError) return NextResponse.json({ error: siswaError.message }, { status: 500 })
 
+  // 4. Terakhir, hapus baris kelas (info wali kelas/jurusan).
   await db.from('kelas').delete().eq('nama', nama)
 
-  return NextResponse.json({ message: `Kelas ${nama} dan semua siswanya berhasil dihapus` })
+  return NextResponse.json({
+    message: `Kelas ${nama}, semua siswanya, beserta data nilai/jawaban/pelanggaran terkait berhasil dihapus`,
+  })
 }
