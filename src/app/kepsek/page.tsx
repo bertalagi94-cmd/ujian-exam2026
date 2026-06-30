@@ -182,7 +182,9 @@ export default function KepsekDashboard() {
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard label="Total Siswa" value={data?.stats.totalSiswa ?? 0} icon={Users} color="bg-brand-500" />
-        <StatCard label="Total Guru" value={data?.stats.totalGuru ?? 0} icon={Users} color="bg-emerald-500" />
+        <Link href="/kepsek/guru" className="block hover:opacity-90 transition-opacity">
+          <StatCard label="Total Guru" value={data?.stats.totalGuru ?? 0} icon={Users} color="bg-emerald-500" sub="Lihat mapel diampu →" />
+        </Link>
         <StatCard label="Total Ujian" value={data?.stats.totalUjian ?? 0} icon={BookOpen} color="bg-purple-500" />
         <StatCard label="Rata-rata Nilai" value={data?.stats.rataRata ?? 0} icon={TrendingUp} color="bg-amber-500" />
       </div>
