@@ -1,0 +1,672 @@
+diff --git a/src/app/login/page.tsx b/src/app/login/page.tsx
+index c39b5d7..451d884 100644
+--- a/src/app/login/page.tsx
++++ b/src/app/login/page.tsx
+@@ -322,7 +322,7 @@ function SchoolLogo({ size, siteInfo }: { size: 'sm' | 'lg' | 'xl'; siteInfo: Si
+     )
+   }
+   return (
+-    <div className={`${dim} bg-white/20 rounded-xl flex items-center justify-center backdrop-blur flex-shrink-0`}>
++    <div className={`${dim} bg-gradient-to-br from-sky-500 to-teal-500 rounded-xl flex items-center justify-center flex-shrink-0 shadow-md`}>
+       <BookOpen className={`${iconDim} text-white`} />
+     </div>
+   )
+@@ -602,7 +602,7 @@ export default function LoginPage() {
+   return (
+     <div
+       className="min-h-screen flex relative overflow-hidden"
+-      style={{ background: 'linear-gradient(135deg, #1a0533 0%, #2d0b6b 20%, #1e1054 40%, #0f0a2e 60%, #0a1a4a 80%, #0d1b3e 100%)' }}
++      style={{ background: 'linear-gradient(135deg, #eaf6fb 0%, #dbeefc 25%, #e3f2fb 50%, #d8edf9 75%, #e8f6fb 100%)' }}
+       onMouseMove={handleMouseMove}
+     >
+       {/* ── Mouse spotlight ── */}
+@@ -611,7 +611,7 @@ export default function LoginPage() {
+         style={{
+           position: 'fixed', pointerEvents: 'none', zIndex: 0,
+           width: '600px', height: '600px',
+-          background: 'radial-gradient(circle, rgba(168,85,247,0.08) 0%, transparent 70%)',
++          background: 'radial-gradient(circle, rgba(56,189,248,0.10) 0%, transparent 70%)',
+           borderRadius: '50%',
+           transform: 'translate(-50%, -50%)',
+           transition: 'left 0.1s ease-out, top 0.1s ease-out',
+@@ -621,43 +621,43 @@ export default function LoginPage() {
+ 
+       {/* ── Aurora glow blobs ── */}
+       <div className="absolute inset-0 overflow-hidden" style={{ pointerEvents: 'none', zIndex: 0 }}>
+-        {/* Ungu besar kiri atas */}
+-        <div className="aurora-1 absolute -top-48 -left-48 w-[700px] h-[700px] rounded-full opacity-60"
+-          style={{ background: 'radial-gradient(circle, rgba(168,85,247,0.55) 0%, rgba(139,69,197,0.3) 40%, transparent 70%)', filter: 'blur(60px)' }} />
+-        {/* Pink kanan tengah */}
+-        <div className="aurora-2 absolute top-1/3 -right-48 w-[600px] h-[600px] rounded-full opacity-50"
+-          style={{ background: 'radial-gradient(circle, rgba(236,72,153,0.5) 0%, rgba(190,24,93,0.25) 45%, transparent 70%)', filter: 'blur(70px)' }} />
+-        {/* Biru bawah kiri */}
+-        <div className="aurora-3 absolute -bottom-56 left-1/4 w-[550px] h-[550px] rounded-full opacity-45"
+-          style={{ background: 'radial-gradient(circle, rgba(59,130,246,0.5) 0%, rgba(37,99,235,0.2) 45%, transparent 70%)', filter: 'blur(65px)' }} />
+-        {/* Oranye kecil accent */}
+-        <div className="absolute bottom-1/4 right-1/3 w-[300px] h-[300px] rounded-full opacity-30"
+-          style={{ background: 'radial-gradient(circle, rgba(249,115,22,0.45) 0%, transparent 70%)', filter: 'blur(50px)', animation: 'aurora3 22s ease-in-out infinite' }} />
++        {/* Biru besar kiri atas */}
++        <div className="aurora-1 absolute -top-48 -left-48 w-[700px] h-[700px] rounded-full opacity-50"
++          style={{ background: 'radial-gradient(circle, rgba(56,189,248,0.35) 0%, rgba(14,165,233,0.18) 40%, transparent 70%)', filter: 'blur(60px)' }} />
++        {/* Teal kanan tengah */}
++        <div className="aurora-2 absolute top-1/3 -right-48 w-[600px] h-[600px] rounded-full opacity-40"
++          style={{ background: 'radial-gradient(circle, rgba(45,212,191,0.30) 0%, rgba(20,184,166,0.15) 45%, transparent 70%)', filter: 'blur(70px)' }} />
++        {/* Biru muda bawah kiri */}
++        <div className="aurora-3 absolute -bottom-56 left-1/4 w-[550px] h-[550px] rounded-full opacity-40"
++          style={{ background: 'radial-gradient(circle, rgba(96,165,250,0.30) 0%, rgba(59,130,246,0.12) 45%, transparent 70%)', filter: 'blur(65px)' }} />
++        {/* Aksen putih kecil */}
++        <div className="absolute bottom-1/4 right-1/3 w-[300px] h-[300px] rounded-full opacity-40"
++          style={{ background: 'radial-gradient(circle, rgba(186,230,253,0.55) 0%, transparent 70%)', filter: 'blur(50px)', animation: 'aurora3 22s ease-in-out infinite' }} />
+       </div>
+ 
+-      {/* ── Motif batik transparan — SVG pattern ringan ── */}
++      {/* ── Motif geometris transparan — SVG pattern ringan ── */}
+       <svg
+         className="absolute inset-0 w-full h-full batik-layer"
+-        style={{ pointerEvents: 'none', zIndex: 0, opacity: 0.22 }}
++        style={{ pointerEvents: 'none', zIndex: 0, opacity: 0.18 }}
+         viewBox="0 0 800 800" preserveAspectRatio="xMidYMid slice"
+         xmlns="http://www.w3.org/2000/svg"
+       >
+         <defs>
+           <pattern id="batikPalem" width="160" height="160" patternUnits="userSpaceOnUse" patternTransform="rotate(12)">
+-            <g fill="none" stroke="#c084fc" strokeWidth="1.2">
++            <g fill="none" stroke="#7dd3fc" strokeWidth="1.2">
+               {/* Mega mendung / parang stilir */}
+               <path d="M0 40 Q40 0 80 40 Q120 80 160 40" />
+               <path d="M0 80 Q40 40 80 80 Q120 120 160 80" />
+               <path d="M0 120 Q40 80 80 120 Q120 160 160 120" />
+-              <path d="M40 0 Q40 40 40 80" strokeWidth="0.8" stroke="#e879f9" />
+-              <path d="M80 0 Q80 40 80 80" strokeWidth="0.8" stroke="#e879f9" />
+-              <path d="M120 0 Q120 40 120 80" strokeWidth="0.8" stroke="#e879f9" />
+-              <circle cx="40" cy="40" r="5" stroke="#f0abfc" strokeWidth="1" />
+-              <circle cx="120" cy="120" r="5" stroke="#f0abfc" strokeWidth="1" />
+-              <circle cx="80" cy="80" r="3" stroke="#a855f7" strokeWidth="1" />
++              <path d="M40 0 Q40 40 40 80" strokeWidth="0.8" stroke="#a5f3fc" />
++              <path d="M80 0 Q80 40 80 80" strokeWidth="0.8" stroke="#a5f3fc" />
++              <path d="M120 0 Q120 40 120 80" strokeWidth="0.8" stroke="#a5f3fc" />
++              <circle cx="40" cy="40" r="5" stroke="#bae6fd" strokeWidth="1" />
++              <circle cx="120" cy="120" r="5" stroke="#bae6fd" strokeWidth="1" />
++              <circle cx="80" cy="80" r="3" stroke="#38bdf8" strokeWidth="1" />
+               {/* Kawung accent */}
+-              <ellipse cx="40" cy="40" rx="14" ry="9" transform="rotate(45 40 40)" strokeWidth="0.9" stroke="#d8b4fe" />
+-              <ellipse cx="120" cy="120" rx="14" ry="9" transform="rotate(45 120 120)" strokeWidth="0.9" stroke="#d8b4fe" />
++              <ellipse cx="40" cy="40" rx="14" ry="9" transform="rotate(45 40 40)" strokeWidth="0.9" stroke="#7dd3fc" />
++              <ellipse cx="120" cy="120" rx="14" ry="9" transform="rotate(45 120 120)" strokeWidth="0.9" stroke="#7dd3fc" />
+             </g>
+           </pattern>
+         </defs>
+@@ -667,24 +667,24 @@ export default function LoginPage() {
+       {/* ── Mesh lines dekoratif ── */}
+       <svg
+         className="absolute inset-0 w-full h-full"
+-        style={{ pointerEvents: 'none', zIndex: 0, opacity: 0.7 }}
++        style={{ pointerEvents: 'none', zIndex: 0, opacity: 0.5 }}
+         viewBox="0 0 1440 900" preserveAspectRatio="xMidYMid slice"
+         xmlns="http://www.w3.org/2000/svg"
+       >
+         <defs>
+           <linearGradient id="lgPurple" x1="0%" y1="0%" x2="100%" y2="100%">
+-            <stop offset="0%" stopColor="#a855f7" stopOpacity="0" />
+-            <stop offset="50%" stopColor="#a855f7" stopOpacity="0.5" />
+-            <stop offset="100%" stopColor="#a855f7" stopOpacity="0" />
++            <stop offset="0%" stopColor="#38bdf8" stopOpacity="0" />
++            <stop offset="50%" stopColor="#38bdf8" stopOpacity="0.4" />
++            <stop offset="100%" stopColor="#38bdf8" stopOpacity="0" />
+           </linearGradient>
+           <linearGradient id="lgPink" x1="0%" y1="100%" x2="100%" y2="0%">
+-            <stop offset="0%" stopColor="#ec4899" stopOpacity="0" />
+-            <stop offset="50%" stopColor="#ec4899" stopOpacity="0.45" />
+-            <stop offset="100%" stopColor="#ec4899" stopOpacity="0" />
++            <stop offset="0%" stopColor="#14b8a6" stopOpacity="0" />
++            <stop offset="50%" stopColor="#14b8a6" stopOpacity="0.35" />
++            <stop offset="100%" stopColor="#14b8a6" stopOpacity="0" />
+           </linearGradient>
+           <linearGradient id="lgBlue" x1="0%" y1="0%" x2="100%" y2="0%">
+             <stop offset="0%" stopColor="#3b82f6" stopOpacity="0" />
+-            <stop offset="50%" stopColor="#60a5fa" stopOpacity="0.4" />
++            <stop offset="50%" stopColor="#60a5fa" stopOpacity="0.35" />
+             <stop offset="100%" stopColor="#3b82f6" stopOpacity="0" />
+           </linearGradient>
+           <filter id="softGlow2">
+@@ -705,12 +705,12 @@ export default function LoginPage() {
+         </g>
+         <path d="M -80 500 L 480 380 L 1000 560 L 1540 420" stroke="url(#lgPurple)" strokeWidth="1" fill="none" opacity="0.5" />
+         <g filter="url(#softGlow2)">
+-          <circle cx="360" cy="60" r="3.5" fill="#c084fc" />
+-          <circle cx="720" cy="190" r="4" fill="#a855f7" />
+-          <circle cx="420" cy="320" r="2.5" fill="#ec4899" />
++          <circle cx="360" cy="60" r="3.5" fill="#7dd3fc" />
++          <circle cx="720" cy="190" r="4" fill="#38bdf8" />
++          <circle cx="420" cy="320" r="2.5" fill="#2dd4bf" />
+           <circle cx="660" cy="430" r="3" fill="#60a5fa" />
+-          <circle cx="1140" cy="860" r="3.5" fill="#ec4899" />
+-          <circle cx="760" cy="700" r="4" fill="#a855f7" />
++          <circle cx="1140" cy="860" r="3.5" fill="#2dd4bf" />
++          <circle cx="760" cy="700" r="4" fill="#38bdf8" />
+         </g>
+       </svg>
+ 
+@@ -725,20 +725,20 @@ export default function LoginPage() {
+         style={{
+           top: '1rem',
+           right: '1.25rem',
+-          background: 'linear-gradient(135deg, rgba(20,0,50,0.85) 0%, rgba(60,10,120,0.75) 100%)',
++          background: 'rgba(255,255,255,0.85)',
+           backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
+-          border: '1.5px solid rgba(168,85,247,0.45)', borderRadius: '12px',
++          border: '1.5px solid rgba(56,189,248,0.35)', borderRadius: '12px',
+           padding: '8px 14px',
+-          boxShadow: '0 4px 24px rgba(168,85,247,0.25), 0 0 0 1px rgba(255,255,255,0.06), inset 0 1px 0 rgba(255,255,255,0.08)',
+-          color: '#e9d5ff',
++          boxShadow: '0 4px 24px rgba(56,189,248,0.18), 0 0 0 1px rgba(255,255,255,0.5), inset 0 1px 0 rgba(255,255,255,0.6)',
++          color: '#0c4a6e',
+           fontSize: '12px',
+           fontWeight: 600,
+           letterSpacing: '0.02em',
+         }}
+       >
+         {isFs
+-          ? <><Minimize className="w-3.5 h-3.5" style={{ color: '#c084fc' }} /><span>Keluar Fullscreen</span></>
+-          : <><Maximize className="w-3.5 h-3.5" style={{ color: '#c084fc' }} /><span>Layar Penuh</span></>
++          ? <><Minimize className="w-3.5 h-3.5" style={{ color: '#0284c7' }} /><span>Keluar Fullscreen</span></>
++          : <><Maximize className="w-3.5 h-3.5" style={{ color: '#0284c7' }} /><span>Layar Penuh</span></>
+         }
+       </button>
+ 
+@@ -748,32 +748,32 @@ export default function LoginPage() {
+           className="absolute top-4 z-20 hidden lg:flex items-center gap-3 select-none"
+           style={{
+             right: isFs ? '11rem' : '12.5rem',
+-            background: 'linear-gradient(135deg, rgba(20,0,50,0.85) 0%, rgba(60,10,120,0.75) 100%)',
++            background: 'rgba(255,255,255,0.85)',
+             backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
+-            border: '1.5px solid rgba(168,85,247,0.45)', borderRadius: '16px',
++            border: '1.5px solid rgba(56,189,248,0.35)', borderRadius: '16px',
+             padding: '10px 18px 10px 14px',
+-            boxShadow: '0 4px 24px rgba(168,85,247,0.30), 0 0 0 1px rgba(255,255,255,0.06), inset 0 1px 0 rgba(255,255,255,0.08)',
++            boxShadow: '0 4px 24px rgba(56,189,248,0.18), 0 0 0 1px rgba(255,255,255,0.5), inset 0 1px 0 rgba(255,255,255,0.6)',
+           }}
+         >
+           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
+-            <circle cx="12" cy="12" r="9.5" stroke="#c084fc" strokeWidth="2" />
+-            <path d="M12 7v5.5l3.5 2" stroke="#a855f7" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
++            <circle cx="12" cy="12" r="9.5" stroke="#0ea5e9" strokeWidth="2" />
++            <path d="M12 7v5.5l3.5 2" stroke="#0284c7" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+           </svg>
+-          <span style={{ fontSize: '14px', color: '#e9d5ff', fontWeight: 600, letterSpacing: '0.02em', lineHeight: 1 }}>
++          <span style={{ fontSize: '14px', color: '#334155', fontWeight: 600, letterSpacing: '0.02em', lineHeight: 1 }}>
+             {witaTime.day}, {witaTime.date}
+           </span>
+-          <span style={{ width: '1.5px', height: '18px', background: 'rgba(168,85,247,0.4)', flexShrink: 0, borderRadius: '2px' }} />
+-          <span style={{ fontSize: '17px', fontWeight: 800, letterSpacing: '0.08em', color: '#c084fc', fontVariantNumeric: 'tabular-nums', lineHeight: 1, textShadow: '0 0 12px rgba(168,85,247,0.8), 0 0 24px rgba(139,69,197,0.5)' }}>
++          <span style={{ width: '1.5px', height: '18px', background: 'rgba(56,189,248,0.3)', flexShrink: 0, borderRadius: '2px' }} />
++          <span style={{ fontSize: '17px', fontWeight: 800, letterSpacing: '0.08em', color: '#0284c7', fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>
+             {witaTime.time}
+           </span>
+-          <span style={{ fontSize: '10.5px', fontWeight: 700, letterSpacing: '0.1em', color: '#e9d5ff', background: 'linear-gradient(135deg, rgba(168,85,247,0.5), rgba(236,72,153,0.4))', borderRadius: '7px', padding: '3px 7px', lineHeight: 1.3, border: '1px solid rgba(168,85,247,0.35)' }}>
++          <span style={{ fontSize: '10.5px', fontWeight: 700, letterSpacing: '0.1em', color: '#0c4a6e', background: 'linear-gradient(135deg, rgba(56,189,248,0.25), rgba(20,184,166,0.2))', borderRadius: '7px', padding: '3px 7px', lineHeight: 1.3, border: '1px solid rgba(56,189,248,0.3)' }}>
+             WITA
+           </span>
+         </div>
+       )}
+ 
+       {/* ── LEFT — branding ── */}
+-      <div className="hidden lg:flex flex-col w-1/2 p-12 text-white relative">
++      <div className="hidden lg:flex flex-col w-1/2 p-12 text-slate-900 relative">
+         {/* Ilustrasi siswa */}
+         <img
+           src="/images/siswa-sekolah.webp"
+@@ -789,33 +789,33 @@ export default function LoginPage() {
+           >
+             <SchoolLogo size="xl" siteInfo={siteInfo} />
+             <div className="min-w-0">
+-              <p className="font-bold text-2xl leading-tight line-clamp-2">{displayName}</p>
+-              <p className="text-purple-300 text-base">Sistem Ujian Digital Terpercaya</p>
++              <p className="font-bold text-2xl leading-tight line-clamp-2 text-slate-900">{displayName}</p>
++              <p className="text-slate-500 text-base">Sistem Ujian Digital Terpercaya</p>
+             </div>
+           </div>
+ 
+           <div>
+-            <h1 className="text-5xl xl:text-6xl font-bold leading-tight mb-4 cursor-default w-fit"
++            <h1 className="text-5xl xl:text-6xl font-bold leading-tight mb-4 cursor-default w-fit text-slate-900"
+               style={{ transition: 'transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1)', display: 'inline-block', transformOrigin: 'left center' }}
+               onMouseEnter={e => { (e.currentTarget as HTMLHeadingElement).style.transform = 'scale(1.08)' }}
+               onMouseLeave={e => { (e.currentTarget as HTMLHeadingElement).style.transform = 'scale(1)' }}
+             >
+               Ujian Digital<br />
+               <span style={{
+-                background: 'linear-gradient(90deg, #f97316, #ec4899, #a855f7)',
++                background: 'linear-gradient(90deg, #2563eb, #0ea5e9, #14b8a6)',
+                 WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
+                 backgroundClip: 'text',
+               }}>
+                 Lebih Mudah & Adil
+               </span>
+             </h1>
+-            <p className="text-purple-300 text-base leading-relaxed max-w-sm">
++            <p className="text-slate-500 text-base leading-relaxed max-w-sm">
+               Sistem CBT modern{siteInfo.namaSekolah ? ` untuk ${siteInfo.namaSekolah}` : ''}{' '}
+               dengan fitur anti-nyontek, penilaian otomatis, dan monitoring real-time.
+             </p>
+           </div>
+         </div>
+-        <div className="relative z-10 text-purple-400/60 text-xs mt-auto">
++        <div className="relative z-10 text-slate-400 text-xs mt-auto">
+           {siteInfo.namaSekolah ? <>{siteInfo.namaSekolah} &copy; {year}</> : <>SmartExam &copy; {year}</>}
+         </div>
+       </div>
+@@ -829,48 +829,50 @@ export default function LoginPage() {
+             <div className="flex items-center gap-3 mb-6 justify-center">
+               <SchoolLogo size="sm" siteInfo={siteInfo} />
+               <div className="min-w-0 text-left">
+-                <p className="font-bold text-white text-base leading-tight line-clamp-2">{displayName}</p>
+-                {!siteInfo.namaSekolah && <p className="text-purple-300 text-xs">Sistem Ujian Digital Terpercaya</p>}
++                <p className="font-bold text-slate-900 text-base leading-tight line-clamp-2">{displayName}</p>
++                {!siteInfo.namaSekolah && <p className="text-slate-500 text-xs">Sistem Ujian Digital Terpercaya</p>}
+               </div>
+             </div>
+ 
+             {/* Welcome card mobile — glass */}
+-            <div className="login-glass-card rounded-3xl p-8 text-white">
+-              {/* Emoji + heading */}
++            <div className="login-glass-card rounded-3xl p-8 text-slate-900">
++              {/* Avatar + heading */}
+               <div className="flex flex-col items-center mb-6">
+-                <div className="text-5xl mb-3 select-none" style={{ filter: 'drop-shadow(0 0 12px rgba(249,115,22,0.5))' }}>😊</div>
+-                <h2 className="text-2xl font-bold text-white">Selamat Datang &#128522;</h2>
+-                <p className="text-white/60 text-sm mt-1">Silakan login untuk melanjutkan</p>
++                <div className="w-16 h-16 rounded-full bg-sky-50 flex items-center justify-center mb-3">
++                  <User className="w-7 h-7 text-sky-500" />
++                </div>
++                <h2 className="text-2xl font-bold text-slate-900">Selamat Datang &#128075;</h2>
++                <p className="text-slate-500 text-sm mt-1">Silakan login untuk melanjutkan</p>
+               </div>
+ 
+               <form onSubmit={handleLogin} className="space-y-4">
+                 {error && (
+-                  <div className="flex items-center gap-2 p-3 rounded-xl bg-red-500/20 border border-red-400/30 text-red-200 text-sm">
++                  <div className="flex items-center gap-2 p-3 rounded-xl bg-red-50 border border-red-200 text-red-600 text-sm">
+                     <AlertCircle className="w-4 h-4 flex-shrink-0" /><span>{error}</span>
+                   </div>
+                 )}
+                 <div>
+-                  <label className="block text-sm font-medium text-white/70 mb-1.5">Username / NIS</label>
++                  <label className="block text-sm font-medium text-slate-600 mb-1.5">Username / NIS</label>
+                   <div className="relative">
+-                    <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
++                    <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                     <input type="text" placeholder="Masukkan username atau NIS"
+-                      className="w-full pl-10 pr-4 py-3 rounded-xl text-sm text-white placeholder-white/30 bg-white/10 border border-white/20 focus:outline-none focus:ring-2 focus:ring-purple-400/60 focus:border-purple-400/60 transition-all"
++                      className="w-full pl-10 pr-4 py-3 rounded-xl text-sm text-slate-900 placeholder-slate-400 bg-slate-50 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-sky-400/60 focus:border-sky-400/60 transition-all"
+                       value={form.username} onChange={e => setForm(f => ({ ...f, username: e.target.value }))}
+                       autoComplete="username" autoFocus
+                     />
+                   </div>
+                 </div>
+                 <div>
+-                  <label className="block text-sm font-medium text-white/70 mb-1.5">Password</label>
++                  <label className="block text-sm font-medium text-slate-600 mb-1.5">Password</label>
+                   <div className="relative">
+-                    <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
++                    <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                     <input type={showPw ? 'text' : 'password'} placeholder="Masukkan password"
+-                      className="w-full pl-10 pr-10 py-3 rounded-xl text-sm text-white placeholder-white/30 bg-white/10 border border-white/20 focus:outline-none focus:ring-2 focus:ring-purple-400/60 focus:border-purple-400/60 transition-all"
++                      className="w-full pl-10 pr-10 py-3 rounded-xl text-sm text-slate-900 placeholder-slate-400 bg-slate-50 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-sky-400/60 focus:border-sky-400/60 transition-all"
+                       value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
+                       autoComplete="current-password"
+                     />
+                     <button type="button" onClick={() => setShowPw(v => !v)}
+-                      className="absolute right-3.5 top-1/2 -translate-y-1/2 text-white/40 hover:text-white/70">
++                      className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                       {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                     </button>
+                   </div>
+@@ -886,16 +888,16 @@ export default function LoginPage() {
+ 
+               {/* Divider */}
+               <div className="flex items-center gap-3 my-4">
+-                <div className="flex-1 h-px bg-white/15" />
+-                <span className="text-white/40 text-xs">atau</span>
+-                <div className="flex-1 h-px bg-white/15" />
++                <div className="flex-1 h-px bg-slate-200" />
++                <span className="text-slate-400 text-xs">atau</span>
++                <div className="flex-1 h-px bg-slate-200" />
+               </div>
+ 
+               {/* Grid 4 fitur */}
+               <div className="grid grid-cols-4 gap-2 mb-4">
+                 {FITUR.map(f => (
+                   <div key={f.label} className="flex flex-col items-center gap-1.5 p-2.5 rounded-xl"
+-                    style={{ background: f.bg, border: `1px solid ${f.color}40` }}>
++                    style={{ background: f.bg, border: `1px solid ${f.color}30` }}>
+                     <span style={{ color: f.color }}>{f.icon}</span>
+                     <span className="text-[10px] text-center leading-tight font-medium" style={{ color: f.color }}>{f.label}</span>
+                   </div>
+@@ -903,19 +905,19 @@ export default function LoginPage() {
+               </div>
+ 
+               {/* Footer sekolah */}
+-              <div className="text-center border-t border-white/10 pt-4">
+-                <p className="font-bold text-white text-sm">{displayName}</p>
+-                {siteInfo.kota && <p className="text-white/40 text-xs mt-0.5">{siteInfo.kota}</p>}
++              <div className="text-center border-t border-slate-100 pt-4">
++                <p className="font-bold text-slate-700 text-sm">{displayName}</p>
++                {siteInfo.kota && <p className="text-slate-400 text-xs mt-0.5">{siteInfo.kota}</p>}
+               </div>
+             </div>
+ 
+             <div className="flex gap-2 mt-4">
+               <button type="button" onClick={() => setShowGuide(true)}
+-                className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-white/60 hover:text-white border border-white/15 hover:border-white/30 text-xs font-medium transition-all">
++                className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-slate-500 hover:text-slate-800 bg-white/70 border border-slate-200 hover:border-slate-300 text-xs font-medium transition-all">
+                 <BookMarked className="w-3.5 h-3.5" /> Panduan
+               </button>
+               <button type="button" onClick={() => setShowQA(true)}
+-                className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-white/60 hover:text-white border border-white/15 hover:border-white/30 text-xs font-medium transition-all">
++                className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-slate-500 hover:text-slate-800 bg-white/70 border border-slate-200 hover:border-slate-300 text-xs font-medium transition-all">
+                 <HelpCircle className="w-3.5 h-3.5" /> Q&amp;A
+               </button>
+             </div>
+@@ -926,9 +928,9 @@ export default function LoginPage() {
+               onClick={() => { setShowAktivitas(true); loadAktivitas() }}
+               className="mt-3 w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-semibold transition-all"
+               style={{
+-                background: 'linear-gradient(135deg, rgba(16,185,129,0.18) 0%, rgba(59,130,246,0.18) 100%)',
+-                border: '1px solid rgba(16,185,129,0.35)',
+-                color: '#6ee7b7',
++                background: 'linear-gradient(135deg, rgba(14,165,233,0.12) 0%, rgba(20,184,166,0.12) 100%)',
++                border: '1px solid rgba(14,165,233,0.3)',
++                color: '#0284c7',
+               }}
+             >
+               <Activity className="w-3.5 h-3.5" />
+@@ -982,15 +984,15 @@ export default function LoginPage() {
+                 </div>
+ 
+                 <div className="mt-6 mb-5">
+-                  <h2 className="text-2xl font-bold text-white">Selamat Datang &#128522;</h2>
+-                  <p className="text-white/55 text-sm mt-1">Silakan login untuk melanjutkan</p>
++                  <h2 className="text-2xl font-bold text-slate-900">Selamat Datang &#128075;</h2>
++                  <p className="text-slate-500 text-sm mt-1">Silakan login untuk melanjutkan</p>
+                 </div>
+ 
+                 <button
+                   type="button"
+                   onClick={openDrape}
+                   className="btn-login-drape w-full flex items-center justify-center gap-3 px-8 py-4 rounded-2xl text-white font-bold text-base tracking-wide select-none cursor-pointer"
+-                  style={{ boxShadow: '0 4px 32px rgba(249,115,22,0.45), 0 0 60px rgba(236,72,153,0.25), 0 2px 8px rgba(0,0,0,0.3)', letterSpacing: '0.04em' }}
++                  style={{ boxShadow: '0 4px 32px rgba(37,99,235,0.35), 0 0 60px rgba(20,184,166,0.2), 0 2px 8px rgba(15,23,42,0.12)', letterSpacing: '0.04em' }}
+                 >
+                   <Lock className="w-5 h-5 opacity-90" />
+                   <span>Login Disini</span>
+@@ -999,16 +1001,16 @@ export default function LoginPage() {
+ 
+                 {/* Divider */}
+                 <div className="flex items-center gap-3 my-4">
+-                  <div className="flex-1 h-px bg-white/15" />
+-                  <span className="text-white/40 text-xs">atau</span>
+-                  <div className="flex-1 h-px bg-white/15" />
++                  <div className="flex-1 h-px bg-slate-200" />
++                  <span className="text-slate-400 text-xs">atau</span>
++                  <div className="flex-1 h-px bg-slate-200" />
+                 </div>
+ 
+                 {/* Grid 4 fitur */}
+                 <div className="grid grid-cols-4 gap-2 mb-5">
+                   {FITUR.map(f => (
+                     <div key={f.label} className="flex flex-col items-center gap-1.5 p-3 rounded-xl"
+-                      style={{ background: f.bg, border: `1px solid ${f.color}40` }}>
++                      style={{ background: f.bg, border: `1px solid ${f.color}30` }}>
+                       <span style={{ color: f.color }}>{f.icon}</span>
+                       <span className="text-[10px] text-center leading-tight font-medium" style={{ color: f.color }}>{f.label}</span>
+                     </div>
+@@ -1021,9 +1023,9 @@ export default function LoginPage() {
+                   onClick={e => { e.stopPropagation(); setShowAktivitas(true); loadAktivitas() }}
+                   className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl mb-4 text-xs font-semibold transition-all"
+                   style={{
+-                    background: 'linear-gradient(135deg, rgba(16,185,129,0.18) 0%, rgba(59,130,246,0.18) 100%)',
+-                    border: '1px solid rgba(16,185,129,0.35)',
+-                    color: '#6ee7b7',
++                    background: 'linear-gradient(135deg, rgba(14,165,233,0.12) 0%, rgba(20,184,166,0.12) 100%)',
++                    border: '1px solid rgba(14,165,233,0.3)',
++                    color: '#0284c7',
+                   }}
+                 >
+                   <Activity className="w-3.5 h-3.5" />
+@@ -1031,9 +1033,9 @@ export default function LoginPage() {
+                 </button>
+ 
+                 {/* Footer sekolah dalam card */}
+-                <div className="border-t border-white/10 pt-4">
+-                  <p className="font-bold text-white text-sm">{displayName}</p>
+-                  {siteInfo.kota && <p className="text-white/40 text-xs mt-0.5">{siteInfo.kota}</p>}
++                <div className="border-t border-slate-100 pt-4">
++                  <p className="font-bold text-slate-700 text-sm">{displayName}</p>
++                  {siteInfo.kota && <p className="text-slate-400 text-xs mt-0.5">{siteInfo.kota}</p>}
+                 </div>
+               </div>
+             </div>
+@@ -1047,10 +1049,10 @@ export default function LoginPage() {
+                 onMouseEnter={resetIdleTimer}
+                 onMouseMove={handleFormActivity}
+               >
+-                {/* Jahitan atas — gradient oranye-pink */}
++                {/* Jahitan atas — gradient biru-teal */}
+                 <div style={{
+                   height: '5px',
+-                  background: 'linear-gradient(90deg, #f97316, #ec4899, #a855f7, #ec4899, #f97316)',
++                  background: 'linear-gradient(90deg, #2563eb, #0ea5e9, #14b8a6, #0ea5e9, #2563eb)',
+                   backgroundSize: '300% 100%',
+                   animation: 'gradientShift 4s ease infinite',
+                 }} />
+@@ -1058,44 +1060,43 @@ export default function LoginPage() {
+                 <div
+                   className="rounded-b-3xl p-8"
+                   style={{
+-                    background: 'rgba(10, 4, 30, 0.88)',
++                    background: 'rgba(255, 255, 255, 0.95)',
+                     backdropFilter: 'blur(24px)', WebkitBackdropFilter: 'blur(24px)',
+-                    border: '1.5px solid rgba(255,255,255,0.12)',
++                    border: '1px solid rgba(226,232,240,0.9)',
+                     borderTop: 'none',
+-                    boxShadow: '0 32px 80px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.04)',
++                    boxShadow: '0 32px 80px rgba(15,23,42,0.16), 0 0 0 1px rgba(255,255,255,0.5)',
+                   }}
+                 >
+                   {/* Bar tutup */}
+                   <div className="mb-4 flex items-center gap-2 justify-end">
+-                    <span className="text-[10px] text-white/30">Auto-tutup dalam 10 detik tanpa aktivitas</span>
++                    <span className="text-[10px] text-slate-400">Auto-tutup dalam 10 detik tanpa aktivitas</span>
+                     <button type="button" onClick={closeDrape}
+-                      className="w-5 h-5 rounded-full flex items-center justify-center text-white/30 hover:text-white/70 hover:bg-white/10 transition-colors">
++                      className="w-5 h-5 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors">
+                       <X className="w-3 h-3" />
+                     </button>
+                   </div>
+ 
+                   <div className="mb-6">
+-                    <h2 className="text-2xl font-bold text-white">Selamat Datang</h2>
+-                    <p className="text-white/50 text-sm mt-1">Masuk ke akun Anda untuk melanjutkan</p>
++                    <h2 className="text-2xl font-bold text-slate-900">Selamat Datang</h2>
++                    <p className="text-slate-500 text-sm mt-1">Masuk ke akun Anda untuk melanjutkan</p>
+                   </div>
+ 
+                   <form onSubmit={handleLogin} className="space-y-5" onInput={handleFormActivity} onChange={handleFormActivity}>
+                     {error && (
+-                      <div className="flex items-start gap-2 p-3 rounded-xl bg-red-500/20 border border-red-400/30 text-red-200 text-sm">
++                      <div className="flex items-start gap-2 p-3 rounded-xl bg-red-50 border border-red-200 text-red-600 text-sm">
+                         <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" /><span>{error}</span>
+                       </div>
+                     )}
+                     <div>
+-                      <label className="block text-sm font-medium text-white/65 mb-1.5">Username / NIS</label>
++                      <label className="block text-sm font-medium text-slate-600 mb-1.5">Username / NIS</label>
+                       <div className="relative"
+                         style={{ transition: 'transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1)' }}
+                         onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.transform = 'scale(1.03)' }}
+                         onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.transform = 'scale(1)' }}
+                       >
+-                        <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-white/35" />
++                        <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                         <input type="text" placeholder="Masukkan username atau NIS"
+-                          className="w-full pl-10 pr-4 py-3 rounded-xl text-sm text-white placeholder-white/25 bg-white/08 border border-white/15 focus:outline-none focus:ring-2 focus:ring-purple-500/60 focus:border-purple-500/60 transition-all"
+-                          style={{ background: 'rgba(255,255,255,0.06)' }}
++                          className="w-full pl-10 pr-4 py-3 rounded-xl text-sm text-slate-900 placeholder-slate-400 bg-slate-50 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-sky-400/60 focus:border-sky-400/60 transition-all"
+                           value={form.username}
+                           onChange={e => { setForm(f => ({ ...f, username: e.target.value })); resetIdleTimer() }}
+                           autoComplete="username"
+@@ -1103,22 +1104,21 @@ export default function LoginPage() {
+                       </div>
+                     </div>
+                     <div>
+-                      <label className="block text-sm font-medium text-white/65 mb-1.5">Password</label>
++                      <label className="block text-sm font-medium text-slate-600 mb-1.5">Password</label>
+                       <div className="relative"
+                         style={{ transition: 'transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1)' }}
+                         onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.transform = 'scale(1.03)' }}
+                         onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.transform = 'scale(1)' }}
+                       >
+-                        <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-white/35" />
++                        <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                         <input type={showPw ? 'text' : 'password'} placeholder="Masukkan password"
+-                          className="w-full pl-10 pr-10 py-3 rounded-xl text-sm text-white placeholder-white/25 border border-white/15 focus:outline-none focus:ring-2 focus:ring-purple-500/60 focus:border-purple-500/60 transition-all"
+-                          style={{ background: 'rgba(255,255,255,0.06)' }}
++                          className="w-full pl-10 pr-10 py-3 rounded-xl text-sm text-slate-900 placeholder-slate-400 bg-slate-50 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-sky-400/60 focus:border-sky-400/60 transition-all"
+                           value={form.password}
+                           onChange={e => { setForm(f => ({ ...f, password: e.target.value })); resetIdleTimer() }}
+                           autoComplete="current-password"
+                         />
+                         <button type="button" onClick={() => { setShowPw(v => !v); resetIdleTimer() }}
+-                          className="absolute right-3.5 top-1/2 -translate-y-1/2 text-white/35 hover:text-white/70">
++                          className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                           {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                         </button>
+                       </div>
+@@ -1126,7 +1126,7 @@ export default function LoginPage() {
+ 
+                     <button type="submit" disabled={loading}
+                       className="btn-login-drape w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl text-white font-bold text-base mt-2 disabled:opacity-60"
+-                      style={{ boxShadow: '0 4px 24px rgba(249,115,22,0.4), 0 0 40px rgba(236,72,153,0.2)' }}
++                      style={{ boxShadow: '0 4px 24px rgba(37,99,235,0.3), 0 0 40px rgba(20,184,166,0.18)' }}
+                     >
+                       {loading ? (
+                         <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Masuk...</>
+@@ -1134,15 +1134,15 @@ export default function LoginPage() {
+                     </button>
+                   </form>
+ 
+-                  <div className="mt-5 pt-5 border-t border-white/10 space-y-3">
+-                    <p className="text-xs text-white/30 text-center">Lupa password? Hubungi administrator sekolah.</p>
++                  <div className="mt-5 pt-5 border-t border-slate-100 space-y-3">
++                    <p className="text-xs text-slate-400 text-center">Lupa password? Hubungi administrator sekolah.</p>
+                     <div className="flex gap-2">
+                       <button type="button" onClick={() => { setShowGuide(true); resetIdleTimer() }}
+-                        className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl border border-white/15 text-white/50 hover:text-white hover:border-white/30 text-xs font-medium transition-all">
++                        className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl border border-slate-200 text-slate-500 hover:text-slate-800 hover:border-slate-300 text-xs font-medium transition-all">
+                         <BookMarked className="w-3.5 h-3.5" /> Panduan
+                       </button>
+                       <button type="button" onClick={() => { setShowQA(true); resetIdleTimer() }}
+-                        className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl border border-white/15 text-white/50 hover:text-white hover:border-white/30 text-xs font-medium transition-all">
++                        className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl border border-slate-200 text-slate-500 hover:text-slate-800 hover:border-slate-300 text-xs font-medium transition-all">
+                         <HelpCircle className="w-3.5 h-3.5" /> Q&amp;A
+                       </button>
+                     </div>
+@@ -1152,9 +1152,9 @@ export default function LoginPage() {
+                       onClick={() => { setShowAktivitas(true); loadAktivitas(); resetIdleTimer() }}
+                       className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-semibold transition-all"
+                       style={{
+-                        background: 'linear-gradient(135deg, rgba(16,185,129,0.18) 0%, rgba(59,130,246,0.18) 100%)',
+-                        border: '1px solid rgba(16,185,129,0.35)',
+-                        color: '#6ee7b7',
++                        background: 'linear-gradient(135deg, rgba(14,165,233,0.12) 0%, rgba(20,184,166,0.12) 100%)',
++                        border: '1px solid rgba(14,165,233,0.3)',
++                        color: '#0284c7',
+                       }}
+                     >
+                       <Activity className="w-3.5 h-3.5" />
+@@ -1167,7 +1167,7 @@ export default function LoginPage() {
+           </div>
+ 
+           {(siteInfo.namaSekolah || siteInfo.kota) && (
+-            <p className="text-center text-white/30 text-xs mt-4 hidden lg:block">
++            <p className="text-center text-slate-400 text-xs mt-4 hidden lg:block">
+               {[siteInfo.namaSekolah, siteInfo.kota].filter(Boolean).join(' · ')}
+             </p>
+           )}
+diff --git a/src/styles/globals.css b/src/styles/globals.css
+index d07502e..258c5d7 100644
+--- a/src/styles/globals.css
++++ b/src/styles/globals.css
+@@ -273,15 +273,15 @@
+   will-change: transform;
+ }
+ 
+-/* ── Login button — gradient oranye-pink bergerak ──────────────────── */
++/* ── Login button — gradient biru-teal bergerak ──────────────────── */
+ .btn-login-drape {
+   background: linear-gradient(
+     135deg,
+-    #f97316 0%,
+-    #ec4899 30%,
+-    #a855f7 60%,
+-    #ec4899 80%,
+-    #f97316 100%
++    #2563eb 0%,
++    #0ea5e9 35%,
++    #14b8a6 65%,
++    #0ea5e9 85%,
++    #2563eb 100%
+   );
+   background-size: 300% 300%;
+   animation: gradientShift 4s ease infinite;
+@@ -290,7 +290,7 @@
+   transition: box-shadow 0.3s ease, transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+ }
+ .btn-login-drape:hover {
+-  box-shadow: 0 0 40px rgba(249,115,22,0.6), 0 0 80px rgba(236,72,153,0.3), 0 8px 24px rgba(0,0,0,0.3);
++  box-shadow: 0 0 40px rgba(37,99,235,0.45), 0 0 80px rgba(20,184,166,0.3), 0 8px 24px rgba(15,23,42,0.15);
+   transform: scale(1.05);
+ }
+ .btn-login-drape:active {
+@@ -314,28 +314,28 @@
+   animation: mascotWave 0.45s ease-in-out infinite;
+ }
+ 
+-/* ── Glass card (login welcome card) ────────────────────────────────── */
++/* ── Glass card (login welcome card) — tema terang ───────────────────── */
+ .login-glass-card {
+-  background: rgba(255, 255, 255, 0.10);
++  background: rgba(255, 255, 255, 0.92);
+   backdrop-filter: blur(24px);
+   -webkit-backdrop-filter: blur(24px);
+-  border: 1.5px solid rgba(255, 255, 255, 0.20);
++  border: 1px solid rgba(226, 232, 240, 0.8);
+   box-shadow:
+-    0 32px 80px rgba(0,0,0,0.40),
+-    0 0 0 1px rgba(255,255,255,0.06),
+-    inset 0 1px 0 rgba(255,255,255,0.14);
++    0 24px 60px rgba(15,23,42,0.12),
++    0 0 0 1px rgba(255,255,255,0.5),
++    inset 0 1px 0 rgba(255,255,255,0.6);
+ }
+ 
+ /* ── Versi ringan khusus mobile: tampilan serupa tanpa backdrop-filter,
+    karena backdrop-filter blur sangat berat di GPU HP dan menyebabkan
+    input form terasa lag. Desktop tetap pakai .login-glass-card asli. ── */
+ .login-glass-card-mobile {
+-  background: rgba(35, 18, 72, 0.78);
+-  border: 1.5px solid rgba(255, 255, 255, 0.20);
++  background: rgba(255, 255, 255, 0.97);
++  border: 1px solid rgba(226, 232, 240, 0.9);
+   box-shadow:
+-    0 32px 80px rgba(0,0,0,0.40),
+-    0 0 0 1px rgba(255,255,255,0.06),
+-    inset 0 1px 0 rgba(255,255,255,0.14);
++    0 24px 60px rgba(15,23,42,0.12),
++    0 0 0 1px rgba(255,255,255,0.5),
++    inset 0 1px 0 rgba(255,255,255,0.6);
+ }
+ 
+ /* ── Aurora glow blobs ───────────────────────────────────────────────── */
