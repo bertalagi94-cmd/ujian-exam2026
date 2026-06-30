@@ -714,6 +714,86 @@ export default function LoginPage() {
         </g>
       </svg>
 
+      {/* ── Ikon dekoratif tema digital exam (laptop, monitor, HP, dokumen) ── */}
+      <svg
+        className="absolute inset-0 w-full h-full batik-layer"
+        style={{ pointerEvents: 'none', zIndex: 0 }}
+        viewBox="0 0 1440 900" preserveAspectRatio="xMidYMid slice"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <defs>
+          <linearGradient id="iconGrad1" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="#0ea5e9" />
+            <stop offset="100%" stopColor="#14b8a6" />
+          </linearGradient>
+          <linearGradient id="iconGrad2" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="#3b82f6" />
+            <stop offset="100%" stopColor="#0ea5e9" />
+          </linearGradient>
+        </defs>
+
+        {/* Laptop — kiri atas */}
+        <g transform="translate(110,90) rotate(-8)" opacity="0.16">
+          <rect x="0" y="0" width="120" height="78" rx="8" fill="none" stroke="url(#iconGrad1)" strokeWidth="4" />
+          <rect x="12" y="12" width="96" height="54" rx="3" fill="none" stroke="url(#iconGrad1)" strokeWidth="3" />
+          <path d="M -14 78 L 134 78 L 148 100 L -28 100 Z" fill="none" stroke="url(#iconGrad1)" strokeWidth="4" strokeLinejoin="round" />
+          <path d="M40 36 l14 14 l28 -28" fill="none" stroke="url(#iconGrad1)" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+        </g>
+
+        {/* Monitor + grafik — kanan atas */}
+        <g transform="translate(1180,130) rotate(6)" opacity="0.15">
+          <rect x="0" y="0" width="130" height="88" rx="8" fill="none" stroke="url(#iconGrad2)" strokeWidth="4" />
+          <rect x="48" y="88" width="34" height="16" fill="none" stroke="url(#iconGrad2)" strokeWidth="4" />
+          <line x1="30" y1="104" x2="100" y2="104" stroke="url(#iconGrad2)" strokeWidth="4" strokeLinecap="round" />
+          <path d="M18 64 L40 40 L58 52 L86 22" fill="none" stroke="url(#iconGrad2)" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+          <circle cx="86" cy="22" r="4" fill="url(#iconGrad2)" />
+        </g>
+
+        {/* Smartphone — kiri bawah */}
+        <g transform="translate(180,640) rotate(10)" opacity="0.16">
+          <rect x="0" y="0" width="62" height="108" rx="12" fill="none" stroke="url(#iconGrad1)" strokeWidth="4" />
+          <line x1="20" y1="94" x2="42" y2="94" stroke="url(#iconGrad1)" strokeWidth="4" strokeLinecap="round" />
+          <path d="M16 30 l12 12 l20 -22" fill="none" stroke="url(#iconGrad1)" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" />
+          <line x1="14" y1="58" x2="48" y2="58" stroke="url(#iconGrad1)" strokeWidth="3" strokeLinecap="round" />
+          <line x1="14" y1="68" x2="40" y2="68" stroke="url(#iconGrad1)" strokeWidth="3" strokeLinecap="round" />
+        </g>
+
+        {/* Dokumen ujian / clipboard — kanan bawah */}
+        <g transform="translate(1230,660) rotate(-7)" opacity="0.16">
+          <rect x="0" y="6" width="92" height="118" rx="8" fill="none" stroke="url(#iconGrad2)" strokeWidth="4" />
+          <rect x="26" y="0" width="40" height="16" rx="4" fill="none" stroke="url(#iconGrad2)" strokeWidth="4" />
+          <path d="M16 44 l10 10 l18 -20" fill="none" stroke="url(#iconGrad2)" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" />
+          <line x1="50" y1="48" x2="76" y2="48" stroke="url(#iconGrad2)" strokeWidth="3.5" strokeLinecap="round" />
+          <path d="M16 76 l10 10 l18 -20" fill="none" stroke="url(#iconGrad2)" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" />
+          <line x1="50" y1="80" x2="76" y2="80" stroke="url(#iconGrad2)" strokeWidth="3.5" strokeLinecap="round" />
+        </g>
+
+        {/* Shield / anti-nyontek — tengah atas */}
+        <g transform="translate(700,40) rotate(0)" opacity="0.13">
+          <path d="M40 0 L78 14 L78 46 Q78 80 40 96 Q2 80 2 46 L2 14 Z" fill="none" stroke="url(#iconGrad1)" strokeWidth="4" />
+          <path d="M22 46 l12 12 l24 -26" fill="none" stroke="url(#iconGrad1)" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+        </g>
+
+        {/* Bar chart kecil — tengah bawah kiri */}
+        <g transform="translate(560,790) rotate(4)" opacity="0.13">
+          <rect x="0" y="30" width="14" height="34" fill="none" stroke="url(#iconGrad2)" strokeWidth="3.5" />
+          <rect x="22" y="14" width="14" height="50" fill="none" stroke="url(#iconGrad2)" strokeWidth="3.5" />
+          <rect x="44" y="0" width="14" height="64" fill="none" stroke="url(#iconGrad2)" strokeWidth="3.5" />
+        </g>
+
+        {/* Jam / waktu — tengah kanan */}
+        <g transform="translate(980,420) rotate(-4)" opacity="0.13">
+          <circle cx="34" cy="34" r="34" fill="none" stroke="url(#iconGrad1)" strokeWidth="4" />
+          <path d="M34 14 V34 L50 46" fill="none" stroke="url(#iconGrad1)" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+        </g>
+
+        {/* Pensil / soal — kiri tengah */}
+        <g transform="translate(330,420) rotate(-25)" opacity="0.13">
+          <rect x="0" y="0" width="14" height="68" rx="3" fill="none" stroke="url(#iconGrad2)" strokeWidth="3.5" />
+          <path d="M0 0 L7 -16 L14 0 Z" fill="none" stroke="url(#iconGrad2)" strokeWidth="3.5" strokeLinejoin="round" />
+        </g>
+      </svg>
+
       <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" style={{ pointerEvents: 'none', zIndex: 0 }} />
 
       {/* ── Tombol Fullscreen — sudut kanan atas ── */}
