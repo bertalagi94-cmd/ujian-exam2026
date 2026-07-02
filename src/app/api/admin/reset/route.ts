@@ -62,8 +62,18 @@ const CATEGORY_MAP: Record<ResetCategory, string[]> = {
 // agar tidak timeout di Vercel, eksekusi langsung di dalam database
 const TRUNCATE_TABLES = new Set(['jawaban', 'siswa_ujian', 'nilai', 'pelanggaran', 'log_reset', 'log_aktivitas'])
 
-// Tabel yang tidak ada di schema (legacy) → skip
-const SKIP_TABLES = new Set(['kisi_kisi'])
+// BUG FIX (02 Jul 2026): `kisi_kisi` sebelumnya ada di SKIP_TABLES dengan
+// alasan "tidak ada di schema (legacy)" — padahal tabel ini aktif dipakai
+// (src/app/api/{admin,guru,siswa}/kisi-kisi) dan memang ada di database.
+// Efek bug lama: clearTable() langsung `return null` (dianggap sukses)
+// begitu ketemu tabel ini TANPA benar-benar menghapus datanya, sehingga
+// "Reset semua data" / reset kategori soal_paket & kelas_mapel melaporkan
+// sukses padahal data kisi_kisi lama masih tersisa di database.
+// Sudah diverifikasi manual di Supabase: tidak ada tabel lain yang tidak
+// dikenal aplikasi ini, jadi SKIP_TABLES sekarang kosong. Set ini tetap
+// dipertahankan (bukan dihapus total) sebagai jaring pengaman kalau suatu
+// saat ada tabel baru yang perlu di-skip sementara dari proses reset.
+const SKIP_TABLES = new Set<string>([])
 
 const TABLE_FILTER: Record<string, { col: string; method: 'gt_epoch' | 'not_null' | 'gt_zero' }> = {
   pengaturan: { col: 'key',       method: 'not_null' },
