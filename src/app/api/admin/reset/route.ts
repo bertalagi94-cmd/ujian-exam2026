@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
+import { cacheDel, cacheDelPrefix } from '@/lib/cache'
 
 export type ResetCategory =
   | 'jawaban_nilai'
@@ -211,6 +212,17 @@ export async function POST(req: NextRequest) {
   if (errors.length > 0 && deleted.length === 0) {
     return NextResponse.json({ error: 'Reset gagal', details: errors }, { status: 500 })
   }
+
+  // BUG FIX (02 Jul 2026): endpoint dashboard (`/api/admin/dashboard`) dan
+  // beberapa endpoint pengaturan (`/api/auth/login`, `/api/public/pengaturan`,
+  // `/api/siswa/ujian/pelanggaran`) memakai in-memory cache (lib/cache.ts,
+  // TTL 30–60 detik). Sebelum fix ini, reset TIDAK PERNAH membersihkan cache
+  // tersebut, sehingga admin yang membuka beranda tak lama setelah reset
+  // masih melihat angka/data lama sampai TTL cache habis sendiri (terlihat
+  // seperti "baru bersih setelah refresh browser", padahal refresh-nya
+  // kebetulan saja terjadi setelah TTL lewat, bukan penyebab sebenarnya).
+  cacheDel('admin:dashboard')
+  if (tablesToDelete.includes('pengaturan')) cacheDelPrefix('pengaturan:')
 
   return NextResponse.json({
     message: errors.length > 0 ? 'Reset selesai dengan beberapa error' : 'Reset berhasil',
