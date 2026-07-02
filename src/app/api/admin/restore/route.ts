@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
+import { cacheDel, cacheDelPrefix } from '@/lib/cache'
 
 // Tabel yang BENAR-BENAR ada di schema database
 //
@@ -188,6 +189,16 @@ export async function POST(req: NextRequest) {
     const err = await clearTable(db, table)
     if (err) deleteErrors.push(err)
   }
+
+  // BUG FIX (02 Jul 2026): sama seperti reset/route.ts — endpoint dashboard
+  // dan beberapa endpoint pengaturan memakai in-memory cache (lib/cache.ts).
+  // Restore sebelumnya tidak pernah membersihkannya, jadi data lama masih
+  // muncul sampai TTL cache habis sendiri. Dipanggil di sini (setelah fase
+  // hapus, sebelum fase insert) supaya tetap jalan walau nanti insert gagal
+  // sebagian — data lama sudah terhapus, jadi cache lama memang sudah tidak
+  // valid dan wajib dibersihkan terlepas dari hasil insert selanjutnya.
+  cacheDel('admin:dashboard')
+  if ('pengaturan' in payload.tables) cacheDelPrefix('pengaturan:')
 
   if (deleteErrors.length > 0) {
     return NextResponse.json(
