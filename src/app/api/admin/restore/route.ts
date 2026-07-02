@@ -3,7 +3,18 @@ import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 
 // Tabel yang BENAR-BENAR ada di schema database
-// kisi_kisi DIHAPUS karena tidak ada di schema (01_schema.sql)
+//
+// BUG FIX (02 Jul 2026): tabel `kisi_kisi` sebelumnya dianggap "DIHAPUS
+// karena tidak ada di schema (01_schema.sql)" — ternyata itu cuma karena
+// file schema-nya yang tidak pernah diupdate, bukan tabelnya yang benar-benar
+// hilang. Tabel ini aktif dipakai di src/app/api/{admin,guru,siswa}/kisi-kisi.
+// Akibat bug lama: (1) backup TIDAK PERNAH menyimpan data kisi_kisi, dan
+// (2) kalaupun ada file backup lama yang kebetulan punya data kisi_kisi,
+// restore akan SKIP DIAM-DIAM tanpa error (lihat SCHEMA_TABLES.has() di
+// bawah). Sudah diverifikasi manual di Supabase: kisi_kisi TIDAK punya FK
+// constraint ke/dari tabel manapun, jadi aman ditaruh setelah `soal` (sama
+// seperti urutan di reset/route.ts) — hanya perlu users/mapel/kelas sudah
+// ada dulu (guru_id, mapel_id, kelas_id) sebelum kisi_kisi di-insert.
 //
 // BUG FIX: tabel `sekolah` (fitur jenjang/Kepsek — lihat src/lib/kepsek-scope.ts)
 // sebelumnya tidak ada di sini sama sekali, padahal `kelas.sekolah_id` dan
@@ -21,6 +32,7 @@ const DELETE_ORDER = [
   'siswa_ujian',
   'sesi_ujian',
   'soal',
+  'kisi_kisi',
   'paket_soal',
   'jadwal',
   'users',
@@ -43,6 +55,7 @@ const INSERT_ORDER = [
   'jadwal',
   'paket_soal',
   'soal',
+  'kisi_kisi',
   'sesi_ujian',
   'siswa_ujian',
   'jawaban',
@@ -188,7 +201,8 @@ export async function POST(req: NextRequest) {
   const stats: Record<string, number> = {}
 
   for (const table of INSERT_ORDER) {
-    // Skip tabel yang tidak ada di schema (misal: kisi_kisi dari backup lama)
+    // Skip tabel yang tidak dikenal / tidak ada di schema saat ini (misalnya
+    // nama tabel dari versi backup yang jauh lebih lama dan sudah tidak ada)
     if (!SCHEMA_TABLES.has(table)) {
       stats[table] = 0
       continue
