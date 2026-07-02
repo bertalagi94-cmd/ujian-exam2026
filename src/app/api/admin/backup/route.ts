@@ -2,7 +2,14 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 
-// Hanya tabel yang ada di schema (kisi_kisi DIHAPUS - tidak ada di 01_schema.sql)
+// BUG FIX: tabel `kisi_kisi` sebelumnya dianggap "DIHAPUS - tidak ada di
+// 01_schema.sql", padahal itu cuma tidak pernah tercatat di file schema
+// (schema file-nya yang telat diupdate, bukan tabelnya yang hilang).
+// Tabel ini aktif dipakai di src/app/api/{admin,guru,siswa}/kisi-kisi dan
+// nyata ada datanya di database produksi — sebelum fix ini, data kisi-kisi
+// TIDAK IKUT TER-BACKUP sama sekali. Sudah diverifikasi manual di Supabase
+// (02 Jul 2026): tidak ada FK/trigger/RPC yang bergantung padanya, jadi
+// aman diperlakukan sama seperti tabel lain di sini.
 const BACKUP_TABLES = [
   'pengaturan',
   'sekolah',
@@ -14,6 +21,7 @@ const BACKUP_TABLES = [
   'jadwal',
   'paket_soal',
   'soal',
+  'kisi_kisi',
   'sesi_ujian',
   'siswa_ujian',
   'jawaban',
