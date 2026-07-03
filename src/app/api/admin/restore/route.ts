@@ -125,10 +125,25 @@ export async function POST(req: NextRequest) {
     tables: Record<string, unknown[]>
   }
 
+  // Terima file sebagai FormData (multipart/form-data) agar file backup bisa
+  // dikirim sebagai raw file langsung dari browser — bukan JSON.stringify() di
+  // sisi klien yang menyebabkan double-parsing. Fallback ke req.json() untuk
+  // kompatibilitas mundur jika ada klien yang masih kirim Content-Type: application/json.
+  const contentType = req.headers.get('content-type') ?? ''
   try {
-    payload = await req.json()
+    if (contentType.startsWith('multipart/form-data')) {
+      const formData = await req.formData()
+      const file = formData.get('file')
+      if (!file || typeof file === 'string') {
+        return NextResponse.json({ error: 'Field "file" tidak ditemukan dalam FormData' }, { status: 400 })
+      }
+      const text = await (file as File).text()
+      payload = JSON.parse(text)
+    } else {
+      payload = await req.json()
+    }
   } catch {
-    return NextResponse.json({ error: 'File backup tidak valid (bukan JSON)' }, { status: 400 })
+    return NextResponse.json({ error: 'File backup tidak valid (bukan JSON yang bisa dibaca)' }, { status: 400 })
   }
 
   if (!payload?.tables || typeof payload.tables !== 'object') {
