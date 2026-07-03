@@ -1,7 +1,8 @@
 {
   "functions": {
     "src/app/api/admin/restore/route.ts": {
-      "maxDuration": 60
+      "maxDuration": 60,
+      "memory": 1024
     },
     "src/app/api/admin/backup/route.ts": {
       "maxDuration": 60
