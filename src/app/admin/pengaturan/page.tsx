@@ -256,16 +256,59 @@ export default function AdminPengaturanPage() {
     if (!pendingRestoreFile || !pendingRestoreInfo) return
     setConfirmRestore(false)
     const sizeMB = pendingRestoreInfo.size
+
+    // BUG FIX: Vercel Serverless Functions membatasi ukuran request body
+    // default 4.5 MB. File backup yang besar (banyak data jawaban) bisa
+    // melebihi batas ini dan menyebabkan error 413 tanpa pesan yang jelas.
+    //
+    // Solusi: kirim file sebagai FormData (multipart/form-data) — raw file
+    // langsung tanpa JSON.parse + JSON.stringify ulang di browser — dan
+    // biarkan server yang parse JSON-nya. Ini menghilangkan overhead
+    // double-serialization dan memastikan ukuran body == ukuran file asli.
+    //
+    // Selain itu, tambahkan pemeriksaan ukuran di sisi klien agar admin
+    // mendapat pesan yang jelas sebelum request dikirim, bukan error
+    // jaringan yang membingungkan setelah upload selesai.
+    const FILE_SIZE_WARN_MB  = 3.5  // tampilkan peringatan
+    const FILE_SIZE_LIMIT_MB = 4.0  // blokir — Vercel limit 4.5 MB (sisakan ruang untuk header)
+    const fileSizeMB = pendingRestoreFile.size / 1024 / 1024
+
+    if (fileSizeMB > FILE_SIZE_LIMIT_MB) {
+      showToast(
+        `File backup terlalu besar (${fileSizeMB.toFixed(1)} MB). Ukuran maksimal yang didukung saat ini adalah ${FILE_SIZE_LIMIT_MB} MB. ` +
+        `Untuk database besar, hubungi administrator teknis untuk restore langsung via Supabase.`,
+        'error'
+      )
+      setPendingRestoreFile(null)
+      setPendingRestoreInfo(null)
+      return
+    }
+
     setRestoring(true)
     openHacker('restore', pendingRestoreFile.name, sizeMB)
+
+    if (fileSizeMB > FILE_SIZE_WARN_MB) {
+      showToast(
+        `File backup cukup besar (${fileSizeMB.toFixed(1)} MB). Proses restore mungkin membutuhkan waktu lebih lama.`,
+        'error'
+      )
+    }
+
     try {
+      // Validasi cepat isi JSON sebelum dikirim (baca teks, cek field "tables")
       const text = await pendingRestoreFile.text()
-      const parsed = JSON.parse(text)
-      if (!parsed?.tables) throw new Error('File bukan backup SmartExam yang valid')
+      const quick = JSON.parse(text) as { tables?: unknown; app?: string }
+      if (!quick?.tables) throw new Error('File bukan backup SmartExam yang valid')
+
+      // Kirim sebagai FormData — server membaca via req.formData()
+      const formData = new FormData()
+      formData.append('file', pendingRestoreFile)
+      const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
       const resPromise = fetch('/api/admin/restore', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(localStorage.getItem('token') ? { Authorization: `Bearer ${localStorage.getItem('token')}` } : {}) },
-        body: JSON.stringify(parsed),
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: formData,
+        // Tidak set Content-Type — browser otomatis set multipart/form-data + boundary
       })
       const [apiRes] = await Promise.all([resPromise, new Promise<void>(resolve => { const ref: { id?: ReturnType<typeof setInterval> } = {}; tickProgress(resolve, ref) })])
       const json = await apiRes.json()
