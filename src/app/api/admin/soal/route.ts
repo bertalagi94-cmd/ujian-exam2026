@@ -56,6 +56,15 @@ export async function POST(req: NextRequest) {
   else if (action === 'BATAL_SETUJUI') newStatus = 'DRAFT'
   else return NextResponse.json({ error: 'Action tidak valid' }, { status: 400 })
 
+  // Catatan wajib diisi saat menolak agar guru tahu apa yang perlu diperbaiki.
+  // Validasi di sini (server) sebagai pengaman — UI sudah memblokir lebih awal.
+  if (action === 'TOLAK' && !catatan?.trim()) {
+    return NextResponse.json(
+      { error: 'Alasan penolakan wajib diisi agar guru bisa memperbaiki soalnya.' },
+      { status: 400 }
+    )
+  }
+
   // FIX BUG KRITIS: cegah lebih dari satu paket_soal berstatus DISETUJUI untuk
   // kombinasi mapel_id + kelas_id yang sama. Sebelumnya tidak ada pengecekan
   // sama sekali, sehingga kalau ada 2 paket DISETUJUI sekaligus (misal team-
