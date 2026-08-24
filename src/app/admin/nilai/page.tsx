@@ -56,14 +56,31 @@ export default function AdminNilaiPage() {
     !search || (n.nama_siswa ?? '').toLowerCase().includes(search.toLowerCase())
   )
 
+  // FIX: sebelumnya kolom digabung langsung dengan `r.join(',')` tanpa
+  // escaping — nama siswa/mapel yang mengandung koma (atau tanda kutip,
+  // atau baris baru) bikin kolom CSV bergeser saat dibuka di Excel/Sheets.
+  // csvField membungkus nilai dengan tanda kutip ganda dan meng-escape
+  // kutip ganda di dalamnya (aturan standar RFC 4180), hanya kalau memang
+  // perlu (mengandung koma/kutip/baris baru) supaya file tetap ringkas.
+  function csvField(value: unknown): string {
+    const str = value === null || value === undefined ? '' : String(value)
+    if (/[",\n\r]/.test(str)) {
+      return `"${str.replace(/"/g, '""')}"`
+    }
+    return str
+  }
+
   function exportCSV() {
     const header = ['Nama Siswa', 'Kelas', 'Mata Pelajaran', 'Nilai', 'Grade', 'Benar', 'Total', 'KKM', 'Status', 'Tanggal']
     const rows = filtered.map(n => [
       n.nama_siswa, n.kelas, n.nama_mapel, n.nilai, n.grade,
       n.benar, n.total, n.kkm, n.lulus ? 'Lulus' : 'Tidak Lulus', n.timestamp
     ])
-    const csv = [header, ...rows].map(r => r.join(',')).join('\n')
-    const blob = new Blob([csv], { type: 'text/csv' })
+    const csv = [header, ...rows].map(r => r.map(csvField).join(',')).join('\r\n')
+    // BOM UTF-8 di depan supaya Excel membaca karakter non-ASCII (mis. nama
+    // dengan huruf ber-diakritik) dengan benar, bukan cuma aplikasi yang
+    // sudah UTF-8-aware.
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url; a.download = `rekap-nilai-${Date.now()}.csv`
