@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 import { verifySesiOwnership } from '@/lib/sesi-ownership'
-import { hitungDanSimpanNilai } from '@/lib/hitung-nilai'
+import { finalisasiNilaiPaksa } from '@/lib/finalisasi-nilai'
 
 export async function POST(req: NextRequest) {
   const auth = requireRole(req, ['GURU'])
@@ -37,8 +37,14 @@ export async function POST(req: NextRequest) {
     await db.from('jadwal').update({ status: 'SELESAI' }).eq('id', sesi.jadwal_id)
   }
 
-  // Ambil dulu NIS siswa yang masih AKTIF/RESET SEBELUM diubah statusnya —
-  // mereka butuh dihitung nilainya di bawah.
+  // FIX: sebelumnya siswa yang statusnya AKTIF/RESET saat sesi ditutup paksa
+  // (mis. jaringan mati total sampai waktu habis, tidak pernah sempat
+  // memanggil /api/siswa/ujian/selesai sendiri) hanya diubah statusnya jadi
+  // SELESAI di bawah ini — TIDAK PERNAH mendapat baris di tabel `nilai`,
+  // sehingga hilang dari rekap nilai guru/wali kelas tanpa jejak yang jelas.
+  // Sekarang: catat dulu NIS siswa yang masih AKTIF/RESET (sebelum diupdate),
+  // baru setelah statusnya diubah, hitung & simpan nilai otomatis mereka dari
+  // jawaban yang sempat tersinkron ke server — lihat src/lib/finalisasi-nilai.ts.
   const { data: siswaBelumSelesai } = await db
     .from('siswa_ujian')
     .select('nis')
@@ -51,27 +57,8 @@ export async function POST(req: NextRequest) {
     .eq('sesi_id', sesiId)
     .in('status', ['AKTIF', 'RESET'])   // ← FIX: was .eq('status', 'AKTIF')
 
-  // FIX: sebelumnya siswa yang sesinya ditutup paksa oleh pengawas (mis.
-  // karena jaringan mati total dan tidak sempat submit sendiri) hanya
-  // ditandai SELESAI tanpa nilai — mereka "hilang" dari rekap nilai dan baru
-  // ketahuan lewat menu terpisah "belum nilai" di dashboard Kepsek, butuh
-  // tindak lanjut manual guru. Sekarang nilai langsung dihitung dari
-  // jawaban yang SUDAH tersimpan di DB (hasil auto-sync selama ujian
-  // berjalan) — sama seperti perhitungan submit normal. Kalau memang belum
-  // sempat menjawab apa pun, hasilnya otomatis 0 (bukan hilang dari rekap).
-  // Dijalankan satu per satu (bukan Promise.all) supaya cache paket
-  // soal/kunci per sesi (di hitungDanSimpanNilai) dipakai bersama tanpa
-  // race condition saat pertama kali diisi.
-  for (const s of siswaBelumSelesai ?? []) {
-    try {
-      await hitungDanSimpanNilai(db, sesiId, s.nis)
-    } catch (e) {
-      // Jangan sampai satu siswa gagal dihitung membuat seluruh proses tutup
-      // sesi gagal — catat saja, guru tetap bisa input manual/susulan untuk
-      // siswa itu lewat menu nilai.
-      console.error(`Gagal hitung nilai otomatis untuk NIS ${s.nis} sesi ${sesiId}:`, e)
-    }
-  }
+  const nisPerluDinilai = (siswaBelumSelesai ?? []).map(s => s.nis)
+  await finalisasiNilaiPaksa(db, sesiId, nisPerluDinilai)
 
   return NextResponse.json({ message: 'Sesi berhasil ditutup' })
 }
