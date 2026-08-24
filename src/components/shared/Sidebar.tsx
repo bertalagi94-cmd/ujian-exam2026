@@ -311,6 +311,7 @@ export function AdminSidebar() {
     { label: 'Kelas', href: '/admin/kelas', icon: School },
     { label: 'Mata Pelajaran', href: '/admin/mapel', icon: BookOpen },
     { label: 'Jadwal Ujian', href: '/admin/jadwal', icon: Calendar },
+    { label: 'Kisi-kisi', href: '/admin/kisi-kisi', icon: FileText },
     {
       label: 'Validasi Soal',
       href: '/admin/soal',
@@ -423,6 +424,7 @@ export function KepsekSidebar() {
         { label: 'Data Kelas', href: '/kepsek/kelas', icon: Users },
         { label: 'Guru & Mapel', href: '/kepsek/guru', icon: BookOpen },
         { label: 'Jadwal Ujian', href: '/kepsek/jadwal', icon: Calendar },
+        { label: 'Kisi-kisi', href: '/kepsek/kisi-kisi', icon: FileText },
         { label: 'Hasil Ujian', href: '/kepsek/nilai', icon: BarChart3 },
         { label: 'Monitoring Ujian', href: '/kepsek/monitoring', icon: Eye },
       ]}
