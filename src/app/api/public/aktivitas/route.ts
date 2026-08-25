@@ -18,6 +18,37 @@ export async function GET() {
     const db = createAdminClient()
     const { today, tomorrow } = getTodayAndTomorrow()
 
+    // ── 0. Peta kelas → sekolah, untuk melabeli setiap baris di bawah. ──
+    // Halaman ini publik (belum ada login), jadi tidak ada satu "sekolah
+    // aktif" yang bisa dijadikan filter — sebelumnya endpoint ini
+    // menggabungkan data SEMUA sekolah tanpa keterangan asalnya, sehingga
+    // ujian/jadwal/juara dari sekolah/jenjang berbeda tampil seolah satu
+    // sekolah. Sekarang setiap baris diberi label sekolah/jenjangnya.
+    const [{ data: kelasRows }, { data: sekolahRows }] = await Promise.all([
+      db.from('kelas').select('id, nama, sekolah_id'),
+      db.from('sekolah').select('id, label, nama_sekolah'),
+    ])
+
+    const sekolahLabelMap: Record<string, string> = {}
+    ;(sekolahRows ?? []).forEach((s: { id: string; label: string; nama_sekolah: string }) => {
+      sekolahLabelMap[s.id] = s.label || s.nama_sekolah || '-'
+    })
+
+    // kelas.id -> label sekolah (dipakai untuk juaraPerKelas, tidak ambigu)
+    const kelasIdToSekolahLabel: Record<string, string> = {}
+    // kelas.nama -> label sekolah (dipakai untuk sesi_ujian/jadwal/nilai,
+    // yang menyimpan NAMA kelas bukan id — lihat catatan di
+    // guru/wali-kelas/route.ts. CATATAN: kalau ada nama kelas yang sama
+    // persis dipakai di lebih dari satu sekolah, pemetaan by-nama ini bisa
+    // ambigu — memilih kecocokan pertama. Ini hanya memengaruhi label
+    // tampilan, bukan data ujian/nilai itu sendiri.
+    const kelasNamaToSekolahLabel: Record<string, string> = {}
+    ;(kelasRows ?? []).forEach((k: { id: string; nama: string; sekolah_id: string | null }) => {
+      const label = k.sekolah_id ? (sekolahLabelMap[k.sekolah_id] ?? '-') : '-'
+      kelasIdToSekolahLabel[k.id] = label
+      if (!(k.nama in kelasNamaToSekolahLabel)) kelasNamaToSekolahLabel[k.nama] = label
+    })
+
     // ── 1. Ujian sedang berlangsung (sesi_ujian BERJALAN) ──
     const { data: sesiAktif } = await db
       .from('sesi_ujian')
@@ -30,6 +61,7 @@ export async function GET() {
       id: string
       mapel: string
       kelas: string
+      sekolah: string
       pengawas: string
       waktu_mulai: string
     }> = []
@@ -74,6 +106,7 @@ export async function GET() {
           id: sesi.id,
           mapel: mapelMap[sesi.mapel_id] || sesi.mapel_id || '-',
           kelas: sesi.kelas || '-',
+          sekolah: kelasNamaToSekolahLabel[sesi.kelas] ?? '-',
           pengawas: jadwalLookup[key] || '-',
           waktu_mulai: sesi.waktu_mulai,
         })
@@ -119,28 +152,35 @@ export async function GET() {
       jam: `${j.jam_mulai} – ${j.jam_selesai}`,
       mapel: jadwalMapelMap[j.mapel_id] || j.mapel_id || '-',
       kelas: j.kelas,
+      sekolah: kelasNamaToSekolahLabel[j.kelas] ?? '-',
       status: j.status,
       isToday: j.tanggal === today,
     }))
 
     // ── 3. Juara umum per kelas ──
     // Ambil semua kelas yang ada
-    const { data: kelasList } = await db.from('kelas').select('id, nama').order('nama')
+    const kelasList = kelasRows ?? []
 
     const juaraPerKelas: Array<{
       kelas: string
+      sekolah: string
       nama_siswa: string
       nilai_rata: number
     }> = []
 
-    if (kelasList && kelasList.length > 0) {
+    if (kelasList.length > 0) {
       for (const kls of kelasList) {
-        // Ambil siswa di kelas ini dengan nilai rata-rata tertinggi
-        // Kita query nilai join siswa untuk kelas ini
+        // Ambil siswa di kelas ini dengan nilai rata-rata tertinggi.
+        // FIX: sebelumnya query ini pakai `.eq('kelas', kls.id)`, padahal
+        // kolom nilai.kelas menyimpan NAMA kelas (bukan id) — sama seperti
+        // sesi_ujian.kelas dan jadwal.kelas (lihat catatan di
+        // guru/wali-kelas/route.ts). Akibatnya query ini nyaris tidak
+        // pernah cocok dan "Juara Umum" nyaris selalu kosong. Sekarang
+        // pakai kls.nama.
         const { data: nilaiKelas } = await db
           .from('nilai')
           .select('nis, nilai')
-          .eq('kelas', kls.id)
+          .eq('kelas', kls.nama)
 
         if (!nilaiKelas || nilaiKelas.length === 0) continue
 
@@ -171,6 +211,7 @@ export async function GET() {
 
         juaraPerKelas.push({
           kelas: kls.nama,
+          sekolah: kelasIdToSekolahLabel[kls.id] ?? '-',
           nama_siswa: siswaData?.nama || bestNis,
           nilai_rata: Math.round(bestAvg * 10) / 10,
         })
