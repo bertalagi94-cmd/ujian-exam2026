@@ -34,6 +34,27 @@ export async function POST(req: NextRequest) {
 
   if (!jadwal) return NextResponse.json({ error: 'Jadwal tidak ditemukan' }, { status: 404 })
 
+  // FIX BUG #6 (IDOR): sebelumnya endpoint ini menerima jadwalId dari body
+  // dan HANYA memvalidasi role akun (GURU/ADMIN) lewat requireRole — tidak
+  // pernah memverifikasi bahwa jadwal.pengawas memang guru yang sedang
+  // memanggil. Lewat tampilan aplikasi ini tidak kelihatan (guru cuma
+  // pernah diberi pilihan jadwal miliknya sendiri, lihat
+  // /api/guru/jadwal-pengawasan yang sudah benar men-scope ke
+  // pengawas === user.username), TAPI endpoint API-nya sendiri menerima
+  // jadwalId siapa pun kalau dipanggil langsung (DevTools/Postman) —
+  // sembarang akun GURU bisa membuka sesi susulan (is_darurat=true) untuk
+  // jadwal guru lain dan mendapatkan kode_sesi-nya. Bandingkan dengan pola
+  // yang sudah benar di guru/mode-pengawas/route.ts (`.eq('pengawas',
+  // user.username)` saat mengambil jadwal) dan src/lib/sesi-ownership.ts.
+  //
+  // FIX: tolak kalau pemanggil GURU dan bukan pengawas jadwal ini. ADMIN
+  // tetap diizinkan (dia memang berwenang atas semua jadwal — untuk
+  // membuka susulan ATAS NAMA guru tertentu, admin memakai endpoint
+  // terpisah /api/admin/susulan yang eksplisit meminta pengawasUsername).
+  if (auth.user.role !== 'ADMIN' && jadwal.pengawas !== auth.user.username) {
+    return NextResponse.json({ error: 'Anda bukan pengawas untuk jadwal ini' }, { status: 403 })
+  }
+
   // Cek apakah guru ini sudah punya sesi BERJALAN (sebagai pengawas reguler atau susulan lain)
   // Ambil semua jadwal yang guru ini terlibat, lalu cek sesi aktif
   const { data: jadwalGuru } = await db
