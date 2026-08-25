@@ -66,6 +66,24 @@ function isFullscreen() {
   )
 }
 
+// FIX: browser/device tertentu (paling umum: Safari di iPhone/iPad) tidak
+// mendukung Fullscreen API untuk elemen sembarang sama sekali — requestFullscreen()
+// akan selalu gagal diam-diam di sana (semua pemanggilnya dibungkus .catch(() => {})).
+// Dipakai untuk membedakan dua pesan ke siswa: "coba lagi" (kalau device mendukung
+// tapi izinnya belum diberikan/gagal sesaat) vs "device Anda memang tidak
+// mendukung" (kalau API-nya tidak ada sama sekali) — supaya siswa tidak diberi
+// tombol "coba lagi" yang percuma di device yang memang tidak akan pernah berhasil.
+function isFullscreenSupported() {
+  const el = document.documentElement as unknown as Record<string, unknown>
+  const doc = document as unknown as Record<string, unknown>
+  return !!(
+    el.requestFullscreen || el.webkitRequestFullscreen ||
+    el.mozRequestFullScreen || el.msRequestFullscreen
+  ) && (
+    doc.fullscreenEnabled !== false // beberapa browser expose flag ini; kalau eksplisit false, jangan izinkan
+  )
+}
+
 // ── Backup lokal jawaban ──────────────────────────────────────────────────
 // Cadangan di localStorage (selain di server) supaya kalau tab/browser ter-reload
 // tiba-tiba di tengah ujian, jawaban yang BELUM sempat sync ke server tidak hilang
@@ -142,6 +160,11 @@ export default function SiswaUjianPage() {
 
   // Fullscreen & anti-cheat state
   const [isFS, setIsFS] = useState(false)
+  // FIX: sebelumnya isFS dilacak tapi tidak pernah dipakai di UI, dan kalau
+  // requestFullscreen() gagal (device tidak didukung / permintaan ditolak
+  // browser), kegagalan itu dibuang diam-diam tanpa jejak apapun ke siswa.
+  // Sekarang dipakai untuk menampilkan banner + tombol retry manual.
+  const [fsSupported] = useState(() => (typeof document !== 'undefined' ? isFullscreenSupported() : true))
   const [warningMsg, setWarningMsg] = useState('')
   const [showWarningOverlay, setShowWarningOverlay] = useState(false)
 
@@ -268,7 +291,13 @@ export default function SiswaUjianPage() {
   useEffect(() => {
     if (phase !== 'UJIAN') return
     const el = document.documentElement
-    requestFullscreen(el).catch(() => {})
+    requestFullscreen(el).catch(() => {
+      // FIX: sebelumnya kegagalan di sini dibuang total tanpa jejak apapun.
+      // Tidak perlu state terpisah untuk menandai kegagalan — `isFS` (state
+      // yang sudah ada, diupdate lewat listener fullscreenchange di bawah)
+      // otomatis tetap false kalau requestFullscreen tidak pernah berhasil,
+      // dan itulah yang dipakai banner peringatan di render phase UJIAN.
+    })
 
     function onFSChange() {
       setIsFS(isFullscreen())
@@ -901,11 +930,16 @@ export default function SiswaUjianPage() {
     setShowSyncFailModal(false)
   }
 
-  function handleKembaliFullscreen() {
-    // Tidak lagi dipakai langsung — digantikan handleVerifikasiResetDariOverlay
+  // FIX: sebelumnya fungsi ini (dulu bernama handleKembaliFullscreen) tidak
+  // pernah dipanggil dari UI manapun — sisa kode lama yang tidak
+  // tersambung, padahal ikon Maximize & state isFS sudah disiapkan untuk ini
+  // tapi tidak pernah dipakai. Sekarang dihubungkan ke tombol retry manual
+  // di banner peringatan (lihat render phase UJIAN di bawah). Dipanggil dari
+  // klik tombol → dalam gesture pengguna, jadi permintaan fullscreen browser
+  // (yang butuh user-activation) punya peluang berhasil lebih tinggi
+  // dibanding percobaan otomatis yang terjadi setelah await/setTimeout.
+  function handleRetryFullscreen() {
     requestFullscreen(document.documentElement).catch(() => {})
-    setShowWarningOverlay(false)
-    setWarningMsg('')
   }
 
   async function handleVerifikasiResetDariOverlay() {
@@ -1593,6 +1627,40 @@ export default function SiswaUjianPage() {
             {syncStatus === 'idle' && 'Belum ada jawaban yang disimpan'}
           </div>
         </div>
+
+        {/* FIX: banner peringatan mode layar penuh gagal aktif — sebelumnya
+            kegagalan requestFullscreen() dibuang diam-diam tanpa jejak apapun
+            ke siswa. Dua kasus dibedakan:
+            - Device/browser TIDAK mendukung sama sekali (mis. Safari di
+              iPhone/iPad) → beri tahu apa adanya, tombol retry tidak
+              ditampilkan karena percuma dan hanya membingungkan siswa.
+            - Device mendukung tapi permintaan otomatis gagal/ditolak →
+              tombol "Coba Lagi" muncul, retry ini terjadi di dalam klik
+              (user gesture) sehingga peluang berhasilnya lebih tinggi
+              dibanding percobaan otomatis. */}
+        {!isFS && (
+          <div className="card py-3 bg-amber-50 border border-amber-200">
+            <div className="flex items-start gap-2.5">
+              <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <p className="text-xs text-amber-700 font-medium">
+                  {fsSupported
+                    ? 'Mode layar penuh belum aktif. Ujian tetap bisa dikerjakan, tapi sebagian proteksi anti-kecurangan tidak berjalan sampai layar penuh aktif.'
+                    : 'Perangkat/browser Anda tidak mendukung mode layar penuh otomatis. Tetap fokus di halaman ujian — pengawas dapat memantau Anda secara manual.'}
+                </p>
+              </div>
+              {fsSupported && (
+                <button
+                  onClick={handleRetryFullscreen}
+                  className="btn-sm bg-amber-600 text-white hover:bg-amber-700 font-semibold flex-shrink-0"
+                >
+                  <Maximize className="w-3.5 h-3.5" />
+                  Coba Lagi
+                </button>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Navigator */}
         <div className="card py-3">
