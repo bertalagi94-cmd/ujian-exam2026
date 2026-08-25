@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { BookOpen, Clock, AlertTriangle, CheckCircle, ChevronLeft, ChevronRight, Send, Maximize, KeyRound, LogOut, RefreshCw, Calendar, CheckCircle2 } from 'lucide-react'
 import { apiRequest } from '@/lib/utils'
+import { startExamLock, endExamLock } from '@/lib/exam-lock'
 import { Soal } from '@/types'
 import { Confirm, Spinner } from '@/components/ui'
 
@@ -299,6 +300,15 @@ export default function SiswaUjianPage() {
       // dan itulah yang dipakai banner peringatan di render phase UJIAN.
     })
 
+    // FIX (APK Android): Fullscreen API web di atas TIDAK bisa diandalkan di
+    // dalam WebView Android (WebView tidak otomatis mendukungnya tanpa
+    // WebChromeClient khusus, dan biarpun berhasil, tombol Home/Recent Apps
+    // tetap bisa dipencet siswa kapan pun — beda dengan proteksi native).
+    // startExamLock() adalah no-op total kalau ini dibuka lewat browser
+    // biasa (bukan APK), jadi baris ini aman ditambahkan di sini tanpa
+    // memengaruhi pengguna web sama sekali. Lihat src/lib/exam-lock.ts.
+    startExamLock()
+
     function onFSChange() {
       setIsFS(isFullscreen())
     }
@@ -457,6 +467,12 @@ export default function SiswaUjianPage() {
   useEffect(() => {
     if ((phase === 'SELESAI' || phase === 'RESET_KODE' || phase === 'CEK_JADWAL' || phase === 'PERSIAPAN') && isFullscreen()) {
       exitFullscreen().catch(() => {})
+    }
+    // FIX (APK Android): lepas screen pinning + immersive mode begitu ujian
+    // benar-benar selesai/keluar dari fase mengerjakan soal. Sama seperti
+    // startExamLock(), ini no-op aman kalau bukan APK Android.
+    if (phase === 'SELESAI' || phase === 'RESET_KODE' || phase === 'CEK_JADWAL' || phase === 'PERSIAPAN') {
+      endExamLock()
     }
   }, [phase])
 
@@ -940,6 +956,11 @@ export default function SiswaUjianPage() {
   // dibanding percobaan otomatis yang terjadi setelah await/setTimeout.
   function handleRetryFullscreen() {
     requestFullscreen(document.documentElement).catch(() => {})
+    // FIX (APK Android): phase sudah 'UJIAN' di titik ini sehingga useEffect
+    // berbasis [phase] tidak akan terpicu ulang — panggil eksplisit di sini
+    // supaya tombol retry manual juga mencoba lagi lock native (screen
+    // pinning), bukan cuma Fullscreen API web. No-op aman di luar APK.
+    startExamLock()
   }
 
   async function handleVerifikasiResetDariOverlay() {
@@ -966,6 +987,12 @@ export default function SiswaUjianPage() {
       setWarningMsg('')
       pelanggaranActiveRef.current = false
       requestFullscreen(document.documentElement).catch(() => {})
+      // FIX (APK Android): momen paling penting untuk re-lock — ini titik di
+      // mana siswa baru saja diverifikasi pengawas setelah pelanggaran
+      // (mis. sempat keluar app / screen pinning terlepas). phase tetap
+      // 'UJIAN' sepanjang alur ini jadi useEffect [phase] tidak refire,
+      // sehingga perlu dipanggil eksplisit di sini. No-op aman di luar APK.
+      startExamLock()
 
       // FIX BUG #2 (lanjutan): begitu waktu habis, timer 1-detik menghentikan
       // dirinya sendiri (lihat efek timer di atas) dan tidak akan pernah tick
