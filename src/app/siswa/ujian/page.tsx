@@ -500,15 +500,47 @@ export default function SiswaUjianPage() {
   useEffect(() => {
     if (phase !== 'UJIAN') return
     timerRef.current = setInterval(() => {
-      setSisaWaktu(prev => {
-        if (prev <= 1) {
+      // FIX BUG #1 (timer lokal tidak resync ke server): sebelumnya tick ini
+      // hanya mengurangi counter lokal (`prev - 1`) setiap 1 detik dan TIDAK
+      // PERNAH dihitung ulang dari referensi waktu server selama ujian
+      // berjalan. Kalau tab di-throttle / laptop sleep (browser modern bisa
+      // menahan setInterval di background tab selama beberapa menit), detik
+      // yang "hilang" itu tidak pernah dikoreksi — tampilan sisa waktu siswa
+      // jadi lebih besar dari kenyataan, sementara server (yang menghitung
+      // dari waktu_mulai_awal + durasi, lihat /api/siswa/ujian/selesai)
+      // sudah menganggap waktu habis duluan → auto-submit ditolak 409.
+      //
+      // FIX: setiap tick, hitung ULANG sisa waktu dari referensi absolut
+      // sesiInfo.waktu_mulai (= waktu_mulai_awal dari server, nilai yang
+      // sama dipakai saat ujian pertama dibuka di baris ~648 dan tidak
+      // pernah berubah walau siswa di-reset). setInterval jadi cuma pemicu
+      // "kapan render ulang", BUKAN sumber kebenaran sisa waktu — jadi walau
+      // tab di-throttle dan beberapa tick terlewat/telat, begitu tab aktif
+      // lagi angkanya langsung benar tanpa perlu menunggu resync jaringan,
+      // dan tidak akan pernah menyimpang dari perhitungan server.
+      const currentSesi = sesiInfoRef.current
+      if (currentSesi?.waktu_mulai && currentSesi.durasi) {
+        const terpakaiDetik = Math.floor((Date.now() - new Date(currentSesi.waktu_mulai).getTime()) / 1000)
+        const sisaBaru = Math.max(0, currentSesi.durasi * 60 - terpakaiDetik)
+        setSisaWaktu(sisaBaru)
+        setWaktuTerpakai(terpakaiDetik)
+        if (sisaBaru <= 0) {
           clearInterval(timerRef.current!)
           setTimeout(() => handleSelesai(true), 0)
-          return 0
         }
-        return prev - 1
-      })
-      setWaktuTerpakai(prev => prev + 1)
+      } else {
+        // Fallback (seharusnya tidak terjadi selama phase UJIAN, tapi
+        // dijaga supaya UI tidak macet total kalau sesiInfo belum terisi).
+        setSisaWaktu(prev => {
+          if (prev <= 1) {
+            clearInterval(timerRef.current!)
+            setTimeout(() => handleSelesai(true), 0)
+            return 0
+          }
+          return prev - 1
+        })
+        setWaktuTerpakai(prev => prev + 1)
+      }
     }, 1000)
     return () => clearInterval(timerRef.current!)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -530,7 +562,7 @@ export default function SiswaUjianPage() {
   // bukan asumsi "fetch tidak error = semua tersimpan". Pemanggil (terutama
   // handleSelesai) WAJIB memeriksa nilai ini sebelum menganggap ujian selesai.
   const MAX_SYNC_RETRY = 4
-  const syncJawaban = useCallback(async (): Promise<{ ok: boolean; totalSynced: number; sesiClosed?: boolean }> => {
+  const syncJawaban = useCallback(async (): Promise<{ ok: boolean; totalSynced: number; sesiClosed?: boolean; locked?: boolean }> => {
     const currentSesi = sesiInfoRef.current
     const currentJawaban = jawabanRef.current
     if (!currentSesi) return { ok: true, totalSynced: 0 }
@@ -565,6 +597,20 @@ export default function SiswaUjianPage() {
             ? 'Sesi Anda diambil alih perangkat lain.'
             : 'Sesi ujian sudah ditutup oleh pengawas.')
           return { ok: false, totalSynced: 0, sesiClosed: !isTakeover }
+        }
+        // FIX BUG #2 (modal sync-fail menimpa input kode reset): server
+        // mengembalikan 403 saat siswa_ujian.status = RESET/TERKUNCI (lihat
+        // /api/siswa/ujian/sync). Sebelumnya status ini TIDAK ditangani
+        // khusus di sini, jadi kode di bawah mengulang percobaan 3x tanpa
+        // guna (403 tidak akan pernah berhasil selama status belum berubah)
+        // lalu jatuh ke pesan generik "Koneksi tidak stabil" — yang di
+        // pemanggil (handleSelesai) memicu showSyncFailModal menimpa overlay
+        // RESET yang sedang menampilkan input kode 7 digit. Sekarang
+        // dikenali secara eksplisit dan langsung dihentikan tanpa retry.
+        if (status === 403) {
+          setSyncStatus('error')
+          setSyncErrorMsg('Akses ujian Anda sedang dikunci/menunggu kode reset dari pengawas.')
+          return { ok: false, totalSynced: 0, locked: true }
         }
         if (attempt < MAX_SYNC_RETRY) {
           // Backoff bertahap: 1.5s, 3s, 4.5s — beri waktu jaringan/server pulih
@@ -766,13 +812,30 @@ export default function SiswaUjianPage() {
     let verified = false
     let totalSynced = 0
     let sesiClosedDuringSync = false
+    let lockedDuringSync = false
     for (let round = 1; round <= MAX_VERIFY_ROUNDS; round++) {
       const result = await syncJawaban()
       totalSynced = result.totalSynced
       if (result.ok && totalSynced >= expectedCount) { verified = true; break }
       if (result.sesiClosed) { sesiClosedDuringSync = true; setSesiDitutupPaksa(true); break }
+      if (result.locked) { lockedDuringSync = true; break } // FIX BUG #2 — lihat catatan di bawah
       if (dipaksaPengawas) break // jangan ulangi percobaan yang sudah pasti gagal
       if (round < MAX_VERIFY_ROUNDS) await new Promise(r => setTimeout(r, 2000))
+    }
+
+    // FIX BUG #2 (modal sync-fail menimpa input kode reset): kalau siswa
+    // sedang RESET/TERKUNCI, overlay pelanggaran (showWarningOverlay, atau
+    // layar `dikeluarkan` untuk TERKUNCI) SUDAH tampil dan sudah menjelaskan
+    // situasi + menyediakan input kode reset. JANGAN panggil
+    // setShowSyncFailModal di sini — dulu ini menimpa overlay tsb (sama-sama
+    // z-[9999], keduanya dirender bersamaan) sehingga input kode reset tidak
+    // bisa diakses sama sekali. Cukup hentikan percobaan submit untuk saat
+    // ini; timer tetap jalan (tidak di-clear) dan tick berikutnya akan
+    // otomatis mencoba lagi — begitu siswa memasukkan kode reset yang valid,
+    // percobaan submit berikutnya akan berhasil seperti biasa.
+    if (lockedDuringSync) {
+      setSubmitting(false)
+      return
     }
 
     if (!verified && !dipaksaPengawas && !sesiClosedDuringSync) {
@@ -857,9 +920,11 @@ export default function SiswaUjianPage() {
       })
       if (!res.valid) { setKodeResetError(res.message ?? 'Kode tidak valid'); return }
       // FIX: hitung sisa waktu dari waktu_mulai_awal (bukan dari sekarang)
+      let sisaSetelahReset = currentSesi.durasi * 60
       if (res.waktu_mulai) {
         const terpakai = Math.floor((Date.now() - new Date(res.waktu_mulai).getTime()) / 1000)
-        setSisaWaktu(Math.max(0, currentSesi.durasi * 60 - terpakai))
+        sisaSetelahReset = Math.max(0, currentSesi.durasi * 60 - terpakai)
+        setSisaWaktu(sisaSetelahReset)
       }
       setKodeReset('')
       setKodeResetError('')
@@ -867,6 +932,17 @@ export default function SiswaUjianPage() {
       setWarningMsg('')
       pelanggaranActiveRef.current = false
       requestFullscreen(document.documentElement).catch(() => {})
+
+      // FIX BUG #2 (lanjutan): begitu waktu habis, timer 1-detik menghentikan
+      // dirinya sendiri (lihat efek timer di atas) dan tidak akan pernah tick
+      // lagi hanya karena overlay ini ditutup — jadi kalau siswa BARU selesai
+      // memasukkan kode reset SETELAH deadline lewat (skenario yang memicu
+      // bug ini: waktu habis saat overlay RESET masih menutupi layar),
+      // percobaan submit yang tadinya diblokir (lihat handleSelesai/`locked`)
+      // tidak akan pernah diulang otomatis. Picu ulang di sini secara eksplisit.
+      if (sisaSetelahReset <= 0) {
+        setTimeout(() => handleSelesai(true), 0)
+      }
     } catch (err: unknown) {
       setKodeResetError(err instanceof Error ? err.message : 'Gagal memverifikasi kode')
     } finally { setKodeResetLoading(false) }
@@ -1623,7 +1699,7 @@ export default function SiswaUjianPage() {
             cocok dengan jumlah yang dijawab siswa secara lokal. Ujian TIDAK
             dinilai sampai ini terselesaikan — supaya kasus "sebagian jawaban
             tidak sampai ke server lalu terhitung salah" tidak terjadi lagi. */}
-        {showSyncFailModal && (
+        {showSyncFailModal && !showWarningOverlay && (
           <div
             className="fixed inset-0 z-[9999] flex flex-col items-center justify-center p-4"
             style={{ background: 'rgba(15,23,42,0.97)' }}
