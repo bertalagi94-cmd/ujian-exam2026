@@ -47,6 +47,7 @@ export default function GuruKisiKisiPage() {
   const [preview, setPreview] = useState<KisiKisi | null>(null)
   const [editing, setEditing] = useState<KisiKisi | null>(null)
   const [error, setError] = useState('')
+  const [scopeWarning, setScopeWarning] = useState('')
   const [successMsg, setSuccessMsg] = useState('')
 
   // Form state
@@ -60,10 +61,11 @@ export default function GuruKisiKisiPage() {
     setLoading(true)
     try {
       const [kisiRes, mapelRes] = await Promise.all([
-        apiRequest<{ data: KisiKisi[] }>('/api/guru/kisi-kisi'),
+        apiRequest<{ data: KisiKisi[]; scopeWarning?: string }>('/api/guru/kisi-kisi'),
         apiRequest<{ data: MapelAmpu[] }>('/api/guru/kisi-kisi/mapel-ampu'),
       ])
       setKisiList(kisiRes.data ?? [])
+      setScopeWarning(kisiRes.scopeWarning ?? '')
       setMapelAmpu(mapelRes.data ?? [])
     } catch {
       setError('Gagal memuat data')
@@ -451,6 +453,9 @@ export default function GuruKisiKisiPage() {
       )}
       {error && (
         <div className="mb-4 p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm">{error}</div>
+      )}
+      {scopeWarning && (
+        <div className="mb-4 p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-700 text-sm">{scopeWarning}</div>
       )}
 
       {loading ? (
