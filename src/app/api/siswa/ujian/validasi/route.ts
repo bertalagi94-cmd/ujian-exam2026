@@ -99,14 +99,37 @@ export async function POST(req: NextRequest) {
 
   const isNewEntry = !siswaUjian
 
-  // Ambil soal TANPA field kunci dan pembahasan (keamanan)
-  let soalQuery = db
+  // FIX (soal lintas kelas): dulu, kalau tidak ada paket_soal yang DISETUJUI
+  // untuk kombinasi mapel_id+kelas_id siswa ini (paketData null — misalnya
+  // karena baris `kelas` duplikat namanya sehingga lookup kelasId di atas
+  // gagal, atau memang belum ada paket disetujui untuk kelas ini), query
+  // soal di bawah jatuh ke fallback yang HANYA difilter mapel_id+status —
+  // TANPA paket_id/kelas_id sama sekali. Siswa jadi bisa menerima campuran
+  // semua soal DISETUJUI milik mapel ini dari paket KELAS LAIN, dan
+  // penilaian di /api/siswa/ujian/selesai bisa salah karena soal_id yang
+  // dijawab tidak akan cocok dengan kunciMap paket yang benar (paket itu
+  // dihitung berdasarkan kelasId, bukan dari soal yang benar-benar
+  // ditampilkan ke siswa).
+  //
+  // FIX: kalau tidak ada paket yang disetujui untuk kelas siswa, HENTIKAN
+  // di sini dengan pesan yang jelas. Jangan pernah query tabel `soal` tanpa
+  // filter paket_id ketika paketData tidak ada — siswa tidak didaftarkan
+  // (siswa_ujian) dan tidak diberi soal apa pun dari kelas lain.
+  if (!paketData) {
+    return NextResponse.json({
+      valid: false,
+      message: 'Belum ada paket soal yang disetujui untuk kelas Anda pada mata pelajaran ini. Hubungi guru pengampu atau admin.',
+    })
+  }
+
+  // Ambil soal TANPA field kunci dan pembahasan (keamanan) — selalu
+  // di-scope ke paket_id yang sudah dipastikan milik kelas siswa di atas.
+  const soalQuery = db
     .from('soal')
     .select('id, paket_id, mapel_id, teks, opsi_a, opsi_b, opsi_c, opsi_d, opsi_e, jumlah_opsi, gambar_pertanyaan, gambar_opsi_a, gambar_opsi_b, gambar_opsi_c, gambar_opsi_d, gambar_opsi_e, status')
     .eq('mapel_id', sesi.mapel_id)
     .eq('status', 'DISETUJUI')
-
-  if (paketData) soalQuery = soalQuery.eq('paket_id', paketData.id)
+    .eq('paket_id', paketData.id)
 
   const now = new Date().toISOString()
 
