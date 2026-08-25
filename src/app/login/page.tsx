@@ -21,6 +21,7 @@ interface UjianBerlangsung {
   id: string
   mapel: string
   kelas: string
+  sekolah: string
   pengawas: string
   waktu_mulai: string
 }
@@ -32,12 +33,14 @@ interface JadwalItem {
   jam: string
   mapel: string
   kelas: string
+  sekolah: string
   status: string
   isToday: boolean
 }
 
 interface JuaraItem {
   kelas: string
+  sekolah: string
   nama_siswa: string
   nilai_rata: number
 }
@@ -1510,6 +1513,11 @@ export default function LoginPage() {
                                     <span className="flex items-center gap-1 text-xs text-slate-500">
                                       <GraduationCap className="w-3 h-3" /> Kelas {u.kelas}
                                     </span>
+                                    {u.sekolah && u.sekolah !== '-' && (
+                                      <span className="px-1.5 py-0.5 rounded-md bg-emerald-100 text-emerald-700 text-[10px] font-semibold">
+                                        {u.sekolah}
+                                      </span>
+                                    )}
                                     <span className="flex items-center gap-1 text-xs text-slate-500">
                                       <Users className="w-3 h-3" /> Pengawas: <span className="font-medium text-slate-700 ml-1">{u.pengawas}</span>
                                     </span>
@@ -1565,6 +1573,11 @@ export default function LoginPage() {
                                           <span className="flex items-center gap-1 text-xs text-slate-500">
                                             <GraduationCap className="w-3 h-3" /> Kelas {j.kelas}
                                           </span>
+                                          {j.sekolah && j.sekolah !== '-' && (
+                                            <span className="px-1.5 py-0.5 rounded-md bg-blue-100 text-blue-700 text-[10px] font-semibold">
+                                              {j.sekolah}
+                                            </span>
+                                          )}
                                           <span className="flex items-center gap-1 text-xs text-slate-500">
                                             <Clock className="w-3 h-3" /> {j.jam}
                                           </span>
@@ -1617,8 +1630,13 @@ export default function LoginPage() {
                               </div>
                               <div className="flex-1 min-w-0">
                                 <p className="font-bold text-slate-900 text-sm">{j.nama_siswa}</p>
-                                <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1">
-                                  <GraduationCap className="w-3 h-3" /> Kelas {j.kelas}
+                                <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1.5">
+                                  <span className="flex items-center gap-1"><GraduationCap className="w-3 h-3" /> Kelas {j.kelas}</span>
+                                  {j.sekolah && j.sekolah !== '-' && (
+                                    <span className="px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-700 text-[10px] font-semibold">
+                                      {j.sekolah}
+                                    </span>
+                                  )}
                                 </p>
                               </div>
                               <div className="text-right flex-shrink-0">
