@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { FileText, Eye, Clock, Users, GraduationCap, ChevronDown } from 'lucide-react'
-import { PageLoader, EmptyState, SearchInput, Modal } from '@/components/ui'
+import { PageLoader, EmptyState, SearchInput, Modal, ScopeWarningBanner } from '@/components/ui'
 import { apiRequest, formatDateTime } from '@/lib/utils'
 
 interface KisiKisi {
@@ -23,6 +23,7 @@ export default function KepsekKisiKisiPage() {
   const [kisiList, setKisiList] = useState<KisiKisi[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [scopeWarning, setScopeWarning] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [filterKelas, setFilterKelas] = useState('')
   const [filterStatus, setFilterStatus] = useState<'' | 'DRAFT' | 'TERKIRIM'>('')
@@ -32,8 +33,9 @@ export default function KepsekKisiKisiPage() {
     setLoading(true)
     setError('')
     try {
-      const res = await apiRequest<{ data: KisiKisi[] }>('/api/kepsek/kisi-kisi')
+      const res = await apiRequest<{ data: KisiKisi[]; scopeWarning?: string }>('/api/kepsek/kisi-kisi')
       setKisiList(res.data ?? [])
+      setScopeWarning(res.scopeWarning ?? null)
     } catch {
       setError('Gagal memuat data kisi-kisi')
     } finally {
@@ -75,13 +77,15 @@ export default function KepsekKisiKisiPage() {
           <FileText className="w-5 h-5 text-purple-600" /> Kisi-kisi
         </h1>
         <p className="text-sm text-slate-500 mt-0.5">
-          Pantau kisi-kisi yang dibuat dan dikirim guru ke siswa, dari semua mapel dan kelas.
+          Pantau kisi-kisi yang dibuat dan dikirim guru ke siswa, dari semua mapel dan kelas di jenjang Anda.
         </p>
       </div>
 
       {error && (
         <div className="mb-4 p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm">{error}</div>
       )}
+
+      {scopeWarning && <ScopeWarningBanner message={scopeWarning} />}
 
       {/* Ringkasan */}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-5">
