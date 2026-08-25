@@ -2,18 +2,51 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 import { generateId } from '@/lib/utils'
+import { getKepsekScope } from '@/lib/kepsek-scope'
 
 // GET /api/guru/kisi-kisi
-// Tampilkan SEMUA kisi-kisi dari semua guru (1 aplikasi = 1 sekolah)
+// Tampilkan kisi-kisi dari semua guru DI SEKOLAH YANG SAMA dengan guru ini.
+//
+// FIX: sebelumnya endpoint ini mengambil SEMUA baris kisi_kisi tanpa
+// filter (komentar lama: "1 aplikasi = 1 sekolah"), jadi guru di satu
+// sekolah ikut melihat kisi-kisi milik guru dari sekolah/jenjang lain.
+// Sekarang dibatasi ke kelas-kelas yang berada di sekolah_id milik guru
+// ini — pola yang sama dengan kepsek/kisi-kisi/route.ts. getKepsekScope
+// di sini dipakai secara generik (hanya membaca users.sekolah_id, tidak
+// bergantung role), bukan berarti guru "meminjam" scope kepsek.
 export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['GURU'])
   if ('error' in auth) return auth.error
   const { user } = auth
   const db = createAdminClient()
 
+  const scope = await getKepsekScope(user.username)
+  if (scope.noScope) {
+    return NextResponse.json({
+      scopeWarning: 'Akun Anda belum diset sekolah/jenjangnya oleh Admin. Hubungi Admin untuk mengatur ini di menu Data Pengguna.',
+      data: [],
+    })
+  }
+  if (scope.kelasList.length === 0) {
+    return NextResponse.json({ data: [] })
+  }
+
+  // kisi_kisi.kelas_id menyimpan ID tabel `kelas`, sedangkan scope di atas
+  // berupa nama kelas — resolve dulu nama → id (sama seperti di kepsek/kisi-kisi).
+  const { data: kelasScopeRows, error: kelasScopeError } = await db
+    .from('kelas')
+    .select('id')
+    .in('nama', scope.kelasList)
+
+  if (kelasScopeError) return NextResponse.json({ error: kelasScopeError.message }, { status: 500 })
+
+  const kelasIdScope = (kelasScopeRows ?? []).map(k => k.id)
+  if (kelasIdScope.length === 0) return NextResponse.json({ data: [] })
+
   const { data: kisiList, error } = await db
     .from('kisi_kisi')
     .select('*')
+    .in('kelas_id', kelasIdScope)
     .order('updated_at', { ascending: false })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
