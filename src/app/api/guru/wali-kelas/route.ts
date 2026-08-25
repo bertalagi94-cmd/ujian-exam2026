@@ -171,19 +171,32 @@ export async function GET(req: NextRequest) {
     const jadwalMapel = (jadwalList ?? []).filter((j: { mapel_id: string }) => j.mapel_id === mapelId)
     const lastJadwal = jadwalMapel[jadwalMapel.length - 1] ?? null
 
-    // Cari nilai untuk mapel ini
+    // Cari nilai untuk mapel ini. Dipakai untuk hitung PARTISIPASI (siapa
+    // sudah/belum ujian) dan progres pengiriman — bukan untuk nilai itu sendiri.
     const nilaiMapel = (nilaiList ?? []).filter((n: { mapel_id: string }) => n.mapel_id === mapelId)
     const sudahUjian = new Set(nilaiMapel.map((n: { nis: string }) => n.nis))
 
     // Siswa yang belum ujian
     const belumUjian = (siswaList ?? []).filter((s: { nis: string }) => !sudahUjian.has(s.nis))
 
-    const rataRata = nilaiMapel.length
-      ? Math.round(nilaiMapel.reduce((s: number, r: { nilai: number }) => s + (r.nilai || 0), 0) / nilaiMapel.length)
+    // FIX BUG #5 (nilai belum resmi dikirim guru tetap bocor ke wali kelas):
+    // sebelumnya rataRata & nilaiList di bawah dihitung dari `nilaiMapel`
+    // TANPA filter dikirim_ke_wali — beda dengan `nilaiRekap` di bawah file
+    // ini yang sudah benar memfilternya. Frontend memakai `nilaiList` untuk
+    // menghitung rata-rata/lulus/tidak-lulus dan MENAMPILKANNYA begitu
+    // jadwal berstatus SELESAI, sebelum guru menekan "Kirim ke Wali Kelas".
+    // Sekarang: nilai (angka/grade/lulus) yang diekspos ke wali kelas HANYA
+    // yang sudah resmi dikirim guru. Info partisipasi (sudahUjian/
+    // belumUjianSiswa/totalNilai/sudahDikirim) tetap dari data lengkap
+    // karena itu bukan nilai — cuma status "sudah ikut ujian atau belum".
+    const nilaiMapelDikirim = nilaiMapel.filter((n: { dikirim_ke_wali: boolean }) => n.dikirim_ke_wali)
+
+    const rataRata = nilaiMapelDikirim.length
+      ? Math.round(nilaiMapelDikirim.reduce((s: number, r: { nilai: number }) => s + (r.nilai || 0), 0) / nilaiMapelDikirim.length)
       : null
 
     // Status pengiriman: berapa sudah dikirim, berapa belum
-    const sudahDikirim = nilaiMapel.filter((n: { dikirim_ke_wali: boolean }) => n.dikirim_ke_wali).length
+    const sudahDikirim = nilaiMapelDikirim.length
     const adaDikembalikan = nilaiMapel.some((n: { dikembalikan: boolean }) => n.dikembalikan)
 
     return {
@@ -194,7 +207,7 @@ export async function GET(req: NextRequest) {
       totalSiswa,
       belumUjianSiswa: belumUjian.map((s: { nis: string; nama: string }) => ({ nis: s.nis, nama: s.nama })),
       rataRata,
-      nilaiList: nilaiMapel,
+      nilaiList: nilaiMapelDikirim,
       // Info pengiriman
       totalNilai: nilaiMapel.length,
       sudahDikirim,
