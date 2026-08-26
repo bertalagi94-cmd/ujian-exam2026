@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { BookOpen, Clock, AlertTriangle, CheckCircle, ChevronLeft, ChevronRight, Send, Maximize, KeyRound, LogOut, RefreshCw, Calendar, CheckCircle2 } from 'lucide-react'
+import Link from 'next/link'
+import { BookOpen, Clock, AlertTriangle, CheckCircle, ChevronLeft, ChevronRight, Send, Maximize, KeyRound, LogOut, RefreshCw, Calendar, CheckCircle2, Home } from 'lucide-react'
 import { apiRequest } from '@/lib/utils'
 import { startExamLock, endExamLock } from '@/lib/exam-lock'
 import { Soal } from '@/types'
@@ -1079,6 +1080,9 @@ export default function SiswaUjianPage() {
                 className="btn-secondary w-full justify-center gap-2">
                 {loadingJadwal ? <Spinner size="sm" /> : <><RefreshCw className="w-4 h-4" /> Cek Ulang Sesi</>}
               </button>
+              <Link href="/siswa" className="btn-secondary w-full justify-center gap-2 mt-2">
+                <Home className="w-4 h-4" /> Kembali ke Beranda
+              </Link>
             </div>
           </div>
         </div>
@@ -1108,6 +1112,9 @@ export default function SiswaUjianPage() {
               className="btn-secondary w-full justify-center gap-2">
               <RefreshCw className="w-4 h-4" /> Refresh
             </button>
+            <Link href="/siswa" className="btn-secondary w-full justify-center gap-2 mt-2">
+              <Home className="w-4 h-4" /> Kembali ke Beranda
+            </Link>
           </div>
         </div>
       )
@@ -1163,6 +1170,9 @@ export default function SiswaUjianPage() {
                 className="btn-primary w-full justify-center gap-2">
                 {loadingJadwal ? <Spinner size="sm" /> : <><RefreshCw className="w-4 h-4" /> Cek Ulang Sesi</>}
               </button>
+              <Link href="/siswa" className="btn-secondary w-full justify-center gap-2 mt-2">
+                <Home className="w-4 h-4" /> Kembali ke Beranda
+              </Link>
             </div>
           </div>
         </div>
