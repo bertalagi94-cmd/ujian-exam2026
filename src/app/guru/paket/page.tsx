@@ -454,14 +454,9 @@ export default function GuruBuatSoalPage() {
             {/* FIX: dropdown "Jumlah Opsi" dihilangkan — jumlah opsi jawaban
                 (4 atau 5) sekarang otomatis mengikuti Pengaturan Ujian di
                 akun Admin, bukan dipilih manual oleh guru per soal. */}
-            <div>
-              <label className="label">Tingkat Kesulitan</label>
-              <select name="tingkat" className="select" defaultValue="Sedang">
-                <option>Mudah</option>
-                <option>Sedang</option>
-                <option>Sulit</option>
-              </select>
-            </div>
+            {/* FIX: dropdown "Tingkat Kesulitan" dihapus — tidak dipakai di mana
+                pun (tidak ditampilkan di halaman Analisis Ujian), jadi hanya
+                menambah langkah tanpa manfaat bagi guru saat membuat soal. */}
 
             <div className="space-y-2">
               <label className="label">Pilihan Jawaban</label>
@@ -777,14 +772,9 @@ export default function GuruBuatSoalPage() {
         {/* FIX: dropdown "Jumlah Opsi" dihilangkan dari edit — jumlah opsi
             soal yang sudah ada tetap mengikuti nilai aslinya saat dibuat,
             karena admin yang menentukan aturan jumlah opsi, bukan guru. */}
-        <div>
-          <label className="label">Tingkat Kesulitan</label>
-          <select name="tingkat" className="select" defaultValue={editSoal.tingkat ?? 'Sedang'}>
-            <option>Mudah</option>
-            <option>Sedang</option>
-            <option>Sulit</option>
-          </select>
-        </div>
+        {/* FIX: dropdown "Tingkat Kesulitan" dihapus — tidak dipakai di mana
+            pun (tidak ditampilkan di halaman Analisis Ujian), jadi hanya
+            menambah langkah tanpa manfaat bagi guru saat mengedit soal. */}
 
         <div className="space-y-2">
           <label className="label">Opsi Jawaban</label>
