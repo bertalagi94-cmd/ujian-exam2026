@@ -335,6 +335,14 @@ interface JadwalCetak {
   jam_mulai: string; jam_selesai: string; durasi: number
   kelas: string; nama_mapel: string; nama_pengawas: string
   siswa: Siswa[]
+  // FIX (bug ditemukan 27 Aug 2026): field ini sebelumnya tidak dideklarasikan
+  // di sini sama sekali, padahal API /api/admin/cetak SELALU mengirim data
+  // sekolah PER-JADWAL (diambil dari kelas masing-masing), bukan satu field
+  // "sekolah" global di root response. Akibatnya kode Cetak Massal salah
+  // ambil dari json.sekolah yang memang tidak pernah ada → selalu {} kosong →
+  // kop surat PDF selalu menampilkan placeholder "NAMA SEKOLAH" / "NPSN: -"
+  // untuk SEMUA jadwal, bukan cuma yang sekolahnya beda.
+  sekolah: Sekolah | null
 }
 interface Sekolah {
   namaSekolah?: string; npsn?: string; alamat?: string
@@ -371,6 +379,10 @@ export default function AdminJadwalPage() {
   const [cetakTanggal, setCetakTanggal] = useState('')
   const [tanggalList, setTanggalList] = useState<string[]>([])
   const [downloadingZip, setDownloadingZip] = useState(false)
+  // FIX (performa Cetak Massal, ditemukan saat audit 27 Aug 2026): dipakai
+  // untuk menampilkan progres "5 dari 15 dokumen" di tombol, supaya admin
+  // tahu proses jalan (bukan macet) saat jadwalnya banyak.
+  const [zipProgress, setZipProgress] = useState<{ done: number; total: number } | null>(null)
   const [soalBelumSiapOpen, setSoalBelumSiapOpen] = useState(false)
   const [resetTolak, setResetTolak] = useState<{ nama: string }[]>([])
   const [resetTolakOpen, setResetTolakOpen] = useState(false)
@@ -585,7 +597,7 @@ export default function AdminJadwalPage() {
     }
   }
   
-  async function generatePDFBlob(j: JadwalCetak, sekolah: Sekolah, mode: 'daftar-hadir' | 'berita-acara'): Promise<Uint8Array> {
+  async function generatePDFBlob(j: JadwalCetak, sekolah: Sekolah, mode: 'daftar-hadir' | 'berita-acara', logoB64Cache: Map<string, string>): Promise<Uint8Array> {
     const { jsPDF } = await import('jspdf')
     const doc = new jsPDF({ unit: 'mm', format: 'a4' })
     const s = sekolah
@@ -594,11 +606,23 @@ export default function AdminJadwalPage() {
 
     if (s.logoUrl) {
       try {
-        const resp = await fetch(s.logoUrl)
-        const blob = await resp.blob()
-        const b64 = await new Promise<string>(res => {
-          const r = new FileReader(); r.onload = () => res((r.result as string).split(',')[1]); r.readAsDataURL(blob)
-        })
+        // FIX (performa, ditemukan saat audit 27 Aug 2026): sebelumnya logo
+        // di-fetch ulang dari network SETIAP kali fungsi ini dipanggil —
+        // untuk "Cetak Massal" dengan banyak jadwal (mis. 15 jadwal x 2 jenis
+        // dokumen = 30 kali), logo sekolah yang SAMA persis didownload
+        // berulang 30 kali padahal cukup sekali. Sekarang di-cache per URL
+        // (Map dibuat sekali di handleDownloadZip, dibagikan ke semua
+        // pemanggilan fungsi ini) — logo yang sama hanya di-fetch sekali
+        // walau dipakai di puluhan dokumen sekaligus.
+        let b64 = logoB64Cache.get(s.logoUrl)
+        if (!b64) {
+          const resp = await fetch(s.logoUrl)
+          const blob = await resp.blob()
+          b64 = await new Promise<string>(res => {
+            const r = new FileReader(); r.onload = () => res((r.result as string).split(',')[1]); r.readAsDataURL(blob)
+          })
+          logoB64Cache.set(s.logoUrl, b64)
+        }
         doc.addImage(b64, 'PNG', lm, top, 18, 18)
       } catch { /* skip */ }
     }
@@ -747,6 +771,7 @@ export default function AdminJadwalPage() {
   async function handleDownloadZip() {
     if (!cetakTanggal || (!cetakMode.daftarHadir && !cetakMode.beritaAcara)) return
     setDownloadingZip(true)
+    setZipProgress(null)
     try {
       const token = localStorage.getItem('token')
       const res = await fetch(`/api/admin/cetak?tanggal=${cetakTanggal}`, {
@@ -754,7 +779,12 @@ export default function AdminJadwalPage() {
       })
       const json = await res.json()
       const jadwalList: JadwalCetak[] = json.data ?? []
-      const sekolah: Sekolah = json.sekolah ?? {}
+      // FIX (bug ditemukan 27 Aug 2026): baris `json.sekolah ?? {}` DIHAPUS —
+      // itu selalu {} kosong karena API tidak pernah mengirim field itu.
+      // Sekarang setiap jadwal pakai j.sekolah miliknya sendiri (lihat loop
+      // di bawah), sesuai kelas masing-masing — benar walau ada banyak
+      // sekolah berbeda di satu hari yang sama, dan tetap benar kalau cuma
+      // ada satu sekolah.
 
       const { default: JSZip } = await import('jszip')
       const zip = new JSZip()
@@ -763,15 +793,44 @@ export default function AdminJadwalPage() {
       if (cetakMode.daftarHadir) modes.push('daftar-hadir')
       if (cetakMode.beritaAcara) modes.push('berita-acara')
 
+      // FIX (performa, ditemukan saat audit 27 Aug 2026): cache logo per URL
+      // supaya logo yang sama tidak di-download ulang untuk setiap dokumen —
+      // lihat komentar detail di generatePDFBlob.
+      const logoB64Cache = new Map<string, string>()
+
+      const totalDokumen = jadwalList.length * modes.length
+      let selesai = 0
+      const kelasTanpaSekolah: string[] = []
+
       for (const j of jadwalList) {
+        // FIX: kalau kelas ini belum diatur sekolahnya (j.sekolah null),
+        // JANGAN diam-diam bikin PDF dengan kop placeholder "NAMA SEKOLAH" —
+        // dokumen resmi seperti ini tidak boleh terbit dengan kop kosong.
+        // Lewati, catat nama kelasnya, beri tahu admin setelah proses selesai.
+        if (!j.sekolah) {
+          if (!kelasTanpaSekolah.includes(j.kelas)) kelasTanpaSekolah.push(j.kelas)
+          selesai += modes.length
+          setZipProgress({ done: selesai, total: totalDokumen })
+          continue
+        }
+
         const kelas = j.kelas.replace(/[^a-zA-Z0-9]/g, '_')
         const mapel = j.nama_mapel.replace(/[^a-zA-Z0-9]/g, '_')
         const sesi = `Sesi${j.sesi}`
         for (const mode of modes) {
-          const pdfBytes = await generatePDFBlob(j, sekolah, mode)
+          const pdfBytes = await generatePDFBlob(j, j.sekolah, mode, logoB64Cache)
           const label = mode === 'daftar-hadir' ? 'DaftarHadir' : 'BeritaAcara'
           zip.file(`${label}_${kelas}_${mapel}_${sesi}.pdf`, pdfBytes)
+          selesai += 1
+          setZipProgress({ done: selesai, total: totalDokumen })
         }
+      }
+
+      if (kelasTanpaSekolah.length > 0) {
+        showToast(
+          `Kelas ${kelasTanpaSekolah.join(', ')} dilewati (belum diatur sekolahnya). Atur di menu Data Kelas → Edit.`,
+          'error'
+        )
       }
 
       const zipBlob = await zip.generateAsync({ type: 'blob' })
@@ -786,6 +845,7 @@ export default function AdminJadwalPage() {
       showToast(err instanceof Error ? err.message : 'Gagal membuat ZIP', 'error')
     } finally {
       setDownloadingZip(false)
+      setZipProgress(null)
     }
   }
 
@@ -1032,7 +1092,9 @@ export default function AdminJadwalPage() {
             <button onClick={handleDownloadZip} className="btn-primary"
               disabled={!cetakTanggal || (!cetakMode.daftarHadir && !cetakMode.beritaAcara) || downloadingZip}>
               {downloadingZip ? <Spinner size="sm" /> : <PackageOpen className="w-4 h-4" />}
-              {downloadingZip ? 'Membuat ZIP...' : 'Download ZIP'}
+              {downloadingZip
+                ? (zipProgress ? `Membuat ZIP... (${zipProgress.done}/${zipProgress.total})` : 'Membuat ZIP...')
+                : 'Download ZIP'}
             </button>
           </>
         }
