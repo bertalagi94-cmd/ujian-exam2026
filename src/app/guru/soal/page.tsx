@@ -76,20 +76,15 @@ function EditSoalForm({
       {/* FIX: dropdown "Jumlah Opsi" dihilangkan dari sini — jumlah opsi
           jawaban (4 atau 5) sekarang sepenuhnya ditentukan otomatis dari
           Pengaturan Ujian di akun Admin, bukan dipilih manual per soal oleh guru. */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div>
-          <label className="label">Tingkat Kesulitan</label>
-          <select name="tingkat" className="select" defaultValue={soal.tingkat ?? 'Sedang'}>
-            <option>Mudah</option><option>Sedang</option><option>Sulit</option>
-          </select>
-        </div>
-        <div>
-          <label className="label">Kunci Jawaban *</label>
-          <select name="kunci" className="select" required defaultValue={soal.kunci ?? ''}>
-            {!soal.kunci && <option value="" disabled>Pilih Kunci Jawaban</option>}
-            {opsiLabels.slice(0, jumlahOpsi).map(l => <option key={l} value={l}>{l}</option>)}
-          </select>
-        </div>
+      {/* FIX: dropdown "Tingkat Kesulitan" dihapus — tidak dipakai di mana pun
+          (tidak ditampilkan di halaman Analisis Ujian), jadi hanya menambah
+          langkah tanpa manfaat bagi guru saat membuat soal. */}
+      <div>
+        <label className="label">Kunci Jawaban *</label>
+        <select name="kunci" className="select" required defaultValue={soal.kunci ?? ''}>
+          {!soal.kunci && <option value="" disabled>Pilih Kunci Jawaban</option>}
+          {opsiLabels.slice(0, jumlahOpsi).map(l => <option key={l} value={l}>{l}</option>)}
+        </select>
       </div>
 
       <div className="space-y-2">
@@ -235,20 +230,15 @@ function TambahSoalForm({
         {/* FIX: dropdown "Jumlah Opsi" dihilangkan — jumlah opsi jawaban
             (4 atau 5) sekarang otomatis mengikuti Pengaturan Ujian di akun
             Admin, bukan dipilih manual oleh guru per soal. */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label className="label">Tingkat Kesulitan</label>
-            <select name="tingkat" className="select" defaultValue="Sedang">
-              <option>Mudah</option><option>Sedang</option><option>Sulit</option>
-            </select>
-          </div>
-          <div>
-            <label className="label">Kunci Jawaban *</label>
-            <select name="kunci" className="select" required defaultValue="">
-              <option value="" disabled>Pilih Kunci Jawaban</option>
-              {opsiLabels.slice(0, jumlahOpsi).map(l => <option key={l} value={l}>{l}</option>)}
-            </select>
-          </div>
+        {/* FIX: dropdown "Tingkat Kesulitan" dihapus — tidak dipakai di mana pun
+            (tidak ditampilkan di halaman Analisis Ujian), jadi hanya menambah
+            langkah tanpa manfaat bagi guru saat membuat soal. */}
+        <div>
+          <label className="label">Kunci Jawaban *</label>
+          <select name="kunci" className="select" required defaultValue="">
+            <option value="" disabled>Pilih Kunci Jawaban</option>
+            {opsiLabels.slice(0, jumlahOpsi).map(l => <option key={l} value={l}>{l}</option>)}
+          </select>
         </div>
         <div className="space-y-2">
           <label className="label">Pilihan Jawaban</label>
