@@ -19,7 +19,7 @@ async function fetchDashboardData() {
     { data: recentNilai },
   ] = await Promise.all([
     db.from('siswa').select('*', { count: 'exact', head: true }).eq('status', 'AKTIF').neq('is_tester', 'YES'),
-    db.from('users').select('*', { count: 'exact', head: true }).eq('status', 'AKTIF').neq('is_tester', 'YES'),
+    db.from('users').select('*', { count: 'exact', head: true }).eq('status', 'AKTIF').eq('role', 'GURU').neq('is_tester', 'YES'),
     db.from('soal').select('*', { count: 'exact', head: true }).eq('status', 'DISETUJUI'),
     db.from('nilai').select('*', { count: 'exact', head: true }),
     db.from('mapel').select('*', { count: 'exact', head: true }),
