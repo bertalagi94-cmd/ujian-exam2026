@@ -1,8 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import Link from 'next/link'
-import { BookOpen, Clock, AlertTriangle, CheckCircle, ChevronLeft, ChevronRight, Send, Maximize, KeyRound, LogOut, RefreshCw, Calendar, CheckCircle2, Home } from 'lucide-react'
+import { BookOpen, Clock, AlertTriangle, CheckCircle, ChevronLeft, ChevronRight, Send, Maximize, KeyRound, LogOut, RefreshCw, Calendar, CheckCircle2 } from 'lucide-react'
 import { apiRequest } from '@/lib/utils'
 import { startExamLock, endExamLock } from '@/lib/exam-lock'
 import { Soal } from '@/types'
@@ -538,6 +537,33 @@ export default function SiswaUjianPage() {
     sesiPollRef.current = setInterval(cekStatusSesi, 10000)
     return () => clearInterval(sesiPollRef.current!)
   }, [phase, cekStatusSesi])
+
+  // FIX: sebelumnya, begitu siswa masuk fase RESET_KODE (layar "minta kode
+  // 7 digit ke pengawas"), TIDAK ADA polling status sama sekali — cekStatusSesi
+  // di atas cuma jalan kalau phase === 'UJIAN'. Akibatnya kalau pengawas
+  // memutuskan mengunci PERMANEN (status TERKUNCI) alih-alih memberi kode,
+  // siswa tetap terpaku di layar "menunggu kode reset" tanpa batas waktu —
+  // form isi kode itu tidak akan pernah berhasil lagi, tapi tidak ada yang
+  // memberi tahu siswa selain kalau mereka coba masukkan sesuatu sendiri.
+  // Polling ringan di bawah mengecek status setiap 10 detik SELAMA di
+  // layar ini, dan begitu terdeteksi TERKUNCI, langsung alihkan ke layar
+  // "Ujian Dihentikan" (dikeluarkan) alih-alih membiarkan form kode
+  // menggantung percuma.
+  useEffect(() => {
+    if (phase !== 'RESET_KODE' || !pendingResetSesiId) return
+    const cekStatusResetKode = async () => {
+      try {
+        const res = await apiRequest<{ siswa_status?: string }>(
+          `/api/siswa/ujian/cek-sesi?sesiId=${pendingResetSesiId}&deviceId=${getDeviceId()}`
+        )
+        if (res?.siswa_status === 'TERKUNCI') {
+          setDikeluarkan(true)
+        }
+      } catch { /* silent — dicoba lagi 10 detik berikutnya */ }
+    }
+    const interval = setInterval(cekStatusResetKode, 10000)
+    return () => clearInterval(interval)
+  }, [phase, pendingResetSesiId])
 
   // ── Timer ─────────────────────────────────────────────────────────────────
   const sisaWaktuRef = useRef(0)
@@ -1080,9 +1106,6 @@ export default function SiswaUjianPage() {
                 className="btn-secondary w-full justify-center gap-2">
                 {loadingJadwal ? <Spinner size="sm" /> : <><RefreshCw className="w-4 h-4" /> Cek Ulang Sesi</>}
               </button>
-              <Link href="/siswa" className="btn-secondary w-full justify-center gap-2 mt-2">
-                <Home className="w-4 h-4" /> Kembali ke Beranda
-              </Link>
             </div>
           </div>
         </div>
@@ -1112,9 +1135,6 @@ export default function SiswaUjianPage() {
               className="btn-secondary w-full justify-center gap-2">
               <RefreshCw className="w-4 h-4" /> Refresh
             </button>
-            <Link href="/siswa" className="btn-secondary w-full justify-center gap-2 mt-2">
-              <Home className="w-4 h-4" /> Kembali ke Beranda
-            </Link>
           </div>
         </div>
       )
@@ -1170,9 +1190,6 @@ export default function SiswaUjianPage() {
                 className="btn-primary w-full justify-center gap-2">
                 {loadingJadwal ? <Spinner size="sm" /> : <><RefreshCw className="w-4 h-4" /> Cek Ulang Sesi</>}
               </button>
-              <Link href="/siswa" className="btn-secondary w-full justify-center gap-2 mt-2">
-                <Home className="w-4 h-4" /> Kembali ke Beranda
-              </Link>
             </div>
           </div>
         </div>
