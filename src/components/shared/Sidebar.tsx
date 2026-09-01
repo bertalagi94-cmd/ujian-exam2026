@@ -86,7 +86,11 @@ function SidebarContent({ navItems, roleColor, roleLabel, accent, user, onClose,
               key={item.href}
               href={item.href}
               onClick={onClose}
-              className={cn('nav-link group', !isActive && 'nav-link-inactive')}
+              className={cn(
+                'nav-link group',
+                isActive && 'nav-link-active-zoom',
+                !isActive && 'nav-link-inactive'
+              )}
               style={isActive ? {
                 background: `linear-gradient(135deg, ${accent}E6, ${accent}CC)`,
                 color: '#ffffff',
