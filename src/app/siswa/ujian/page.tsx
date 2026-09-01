@@ -1102,10 +1102,16 @@ export default function SiswaUjianPage() {
               <p className="text-xs text-slate-400 mb-3 text-center">
                 Jika ada sesi susulan yang dibuka pengawas, tekan tombol di bawah untuk memperbarui.
               </p>
-              <button onClick={handleRefreshJadwal} disabled={loadingJadwal}
-                className="btn-secondary w-full justify-center gap-2">
-                {loadingJadwal ? <Spinner size="sm" /> : <><RefreshCw className="w-4 h-4" /> Cek Ulang Sesi</>}
-              </button>
+              <div className="flex gap-2">
+                <button onClick={() => window.location.href = '/siswa'}
+                  className="btn-secondary flex-1 justify-center gap-2">
+                  Kembali ke Beranda
+                </button>
+                <button onClick={handleRefreshJadwal} disabled={loadingJadwal}
+                  className="btn-primary flex-1 justify-center gap-2">
+                  {loadingJadwal ? <Spinner size="sm" /> : <><RefreshCw className="w-4 h-4" /> Cek Ulang Sesi</>}
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1131,10 +1137,16 @@ export default function SiswaUjianPage() {
                 </p>
               </div>
             )}
-            <button onClick={handleRefreshJadwal} disabled={loadingJadwal}
-              className="btn-secondary w-full justify-center gap-2">
-              <RefreshCw className="w-4 h-4" /> Refresh
-            </button>
+            <div className="flex gap-2">
+              <button onClick={() => window.location.href = '/siswa'}
+                className="btn-secondary flex-1 justify-center gap-2">
+                Kembali ke Beranda
+              </button>
+              <button onClick={handleRefreshJadwal} disabled={loadingJadwal}
+                className="btn-primary flex-1 justify-center gap-2">
+                {loadingJadwal ? <Spinner size="sm" /> : <><RefreshCw className="w-4 h-4" /> Refresh</>}
+              </button>
+            </div>
           </div>
         </div>
       )
@@ -1186,10 +1198,16 @@ export default function SiswaUjianPage() {
               <p className="text-xs text-slate-400 mb-3 text-center">
                 Tekan tombol di bawah jika kamu rasa sesi ujian sudah dibuka pengawas.
               </p>
-              <button onClick={handleRefreshJadwal} disabled={loadingJadwal}
-                className="btn-primary w-full justify-center gap-2">
-                {loadingJadwal ? <Spinner size="sm" /> : <><RefreshCw className="w-4 h-4" /> Cek Ulang Sesi</>}
-              </button>
+              <div className="flex gap-2">
+                <button onClick={() => window.location.href = '/siswa'}
+                  className="btn-secondary flex-1 justify-center gap-2">
+                  Kembali ke Beranda
+                </button>
+                <button onClick={handleRefreshJadwal} disabled={loadingJadwal}
+                  className="btn-primary flex-1 justify-center gap-2">
+                  {loadingJadwal ? <Spinner size="sm" /> : <><RefreshCw className="w-4 h-4" /> Cek Ulang Sesi</>}
+                </button>
+              </div>
             </div>
           </div>
         </div>
