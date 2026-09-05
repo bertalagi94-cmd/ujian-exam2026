@@ -21,8 +21,33 @@
 //   - POST /api/guru/mode-pengawas/tutup
 
 import { createAdminClient } from '@/lib/supabase'
+import { cacheGet, cacheSet } from '@/lib/cache'
 
 type DbClient = ReturnType<typeof createAdminClient>
+
+/**
+ * Sama seperti verifySesiOwnership, tapi hasilnya di-cache di memori server
+ * selama beberapa detik. Status "siapa pengawas sah sesi ini" praktis tidak
+ * pernah berubah selagi sesi berjalan (kecuali diambil-alih admin — jarang
+ * terjadi), jadi meng-query ulang 2 tabel di setiap polling tick (yang bisa
+ * terjadi tiap 1-2 detik untuk deteksi pelanggaran cepat) adalah pemborosan.
+ * TTL singkat (15 detik) dipilih supaya kalau memang terjadi pengambilalihan
+ * sesi oleh admin, guru lama tidak terus dianggap "sah" lebih dari 15 detik.
+ */
+export async function verifySesiOwnershipCached(
+  db: DbClient,
+  sesiId: string,
+  username: string
+): Promise<boolean> {
+  const key = `sesi-ownership:${sesiId}:${username}`
+  const cached = cacheGet<boolean>(key)
+  if (cached !== null) return cached
+
+  const result = await verifySesiOwnership(db, sesiId, username)
+  cacheSet(key, result, 15)
+  return result
+}
+
 
 /**
  * Cek apakah `username` adalah pengawas yang sah untuk sesi ujian `sesiId`.
