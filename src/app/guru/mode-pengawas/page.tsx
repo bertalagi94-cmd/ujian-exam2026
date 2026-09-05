@@ -47,8 +47,11 @@ interface SiswaAktif {
   nis: string
   nama: string
   kelas: string
-  status: 'AKTIF' | 'SELESAI' | 'RESET' | 'TERKUNCI'
-  waktu_daftar: string
+  // BELUM_LOGIN: status semu dari API (bukan nilai kolom siswa_ujian.status) —
+  // dipakai untuk siswa target sesi ini yang belum punya baris di siswa_ujian
+  // sama sekali, supaya pengawas tahu siapa yang belum masuk ujian.
+  status: 'AKTIF' | 'SELESAI' | 'RESET' | 'TERKUNCI' | 'BELUM_LOGIN'
+  waktu_daftar: string | null
   waktu_selesai: string | null
   jumlah_pelanggaran: number
   kode_reset: string | null
@@ -466,6 +469,7 @@ export default function ModePengawasPage() {
             const selesaiCount = siswaList.filter(s => s.status === 'SELESAI').length
             const resetCount = siswaList.filter(s => s.status === 'RESET').length
             const terkunciCount = siswaList.filter(s => s.status === 'TERKUNCI').length
+            const belumLoginCount = siswaList.filter(s => s.status === 'BELUM_LOGIN').length
 
             return (
               <div key={j.id} className={`card p-0 overflow-hidden ${isRunning || diambilAlih ? 'ring-2 ring-amber-400' : ''}`}>
@@ -539,6 +543,7 @@ export default function ModePengawasPage() {
                         {selesaiCount > 0 && <span className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded-lg font-semibold">{selesaiCount} selesai</span>}
                         {resetCount > 0 && <span className="px-2 py-0.5 bg-amber-50 text-amber-700 rounded-lg font-semibold">{resetCount} menunggu kode</span>}
                         {terkunciCount > 0 && <span className="px-2 py-0.5 bg-red-50 text-red-700 rounded-lg font-semibold">{terkunciCount} terkunci</span>}
+                        {belumLoginCount > 0 && <span className="px-2 py-0.5 bg-orange-50 text-orange-600 rounded-lg font-semibold">{belumLoginCount} belum login</span>}
                         {pelList.length > 0 && (
                           <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded-lg font-bold flex items-center gap-1">
                             <ShieldAlert className="w-3 h-3" />{pelList.length} pelanggaran
@@ -560,21 +565,26 @@ export default function ModePengawasPage() {
                           {/* Siswa list */}
                           {siswaList.length === 0 ? (
                             <div className="flex items-center gap-2 text-sm text-slate-400 py-2">
-                              <Eye className="w-4 h-4" /> Belum ada siswa yang masuk ujian
+                              <Eye className="w-4 h-4" /> Tidak ada siswa aktif terdaftar untuk sesi ini
                             </div>
                           ) : (
                             <div>
-                              <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Peserta Ujian</div>
+                              <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
+                                Peserta Ujian
+                                <span className="ml-1.5 normal-case font-medium text-slate-400">
+                                  ({siswaList.length - belumLoginCount}/{siswaList.length} sudah login)
+                                </span>
+                              </div>
                               <div className="space-y-1.5 max-h-72 overflow-y-auto">
                                 {siswaList.map(sw => (
-                                  <div key={sw.nis} className={`flex items-center gap-2 flex-wrap px-3 py-2 rounded-xl text-sm ${sw.status === 'TERKUNCI' ? 'bg-red-50 border border-red-100' : sw.status === 'RESET' ? 'bg-amber-50 border border-amber-100' : sw.status === 'SELESAI' ? 'bg-slate-50' : 'bg-white border border-slate-100'}`}>
+                                  <div key={sw.nis} className={`flex items-center gap-2 flex-wrap px-3 py-2 rounded-xl text-sm ${sw.status === 'TERKUNCI' ? 'bg-red-50 border border-red-100' : sw.status === 'RESET' ? 'bg-amber-50 border border-amber-100' : sw.status === 'SELESAI' ? 'bg-slate-50' : sw.status === 'BELUM_LOGIN' ? 'bg-slate-50/70 border border-dashed border-slate-200' : 'bg-white border border-slate-100'}`}>
                                     <div className="flex-1 min-w-0 basis-32">
-                                      <div className="font-medium text-slate-800 truncate">{sw.nama}</div>
+                                      <div className={`font-medium truncate ${sw.status === 'BELUM_LOGIN' ? 'text-slate-500' : 'text-slate-800'}`}>{sw.nama}</div>
                                       <div className="text-xs text-slate-400 font-mono">{sw.nis}</div>
                                     </div>
                                     <div className="flex items-center gap-2 flex-wrap">
-                                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${sw.status === 'AKTIF' ? 'bg-emerald-100 text-emerald-700' : sw.status === 'SELESAI' ? 'bg-blue-100 text-blue-700' : sw.status === 'RESET' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}>
-                                      {sw.status === 'AKTIF' ? '● Ujian' : sw.status === 'SELESAI' ? '✓ Selesai' : sw.status === 'RESET' ? '⏳ Tunggu Kode' : '🔒 Terkunci'}
+                                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${sw.status === 'AKTIF' ? 'bg-emerald-100 text-emerald-700' : sw.status === 'SELESAI' ? 'bg-blue-100 text-blue-700' : sw.status === 'RESET' ? 'bg-amber-100 text-amber-700' : sw.status === 'BELUM_LOGIN' ? 'bg-orange-50 text-orange-600' : 'bg-red-100 text-red-700'}`}>
+                                      {sw.status === 'AKTIF' ? '● Ujian' : sw.status === 'SELESAI' ? '✓ Selesai' : sw.status === 'RESET' ? '⏳ Tunggu Kode' : sw.status === 'BELUM_LOGIN' ? '○ Belum Login' : '🔒 Terkunci'}
                                     </span>
                                     {sw.jumlah_pelanggaran > 0 && (
                                       <span className={`text-xs font-bold px-2 py-0.5 rounded-full flex-shrink-0 ${sw.jumlah_pelanggaran >= 3 ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
