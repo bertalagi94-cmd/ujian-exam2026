@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
-import { verifySesiOwnership } from '@/lib/sesi-ownership'
+import { verifySesiOwnershipCached } from '@/lib/sesi-ownership'
 
 export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['GURU', 'ADMIN'])
@@ -10,6 +10,11 @@ export async function GET(req: NextRequest) {
   const db = createAdminClient()
   const { searchParams } = new URL(req.url)
   const sesiId = searchParams.get('sesiId')
+  // Dipakai untuk polling cepat deteksi pelanggaran (lihat halaman Mode
+  // Pengawas): kalau diisi, hanya kembalikan pelanggaran yang lebih baru dari
+  // timestamp ini. Membuat polling tiap 1-2 detik tetap murah karena hasilnya
+  // nyaris selalu kosong (tidak perlu kirim ulang seluruh riwayat tiap tick).
+  const sejak = searchParams.get('sejak')
 
   // FIX: sebelumnya GURU bisa memanggil endpoint ini tanpa sesiId (atau
   // dengan sesiId milik guru lain) dan tetap mendapat data pelanggaran —
@@ -18,7 +23,7 @@ export async function GET(req: NextRequest) {
     if (!sesiId) {
       return NextResponse.json({ error: 'sesiId diperlukan' }, { status: 400 })
     }
-    const sah = await verifySesiOwnership(db, sesiId, auth.user.username)
+    const sah = await verifySesiOwnershipCached(db, sesiId, auth.user.username)
     if (!sah) {
       return NextResponse.json({ error: 'Anda bukan pengawas sesi ini' }, { status: 403 })
     }
@@ -31,6 +36,7 @@ export async function GET(req: NextRequest) {
     .limit(50)
 
   if (sesiId) query = query.eq('sesi_id', sesiId)
+  if (sejak) query = query.gt('created_at', sejak)
 
   const { data: pelanggaran, error } = await query
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
