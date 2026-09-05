@@ -6,7 +6,7 @@ import {
   RefreshCw, AlertTriangle, BookOpen, Users, Lock, Unlock,
   ShieldAlert, RotateCcw, KeyRound, Eye, ChevronDown, ChevronUp, FileQuestion
 } from 'lucide-react'
-import { apiRequest, formatDate } from '@/lib/utils'
+import { apiRequest, formatDateTime } from '@/lib/utils'
 import { PageLoader, Spinner } from '@/components/ui'
 import { isStatusSoalSiap, labelStatusSoal, pesanStatusSoal } from '@/lib/soal-status-shared'
 
@@ -17,6 +17,12 @@ interface SesiUjianInfo {
   waktu_mulai: string
   jumlah_peserta: number
   jumlah_selesai: number
+  // Diisi kalau sesi ini ditutup PAKSA oleh admin (bukan ditutup sendiri oleh
+  // guru/pengawas lewat tombol "Tutup Sesi") — lihat
+  // /api/admin/sesi/[id]/tutup-paksa dan enrichment di /api/guru/mode-pengawas.
+  ditutup_paksa_oleh_admin?: string | null
+  ditutup_paksa_oleh_admin_nama?: string | null
+  ditutup_paksa_pada?: string | null
 }
 
 interface JadwalHariIni {
@@ -423,6 +429,21 @@ export default function ModePengawasPage() {
                     </div>
                   )}
 
+                  {/* Pengingat menutup sesi — ditampilkan selama sesi berjalan supaya
+                      guru tidak lupa menutupnya sendiri setelah ujian selesai.
+                      Jika sesi terlanjur lupa ditutup, admin bisa menutupnya
+                      paksa (lihat pesan amber di blok "Done info" di atas),
+                      tapi idealnya guru menutup sendiri lewat tombol "Tutup Sesi". */}
+                  {isRunning && (
+                    <div className="flex items-start gap-2 text-xs text-slate-500 bg-blue-50/60 border border-blue-100 px-3.5 py-2.5 rounded-xl mb-4">
+                      <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5 text-blue-400" />
+                      <span>
+                        Mohon jangan lupa menekan tombol <strong>Tutup Sesi</strong> setelah ujian ini selesai,
+                        agar nilai siswa dapat segera diproses dan masuk ke rekap nilai.
+                      </span>
+                    </div>
+                  )}
+
                   {/* Kode sesi + statistik */}
                   {isRunning && j.sesi_ujian && (
                     <div className="bg-slate-50 border border-slate-100 rounded-2xl mb-4">
@@ -524,10 +545,33 @@ export default function ModePengawasPage() {
 
                   {/* Done info */}
                   {isDone && !diambilAlih && (
-                    <div className="flex items-center gap-2 text-sm text-emerald-600 bg-emerald-50 px-4 py-3 rounded-xl mb-4">
-                      <CheckCircle className="w-4 h-4 flex-shrink-0" />
-                      Ujian telah selesai dilaksanakan.
-                    </div>
+                    j.sesi_ujian?.ditutup_paksa_oleh_admin ? (
+                      // Sesi ini TIDAK ditutup sendiri oleh guru — admin yang menutup
+                      // paksa (mis. karena sesi terlupa berjam-jam / lupa ditutup).
+                      // Tampilkan ini secara jelas supaya guru tahu apa yang terjadi,
+                      // bukan mengira dirinya sendiri yang sudah menutupnya.
+                      <div className="flex items-start gap-2.5 text-sm text-amber-700 bg-amber-50 border border-amber-200 px-4 py-3 rounded-xl mb-4">
+                        <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                        <div>
+                          <p className="font-semibold">Sesi ini ditutup paksa oleh admin.</p>
+                          <p className="text-xs text-amber-600 mt-0.5">
+                            Ditutup oleh <strong>{j.sesi_ujian.ditutup_paksa_oleh_admin_nama}</strong>
+                            {j.sesi_ujian.ditutup_paksa_pada && (
+                              <> pada {formatDateTime(j.sesi_ujian.ditutup_paksa_pada)}</>
+                            )}
+                            {' '}karena sesi belum ditutup dan terpantau tidak ada aktivitas siswa. Nilai siswa yang sempat tersinkron tetap sudah diproses secara otomatis.
+                          </p>
+                          <p className="text-xs text-amber-600 mt-1.5">
+                            Mohon untuk selanjutnya tidak lupa menutup sesi sendiri segera setelah ujian selesai, ya, agar nilai siswa dapat langsung masuk tanpa perlu ditutup paksa oleh admin.
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 text-sm text-emerald-600 bg-emerald-50 px-4 py-3 rounded-xl mb-4">
+                        <CheckCircle className="w-4 h-4 flex-shrink-0" />
+                        Ujian telah selesai dilaksanakan.
+                      </div>
+                    )
                   )}
 
                   {/* Action buttons */}
