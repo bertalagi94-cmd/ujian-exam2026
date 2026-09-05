@@ -75,6 +75,13 @@ export default function AdminPengaturanPage() {
   const [confirmResetSemua, setConfirmResetSemua] = useState(false)
   const restoreInputRef = useRef<HTMLInputElement>(null)
   const [confirmRestore, setConfirmRestore] = useState(false)
+  // FIX: sebelumnya restore yang ditolak karena "ada sesi ujian berjalan"
+  // (409) hanya ditampilkan sebagai toast error biasa — admin tidak punya
+  // jalan keluar sama sekali kalau sesi itu ternyata terlantar/lupa ditutup
+  // pengawas. Sekarang: tampilkan dialog konfirmasi kedua yang menjelaskan
+  // risikonya, dan kalau admin tetap memilih lanjut, kirim ulang restore
+  // dengan force=true (lihat doRestore).
+  const [confirmRestoreForce, setConfirmRestoreForce] = useState<{ ada_sesi: boolean; ada_siswa: boolean } | null>(null)
   const [pendingRestoreFile, setPendingRestoreFile] = useState<File | null>(null)
   const [pendingRestoreInfo, setPendingRestoreInfo] = useState<{ name: string; size: string } | null>(null)
 
@@ -252,9 +259,10 @@ export default function AdminPengaturanPage() {
   }
 
   // Langkah 2: admin konfirmasi → jalankan restore
-  async function doRestore() {
+  async function doRestore(force = false) {
     if (!pendingRestoreFile || !pendingRestoreInfo) return
     setConfirmRestore(false)
+    setConfirmRestoreForce(null)
     const sizeMB = pendingRestoreInfo.size
 
     // BUG FIX: Vercel Serverless Functions membatasi ukuran request body
@@ -303,6 +311,7 @@ export default function AdminPengaturanPage() {
       // Kirim sebagai FormData — server membaca via req.formData()
       const formData = new FormData()
       formData.append('file', pendingRestoreFile)
+      if (force) formData.append('force', 'true')
       const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
       const resPromise = fetch('/api/admin/restore', {
         method: 'POST',
@@ -312,17 +321,30 @@ export default function AdminPengaturanPage() {
       })
       const [apiRes] = await Promise.all([resPromise, new Promise<void>(resolve => { const ref: { id?: ReturnType<typeof setInterval> } = {}; tickProgress(resolve, ref) })])
       const json = await apiRes.json()
+
+      // FIX: kalau ditolak karena ada sesi/siswa aktif, JANGAN langsung anggap
+      // gagal — tawarkan dialog konfirmasi kedua untuk memaksa (force),
+      // supaya admin tidak terjebak kalau sesi itu ternyata terlantar dan
+      // pengawasnya tidak bisa dihubungi untuk menutupnya sendiri.
+      if (apiRes.status === 409 && json.ada_aktivitas) {
+        setHackerOpen(false)
+        setConfirmRestoreForce({ ada_sesi: !!json.ada_sesi, ada_siswa: !!json.ada_siswa })
+        return
+      }
+
       if (!apiRes.ok && apiRes.status !== 207) throw new Error(json.error || 'Restore gagal')
       showToast(json.message || 'Restore berhasil')
       window.dispatchEvent(new Event('pengaturan-changed'))
       await load()
+      setPendingRestoreFile(null)
+      setPendingRestoreInfo(null)
     } catch (err: unknown) {
       setHackerOpen(false)
       showToast(err instanceof Error ? err.message : 'Restore gagal', 'error')
-    } finally {
-      setRestoring(false)
       setPendingRestoreFile(null)
       setPendingRestoreInfo(null)
+    } finally {
+      setRestoring(false)
     }
   }
 
@@ -952,11 +974,27 @@ export default function AdminPengaturanPage() {
       <Confirm
         open={confirmRestore}
         onClose={() => { setConfirmRestore(false); setPendingRestoreFile(null); setPendingRestoreInfo(null) }}
-        onConfirm={doRestore}
+        onConfirm={() => doRestore(false)}
         title="Konfirmasi Restore Data"
         message={`File: ${pendingRestoreInfo?.name ?? ''} (${pendingRestoreInfo?.size ?? ''}). PERINGATAN: Semua data yang ada saat ini akan digantikan oleh data dari file backup ini. Tindakan ini tidak dapat dibatalkan. Pastikan Anda sudah memilih file yang benar. Lanjutkan?`}
         confirmLabel="Ya, Pulihkan Sekarang"
         variant="primary"
+        loading={restoring}
+      />
+
+      {/* FIX: dialog konfirmasi kedua — muncul kalau restore ditolak server
+          karena ada sesi ujian/siswa yang masih aktif. Sebelumnya admin
+          mentok di sini tanpa jalan keluar. Sarankan tutup sesi lewat panel
+          Monitoring dulu (kalau pengawasnya masih bisa dihubungi), tapi tetap
+          beri opsi memaksa restore kalau memang tidak ada pilihan lain. */}
+      <Confirm
+        open={!!confirmRestoreForce}
+        onClose={() => { setConfirmRestoreForce(null); setPendingRestoreFile(null); setPendingRestoreInfo(null) }}
+        onConfirm={() => doRestore(true)}
+        title="⚠️ Ada Ujian yang Sedang Berjalan"
+        message={`Restore tidak bisa dilakukan secara normal karena ${confirmRestoreForce?.ada_sesi ? 'ada sesi ujian yang berstatus BERJALAN' : ''}${confirmRestoreForce?.ada_sesi && confirmRestoreForce?.ada_siswa ? ' dan ' : ''}${confirmRestoreForce?.ada_siswa ? 'ada siswa yang sedang mengerjakan ujian' : ''}. Sebaiknya tutup dulu sesi tersebut lewat panel Monitoring (tombol "Tutup Paksa") kalau memungkinkan. Kalau sesi itu ternyata terlantar dan tidak bisa ditutup normal (mis. pengawasnya tidak bisa dihubungi), Anda bisa memaksa restore sekarang — TAPI ini akan MENGHAPUS jawaban siswa yang sedang mengerjakan saat ini. Tetap lanjutkan?`}
+        confirmLabel="Ya, Paksa Restore Sekarang"
+        variant="danger"
         loading={restoring}
       />
 
