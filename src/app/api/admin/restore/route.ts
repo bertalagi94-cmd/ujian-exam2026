@@ -129,6 +129,14 @@ export async function POST(req: NextRequest) {
   // dikirim sebagai raw file langsung dari browser — bukan JSON.stringify() di
   // sisi klien yang menyebabkan double-parsing. Fallback ke req.json() untuk
   // kompatibilitas mundur jika ada klien yang masih kirim Content-Type: application/json.
+  // FIX: tambahkan opsi `force` (mirip /api/admin/reset) — sebelumnya restore
+  // ditolak MUTLAK selama ada sesi_ujian berstatus BERJALAN, TANPA jalan
+  // keluar sama sekali. Kalau sesi itu ternyata terlantar/lupa ditutup
+  // pengawas (lihat gap yang sama di endpoint batas-submit), admin benar-benar
+  // terjebak: tidak berwenang menutup sesi orang lain, dan tidak bisa restore.
+  // Sekarang admin bisa memilih tetap melanjutkan restore setelah diberi
+  // peringatan eksplisit (lihat pengecekan di bawah).
+  let force = false
   const contentType = req.headers.get('content-type') ?? ''
   try {
     if (contentType.startsWith('multipart/form-data')) {
@@ -137,10 +145,13 @@ export async function POST(req: NextRequest) {
       if (!file || typeof file === 'string') {
         return NextResponse.json({ error: 'Field "file" tidak ditemukan dalam FormData' }, { status: 400 })
       }
+      force = formData.get('force') === 'true'
       const text = await (file as File).text()
       payload = JSON.parse(text)
     } else {
-      payload = await req.json()
+      const body = await req.json()
+      force = body?.force === true
+      payload = body
     }
   } catch {
     return NextResponse.json({ error: 'File backup tidak valid (bukan JSON yang bisa dibaca)' }, { status: 400 })
@@ -183,17 +194,20 @@ export async function POST(req: NextRequest) {
   const adaSesi = (sesiAktif?.length ?? 0) > 0
   const adaSiswa = (siswaAktif?.length ?? 0) > 0
 
-  if (adaSesi || adaSiswa) {
+  if ((adaSesi || adaSiswa) && !force) {
     const pesan: string[] = []
     if (adaSesi) pesan.push('ada sesi ujian yang sedang berjalan')
     if (adaSiswa) pesan.push('ada siswa yang sedang mengerjakan ujian')
     return NextResponse.json({
-      error: `Restore tidak bisa dilakukan karena ${pesan.join(' dan ')}. Tutup semua sesi terlebih dahulu. Restore akan menghapus seluruh data yang ada termasuk jawaban siswa yang sedang mengerjakan.`,
+      error: `Restore tidak bisa dilakukan karena ${pesan.join(' dan ')}. Tutup semua sesi terlebih dahulu (atau tutup paksa dari panel Monitoring kalau pengawasnya tidak bisa dihubungi), lalu coba lagi. Kalau memang ingin tetap melanjutkan sekarang, konfirmasi restore paksa — ini akan MENGHAPUS jawaban siswa yang sedang mengerjakan.`,
       ada_aktivitas: true,
       ada_sesi: adaSesi,
       ada_siswa: adaSiswa,
     }, { status: 409 })
   }
+  // Kalau force=true dan tetap ada aktivitas, restore dilanjutkan tapi hasil
+  // akhirnya mencatumkan peringatan ini supaya admin sadar konsekuensinya.
+  const restoreDipaksaSaatAktivitas = force && (adaSesi || adaSiswa)
   // ─────────────────────────────────────────────────────────────────────────
 
   const deleteErrors: string[] = []
@@ -268,12 +282,16 @@ export async function POST(req: NextRequest) {
     stats[table] = inserted
   }
 
+  const peringatanAktivitas = restoreDipaksaSaatAktivitas
+    ? ' PERINGATAN: restore ini dipaksa berjalan saat masih ada sesi ujian/siswa aktif — jawaban siswa yang sedang mengerjakan saat itu ikut terhapus.'
+    : ''
+
   if (errors.length > 0) {
     return NextResponse.json(
-      { error: 'Restore selesai dengan beberapa error', details: errors, stats },
+      { error: 'Restore selesai dengan beberapa error' + peringatanAktivitas, details: errors, stats },
       { status: 207 }
     )
   }
 
-  return NextResponse.json({ message: 'Restore berhasil', stats })
+  return NextResponse.json({ message: 'Restore berhasil' + peringatanAktivitas, stats })
 }
