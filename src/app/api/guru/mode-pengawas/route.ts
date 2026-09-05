@@ -137,6 +137,23 @@ export async function GET(req: NextRequest) {
     jadwalList.map(j => ({ mapel_id: j.mapel_id, kelas: String(j.kelas) }))
   )
 
+  // ── 5d. Nama admin yang menutup paksa sesi (lihat
+  // /api/admin/sesi/[id]/tutup-paksa) — supaya guru melihat pesan yang jelas
+  // "siapa" yang menutup sesinya secara paksa, bukan hanya username mentah.
+  const usernameAdminPenutupPaksa = [...new Set(
+    (sesiList ?? [])
+      .map(s => s.info_json?.ditutup_paksa_oleh_admin as string | undefined)
+      .filter((v): v is string => !!v)
+  )]
+  let namaAdminPenutupPaksaMap: Record<string, string> = {}
+  if (usernameAdminPenutupPaksa.length > 0) {
+    const { data: adminList } = await db
+      .from('users')
+      .select('username, nama')
+      .in('username', usernameAdminPenutupPaksa)
+    namaAdminPenutupPaksaMap = Object.fromEntries((adminList ?? []).map(a => [a.username, a.nama]))
+  }
+
   // ── 6. Enrich tiap jadwal ─────────────────────────────────────────────────
   const enrichedJadwal = jadwalList.map(j => {
     const sesiUntukJadwal = (sesiList).filter(s => s.jadwal_id === j.id)
@@ -171,6 +188,14 @@ export async function GET(req: NextRequest) {
         ...sesiTerkait,
         jumlah_peserta: siswaUjianMap[sesiTerkait.id]?.total ?? sesiTerkait.jumlah_peserta ?? 0,
         jumlah_selesai: siswaUjianMap[sesiTerkait.id]?.selesai ?? 0,
+        // Info penutupan paksa oleh admin (jika ada) — dipakai frontend untuk
+        // menampilkan pesan yang jelas ke guru bahwa sesinya ditutup paksa,
+        // bukan ditutup sendiri. Lihat SesiUjianInfo di halaman Mode Pengawas.
+        ditutup_paksa_oleh_admin: sesiTerkait.info_json?.ditutup_paksa_oleh_admin ?? null,
+        ditutup_paksa_oleh_admin_nama: sesiTerkait.info_json?.ditutup_paksa_oleh_admin
+          ? (namaAdminPenutupPaksaMap[sesiTerkait.info_json.ditutup_paksa_oleh_admin] ?? sesiTerkait.info_json.ditutup_paksa_oleh_admin)
+          : null,
+        ditutup_paksa_pada: sesiTerkait.info_json?.ditutup_paksa_pada ?? null,
       } : null,
       diambil_alih_pengawas: diambilAlih
         ? {
