@@ -1,84 +1,349 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
-import { finalisasiNilaiPaksa } from '@/lib/finalisasi-nilai'
+import { generateId } from '@/lib/utils'
+import { getZonaWaktuSekolah, tanggalHariIni } from '@/lib/pengaturan-waktu'
+import { computeStatusSoalDetailMap, getStatusSoalDetail, isStatusSoalSiap, pesanStatusSoal, buildStatusSoalKey } from '@/lib/soal-status'
+import { cekSesiBentrokKelas, pesanBentrokKelas } from '@/lib/sesi-kelas'
 
-interface Ctx { params: { id: string } }
+function generateKodeSesi7(): string {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+  let code = ''
+  for (let i = 0; i < 7; i++) {
+    code += chars[Math.floor(Math.random() * chars.length)]
+  }
+  return code
+}
 
-// POST /api/admin/sesi/[id]/tutup-paksa
-//
-// GAP YANG DIPERBAIKI: sebelumnya HANYA pengawas asli (atau pengawas susulan
-// yang ditugaskan admin) yang bisa menutup sesi ujian — lewat
-// POST /api/guru/mode-pengawas/tutup (lihat verifySesiOwnership di sana).
-// Kalau sesi lupa/tidak ditutup berjam-jam bahkan sampai besok (mis. pengawas
-// sakit, lupa, atau sudah tidak bisa dihubungi), TIDAK ADA cara bagi admin
-// untuk menutupnya lewat UI — sesi tetap berstatus BERJALAN selamanya, dan
-// ini pada gilirannya memblokir fitur admin lain (restore, ganti pengaturan
-// batas-submit, dll — lihat masing-masing endpoint) karena semuanya menolak
-// beroperasi selama ada sesi_ujian berstatus BERJALAN.
-//
-// Endpoint ini memberi admin jalan keluar: menutup sesi APAPUN secara paksa,
-// dengan logika finalisasi nilai yang SAMA PERSIS dengan penutupan oleh
-// pengawas (siswa yang masih AKTIF/RESET dinilai otomatis dari jawaban yang
-// sempat tersinkron — lihat src/lib/finalisasi-nilai.ts), supaya tidak ada
-// siswa yang hilang dari rekap nilai tanpa jejak.
-export async function POST(req: NextRequest, { params }: Ctx) {
-  const auth = requireRole(req, ['ADMIN'])
+export async function GET(req: NextRequest) {
+  const auth = requireRole(req, ['GURU'])
   if ('error' in auth) return auth.error
+  const { user } = auth
 
   const db = createAdminClient()
-  const sesiId = params.id
 
-  const { data: sesi } = await db
+  // ── 1. Ambil semua jadwal milik guru ini ──────────────────────────────────
+  const zona = await getZonaWaktuSekolah()
+  const today = tanggalHariIni(zona)
+  const todayStart = `${today}T00:00:00`
+  const todayEnd   = `${today}T23:59:59`
+
+  const { data: semuaJadwalSendiri, error: errJadwal } = await db
+    .from('jadwal')
+    .select('*')
+    .eq('pengawas', user.username)
+    .order('sesi')
+
+  if (errJadwal) return NextResponse.json({ error: errJadwal.message }, { status: 500 })
+
+  // ── 1b. Tambahan: jadwal yang BUKAN milik guru ini sebagai pengawas asli,
+  // tapi guru ini ditugaskan ADMIN sebagai pengawas sesi SUSULAN-nya
+  // (fitur tambahan: Ujian Susulan dari menu Admin). Pengawas asli & jadwal
+  // aslinya tidak diubah — guru susulan hanya "dipinjamkan" akses pantau.
+  const { data: sesiSusulanSaya } = await db
     .from('sesi_ujian')
-    .select('id, jadwal_id, status, mapel_id, kelas, waktu_mulai, info_json')
-    .eq('id', sesiId)
+    .select('jadwal_id, info_json')
+    .eq('status', 'BERJALAN')
+    .contains('info_json', { pengawas_susulan: user.username })
+
+  const jadwalIdSusulanSaya = [...new Set((sesiSusulanSaya ?? []).map(s => s.jadwal_id).filter(Boolean))]
+
+  let jadwalSusulanSaya: typeof semuaJadwalSendiri = []
+  if (jadwalIdSusulanSaya.length > 0) {
+    const sudahAda = new Set((semuaJadwalSendiri ?? []).map(j => j.id))
+    const { data: jadwalTambahan } = await db
+      .from('jadwal')
+      .select('*')
+      .in('id', jadwalIdSusulanSaya.filter(id => !sudahAda.has(id)))
+    jadwalSusulanSaya = jadwalTambahan ?? []
+  }
+
+  const semuaJadwal = [...(semuaJadwalSendiri ?? []), ...jadwalSusulanSaya]
+  if (!semuaJadwal?.length) return NextResponse.json({ data: [], sesiAktif: [] })
+
+  // ── 2. Ambil SEMUA sesi_ujian untuk jadwal guru ini ──────────────────────
+  const semuaJadwalIds = semuaJadwal.map(j => j.id)
+  const { data: semuaSesi } = await db
+    .from('sesi_ujian')
+    .select('*')
+    .in('jadwal_id', semuaJadwalIds)
+    .order('waktu_mulai', { ascending: false })
+
+  // ── 3. Tentukan jadwal mana yang tampil di Mode Pengawas ─────────────────
+  // Tampilkan jadwal jika: (a) jadwalnya hari ini, ATAU (b) ada sesi BERJALAN
+  const sesiByJadwal: Record<string, typeof semuaSesi> = {}
+  for (const s of semuaSesi ?? []) {
+    if (!sesiByJadwal[s.jadwal_id]) sesiByJadwal[s.jadwal_id] = []
+    const arr = sesiByJadwal[s.jadwal_id]
+    if (arr) arr.push(s)
+  }
+
+  const jadwalList = semuaJadwal.filter(j => {
+    const tanggal = j.tanggal?.slice(0, 10) ?? j.tanggal
+    const isHariIni = tanggal === today ||
+      (tanggal >= todayStart && tanggal <= todayEnd)
+    const adaSesiAktif = (sesiByJadwal[j.id] ?? []).some(s => s.status === 'BERJALAN')
+    return isHariIni || adaSesiAktif
+  })
+
+  if (!jadwalList.length) return NextResponse.json({ data: [], sesiAktif: [] })
+
+  // ── 4. Enrich nama mapel & kelas ─────────────────────────────────────────
+  const mapelIds = [...new Set(jadwalList.map(j => j.mapel_id).filter(Boolean))]
+  const kelasIds = [...new Set(jadwalList.map(j => j.kelas).filter(Boolean))]
+  const [{ data: mapelList }, { data: kelasList }] = await Promise.all([
+    db.from('mapel').select('id, nama').in('id', mapelIds),
+    db.from('kelas').select('id, nama').in('id', kelasIds),
+  ])
+  const mapelMap = Object.fromEntries((mapelList ?? []).map(m => [m.id, m.nama]))
+  const kelasMap = Object.fromEntries((kelasList ?? []).map(k => [k.id, k.nama]))
+
+  // ── 5. Ambil jumlah peserta & selesai dari siswa_ujian ───────────────────
+  const jadwalIds = jadwalList.map(j => j.id)
+  const sesiList = (semuaSesi ?? []).filter(s => jadwalIds.includes(s.jadwal_id))
+  const sesiIds = sesiList.map(s => s.id)
+  let siswaUjianMap: Record<string, { total: number; selesai: number }> = {}
+  if (sesiIds.length > 0) {
+    const { data: siswaUjianList } = await db
+      .from('siswa_ujian')
+      .select('sesi_id, status')
+      .in('sesi_id', sesiIds)
+    for (const su of siswaUjianList ?? []) {
+      if (!siswaUjianMap[su.sesi_id]) siswaUjianMap[su.sesi_id] = { total: 0, selesai: 0 }
+      siswaUjianMap[su.sesi_id].total++
+      if (su.status === 'SELESAI') siswaUjianMap[su.sesi_id].selesai++
+    }
+  }
+
+  // ── 5b. Nama guru untuk sesi susulan yang diambil-alih admin ─────────────
+  // (dibutuhkan agar pengawas asli melihat NAMA pengawas pengganti, bukan username)
+  const usernameSusulanAktif = [...new Set(
+    (semuaSesi ?? [])
+      .filter(s => s.status === 'BERJALAN' && s.info_json?.dibuka_oleh_admin && s.info_json?.pengawas_susulan)
+      .map(s => s.info_json.pengawas_susulan as string)
+  )]
+  let namaGuruSusulanMap: Record<string, string> = {}
+  if (usernameSusulanAktif.length > 0) {
+    const { data: guruSusulanList } = await db
+      .from('users')
+      .select('username, nama')
+      .in('username', usernameSusulanAktif)
+    namaGuruSusulanMap = Object.fromEntries((guruSusulanList ?? []).map(g => [g.username, g.nama]))
+  }
+
+  // ── 5c. Enrich status_soal supaya UI bisa menonaktifkan tombol "Mulai
+  // Ujian" untuk jadwal yang soalnya belum disetujui ────────────────────────
+  const statusSoalMap = await computeStatusSoalDetailMap(
+    jadwalList.map(j => ({ mapel_id: j.mapel_id, kelas: String(j.kelas) }))
+  )
+
+  // ── 5d. Nama admin yang menutup paksa sesi (lihat
+  // /api/admin/sesi/[id]/tutup-paksa) — supaya guru melihat pesan yang jelas
+  // "siapa" yang menutup sesinya secara paksa, bukan hanya username mentah.
+  const usernameAdminPenutupPaksa = [...new Set(
+    (sesiList ?? [])
+      .map(s => s.info_json?.ditutup_paksa_oleh_admin as string | undefined)
+      .filter((v): v is string => !!v)
+  )]
+  let namaAdminPenutupPaksaMap: Record<string, string> = {}
+  if (usernameAdminPenutupPaksa.length > 0) {
+    const { data: adminList } = await db
+      .from('users')
+      .select('username, nama')
+      .in('username', usernameAdminPenutupPaksa)
+    namaAdminPenutupPaksaMap = Object.fromEntries((adminList ?? []).map(a => [a.username, a.nama]))
+  }
+
+  // ── 6. Enrich tiap jadwal ─────────────────────────────────────────────────
+  const enrichedJadwal = jadwalList.map(j => {
+    const sesiUntukJadwal = (sesiList).filter(s => s.jadwal_id === j.id)
+    const sesiTerkait = sesiUntukJadwal.find(s => s.status === 'BERJALAN') ?? sesiUntukJadwal[0] ?? null
+    let status = j.status
+    if (sesiTerkait?.status === 'BERJALAN') status = 'BERJALAN'
+    if (sesiTerkait?.status === 'SELESAI' && status !== 'BERJALAN') status = 'SELESAI'
+
+    // Apakah sesi BERJALAN ini sesi susulan yang dibuka admin untuk GURU LAIN
+    // (bukan guru yang sedang membuka mode-pengawas ini)? Jika ya, guru ini
+    // adalah "pengawas asli" yang sesi-nya sudah diambil-alih — dia TIDAK
+    // boleh melihat kode sesi / kontrol / data siswa sesi tersebut, cukup
+    // pesan informatif siapa yang sedang bertugas.
+    const pengawasSusulanUsername: string | undefined = sesiTerkait?.info_json?.dibuka_oleh_admin
+      ? sesiTerkait?.info_json?.pengawas_susulan
+      : undefined
+    const diambilAlih = !!pengawasSusulanUsername && pengawasSusulanUsername !== user.username
+
+    const statusSoalDetail = statusSoalMap[buildStatusSoalKey(j.mapel_id, j.kelas)] ?? { status: 'BELUM_ADA', namaGuru: null }
+
+    return {
+      ...j,
+      tanggal: j.tanggal?.slice(0, 10) ?? j.tanggal,
+      status,
+      nama_mapel: mapelMap[j.mapel_id] ?? j.mapel_id,
+      nama_kelas: kelasMap[j.kelas] ?? j.kelas,
+      status_soal: statusSoalDetail.status,
+      status_soal_guru: statusSoalDetail.namaGuru,
+      // Jika sesi sudah diambil-alih pengawas lain, jangan kirim detail sesi
+      // (kode sesi, dll) ke pengawas asli — cukup info ringkas untuk pesan.
+      sesi_ujian: sesiTerkait && !diambilAlih ? {
+        ...sesiTerkait,
+        jumlah_peserta: siswaUjianMap[sesiTerkait.id]?.total ?? sesiTerkait.jumlah_peserta ?? 0,
+        jumlah_selesai: siswaUjianMap[sesiTerkait.id]?.selesai ?? 0,
+        // Info penutupan paksa oleh admin (jika ada) — dipakai frontend untuk
+        // menampilkan pesan yang jelas ke guru bahwa sesinya ditutup paksa,
+        // bukan ditutup sendiri. Lihat SesiUjianInfo di halaman Mode Pengawas.
+        ditutup_paksa_oleh_admin: sesiTerkait.info_json?.ditutup_paksa_oleh_admin ?? null,
+        ditutup_paksa_oleh_admin_nama: sesiTerkait.info_json?.ditutup_paksa_oleh_admin
+          ? (namaAdminPenutupPaksaMap[sesiTerkait.info_json.ditutup_paksa_oleh_admin] ?? sesiTerkait.info_json.ditutup_paksa_oleh_admin)
+          : null,
+        ditutup_paksa_pada: sesiTerkait.info_json?.ditutup_paksa_pada ?? null,
+      } : null,
+      diambil_alih_pengawas: diambilAlih
+        ? {
+            username: pengawasSusulanUsername,
+            nama: namaGuruSusulanMap[pengawasSusulanUsername as string] ?? pengawasSusulanUsername,
+          }
+        : null,
+    }
+  })
+
+  return NextResponse.json({ data: enrichedJadwal })
+}
+
+export async function POST(req: NextRequest) {
+  const auth = requireRole(req, ['GURU'])
+  if ('error' in auth) return auth.error
+  const { user } = auth
+
+  const db = createAdminClient()
+  const { jadwalId } = await req.json()
+
+  // Verify jadwal belongs to this guru as pengawas
+  const { data: jadwal } = await db
+    .from('jadwal')
+    .select('*')
+    .eq('id', jadwalId)
+    .eq('pengawas', user.username)
     .single()
 
-  if (!sesi) return NextResponse.json({ error: 'Sesi tidak ditemukan' }, { status: 404 })
-  if (sesi.status !== 'BERJALAN') {
-    return NextResponse.json({ error: 'Sesi ini sudah tidak berstatus BERJALAN' }, { status: 400 })
+  if (!jadwal) return NextResponse.json({ error: 'Jadwal tidak ditemukan atau Anda bukan pengawas' }, { status: 404 })
+
+  // Cek kesiapan soal: sesi ujian TIDAK BOLEH dibuka kalau paket soal untuk
+  // kombinasi mapel + kelas pada jadwal ini belum disetujui. Sama persis
+  // dengan validasi di /api/pengawas/sesi — diletakkan di server supaya
+  // tidak bisa dilewati lewat panggilan API langsung.
+  const { status: statusSoal, namaGuru } = await getStatusSoalDetail(jadwal.mapel_id, String(jadwal.kelas))
+  if (!isStatusSoalSiap(statusSoal)) {
+    return NextResponse.json(
+      { error: pesanStatusSoal(statusSoal, namaGuru), statusSoal },
+      { status: 400 }
+    )
   }
 
-  await db.from('sesi_ujian').update({
-    status: 'SELESAI',
-    waktu_selesai: new Date().toISOString(),
-    // Digabung dengan info_json yang sudah ada (mis. pengawas_susulan untuk
-    // sesi susulan) — jangan sampai penutupan paksa ini menghapus jejak data
-    // lain yang sudah tersimpan di sesi ini. Ditandai eksplisit ini
-    // penutupan paksa oleh admin (bukan pengawas), supaya kalau perlu
-    // ditelusuri nanti jelas kenapa sesi ini berakhir tanpa pengawas
-    // menutupnya sendiri.
-    info_json: {
-      ...(sesi.info_json ?? {}),
-      ditutup_paksa_oleh_admin: auth.user.username,
-      ditutup_paksa_pada: new Date().toISOString(),
-    },
-  }).eq('id', sesiId)
+  // ── ANTI-TABRAKAN: satu pengawas hanya boleh fokus pada SATU sesi aktif ──
+  // Kalau guru ini punya jadwal lain (jam sama atau beda) yang sesinya sedang
+  // BERJALAN, jangan izinkan membuka sesi baru. Ini mencegah pengawas membuka
+  // 2 sesi sekaligus dan akhirnya tidak fokus mengawasi salah satunya.
+  // Sesi susulan yang sudah diambil-alih ADMIN untuk pengawas LAIN tidak dihitung,
+  // karena guru ini bukan lagi yang bertugas mengawasi sesi tersebut.
+  const { data: jadwalLainSaya } = await db
+    .from('jadwal')
+    .select('id, mapel_id, kelas')
+    .eq('pengawas', user.username)
+    .neq('id', jadwalId)
 
-  if (sesi.jadwal_id) {
-    await db.from('jadwal').update({ status: 'SELESAI' }).eq('id', sesi.jadwal_id)
+  const jadwalLainIds = (jadwalLainSaya ?? []).map(j => j.id)
+  if (jadwalLainIds.length > 0) {
+    const { data: sesiLainBerjalan } = await db
+      .from('sesi_ujian')
+      .select('id, jadwal_id, kode_sesi, info_json')
+      .in('jadwal_id', jadwalLainIds)
+      .eq('status', 'BERJALAN')
+
+    const sesiMilikSayaSendiri = (sesiLainBerjalan ?? []).find(s => {
+      const pengawasSusulan = s.info_json?.dibuka_oleh_admin ? s.info_json?.pengawas_susulan : undefined
+      // Hitung sebagai "milik saya" kecuali sudah jelas diambil-alih admin untuk guru lain
+      return !pengawasSusulan || pengawasSusulan === user.username
+    })
+
+    if (sesiMilikSayaSendiri) {
+      const jadwalBentrok = (jadwalLainSaya ?? []).find(j => j.id === sesiMilikSayaSendiri.jadwal_id)
+      const { data: mapelBentrok } = jadwalBentrok
+        ? await db.from('mapel').select('nama').eq('id', jadwalBentrok.mapel_id).single()
+        : { data: null }
+
+      return NextResponse.json({
+        error: `Anda masih memiliki sesi ujian lain yang sedang berjalan${mapelBentrok ? ` (${mapelBentrok.nama} - kelas ${jadwalBentrok?.kelas})` : ''}. Tutup sesi tersebut terlebih dahulu sebelum membuka sesi baru, agar Anda bisa fokus mengawasi satu sesi pada satu waktu.`,
+        tabrakan: true,
+        sesiAktifId: sesiMilikSayaSendiri.id,
+        kodeSesi: sesiMilikSayaSendiri.kode_sesi,
+        jadwalAktifId: sesiMilikSayaSendiri.jadwal_id,
+      }, { status: 409 })
+    }
   }
 
-  // Sama seperti /api/guru/mode-pengawas/tutup: siswa yang masih AKTIF/RESET
-  // saat sesi ditutup paksa harus tetap dinilai dari jawaban yang sempat
-  // tersinkron, bukan dibiarkan menggantung tanpa baris nilai.
-  const { data: siswaBelumSelesai } = await db
-    .from('siswa_ujian')
-    .select('nis')
-    .eq('sesi_id', sesiId)
-    .in('status', ['AKTIF', 'RESET'])
+  // Cek apakah sesi sudah ada & berjalan
+  const { data: existingSesi } = await db
+    .from('sesi_ujian')
+    .select('id, kode_sesi, info_json')
+    .eq('jadwal_id', jadwalId)
+    .eq('status', 'BERJALAN')
+    .single()
 
-  await db.from('siswa_ujian')
-    .update({ status: 'SELESAI', waktu_selesai: new Date().toISOString() })
-    .eq('sesi_id', sesiId)
-    .in('status', ['AKTIF', 'RESET'])
+  if (existingSesi) {
+    // Jika sesi yang berjalan adalah sesi susulan yang diambil-alih ADMIN
+    // untuk guru LAIN, jangan beri kode sesi ke pengawas asli — dia bukan
+    // pengawas yang bertugas pada sesi ini sekarang.
+    const pengawasSusulan = existingSesi.info_json?.dibuka_oleh_admin
+      ? existingSesi.info_json?.pengawas_susulan
+      : undefined
+    if (pengawasSusulan && pengawasSusulan !== user.username) {
+      return NextResponse.json({
+        error: 'Sesi untuk jadwal ini sedang aktif dengan pengawas lain (ditugaskan admin).',
+        diambilAlih: true,
+      }, { status: 409 })
+    }
 
-  const nisPerluDinilai = (siswaBelumSelesai ?? []).map(s => s.nis)
-  await finalisasiNilaiPaksa(db, sesiId, nisPerluDinilai)
+    return NextResponse.json({
+      message: 'Sesi sudah berjalan',
+      sesiId: existingSesi.id,
+      kodeSesi: existingSesi.kode_sesi,
+      sudahAda: true,
+    })
+  }
 
-  return NextResponse.json({
-    message: 'Sesi berhasil ditutup paksa oleh admin',
-    jumlahSiswaDinilaiOtomatis: nisPerluDinilai.length,
+  // ── ANTI-TABRAKAN LEVEL KELAS ──────────────────────────────────────────
+  // Tolak kalau kelas ini sudah punya sesi BERJALAN dari JADWAL LAIN
+  // (mapel lain / pengawas lain), supaya tidak ada 2 ujian aktif sekaligus
+  // di kelas yang sama. Lihat src/lib/sesi-kelas.ts untuk detail.
+  const bentrokKelas = await cekSesiBentrokKelas(db, String(jadwal.kelas), jadwalId)
+  if (bentrokKelas) {
+    return NextResponse.json({
+      error: pesanBentrokKelas(String(jadwal.kelas), bentrokKelas),
+      bentrokKelas: true,
+      sesiAktifId: bentrokKelas.sesiId,
+      kodeSesi: bentrokKelas.kodeSesi,
+      jadwalAktifId: bentrokKelas.jadwalId,
+    }, { status: 409 })
+  }
+
+  const sesiId = generateId('SES')
+  const kodeSesi = generateKodeSesi7()
+
+  const { error } = await db.from('sesi_ujian').insert({
+    id: sesiId,
+    jadwal_id: jadwalId,
+    mapel_id: jadwal.mapel_id,
+    kelas: String(jadwal.kelas),
+    durasi: jadwal.durasi,
+    kode_sesi: kodeSesi,
+    status: 'BERJALAN',
+    waktu_mulai: new Date().toISOString(),
+    jumlah_peserta: 0,
   })
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  await db.from('jadwal').update({ status: 'BERJALAN' }).eq('id', jadwalId)
+
+  return NextResponse.json({ message: 'Sesi berhasil dibuka', sesiId, kodeSesi }, { status: 201 })
 }
