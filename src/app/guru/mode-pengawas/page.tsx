@@ -184,25 +184,40 @@ export default function ModePengawasPage() {
   // Notif pelanggaran baru
   const [pelNotif, setPelNotif] = useState<Pelanggaran | null>(null)
   const seenPelIdsRef = useRef<Set<string>>(new Set())
+  // Timestamp pelanggaran terakhir yang sudah dilihat, per sesi — dipakai
+  // sebagai parameter `sejak` supaya poll cepat di bawah ini murah (server
+  // hanya perlu mencari baris yang lebih baru dari ini, hampir selalu kosong).
+  const sejakPelRef = useRef<Record<string, string>>({})
 
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const pollingPelRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
     setToast({ msg, type })
     setTimeout(() => setToast(null), 3500)
   }
 
+  // Suara alarm pelanggaran — 3 nada mendesak berturut-turut (bukan cuma
+  // satu "bip" pendek) supaya lebih sulit terlewat oleh pengawas dibanding
+  // notifikasi visual saja, terutama kalau pengawas sedang tidak menatap layar.
   function playAlert() {
     try {
-      const ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)()
-      const osc = ctx.createOscillator()
-      const gain = ctx.createGain()
-      osc.connect(gain); gain.connect(ctx.destination)
-      osc.frequency.setValueAtTime(880, ctx.currentTime)
-      osc.frequency.setValueAtTime(660, ctx.currentTime + 0.1)
-      gain.gain.setValueAtTime(0.3, ctx.currentTime)
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4)
-      osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.4)
+      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
+      const ctx = new AudioCtx()
+      const nadaMulai = [0, 0.22, 0.44] // 3 denting beruntun
+      nadaMulai.forEach(offset => {
+        const osc = ctx.createOscillator()
+        const gain = ctx.createGain()
+        osc.connect(gain); gain.connect(ctx.destination)
+        osc.type = 'square' // lebih tajam/mendesak dibanding sine
+        const t0 = ctx.currentTime + offset
+        osc.frequency.setValueAtTime(1046, t0)   // C6
+        osc.frequency.setValueAtTime(784, t0 + 0.09) // G5
+        gain.gain.setValueAtTime(0.001, t0)
+        gain.gain.linearRampToValueAtTime(0.5, t0 + 0.01)
+        gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.2)
+        osc.start(t0); osc.stop(t0 + 0.22)
+      })
     } catch { /* silent */ }
   }
 
@@ -224,10 +239,16 @@ export default function ModePengawasPage() {
         return next
       })
 
-      // Update pelanggaran map + notif jika ada baru
+      // Update pelanggaran map (daftar lengkap — dipakai sbg "safety net"
+      // kalau poll cepat sempat terlewat, mis. tab browser sempat di-background
+      // sehingga interval-nya di-throttle browser).
       const newPelMap: Record<string, Pelanggaran[]> = {}
       sesiIds.forEach((id, i) => { newPelMap[id] = pelResults[i].data ?? [] })
-      setPelanggaranMap(newPelMap)
+      setPelanggaranMap(prev => {
+        const merged = { ...prev }
+        sesiIds.forEach((id, i) => { merged[id] = newPelMap[id] })
+        return merged
+      })
 
       const allPel = Object.values(newPelMap).flat()
       const brandNew = allPel.filter(p => !seenPelIdsRef.current.has(p.id))
@@ -236,7 +257,57 @@ export default function ModePengawasPage() {
         setPelNotif(brandNew[0])
         setTimeout(() => setPelNotif(null), 8000)
       }
-      allPel.forEach(p => seenPelIdsRef.current.add(p.id))
+      allPel.forEach(p => {
+        seenPelIdsRef.current.add(p.id)
+        const existing = sejakPelRef.current[p.sesi_id]
+        if (!existing || p.created_at > existing) sejakPelRef.current[p.sesi_id] = p.created_at
+      })
+    } catch { /* silent */ }
+  }, [])
+
+  // ── Poll CEPAT khusus pelanggaran (setiap 1.5 detik) ─────────────────────
+  // Sengaja dipisah dari fetchMonitor di atas: endpoint ini dipanggil dengan
+  // parameter `sejak` (lihat /api/pengawas/pelanggaran), jadi nyaris selalu
+  // mengembalikan array kosong — murah dipanggil sesering ini. fetchMonitor
+  // (roster siswa lengkap) TIDAK perlu secepat ini, jadi tetap di interval
+  // yang lebih longgar (lihat useEffect di bawah).
+  const cekPelanggaranCepat = useCallback(async (sesiIds: string[]) => {
+    if (!sesiIds.length) return
+    try {
+      const results = await Promise.all(sesiIds.map(id => {
+        const sejak = sejakPelRef.current[id]
+        const qs = new URLSearchParams({ sesiId: id, ...(sejak ? { sejak } : {}) })
+        return apiRequest<{ data: Pelanggaran[] }>(`/api/pengawas/pelanggaran?${qs.toString()}`)
+      }))
+
+      const pelBaru = results.flatMap(r => r.data ?? [])
+      if (!pelBaru.length) return
+
+      const brandNew = pelBaru.filter(p => !seenPelIdsRef.current.has(p.id))
+
+      setPelanggaranMap(prev => {
+        const next = { ...prev }
+        for (const p of pelBaru) {
+          const existing = next[p.sesi_id] ?? []
+          if (!existing.some(e => e.id === p.id)) next[p.sesi_id] = [p, ...existing]
+        }
+        return next
+      })
+
+      pelBaru.forEach(p => {
+        seenPelIdsRef.current.add(p.id)
+        const existing = sejakPelRef.current[p.sesi_id]
+        if (!existing || p.created_at > existing) sejakPelRef.current[p.sesi_id] = p.created_at
+      })
+
+      // Baru dianggap "kejadian baru yang perlu suara" kalau memang belum
+      // pernah dilihat sebelumnya DAN ini bukan pemuatan pertama halaman
+      // (seenPelIdsRef masih kosong berarti baru pertama kali load).
+      if (brandNew.length > 0 && seenPelIdsRef.current.size > brandNew.length) {
+        playAlert()
+        setPelNotif(brandNew[0])
+        setTimeout(() => setPelNotif(null), 8000)
+      }
     } catch { /* silent */ }
   }, [])
 
@@ -262,16 +333,30 @@ export default function ModePengawasPage() {
 
   useEffect(() => { load() }, [load])
 
-  // Polling tiap 5 detik jika ada sesi berjalan
+  // Poll roster siswa lengkap — tiap 8 detik cukup (data ini tidak sekritis
+  // pelanggaran; status AKTIF/SELESAI/RESET siswa tidak berubah tiap detik).
   useEffect(() => {
     if (pollingRef.current) clearInterval(pollingRef.current)
     const runningSesiIds = jadwal
       .filter(j => j.sesi_ujian?.status === 'BERJALAN')
       .map(j => j.sesi_ujian!.id)
     if (!runningSesiIds.length) return
-    pollingRef.current = setInterval(() => fetchMonitor(runningSesiIds), 5000)
+    pollingRef.current = setInterval(() => fetchMonitor(runningSesiIds), 8000)
     return () => { if (pollingRef.current) clearInterval(pollingRef.current) }
   }, [jadwal, fetchMonitor])
+
+  // Poll pelanggaran — tiap 1.5 detik. Murah karena pakai parameter `sejak`
+  // (lihat cekPelanggaranCepat), jadi aman dipanggil sesering ini tanpa
+  // membebani server seperti versi lama yang menarik seluruh riwayat tiap tick.
+  useEffect(() => {
+    if (pollingPelRef.current) clearInterval(pollingPelRef.current)
+    const runningSesiIds = jadwal
+      .filter(j => j.sesi_ujian?.status === 'BERJALAN')
+      .map(j => j.sesi_ujian!.id)
+    if (!runningSesiIds.length) return
+    pollingPelRef.current = setInterval(() => cekPelanggaranCepat(runningSesiIds), 1500)
+    return () => { if (pollingPelRef.current) clearInterval(pollingPelRef.current) }
+  }, [jadwal, cekPelanggaranCepat])
 
   async function handleMulai(j: JadwalHariIni) {
     setStarting(j.id)
