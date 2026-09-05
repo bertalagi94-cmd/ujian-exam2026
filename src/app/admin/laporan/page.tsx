@@ -73,6 +73,11 @@ const STATUS_SOAL_LABEL: Record<string, string> = {
   BELUM_DIBUAT: 'Belum Dibuat', DRAFT: 'Draft', MENUNGGU: 'Menunggu Validasi',
   DISETUJUI: 'Disetujui', DITOLAK: 'Ditolak',
 }
+// Versi ringkas khusus untuk PDF (kolom Status Soal sempit) — tampilan web
+// tetap memakai STATUS_SOAL_LABEL yang lengkap di atas, tidak diubah.
+const STATUS_SOAL_LABEL_PDF: Record<string, string> = {
+  ...STATUS_SOAL_LABEL, MENUNGGU: 'Menunggu',
+}
 const STATUS_KISI_LABEL: Record<string, string> = {
   BELUM_DIBUAT: 'Belum Dibuat', DRAFT: 'Draft', TERKIRIM: 'Terkirim',
 }
@@ -178,6 +183,16 @@ export default function AdminLaporanPage() {
         }
       }
 
+      // Format tanggal ringkas (DD/MM/YYYY) khusus untuk kolom Jadwal di PDF —
+      // formatDate() dari '@/lib/utils' memakai nama bulan penuh ("12 September
+      // 2026") yang terlalu lebar untuk kolom ini dan menyebabkan teks meluber
+      // ke luar tepi halaman.
+      function fmtTglSingkatPdf(iso: string): string {
+        const d = new Date(iso)
+        if (isNaN(d.getTime())) return '-'
+        return d.toLocaleDateString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric' })
+      }
+
       function ensureSpace(y: number, needed: number): number {
         if (y + needed > pageH - 15) {
           doc.addPage()
@@ -214,13 +229,21 @@ export default function AdminLaporanPage() {
       // Header kolom tabel generik
       function tableHeader(y: number, cols: { label: string; width: number }[], rgb: [number, number, number]): number {
         let cx = lm
-        doc.setFillColor(rgb[0], rgb[1], rgb[2])
         doc.setDrawColor(255, 255, 255)
-        doc.setTextColor(255, 255, 255)
         doc.setFont('helvetica', 'bold')
         doc.setFontSize(8)
         for (const c of cols) {
+          // PENTING: warna isi (fill) HARUS di-set ulang di setiap kolom.
+          // jsPDF memakai satu state warna 'fill' yang sama untuk rect() dan
+          // untuk warna teks (text color). Begitu doc.text() dipanggil dengan
+          // warna putih, state fill jadi putih dan tertinggal (bocor) ke
+          // rect() kolom berikutnya -> kolom ke-2 dst tergambar putih di atas
+          // putih (tidak kelihatan). Reset di sini memastikan setiap kotak
+          // kolom selalu memakai warna banner yang benar, apa pun yang
+          // terjadi di kolom sebelumnya.
+          doc.setFillColor(rgb[0], rgb[1], rgb[2])
           doc.rect(cx, y, c.width, 7, 'F')
+          doc.setTextColor(255, 255, 255)
           doc.text(c.label, cx + 2, y + 4.7)
           cx += c.width
         }
@@ -270,14 +293,17 @@ export default function AdminLaporanPage() {
         // ── SEKSI 1: PRA UJIAN (biru) ──────────────────────────────────────
         y = ensureSpace(y, 16)
         y = sectionBanner(y, '1. PRA UJIAN — Persiapan Soal, Kisi-kisi & Jadwal', [37, 99, 235])
+        // Lebar kolom diukur dari label terpanjang yang benar-benar dipakai
+        // (STATUS_SOAL_LABEL_PDF / STATUS_KISI_LABEL) memakai doc.getTextWidth,
+        // supaya badge status tidak pernah nabrak kolom sebelah.
         const praCols = [
           { label: 'Mapel', width: 30 },
           { label: 'Kelas', width: 20 },
-          { label: 'Guru', width: 30 },
-          { label: 'Status Soal', width: 26 },
-          { label: 'Jml (M/S/Sk)', width: 24 },
-          { label: 'Kisi-kisi', width: 20 },
-          { label: 'Jadwal', width: w - (30 + 20 + 30 + 26 + 24 + 20) },
+          { label: 'Guru', width: 28 },
+          { label: 'Status Soal', width: 24 },
+          { label: 'Jml (M/S/Sk)', width: 20 },
+          { label: 'Kisi-kisi', width: 23 },
+          { label: 'Jadwal', width: w - (30 + 20 + 28 + 24 + 20 + 23) },
         ]
         y = ensureSpace(y, 10)
         y = tableHeader(y, praCols, [37, 99, 235])
@@ -292,13 +318,17 @@ export default function AdminLaporanPage() {
           doc.text(r.namaMapel.slice(0, 16), cx + 2, y + 5); cx += praCols[0].width
           doc.text(r.namaKelas.slice(0, 12), cx + 2, y + 5); cx += praCols[1].width
           doc.text(r.namaGuru.slice(0, 18), cx + 2, y + 5); cx += praCols[2].width
-          pillRect(cx + 1, y + 5.4, STATUS_SOAL_LABEL[r.pra.statusSoal] ?? r.pra.statusSoal, STATUS_SOAL_COLOR[r.pra.statusSoal] ?? 'slate'); cx += praCols[3].width
+          pillRect(cx + 1, y + 5.4, STATUS_SOAL_LABEL_PDF[r.pra.statusSoal] ?? r.pra.statusSoal, STATUS_SOAL_COLOR[r.pra.statusSoal] ?? 'slate'); cx += praCols[3].width
           doc.text(`${r.pra.jumlahSoal} (${r.pra.distribusi.mudah}/${r.pra.distribusi.sedang}/${r.pra.distribusi.sukar})`, cx + 2, y + 5); cx += praCols[4].width
           pillRect(cx + 1, y + 5.4, STATUS_KISI_LABEL[r.pra.statusKisiKisi] ?? r.pra.statusKisiKisi, STATUS_KISI_COLOR[r.pra.statusKisiKisi] ?? 'slate'); cx += praCols[5].width
+          // Format ringkas khusus PDF (DD/MM/YYYY, tanpa nama bulan & tanpa
+          // "(sesi N)") — versi lengkap formatDate() terlalu lebar untuk
+          // kolom Jadwal dan sebelumnya bisa meluber sampai lewat tepi
+          // halaman.
           const jadwalTxt = r.pra.jadwal.length
-            ? `${r.pra.jadwal.length} sesi — terdekat ${formatDate(r.pra.jadwal[0].tanggal)} (sesi ${r.pra.jadwal[0].sesi})`
+            ? `${r.pra.jadwal.length} sesi, ${fmtTglSingkatPdf(r.pra.jadwal[0].tanggal)}`
             : 'Belum dijadwalkan'
-          doc.text(jadwalTxt.slice(0, 42), cx + 2, y + 5)
+          doc.text(jadwalTxt, cx + 2, y + 5)
           y += rowH
           if (r.pra.catatanPenolakan) {
             doc.setTextColor(180, 45, 45)
@@ -317,10 +347,10 @@ export default function AdminLaporanPage() {
         const saatCols = [
           { label: 'Mapel', width: 32 },
           { label: 'Kelas', width: 22 },
-          { label: 'Status', width: 22 },
-          { label: 'Peserta / Total Siswa', width: 40 },
+          { label: 'Status', width: 24 },
+          { label: 'Peserta / Total Siswa', width: 38 },
           { label: 'Selesai Mengerjakan', width: 38 },
-          { label: 'Pelanggaran Belum Ditindak', width: w - (32 + 22 + 22 + 40 + 38) },
+          { label: 'Pelanggaran Belum Ditindak', width: w - (32 + 22 + 24 + 38 + 38) },
         ]
         y = ensureSpace(y, 10)
         y = tableHeader(y, saatCols, [217, 119, 6])
