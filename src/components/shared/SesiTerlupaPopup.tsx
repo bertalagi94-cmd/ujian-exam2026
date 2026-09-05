@@ -68,7 +68,8 @@ export function SesiTerlupaPopup() {
             </h3>
             <p className="text-xs text-white/85 max-w-sm">
               Sesi berikut masih berstatus berjalan, namun sudah tidak ada siswa yang sedang mengerjakan.
-              Mungkin Anda lupa menutupnya.
+              Mungkin Anda lupa menutupnya. Mohon segera ditutup agar nilai siswa dapat diproses dan masuk ke rekap nilai.
+              Jika dibiarkan terlalu lama, admin dapat menutupnya secara paksa.
             </p>
           </div>
         </div>
