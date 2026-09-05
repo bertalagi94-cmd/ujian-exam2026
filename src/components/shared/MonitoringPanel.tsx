@@ -16,6 +16,8 @@ interface SesiAktif {
   waktu_mulai: string
   jumlah_peserta: number
   durasi_menit: number
+  durasi_seharusnya: number
+  terlambat: boolean
 }
 
 interface Pelanggaran {
@@ -120,6 +122,15 @@ export default function MonitoringPanel() {
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
+  // FIX: dukungan "Tutup Paksa" untuk sesi yang lupa/tidak ditutup pengawas
+  // berjam-jam bahkan sampai besok — sebelumnya admin tidak punya cara sama
+  // sekali untuk menutup sesi milik pengawas lain (lihat
+  // /api/admin/sesi/[id]/tutup-paksa). confirmCloseId = sesi yang sedang
+  // menunggu konfirmasi klik kedua; closingId = sesi yang sedang diproses.
+  const [confirmCloseId, setConfirmCloseId] = useState<string | null>(null)
+  const [closingId, setClosingId] = useState<string | null>(null)
+  const [closeMsg, setCloseMsg] = useState<string | null>(null)
+
   // Poin 4: Score history (client-side, max 12 titik)
   const scoreHistory = useRef<number[]>([])
   // Poin 4b: DB response time history
@@ -161,6 +172,35 @@ export default function MonitoringPanel() {
       setLoading(false)
     }
   }, [])
+
+  async function handleTutupPaksa(sesiId: string) {
+    setClosingId(sesiId)
+    setCloseMsg(null)
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
+      const r = await fetch(`/api/admin/sesi/${sesiId}/tutup-paksa`, {
+        method: 'POST',
+        headers: token ? { Authorization: 'Bearer ' + token } : {},
+      })
+      const json = await r.json()
+      if (!r.ok) {
+        setCloseMsg(json.error || 'Gagal menutup sesi')
+      } else {
+        setCloseMsg(
+          json.jumlahSiswaDinilaiOtomatis > 0
+            ? `Sesi ditutup. ${json.jumlahSiswaDinilaiOtomatis} siswa dinilai otomatis dari jawaban tersinkron.`
+            : 'Sesi berhasil ditutup.'
+        )
+        fetch_()
+      }
+    } catch {
+      setCloseMsg('Tidak dapat terhubung ke server')
+    } finally {
+      setClosingId(null)
+      setConfirmCloseId(null)
+      setTimeout(() => setCloseMsg(null), 6000)
+    }
+  }
 
   useEffect(() => {
     if (open) {
@@ -365,26 +405,70 @@ export default function MonitoringPanel() {
                       <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 5 }}>
                         <Eye size={11} /> Ujian Berlangsung
                       </div>
-                      <div className="mon-scroll" style={{ maxHeight: fullscreen ? 300 : 120 }}>
+                      <div className="mon-scroll" style={{ maxHeight: fullscreen ? 300 : 160 }}>
                         {data.sesiAktif.map(s => (
-                          <div key={s.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: 11, gap: 8 }}>
-                            <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-                              {/* Poin 1: Nama mapel */}
-                              <span style={{ color: '#c4b5fd', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: fullscreen ? 300 : 160 }}>
-                                {s.nama_mapel}
-                              </span>
-                              <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 10 }}>Kelas {s.kelas}</span>
+                          <div key={s.id} style={{ padding: '6px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 11, gap: 8 }}>
+                              <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                                {/* Poin 1: Nama mapel */}
+                                <span style={{ color: '#c4b5fd', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: fullscreen ? 300 : 160 }}>
+                                  {s.nama_mapel}
+                                </span>
+                                <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 10 }}>Kelas {s.kelas}</span>
+                              </div>
+                              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', flexShrink: 0, gap: 2 }}>
+                                <span style={{ color: 'rgba(255,255,255,0.5)' }}>{s.jumlah_peserta} siswa</span>
+                                {/* Poin 2: Durasi berjalan — merah + label kalau sudah lewat jauh dari durasi seharusnya */}
+                                <span style={{ color: s.terlambat ? '#ef4444' : '#f59e0b', fontSize: 10, display: 'flex', alignItems: 'center', gap: 3 }}>
+                                  <BookOpen size={9} /> {s.durasi_menit}m berjalan{s.durasi_seharusnya > 0 ? ` / ${s.durasi_seharusnya}m` : ''}
+                                </span>
+                              </div>
                             </div>
-                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', flexShrink: 0, gap: 2 }}>
-                              <span style={{ color: 'rgba(255,255,255,0.5)' }}>{s.jumlah_peserta} siswa</span>
-                              {/* Poin 2: Durasi berjalan */}
-                              <span style={{ color: '#f59e0b', fontSize: 10, display: 'flex', alignItems: 'center', gap: 3 }}>
-                                <BookOpen size={9} /> {s.durasi_menit}m berjalan
-                              </span>
-                            </div>
+
+                            {/* FIX: sesi yang sudah jauh melewati durasi seharusnya (>30 menit
+                                toleransi) kemungkinan besar lupa ditutup pengawas — beri
+                                peringatan + tombol Tutup Paksa langsung di sini. */}
+                            {s.terlambat && (
+                              <div style={{ marginTop: 4, padding: '5px 7px', borderRadius: 6, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.25)' }}>
+                                <div style={{ fontSize: 9.5, color: '#fca5a5', marginBottom: 4 }}>
+                                  ⚠ Sudah jauh melewati durasi seharusnya — kemungkinan pengawas lupa menutup sesi ini.
+                                </div>
+                                {confirmCloseId === s.id ? (
+                                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                                    <span style={{ fontSize: 9.5, color: 'rgba(255,255,255,0.6)', flex: 1 }}>Yakin tutup paksa? Siswa aktif akan dinilai otomatis.</span>
+                                    <button
+                                      onClick={() => handleTutupPaksa(s.id)}
+                                      disabled={closingId === s.id}
+                                      style={{ fontSize: 9.5, fontWeight: 700, color: '#fff', background: '#ef4444', border: 'none', borderRadius: 5, padding: '3px 8px', cursor: 'pointer', flexShrink: 0 }}
+                                    >
+                                      {closingId === s.id ? '...' : 'Ya, Tutup'}
+                                    </button>
+                                    <button
+                                      onClick={() => setConfirmCloseId(null)}
+                                      disabled={closingId === s.id}
+                                      style={{ fontSize: 9.5, color: 'rgba(255,255,255,0.5)', background: 'transparent', border: 'none', cursor: 'pointer', flexShrink: 0 }}
+                                    >
+                                      Batal
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <button
+                                    onClick={() => setConfirmCloseId(s.id)}
+                                    style={{ fontSize: 10, fontWeight: 700, color: '#ef4444', background: 'transparent', border: '1px solid rgba(239,68,68,0.4)', borderRadius: 5, padding: '3px 8px', cursor: 'pointer' }}
+                                  >
+                                    Tutup Paksa
+                                  </button>
+                                )}
+                              </div>
+                            )}
                           </div>
                         ))}
                       </div>
+                      {closeMsg && (
+                        <div style={{ marginTop: 6, fontSize: 10.5, color: '#a7f3d0', padding: '5px 7px', borderRadius: 6, background: 'rgba(16,185,129,0.1)' }}>
+                          {closeMsg}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
