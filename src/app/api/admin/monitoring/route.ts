@@ -35,8 +35,12 @@ export async function GET(req: NextRequest) {
       .select('id, user_id, aksi, detail, created_at')
       .order('created_at', { ascending: false })
       .limit(30),
+    // FIX: tambahkan kolom `durasi` (durasi normal ujian dalam menit) —
+    // dipakai front-end untuk menandai sesi yang sudah BERJALAN jauh lebih
+    // lama dari durasi seharusnya (kemungkinan lupa/tidak ditutup pengawas),
+    // supaya admin tahu sesi mana yang perlu ditutup paksa.
     db.from('sesi_ujian')
-      .select('id, kelas, mapel_id, waktu_mulai, jumlah_peserta')
+      .select('id, kelas, mapel_id, waktu_mulai, jumlah_peserta, durasi')
       .eq('status', 'BERJALAN')
       .order('waktu_mulai', { ascending: false }),
     db.from('pelanggaran')
@@ -91,11 +95,21 @@ export async function GET(req: NextRequest) {
   }
 
   // Enriched sesiAktif: tambahkan nama mapel + durasi berjalan
-  const sesiAktif = (sesiAktifRaw ?? []).map((s: { id: string; kelas: string; mapel_id: string; waktu_mulai: string; jumlah_peserta: number }) => ({
-    ...s,
-    nama_mapel: mapelMap[s.mapel_id] ?? s.mapel_id,
-    durasi_menit: Math.floor((now.getTime() - new Date(s.waktu_mulai).getTime()) / 60000),
-  }))
+  // FIX: tambahkan `terlambat` — true kalau sesi sudah berjalan lebih dari
+  // (durasi seharusnya + 30 menit toleransi), indikasi kuat sesi ini
+  // lupa/tidak ditutup pengawas. Dipakai front-end untuk menyorot sesi ini
+  // dan menawarkan tombol "Tutup Paksa".
+  const sesiAktif = (sesiAktifRaw ?? []).map((s: { id: string; kelas: string; mapel_id: string; waktu_mulai: string; jumlah_peserta: number; durasi: number | null }) => {
+    const durasiMenit = Math.floor((now.getTime() - new Date(s.waktu_mulai).getTime()) / 60000)
+    const durasiSeharusnya = s.durasi ?? 0
+    return {
+      ...s,
+      nama_mapel: mapelMap[s.mapel_id] ?? s.mapel_id,
+      durasi_menit: durasiMenit,
+      durasi_seharusnya: durasiSeharusnya,
+      terlambat: durasiSeharusnya > 0 && durasiMenit > durasiSeharusnya + 30,
+    }
+  })
 
   // Enriched pelanggaran: tambahkan nama siswa
   const pelanggaran = (pelanggaranRaw ?? []).map((p: { id: string; nis: string; jenis: string; created_at: string }) => ({
