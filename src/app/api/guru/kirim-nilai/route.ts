@@ -44,6 +44,68 @@ export async function GET(req: NextRequest) {
     nama_mapel: mapelMap[r.mapel_id as string] ?? r.mapel_id,
   }))
 
+  // ── Roster siswa yang BELUM ujian ───────────────────────────────────────
+  // BUG SEBELUMNYA: endpoint ini hanya query tabel `nilai`, jadi siswa yang
+  // sama sekali belum mengerjakan ujian mapel ini tidak pernah muncul di
+  // menu Kirim Nilai — seolah-olah tidak ada yang perlu ditunggu.
+  //
+  // FIX: pakai tabel `jadwal` (mapel_id + kelas) sebagai sumber "kelas mana
+  // saja yang seharusnya ujian mapel ini" (sama seperti pola di
+  // /api/guru/wali-kelas), lalu selisihkan dengan siswa yang sudah py nilai.
+  // Ditandai `belum_ujian: true` supaya frontend menampilkannya terpisah
+  // dari tabel nilai yang bisa diedit/dikirim (tidak ada nilai untuk siswa
+  // ini, jadi tidak ada yang bisa dikirim).
+  const { data: jadwalList } = mapelIds.length
+    ? await db.from('jadwal').select('mapel_id, kelas').in('mapel_id', mapelIds)
+    : { data: [] as { mapel_id: string; kelas: string }[] }
+
+  const pasanganMap = new Map<string, { mapel_id: string; kelas: string }>()
+  for (const j of jadwalList ?? []) {
+    if (!j.mapel_id || !j.kelas) continue
+    pasanganMap.set(`${j.mapel_id}__${j.kelas}`, { mapel_id: j.mapel_id, kelas: j.kelas })
+  }
+  const pasangan = Array.from(pasanganMap.values())
+  const kelasSet = [...new Set(pasangan.map(p => p.kelas))]
+
+  const { data: siswaRoster } = kelasSet.length
+    ? await db.from('siswa').select('nis, nama, kelas').in('kelas', kelasSet).eq('status', 'AKTIF').neq('is_tester', 'YES')
+    : { data: [] as { nis: string; nama: string; kelas: string }[] }
+
+  const kkmMap = Object.fromEntries((guruMapel ?? []).map((m: { id: string; kkm: number }) => [m.id, m.kkm]))
+  const sudahAdaSet = new Set((nilaiData ?? []).map((n: { mapel_id: string; nis: string }) => `${n.mapel_id}__${n.nis}`))
+
+  const belumUjianRows: Record<string, unknown>[] = []
+  for (const p of pasangan) {
+    const siswaKelasIni = (siswaRoster ?? []).filter(s => s.kelas === p.kelas)
+    for (const s of siswaKelasIni) {
+      const kunci = `${p.mapel_id}__${s.nis}`
+      if (sudahAdaSet.has(kunci)) continue
+      sudahAdaSet.add(kunci) // hindari duplikat kalau ada >1 jadwal mapel+kelas yang sama
+      belumUjianRows.push({
+        id: `BELUM__${p.mapel_id}__${s.nis}`,
+        nis: s.nis,
+        nama_siswa: s.nama,
+        kelas: p.kelas,
+        mapel_id: p.mapel_id,
+        nama_mapel: mapelMap[p.mapel_id] ?? p.mapel_id,
+        nilai: 0,
+        grade: '-',
+        lulus: false,
+        kkm: kkmMap[p.mapel_id] ?? 75,
+        timestamp: '',
+        nilai_edit: null,
+        grade_edit: null,
+        lulus_edit: null,
+        dikirim_ke_wali: false,
+        dikirim_at: null,
+        dikembalikan: false,
+        catatan_guru: null,
+        belum_ujian: true,
+      })
+    }
+  }
+
+
   // Ambil deadline & reminder dari pengaturan
   const { data: pengaturanData } = await db
     .from('pengaturan')
@@ -55,7 +117,7 @@ export async function GET(req: NextRequest) {
   const reminderJam = parseInt(pengaturanMap['reminder_nilai_jam'] ?? '24', 10)
 
   return NextResponse.json({
-    data: enriched,
+    data: [...enriched, ...belumUjianRows],
     mapelList: guruMapel ?? [],
     deadline,
     reminderJam,
