@@ -282,6 +282,54 @@ export default function ModePengawasPage() {
     } catch { /* silent */ }
   }
 
+  // Cache daftar voice TTS browser. Di banyak browser, getVoices() baru
+  // terisi ASYNC setelah event 'voiceschanged' (pemanggilan pertama sering
+  // balikin array kosong) — makanya kita simpan & dengarkan event-nya sekali,
+  // bukan cuma panggil getVoices() langsung tiap mau bicara.
+  const voicesRef = useRef<SpeechSynthesisVoice[]>([])
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return
+    const loadVoices = () => { voicesRef.current = window.speechSynthesis.getVoices() }
+    loadVoices()
+    window.speechSynthesis.addEventListener('voiceschanged', loadVoices)
+    return () => window.speechSynthesis.removeEventListener('voiceschanged', loadVoices)
+  }, [])
+
+  // Cari voice Bahasa Indonesia secara eksplisit dari voice yang TERPASANG di
+  // device pengawas. Kalau tidak ketemu (device/browser tidak punya paket
+  // suara id-ID), balikin undefined supaya browser pakai voice default-nya
+  // sendiri — teks yang dibaca tetap Bahasa Indonesia, cuma aksennya ikut
+  // voice default tsb.
+  function cariVoiceIndonesia(): SpeechSynthesisVoice | undefined {
+    const voices = voicesRef.current
+    return (
+      voices.find(v => v.lang?.toLowerCase() === 'id-id') ??
+      voices.find(v => v.lang?.toLowerCase().startsWith('id')) ??
+      undefined
+    )
+  }
+
+  // Ucapkan nama siswa yang melanggar via Web Speech API, dipanggil sesaat
+  // setelah playAlert() supaya pengawas yang tidak menatap layar tetap tahu
+  // SIAPA yang melanggar, bukan cuma dengar bip generik.
+  function speakPelanggaran(namaSiswa: string) {
+    try {
+      if (typeof window === 'undefined' || !('speechSynthesis' in window)) return
+      const utter = new SpeechSynthesisUtterance(`${namaSiswa} melakukan pelanggaran`)
+      utter.lang = 'id-ID'
+      const voiceId = cariVoiceIndonesia()
+      if (voiceId) utter.voice = voiceId // paksa pakai voice id-ID kalau tersedia di device
+      utter.rate = 1
+      utter.pitch = 1
+      utter.volume = 1
+      // Batalkan antrian ucapan sebelumnya supaya pelanggaran beruntun tidak
+      // numpuk dan malah terdengar bertumpuk-tumpuk/telat.
+      window.speechSynthesis.cancel()
+      window.speechSynthesis.speak(utter)
+    } catch { /* silent */ }
+  }
+
 
   const fetchMonitor = useCallback(async (sesiIds: string[]) => {
     if (!sesiIds.length) return
@@ -316,6 +364,7 @@ export default function ModePengawasPage() {
       const brandNew = allPel.filter(p => !seenPelIdsRef.current.has(p.id))
       if (brandNew.length > 0 && seenPelIdsRef.current.size > 0) {
         playAlert()
+        speakPelanggaran(brandNew[0].nama_siswa)
         setPelNotif(brandNew[0])
         setTimeout(() => setPelNotif(null), 8000)
       }
@@ -367,6 +416,7 @@ export default function ModePengawasPage() {
       // (seenPelIdsRef masih kosong berarti baru pertama kali load).
       if (brandNew.length > 0 && seenPelIdsRef.current.size > brandNew.length) {
         playAlert()
+        speakPelanggaran(brandNew[0].nama_siswa)
         setPelNotif(brandNew[0])
         setTimeout(() => setPelNotif(null), 8000)
       }
