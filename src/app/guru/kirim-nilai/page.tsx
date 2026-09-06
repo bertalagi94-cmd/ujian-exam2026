@@ -27,6 +27,9 @@ interface NilaiRow {
   dikirim_at: string | null
   dikembalikan: boolean
   catatan_guru: string | null
+  // true kalau siswa ini belum sama sekali mengerjakan ujian mapel ini —
+  // tidak ada nilai untuk diedit/dikirim, hanya ditampilkan sebagai info.
+  belum_ujian?: boolean
 }
 
 interface MapelInfo { id: string; nama: string; kkm: number }
@@ -45,6 +48,7 @@ interface Kelompok {
   nama_mapel: string
   kelas: string
   rows: NilaiRow[]
+  belumUjian: NilaiRow[]
   sudahDikirim: number
   total: number
 }
@@ -79,9 +83,12 @@ export default function KirimNilaiPage() {
       setEditMap(em)
       setCatatanMap(cm)
 
-      // Buka kelompok pertama yang belum dikirim secara default
+      // Buka kelompok pertama yang butuh perhatian: masih ada yang belum
+      // dikirim, ATAU ada siswa yang belum ujian sama sekali (kelompok
+      // yang isinya cuma "belum ujian" tetap perlu terlihat, jangan
+      // tersembunyi begitu saja).
       const kelompokList = buatKelompok(res.data ?? [])
-      const belumDikirim = kelompokList.find(k => k.sudahDikirim < k.total)
+      const belumDikirim = kelompokList.find(k => k.sudahDikirim < k.total || k.belumUjian.length > 0)
       if (belumDikirim) setExpandedGroup(belumDikirim.kunciMapel)
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'Gagal memuat data', 'error')
@@ -103,9 +110,14 @@ export default function KirimNilaiPage() {
           nama_mapel: n.nama_mapel,
           kelas: n.kelas,
           rows: [],
+          belumUjian: [],
           sudahDikirim: 0,
           total: 0,
         }
+      }
+      if (n.belum_ujian) {
+        map[kunci].belumUjian.push(n)
+        continue
       }
       map[kunci].rows.push(n)
       map[kunci].total++
@@ -263,6 +275,9 @@ export default function KirimNilaiPage() {
               </div>
               <div className="flex items-center gap-3 flex-shrink-0">
                 <span className="text-xs text-slate-500">{grup.sudahDikirim}/{grup.total} terkirim</span>
+                {grup.belumUjian.length > 0 && (
+                  <span className="text-xs text-slate-400">· {grup.belumUjian.length} belum ujian</span>
+                )}
                 {isOpen ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
               </div>
             </button>
@@ -270,6 +285,7 @@ export default function KirimNilaiPage() {
             {/* Tabel nilai — hanya tampil kalau open */}
             {isOpen && (
               <div className="border-t border-slate-100">
+                {grup.rows.length > 0 && (
                 <div className="overflow-x-auto">
                   <table className="table text-sm w-full">
                     <thead>
@@ -383,8 +399,18 @@ export default function KirimNilaiPage() {
                     </tbody>
                   </table>
                 </div>
+                )}
 
-                {/* Tombol kirim semua di kelompok ini */}
+                {/* Info siswa yang belum mengikuti ujian ini sama sekali */}
+                {grup.belumUjian.length > 0 && (
+                  <div className="px-5 py-3 bg-amber-50 border-t border-amber-100 text-xs text-amber-800">
+                    <strong>{grup.belumUjian.length} siswa belum mengikuti ujian ini:</strong>{' '}
+                    {grup.belumUjian.map(s => s.nama_siswa).join(', ')}
+                  </div>
+                )}
+
+                {/* Tombol kirim semua di kelompok ini — hanya relevan kalau ada nilai untuk dikirim */}
+                {grup.total > 0 && (
                 <div className="flex items-center justify-between px-5 py-4 bg-slate-50 border-t border-slate-100">
                   <p className="text-xs text-slate-500">
                     Nilai edit yang kosong akan otomatis menggunakan nilai asli saat dikirim.
@@ -402,6 +428,7 @@ export default function KirimNilaiPage() {
                     {semuaDikirim ? 'Sudah Terkirim' : `Kirim Semua ke Wali Kelas`}
                   </button>
                 </div>
+                )}
               </div>
             )}
           </div>
