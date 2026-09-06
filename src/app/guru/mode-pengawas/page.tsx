@@ -645,8 +645,8 @@ export default function ModePengawasPage() {
                         </div>
                       )}
                     </div>
-                    <span className={`text-xs px-2.5 py-1 rounded-full font-semibold flex-shrink-0 ${diambilAlih ? 'bg-purple-100 text-purple-700' : isRunning ? 'bg-amber-100 text-amber-700' : isDone ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>
-                      {diambilAlih ? '● Berlangsung' : isRunning ? '● Berlangsung' : isDone ? '✓ Selesai' : '◷ Akan Datang'}
+                    <span className={`text-xs px-2.5 py-1 rounded-full font-semibold flex-shrink-0 ${diambilAlih ? 'bg-purple-100 text-purple-700' : isRunning ? 'bg-amber-100 text-amber-700' : isDone ? 'bg-emerald-100 text-emerald-700' : boleh ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>
+                      {diambilAlih ? '● Berlangsung' : isRunning ? '● Berlangsung' : isDone ? '✓ Selesai' : boleh ? '● Siap Dimulai' : '◷ Akan Datang'}
                     </span>
                   </div>
 
