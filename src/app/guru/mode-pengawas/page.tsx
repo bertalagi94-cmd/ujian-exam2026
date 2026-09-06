@@ -195,18 +195,76 @@ export default function ModePengawasPage() {
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const pollingPelRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
+  // AudioContext dipakai bareng (bukan dibuat baru tiap alert) supaya:
+  // (1) tidak numpuk banyak context yang tidak pernah ditutup selama sesi
+  //     berlangsung lama, dan
+  // (2) bisa dipakai juga untuk "keep-alive" oscillator di bawah, yang
+  //     tujuannya menjaga tab ini tetap dianggap "sedang memutar audio" oleh
+  //     browser supaya TIDAK kena background tab throttling saat di-minimize.
+  const audioCtxRef = useRef<AudioContext | null>(null)
+  const keepAliveOscRef = useRef<OscillatorNode | null>(null)
+
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
     setToast({ msg, type })
     setTimeout(() => setToast(null), 3500)
+  }
+
+  function getAudioCtx(): AudioContext | null {
+    try {
+      if (!audioCtxRef.current) {
+        const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
+        audioCtxRef.current = new AudioCtx()
+      }
+      // Browser bisa men-suspend context (mis. sebelum ada user gesture, atau
+      // OS power-saving) — resume tiap kali dipakai supaya nada tidak hilang
+      // diam-diam.
+      if (audioCtxRef.current.state === 'suspended') void audioCtxRef.current.resume()
+      return audioCtxRef.current
+    } catch { return null }
+  }
+
+  // Nada "keep-alive" nyaris tidak terdengar (frekuensi 20Hz, gain sangat
+  // kecil) yang diputar TERUS-MENERUS selama ada sesi berjalan.
+  //
+  // Kenapa: Chrome/Firefox mem-throttle habis-habisan setInterval di tab yang
+  // sedang hidden/minimize ("intensive timer throttling"), KECUALI tab itu
+  // sedang aktif memutar audio. Dengan menjaga satu oscillator tetap menyala,
+  // tab ini dikecualikan dari throttling tsb, sehingga polling pelanggaran
+  // (cekPelanggaranCepat, tiap 1.5 detik) tetap jalan mendekati normal walau
+  // tab di-minimize/pindah tab — bukan cuma "catch-up" pas dibuka lagi.
+  //
+  // CATATAN KETERBATASAN: ini menolong kasus tab/window di-minimize selagi
+  // browser (atau app hasil build) masih berjalan di foreground OS. Ini
+  // TIDAK menjamin bunyi kalau seluruh aplikasi/app di-background sampai
+  // OS (terutama Android) membekukan proses webview-nya — untuk itu perlu
+  // push notification level-OS (FCM/Web Push), bukan sekadar trik ini.
+  function startKeepAlive() {
+    if (keepAliveOscRef.current) return // sudah jalan
+    const ctx = getAudioCtx()
+    if (!ctx) return
+    try {
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.connect(gain); gain.connect(ctx.destination)
+      osc.frequency.setValueAtTime(20, ctx.currentTime) // di bawah/pas batas pendengaran
+      gain.gain.setValueAtTime(0.0008, ctx.currentTime)  // nyaris tak terdengar
+      osc.start()
+      keepAliveOscRef.current = osc
+    } catch { /* silent */ }
+  }
+
+  function stopKeepAlive() {
+    try { keepAliveOscRef.current?.stop() } catch { /* silent */ }
+    keepAliveOscRef.current = null
   }
 
   // Suara alarm pelanggaran — 3 nada mendesak berturut-turut (bukan cuma
   // satu "bip" pendek) supaya lebih sulit terlewat oleh pengawas dibanding
   // notifikasi visual saja, terutama kalau pengawas sedang tidak menatap layar.
   function playAlert() {
+    const ctx = getAudioCtx()
+    if (!ctx) return
     try {
-      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
-      const ctx = new AudioCtx()
       const nadaMulai = [0, 0.22, 0.44] // 3 denting beruntun
       nadaMulai.forEach(offset => {
         const osc = ctx.createOscillator()
@@ -223,6 +281,7 @@ export default function ModePengawasPage() {
       })
     } catch { /* silent */ }
   }
+
 
   const fetchMonitor = useCallback(async (sesiIds: string[]) => {
     if (!sesiIds.length) return
@@ -360,6 +419,32 @@ export default function ModePengawasPage() {
     pollingPelRef.current = setInterval(() => cekPelanggaranCepat(runningSesiIds), 1500)
     return () => { if (pollingPelRef.current) clearInterval(pollingPelRef.current) }
   }, [jadwal, cekPelanggaranCepat])
+
+  // Keep-alive audio — nyala selama ada sesi BERJALAN, mati kalau tidak ada.
+  // Lihat komentar di startKeepAlive() untuk alasannya.
+  useEffect(() => {
+    const adaSesiBerjalan = jadwal.some(j => j.sesi_ujian?.status === 'BERJALAN')
+    if (adaSesiBerjalan) startKeepAlive()
+    else stopKeepAlive()
+    return () => stopKeepAlive()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jadwal])
+
+  // Beberapa browser tidak mengizinkan AudioContext berbunyi sebelum ada user
+  // gesture (mis. pengawas buka langsung ke halaman ini lewat refresh/link,
+  // belum sempat klik apa pun). Dengarkan interaksi pertama untuk resume
+  // context yang mungkin masih "suspended".
+  useEffect(() => {
+    const unlock = () => { getAudioCtx() }
+    window.addEventListener('click', unlock, { once: true })
+    window.addEventListener('keydown', unlock, { once: true })
+    window.addEventListener('touchstart', unlock, { once: true })
+    return () => {
+      window.removeEventListener('click', unlock)
+      window.removeEventListener('keydown', unlock)
+      window.removeEventListener('touchstart', unlock)
+    }
+  }, [])
 
   async function handleMulai(j: JadwalHariIni) {
     setStarting(j.id)
