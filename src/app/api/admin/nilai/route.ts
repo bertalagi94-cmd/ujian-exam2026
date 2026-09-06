@@ -95,9 +95,12 @@ export async function PATCH(req: NextRequest) {
   const { data: siswa } = await db.from('siswa').select('nama').eq('nis', nis).single()
   if (!siswa) return NextResponse.json({ error: 'Siswa tidak ditemukan' }, { status: 404 })
 
+  // FIX: sertakan jadwal_id — dibutuhkan di bawah untuk mencari apakah ada
+  // sesi SUSULAN yang sedang aktif untuk jadwal yang sama (lihat blok
+  // "daftarkan otomatis" setelah proses hapus data selesai).
   const { data: sesi } = await db
     .from('sesi_ujian')
-    .select('id')
+    .select('id, jadwal_id')
     .eq('id', sesiId)
     .single()
   if (!sesi) return NextResponse.json({ error: 'Sesi ujian tidak ditemukan' }, { status: 404 })
@@ -140,8 +143,51 @@ export async function PATCH(req: NextRequest) {
     digunakan: true,
   })
 
+  // FIX: kalau kebetulan SUDAH ADA sesi susulan yang sedang BERJALAN untuk
+  // jadwal yang sama (mis. pengawas sudah lebih dulu membuka susulan untuk
+  // siswa lain di kelas ini), daftarkan NIS siswa yang baru direset ini ke
+  // `siswa_diizinkan` sesi tersebut SEKARANG JUGA.
+  //
+  // Sebelum fix ini, `siswa_diizinkan` hanya diisi SEKALI saat sesi susulan
+  // pertama kali dibuka (snapshot "siapa yang belum ujian" pada saat itu).
+  // Siswa yang baru direset SETELAH sesi susulan itu aktif tidak pernah
+  // masuk ke daftar tsb — akibatnya dia hilang dari tampilan Mode Pengawas
+  // (tidak muncul di "belum login" maupun "sudah ujian") DAN ditolak kalau
+  // mencoba login pakai kode sesi susulan itu ("Anda tidak terdaftar dalam
+  // sesi ujian susulan ini" — lihat /api/siswa/ujian/validasi).
+  //
+  // Ini TIDAK menggantikan alur manual (admin/guru tetap bisa membuka sesi
+  // susulan baru kalau belum ada yang aktif) — cuma menghindari siswa
+  // "menghilang" kalau susulan-nya kebetulan sudah lebih dulu berjalan.
+  let didaftarkanKeSusulanAktif = false
+  if (sesi.jadwal_id) {
+    const { data: susulanAktif } = await db
+      .from('sesi_ujian')
+      .select('id, siswa_diizinkan')
+      .eq('jadwal_id', sesi.jadwal_id)
+      .eq('is_darurat', true)
+      .eq('status', 'BERJALAN')
+      .maybeSingle()
+
+    if (susulanAktif) {
+      const daftarSekarang: string[] = Array.isArray(susulanAktif.siswa_diizinkan) ? susulanAktif.siswa_diizinkan : []
+      if (!daftarSekarang.includes(nis)) {
+        const { error: errUpdateSusulan } = await db
+          .from('sesi_ujian')
+          .update({ siswa_diizinkan: [...daftarSekarang, nis] })
+          .eq('id', susulanAktif.id)
+        if (!errUpdateSusulan) didaftarkanKeSusulanAktif = true
+      } else {
+        didaftarkanKeSusulanAktif = true // sudah terdaftar sebelumnya
+      }
+    }
+  }
+
   return NextResponse.json({
     success: true,
-    message: `Hasil ujian ${siswa.nama} pada sesi ini telah direset (nilai, jawaban, dan pelanggaran dihapus). Sesi ujian TIDAK dibuka otomatis — buka aksesnya secara manual (mis. lewat sesi susulan) saat siswa siap ujian ulang.`,
+    message: didaftarkanKeSusulanAktif
+      ? `Hasil ujian ${siswa.nama} pada sesi ini telah direset (nilai, jawaban, dan pelanggaran dihapus). Sesi ujian susulan yang sedang berjalan untuk jadwal ini sudah otomatis mencakup ${siswa.nama} — siswa dapat langsung login memakai kode sesi susulan tersebut.`
+      : `Hasil ujian ${siswa.nama} pada sesi ini telah direset (nilai, jawaban, dan pelanggaran dihapus). Sesi ujian TIDAK dibuka otomatis — buka aksesnya secara manual (mis. lewat sesi susulan) saat siswa siap ujian ulang.`,
+    didaftarkanKeSusulanAktif,
   })
 }
