@@ -265,9 +265,10 @@ export default function ModePengawasPage() {
     keepAliveOscRef.current = null
   }
 
-  // Suara alarm pelanggaran — satu nada "menurun" cepat (siren pendek), khas
-  // bunyi peringatan/alarm sehingga langsung dikenali beda dari bunyi lain
-  // di aplikasi ini (mis. bunyi "siswa selesai" di bawah yang nadanya naik).
+  // Suara alarm pelanggaran — dengungan naik-turun singkat (mini siren khas
+  // peringatan), 2 ayunan naik-turun dalam ~0.6 detik. Dibedakan dari bunyi
+  // "siswa selesai" di bawah (chime naik satu arah, sine, nada tinggi jernih)
+  // supaya pengawas bisa langsung membedakan dua notifikasi hanya dari bunyinya.
   function playAlert() {
     const ctx = getAudioCtx()
     if (!ctx) return
@@ -277,12 +278,17 @@ export default function ModePengawasPage() {
       osc.connect(gain); gain.connect(ctx.destination)
       osc.type = 'sawtooth' // lebih kasar/mendesak, khas bunyi alarm
       const t0 = ctx.currentTime
-      osc.frequency.setValueAtTime(880, t0)
-      osc.frequency.exponentialRampToValueAtTime(220, t0 + 0.3) // nada turun cepat
+      const durasiAyunan = 0.15 // tiap naik/turun 0.15 detik → 2 siklus = 0.6 detik total
+      osc.frequency.setValueAtTime(500, t0)
+      osc.frequency.linearRampToValueAtTime(950, t0 + durasiAyunan)
+      osc.frequency.linearRampToValueAtTime(500, t0 + durasiAyunan * 2)
+      osc.frequency.linearRampToValueAtTime(950, t0 + durasiAyunan * 3)
+      osc.frequency.linearRampToValueAtTime(500, t0 + durasiAyunan * 4)
       gain.gain.setValueAtTime(0.001, t0)
-      gain.gain.linearRampToValueAtTime(0.45, t0 + 0.02)
-      gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.35)
-      osc.start(t0); osc.stop(t0 + 0.36)
+      gain.gain.linearRampToValueAtTime(0.4, t0 + 0.02)
+      gain.gain.setValueAtTime(0.4, t0 + durasiAyunan * 4 - 0.05)
+      gain.gain.exponentialRampToValueAtTime(0.001, t0 + durasiAyunan * 4)
+      osc.start(t0); osc.stop(t0 + durasiAyunan * 4 + 0.02)
     } catch { /* silent */ }
   }
 
