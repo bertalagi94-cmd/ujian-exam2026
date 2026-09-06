@@ -96,6 +96,10 @@ export interface Jadwal {
   // jawaban untuk jadwal ini (lihat src/app/api/siswa/jadwal/route.ts).
   sudah_ikut?: boolean
   nilai_id?: string | null
+  // Diisi hanya untuk jadwal berstatus SELESAI: daftar siswa aktif di kelas
+  // ini yang belum punya nilai untuk mapel ini (lihat enrichment di
+  // /api/admin/jadwal). Array kosong kalau semua siswa sudah ujian.
+  siswa_belum_ujian?: { nis: string; nama: string }[]
 }
 
 export interface PaketSoal {
