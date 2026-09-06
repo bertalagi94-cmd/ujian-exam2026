@@ -395,6 +395,7 @@ export default function AdminJadwalPage() {
   const [scanProgress, setScanProgress] = useState(0)
   const [scanDone, setScanDone] = useState(false)
   const [susulanTarget, setSusulanTarget] = useState<Jadwal | null>(null)
+  const [belumUjianTarget, setBelumUjianTarget] = useState<Jadwal | null>(null)
 
   const [rangkumanOpen, setRangkumanOpen] = useState(false)
   const [rangkumanLoading, setRangkumanLoading] = useState(false)
@@ -953,7 +954,17 @@ export default function AdminJadwalPage() {
                       )}
                     </td>
                     <td className="text-sm text-slate-600 whitespace-nowrap">{j.jam_mulai} – {j.jam_selesai}</td>
-                    <td><StatusBadge status={j.status} /></td>
+                    <td>
+                      <StatusBadge status={j.status} />
+                      {j.status === 'SELESAI' && (j.siswa_belum_ujian?.length ?? 0) > 0 && (
+                        <button
+                          onClick={() => setBelumUjianTarget(j)}
+                          className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 px-1.5 py-0.5 rounded-md w-fit"
+                        >
+                          <UserX className="w-3 h-3" /> {j.siswa_belum_ujian!.length} siswa belum ujian
+                        </button>
+                      )}
+                    </td>
                     <td><SoalStatusBadge status={j.status_soal} /></td>
                     <td>
                       <div className="flex gap-1 flex-wrap">
@@ -1015,7 +1026,17 @@ export default function AdminJadwalPage() {
                       {formatDate(j.tanggal)} · Sesi {j.sesi}
                     </div>
                   </div>
-                  <StatusBadge status={j.status} />
+                  <div className="flex flex-col items-end gap-1">
+                    <StatusBadge status={j.status} />
+                    {j.status === 'SELESAI' && (j.siswa_belum_ujian?.length ?? 0) > 0 && (
+                      <button
+                        onClick={() => setBelumUjianTarget(j)}
+                        className="flex items-center gap-1 text-[11px] font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 px-1.5 py-0.5 rounded-md"
+                      >
+                        <UserX className="w-3 h-3" /> {j.siswa_belum_ujian!.length} siswa belum ujian
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 {/* Detail */}
@@ -1660,6 +1681,39 @@ export default function AdminJadwalPage() {
             </div>
           )
         })()}
+      </Modal>
+
+      {/* Modal Siswa Belum Ujian */}
+      <Modal
+        open={!!belumUjianTarget}
+        onClose={() => setBelumUjianTarget(null)}
+        title="Siswa Belum Ujian"
+        size="sm"
+        footer={
+          <button onClick={() => setBelumUjianTarget(null)} className="btn-primary">Tutup</button>
+        }
+      >
+        {belumUjianTarget && (
+          <div className="space-y-4">
+            <p className="text-sm text-slate-500">
+              <strong className="text-slate-700">{belumUjianTarget.nama_mapel}</strong> — Kelas {belumUjianTarget.kelas}.{' '}
+              <strong className="text-slate-700">{belumUjianTarget.siswa_belum_ujian?.length ?? 0} siswa</strong> belum mengikuti ujian ini.
+            </p>
+            <div className="space-y-1.5 max-h-80 overflow-y-auto">
+              {(belumUjianTarget.siswa_belum_ujian ?? []).map((s, i) => (
+                <div key={s.nis} className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-amber-50 border border-amber-100">
+                  <div className="w-7 h-7 rounded-full bg-amber-100 text-amber-700 text-xs font-bold flex items-center justify-center flex-shrink-0">
+                    {i + 1}
+                  </div>
+                  <div>
+                    <p className="font-medium text-slate-800 text-sm">{s.nama}</p>
+                    <p className="text-xs text-slate-400">{s.nis}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   )
