@@ -5,7 +5,11 @@ import * as XLSX from 'xlsx'
 import { Download, BarChart3, Trophy, TrendingUp, Users, CheckCircle } from 'lucide-react'
 import { PageLoader, EmptyState, SearchInput, StatCard } from '@/components/ui'
 import { apiRequest, formatDateTime, nilaiColor } from '@/lib/utils'
-import { Nilai, Mapel } from '@/types'
+import { Nilai as NilaiBase, Mapel } from '@/types'
+
+// true kalau siswa ini belum sama sekali mengerjakan ujian mapel ini —
+// ditambahkan oleh /api/guru/nilai dari roster jadwal, bukan dari tabel nilai.
+type Nilai = NilaiBase & { belum_ujian?: boolean }
 
 interface Stats {
   total: number
@@ -76,7 +80,9 @@ export default function GuruNilaiPage() {
       const namaSheetTerpakai = new Set<string>()
 
       for (const mapel of mapelList) {
-        const nilaiMapel = semuaNilai.filter(n => n.mapel_id === mapel.id)
+        // Export hanya nilai yang benar-benar sudah ujian — baris "belum ujian"
+        // (placeholder dari roster jadwal) tidak relevan untuk rekap nilai Excel.
+        const nilaiMapel = semuaNilai.filter(n => n.mapel_id === mapel.id && !n.belum_ujian)
 
         const rows = nilaiMapel.map((n, i) => ({
           'No': i + 1,
@@ -204,29 +210,41 @@ export default function GuruNilaiPage() {
               </thead>
               <tbody>
                 {filtered.map((n, i) => (
-                  <tr key={n.id}>
+                  <tr key={n.id} className={n.belum_ujian ? 'bg-slate-50/60' : ''}>
                     <td className="text-slate-400 text-xs">{i + 1}</td>
                     <td className="font-medium text-slate-800">{n.nama_siswa}</td>
                     <td><span className="badge-blue text-xs">{n.kelas}</span></td>
                     <td className="text-sm text-slate-600">{n.nama_mapel}</td>
-                    <td>
-                      <span className={`text-lg font-bold ${nilaiColor(n.nilai)}`}>{n.nilai}</span>
-                    </td>
-                    <td>
-                      <span className={`badge font-bold ${
-                        n.grade === 'A' ? 'badge-green' :
-                        n.grade === 'B' ? 'badge-blue' :
-                        n.grade === 'C' ? 'badge-yellow' : 'badge-red'
-                      }`}>{n.grade}</span>
-                    </td>
-                    <td className="text-slate-600 text-sm">{n.benar}/{n.total}</td>
-                    <td className="text-slate-500 text-sm">{n.kkm}</td>
-                    <td>
-                      <span className={`badge ${n.lulus ? 'badge-green' : 'badge-red'}`}>
-                        {n.lulus ? '✓ Lulus' : '✗ Tidak Lulus'}
-                      </span>
-                    </td>
-                    <td className="text-xs text-slate-400">{formatDateTime(n.timestamp)}</td>
+                    {n.belum_ujian ? (
+                      <>
+                        <td className="text-slate-400 text-sm" colSpan={4}>—</td>
+                        <td>
+                          <span className="badge bg-slate-100 text-slate-500">Belum Ujian</span>
+                        </td>
+                        <td className="text-xs text-slate-400">—</td>
+                      </>
+                    ) : (
+                      <>
+                        <td>
+                          <span className={`text-lg font-bold ${nilaiColor(n.nilai)}`}>{n.nilai}</span>
+                        </td>
+                        <td>
+                          <span className={`badge font-bold ${
+                            n.grade === 'A' ? 'badge-green' :
+                            n.grade === 'B' ? 'badge-blue' :
+                            n.grade === 'C' ? 'badge-yellow' : 'badge-red'
+                          }`}>{n.grade}</span>
+                        </td>
+                        <td className="text-slate-600 text-sm">{n.benar}/{n.total}</td>
+                        <td className="text-slate-500 text-sm">{n.kkm}</td>
+                        <td>
+                          <span className={`badge ${n.lulus ? 'badge-green' : 'badge-red'}`}>
+                            {n.lulus ? '✓ Lulus' : '✗ Tidak Lulus'}
+                          </span>
+                        </td>
+                        <td className="text-xs text-slate-400">{formatDateTime(n.timestamp)}</td>
+                      </>
+                    )}
                   </tr>
                 ))}
               </tbody>
