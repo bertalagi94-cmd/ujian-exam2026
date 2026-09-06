@@ -427,8 +427,8 @@ const state = {
   guruToken: null,
   kepsekUsername: null,
   kepsekToken: null,
-  pengawasUsername: null,
-  pengawasToken: null,
+  guruLainUsername: null,
+  guruLainToken: null,
   baselineSiswaAktif: null,
   runId: null,
   kelasNama: null,
@@ -1237,17 +1237,23 @@ async function phaseApprove() {
   state.jadwalId = myJadwal.id;
   log(`Jadwal dibuat: ${state.jadwalId}`, 'ok');
 
-  setAction('Membuka sesi ujian (sebagai admin)…');
-  state.kodeSesi = `LT${Date.now().toString().slice(-6)}`;
-  const sesiRes = await api('POST', '/api/pengawas/sesi', {
+  setAction('Membuka sesi ujian (sebagai guru/pengawas)…');
+  // FIX: endpoint lama /api/pengawas/sesi sudah tidak ada di kode aplikasi —
+  // fitur "buka sesi" sudah dipindah ke Mode Pengawas milik role GURU
+  // (src/app/api/guru/mode-pengawas/route.ts), dan hanya guru yang tercatat
+  // sebagai `pengawas` di jadwal ini yang boleh memanggilnya (bukan admin).
+  // Endpoint ini juga TIDAK menerima kode sesi custom dari client — server
+  // selalu men-generate kode 7 digit sendiri (generateKodeSesi7()), jadi
+  // kita HARUS pakai kode yang dikembalikan server, bukan yang dibuat di sini.
+  const sesiRes = await api('POST', '/api/guru/mode-pengawas', {
     jadwalId: state.jadwalId,
-    kodeSesi: state.kodeSesi,
-  }, state.adminToken);
+  }, state.guruToken);
   if (!sesiRes.ok) {
-    recordBug('Gagal membuka sesi ujian', JSON.stringify(sesiRes.data), 'POST /api/pengawas/sesi');
+    recordBug('Gagal membuka sesi ujian', JSON.stringify(sesiRes.data), 'POST /api/guru/mode-pengawas');
     throw new Error('Sesi ujian gagal dibuka.');
   }
   state.sesiId = sesiRes.data.sesiId;
+  state.kodeSesi = sesiRes.data.kodeSesi;
   log(`Sesi ujian dibuka. Kode sesi: ${state.kodeSesi}`, 'ok');
 }
 
@@ -1607,31 +1613,49 @@ async function phaseFeatures() {
   setAction('Menguji endpoint publik (tanpa login)…');
   await checkEndpoint('Pengaturan publik (tanpa token)', 'GET', '/api/public/pengaturan', undefined, undefined);
 
-  // ---------- 6j. Akun PENGAWAS asli — bukan guru — untuk verifikasi role sungguhan ----------
-  setAction('Membuat akun PENGAWAS asli untuk verifikasi role…');
-  state.pengawasUsername = `${state.runId}_pengawas`;
-  const pengawasRes = await api('POST', '/api/admin/users', {
-    username: state.pengawasUsername,
-    nama: `PENGAWAS LOADTEST ${state.runId}`,
-    role: 'PENGAWAS',
+  // ---------- 6j. Batas otorisasi "pengawas": guru LAIN tidak boleh memantau sesi ini ----------
+  // CATATAN ARSITEKTUR: role PENGAWAS berdiri sendiri SUDAH TIDAK ADA di sistem
+  // ini — cek src/lib/auth.ts, tipe JWTPayload['role'] cuma 'ADMIN' | 'GURU' |
+  // 'KEPSEK' | 'SISWA'. Fitur pengawas sekarang menyatu di role GURU lewat
+  // "Mode Pengawas", dibatasi per-sesi lewat verifySesiOwnership (guru hanya
+  // boleh mengelola sesi yang jadwalnya dia sendiri sebagai `pengawas`).
+  // Test lama di sini membuat akun role='PENGAWAS' yang tidak pernah bisa lolos
+  // requireRole(['GURU','ADMIN']) di endpoint manapun — selalu 403/404 dan
+  // salah dilaporkan sebagai "bug". Diganti dengan uji yang benar-benar
+  // relevan: guru LAIN (bukan pengawas sesi ini) mencoba memantau sesi ini,
+  // seharusnya DITOLAK (403) — supaya guru tidak bisa mengintip sesi ujian
+  // guru lain.
+  setAction('Uji batas otorisasi: guru lain memantau sesi milik guru lain…');
+  state.guruLainUsername = `${state.runId}_guru_lain`;
+  const guruLainRes = await api('POST', '/api/admin/users', {
+    username: state.guruLainUsername,
+    nama: `GURU LAIN LOADTEST ${state.runId}`,
+    role: 'GURU',
     password: 'LoadTest123!',
     status: 'AKTIF',
   }, state.adminToken);
-  if (pengawasRes.ok) {
-    const pengawasLogin = await api('POST', '/api/auth/login', { username: state.pengawasUsername, password: 'LoadTest123!' });
-    if (pengawasLogin.ok) {
-      state.pengawasToken = pengawasLogin.data.token;
-      // Dipakai NYATA dengan token role PENGAWAS murni — bukan guru/admin —
-      // supaya benar-benar membuktikan role ini punya akses, bukan cuma
-      // berdasar baca kode.
-      await checkEndpoint('Monitoring siswa (token PENGAWAS asli)', 'GET', `/api/pengawas/sesi/${state.sesiId}/siswa`, undefined, state.pengawasToken);
-      await checkEndpoint('Jadwal pengawas (token PENGAWAS asli)', 'GET', '/api/pengawas/jadwal', undefined, state.pengawasToken);
-      await checkEndpoint('Log pelanggaran (token PENGAWAS asli)', 'GET', `/api/pengawas/pelanggaran?sesiId=${state.sesiId}`, undefined, state.pengawasToken);
+  if (guruLainRes.ok) {
+    const guruLainLogin = await api('POST', '/api/auth/login', { username: state.guruLainUsername, password: 'LoadTest123!' });
+    if (guruLainLogin.ok) {
+      state.guruLainToken = guruLainLogin.data.token;
+      const monitorGuruLain = await api('GET', `/api/pengawas/sesi/${state.sesiId}/siswa`, undefined, state.guruLainToken);
+      if (monitorGuruLain.ok) {
+        recordBugCat(
+          BUG_CATEGORIES.RACE_CONDITION,
+          'Guru lain (bukan pengawas sesi ini) berhasil memantau sesi ujian orang lain',
+          `GET /api/pengawas/sesi/${state.sesiId}/siswa dipanggil dengan token guru LAIN (${state.guruLainUsername}) yang bukan pengawas sesi ini, tapi berhasil (HTTP ${monitorGuruLain.status}). Seharusnya ditolak 403 oleh verifySesiOwnership. Ini kebocoran data: guru bisa mengintip progres ujian kelas yang bukan tanggung jawabnya.`,
+          `GET /api/pengawas/sesi/${state.sesiId}/siswa (token guru lain)`
+        );
+      } else if (monitorGuruLain.status === 403) {
+        log('✓ Guru lain ditolak dengan benar (403) saat mencoba memantau sesi ini', 'ok');
+      } else {
+        recordBug('Penolakan guru lain tidak sesuai ekspektasi (bukan 403)', JSON.stringify(monitorGuruLain.data), `GET /api/pengawas/sesi/${state.sesiId}/siswa (token guru lain)`);
+      }
     } else {
-      recordBug('Login akun PENGAWAS testing gagal', JSON.stringify(pengawasLogin.data), 'POST /api/auth/login');
+      recordBug('Login akun guru-lain testing gagal', JSON.stringify(guruLainLogin.data), 'POST /api/auth/login');
     }
   } else {
-    recordBug('Gagal membuat akun PENGAWAS testing', JSON.stringify(pengawasRes.data), 'POST /api/admin/users');
+    recordBug('Gagal membuat akun guru-lain testing', JSON.stringify(guruLainRes.data), 'POST /api/admin/users');
   }
 
   // ---------- 6k. Cross-check konsistensi angka antar endpoint ----------
@@ -1726,8 +1750,12 @@ async function phaseFeatures() {
 
   // ---------- 6m. Tutup sesi ujian ----------
   setAction('Menutup sesi ujian…');
-  const tutup = await api('POST', `/api/pengawas/sesi/${state.sesiId}/tutup`, {}, state.guruToken);
-  if (!tutup.ok) recordBug('Gagal menutup sesi ujian', JSON.stringify(tutup.data), `POST /api/pengawas/sesi/${state.sesiId}/tutup`);
+  // FIX: endpoint lama /api/pengawas/sesi/[id]/tutup tidak ada di kode
+  // aplikasi. Sesi ditutup lewat /api/guru/mode-pengawas/tutup dengan sesiId
+  // di BODY (bukan path param) — server juga memverifikasi bahwa guru
+  // pemanggil memang pengawas sesi ini (lihat verifySesiOwnership).
+  const tutup = await api('POST', '/api/guru/mode-pengawas/tutup', { sesiId: state.sesiId }, state.guruToken);
+  if (!tutup.ok) recordBug('Gagal menutup sesi ujian', JSON.stringify(tutup.data), 'POST /api/guru/mode-pengawas/tutup');
   else log('Sesi ujian ditutup: OK', 'ok');
 
   // ---------- 6m-bis. Analisis ujian (HARUS setelah sesi SELESAI) ----------
@@ -1848,7 +1876,7 @@ async function phaseFeatures() {
     'GET /api/kepsek/jadwal',
     'GET /api/kepsek/monitoring',
     'GET /api/kepsek/nilai',
-    'GET /api/pengawas/jadwal',
+    'GET /api/guru/mode-pengawas',
     'GET /api/pengawas/pelanggaran',
     'GET /api/siswa/jadwal',
     'GET /api/siswa/nilai',
@@ -1862,7 +1890,8 @@ async function phaseFeatures() {
     'POST /api/admin/soal',
     'POST /api/guru/paket',
     'POST /api/guru/soal',
-    'POST /api/pengawas/sesi',
+    'POST /api/guru/mode-pengawas',
+    'POST /api/guru/mode-pengawas/tutup',
     'POST /api/siswa/ujian/validasi',
     'POST /api/siswa/ujian/sync',
     'POST /api/siswa/ujian/selesai',
@@ -1995,8 +2024,6 @@ async function phaseSmartDetection() {
   // INSERT, dua pengawas bisa membuka sesi kembar — menyebabkan siswa submit ke
   // sesi yang salah dan nilai hilang.
   setAction('Uji race condition: buka sesi ganda serentak…');
-  const kode1 = `RACE1_${Date.now().toString().slice(-5)}`;
-  const kode2 = `RACE2_${Date.now().toString().slice(-5)}`;
   // Buat jadwal kedua dulu (diperlukan untuk uji ini — tidak bisa pakai jadwal yang sudah SELESAI)
   const today = new Date().toISOString().slice(0, 10);
   const jadwal2Res = await api('POST', '/api/admin/jadwal', {
@@ -2008,24 +2035,28 @@ async function phaseSmartDetection() {
     const jList = await api('GET', `/api/admin/jadwal?kelas=${encodeURIComponent(state.kelasNama)}`, undefined, state.adminToken);
     const jadwal2 = jList.data?.data?.find(j => j.sesi === 2 && j.mapel_id === state.mapelId);
     if (jadwal2) {
+      // FIX: endpoint buka sesi yang benar adalah /api/guru/mode-pengawas,
+      // dipanggil dengan token GURU yang tercatat sebagai `pengawas` jadwal
+      // ini (bukan admin) — dan server yang men-generate kode sesi sendiri,
+      // client tidak bisa mengirim kode custom.
       const [s1, s2] = await apiBurst(
-        2, 'POST', '/api/pengawas/sesi',
-        (i) => ({ jadwalId: jadwal2.id, kodeSesi: i === 0 ? kode1 : kode2 }),
-        () => state.adminToken
+        2, 'POST', '/api/guru/mode-pengawas',
+        () => ({ jadwalId: jadwal2.id }),
+        () => state.guruToken
       );
       if (s1.ok && s2.ok) {
         recordBugCat(
           BUG_CATEGORIES.RACE_CONDITION,
           'DUA sesi berhasil dibuka untuk jadwal yang sama secara serentak — sesi kembar fatal',
-          `Dua request POST /api/pengawas/sesi dikirim serentak untuk jadwal ID=${jadwal2.id}. Keduanya sukses (s1: ${JSON.stringify(s1.data)}, s2: ${JSON.stringify(s2.data)}). Ini bug fatal: sesi kembar menyebabkan sebagian siswa submit ke sesi yang salah dan nilai hilang secara permanen. Perbaikan: tambahkan UNIQUE constraint di database pada kolom (jadwal_id, status) untuk status=AKTIF, atau gunakan SELECT FOR UPDATE + INSERT dalam satu transaction.`,
-          'POST /api/pengawas/sesi (burst x2 — jadwal sama)'
+          `Dua request POST /api/guru/mode-pengawas dikirim serentak untuk jadwal ID=${jadwal2.id}. Keduanya sukses (s1: ${JSON.stringify(s1.data)}, s2: ${JSON.stringify(s2.data)}). Ini bug fatal: sesi kembar menyebabkan sebagian siswa submit ke sesi yang salah dan nilai hilang secara permanen. Perbaikan: tambahkan UNIQUE constraint di database pada kolom (jadwal_id, status) untuk status=AKTIF, atau gunakan SELECT FOR UPDATE + INSERT dalam satu transaction.`,
+          'POST /api/guru/mode-pengawas (burst x2 — jadwal sama)'
         );
       } else {
         log(`✓ Sesi ganda serentak: ditolak dengan benar (s1: ${s1.status}, s2: ${s2.status})`, 'ok');
       }
       // Tutup jadwal2 apapun hasilnya
-      if (s1.ok && s1.data?.sesiId) await api('POST', `/api/pengawas/sesi/${s1.data.sesiId}/tutup`, {}, state.adminToken);
-      if (s2.ok && s2.data?.sesiId) await api('POST', `/api/pengawas/sesi/${s2.data.sesiId}/tutup`, {}, state.adminToken);
+      if (s1.ok && s1.data?.sesiId) await api('POST', '/api/guru/mode-pengawas/tutup', { sesiId: s1.data.sesiId }, state.guruToken);
+      if (s2.ok && s2.data?.sesiId) await api('POST', '/api/guru/mode-pengawas/tutup', { sesiId: s2.data.sesiId }, state.guruToken);
     }
   }
 
@@ -2058,7 +2089,7 @@ async function phaseSmartDetection() {
       recordBugCat(
         BUG_CATEGORIES.DATA_LEAK,
         'Token SISWA bisa mengakses endpoint monitoring pengawas',
-        `GET /api/pengawas/sesi/[id]/siswa berhasil diakses menggunakan token role SISWA (NIS: ${siswaA.nis}). Endpoint ini seharusnya hanya bisa diakses oleh PENGAWAS/GURU/ADMIN. Ini berarti siswa bisa memantau progress ujian teman-temannya secara real-time.`,
+        `GET /api/pengawas/sesi/[id]/siswa berhasil diakses menggunakan token role SISWA (NIS: ${siswaA.nis}). Endpoint ini seharusnya hanya bisa diakses oleh GURU (yang jadi pengawas sesi ini) atau ADMIN. Ini berarti siswa bisa memantau progress ujian teman-temannya secara real-time.`,
         `GET /api/pengawas/sesi/${state.sesiId}/siswa (token SISWA)`
       );
     } else {
@@ -2671,11 +2702,11 @@ async function confirmCleanup() {
     if (delKepsek.ok) log(`Akun kepsek testing "${kepsekUsername}" dihapus`, 'ok');
     else log(`Akun kepsek testing tidak ditemukan/sudah tidak ada (${JSON.stringify(delKepsek.data)})`, 'info');
 
-    // 6. Hapus akun pengawas testing (kalau ada — dibuat di Fase 6 Fitur Lain)
-    const pengawasUsername = `${runId}_pengawas`;
-    const delPengawas = await api('DELETE', `/api/admin/users/${pengawasUsername}`, undefined, state.adminToken);
-    if (delPengawas.ok) log(`Akun pengawas testing "${pengawasUsername}" dihapus`, 'ok');
-    else log(`Akun pengawas testing tidak ditemukan/sudah tidak ada (${JSON.stringify(delPengawas.data)})`, 'info');
+    // 6. Hapus akun guru-lain testing (kalau ada — dibuat di Fase 6 uji otorisasi)
+    const guruLainUsername = `${runId}_guru_lain`;
+    const delGuruLain = await api('DELETE', `/api/admin/users/${guruLainUsername}`, undefined, state.adminToken);
+    if (delGuruLain.ok) log(`Akun guru-lain testing "${guruLainUsername}" dihapus`, 'ok');
+    else log(`Akun guru-lain testing tidak ditemukan/sudah tidak ada (${JSON.stringify(delGuruLain.data)})`, 'info');
 
     // 7. Hapus kelas "lintas kelas" + siswanya (dibuat untuk uji skenario akses lintas-kelas)
     const kelasLain = `${runId}_LAINKELAS`;
