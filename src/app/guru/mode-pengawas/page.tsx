@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Shield, Play, Square, Clock, Copy, CheckCircle,
-  RefreshCw, AlertTriangle, BookOpen, Users, Lock, Unlock,
+  RefreshCw, AlertTriangle, BookOpen, Users, Lock,
   ShieldAlert, RotateCcw, KeyRound, Eye, ChevronDown, ChevronUp, FileQuestion
 } from 'lucide-react'
 import { apiRequest, formatDateTime } from '@/lib/utils'
@@ -826,11 +826,6 @@ export default function ModePengawasPage() {
                   {!isDone && !diambilAlih && (
                     <div className="flex items-center justify-between gap-3 flex-wrap">
                       {!isRunning && !boleh && <CountdownTimer jamMulai={j.jam_mulai} />}
-                      {!isRunning && boleh && soalSiap && (
-                        <div className="flex items-center gap-1.5 text-xs text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-lg font-medium">
-                          <Unlock className="w-3.5 h-3.5" /> Siap dimulai
-                        </div>
-                      )}
                       {!isRunning && boleh && !soalSiap && (
                         <div
                           className="flex items-center gap-1.5 text-xs text-slate-500 bg-slate-50 px-3 py-1.5 rounded-lg font-medium max-w-md"
