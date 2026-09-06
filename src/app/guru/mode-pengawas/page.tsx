@@ -187,6 +187,13 @@ export default function ModePengawasPage() {
   // Notif pelanggaran baru
   const [pelNotif, setPelNotif] = useState<Pelanggaran | null>(null)
   const seenPelIdsRef = useRef<Set<string>>(new Set())
+
+  // Notif siswa selesai — dipicu saat status seorang siswa BERUBAH jadi
+  // SELESAI (bukan yang memang sudah SELESAI sejak awal load halaman).
+  const [selesaiNotif, setSelesaiNotif] = useState<SiswaAktif | null>(null)
+  // Key: `${sesiId}::${nis}` → status terakhir yang tercatat. Dipakai untuk
+  // mendeteksi transisi status, bukan cuma nilai statis.
+  const prevStatusSiswaRef = useRef<Record<string, string>>({})
   // Timestamp pelanggaran terakhir yang sudah dilihat, per sesi — dipakai
   // sebagai parameter `sejak` supaya poll cepat di bawah ini murah (server
   // hanya perlu mencari baris yang lebih baru dari ini, hampir selalu kosong).
@@ -258,75 +265,48 @@ export default function ModePengawasPage() {
     keepAliveOscRef.current = null
   }
 
-  // Suara alarm pelanggaran — 3 nada mendesak berturut-turut (bukan cuma
-  // satu "bip" pendek) supaya lebih sulit terlewat oleh pengawas dibanding
-  // notifikasi visual saja, terutama kalau pengawas sedang tidak menatap layar.
+  // Suara alarm pelanggaran — satu nada "menurun" cepat (siren pendek), khas
+  // bunyi peringatan/alarm sehingga langsung dikenali beda dari bunyi lain
+  // di aplikasi ini (mis. bunyi "siswa selesai" di bawah yang nadanya naik).
   function playAlert() {
     const ctx = getAudioCtx()
     if (!ctx) return
     try {
-      const nadaMulai = [0, 0.22, 0.44] // 3 denting beruntun
-      nadaMulai.forEach(offset => {
-        const osc = ctx.createOscillator()
-        const gain = ctx.createGain()
-        osc.connect(gain); gain.connect(ctx.destination)
-        osc.type = 'square' // lebih tajam/mendesak dibanding sine
-        const t0 = ctx.currentTime + offset
-        osc.frequency.setValueAtTime(1046, t0)   // C6
-        osc.frequency.setValueAtTime(784, t0 + 0.09) // G5
-        gain.gain.setValueAtTime(0.001, t0)
-        gain.gain.linearRampToValueAtTime(0.5, t0 + 0.01)
-        gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.2)
-        osc.start(t0); osc.stop(t0 + 0.22)
-      })
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.connect(gain); gain.connect(ctx.destination)
+      osc.type = 'sawtooth' // lebih kasar/mendesak, khas bunyi alarm
+      const t0 = ctx.currentTime
+      osc.frequency.setValueAtTime(880, t0)
+      osc.frequency.exponentialRampToValueAtTime(220, t0 + 0.3) // nada turun cepat
+      gain.gain.setValueAtTime(0.001, t0)
+      gain.gain.linearRampToValueAtTime(0.45, t0 + 0.02)
+      gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.35)
+      osc.start(t0); osc.stop(t0 + 0.36)
     } catch { /* silent */ }
   }
 
-  // Cache daftar voice TTS browser. Di banyak browser, getVoices() baru
-  // terisi ASYNC setelah event 'voiceschanged' (pemanggilan pertama sering
-  // balikin array kosong) — makanya kita simpan & dengarkan event-nya sekali,
-  // bukan cuma panggil getVoices() langsung tiap mau bicara.
-  const voicesRef = useRef<SpeechSynthesisVoice[]>([])
-
-  useEffect(() => {
-    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return
-    const loadVoices = () => { voicesRef.current = window.speechSynthesis.getVoices() }
-    loadVoices()
-    window.speechSynthesis.addEventListener('voiceschanged', loadVoices)
-    return () => window.speechSynthesis.removeEventListener('voiceschanged', loadVoices)
-  }, [])
-
-  // Cari voice Bahasa Indonesia secara eksplisit dari voice yang TERPASANG di
-  // device pengawas. Kalau tidak ketemu (device/browser tidak punya paket
-  // suara id-ID), balikin undefined supaya browser pakai voice default-nya
-  // sendiri — teks yang dibaca tetap Bahasa Indonesia, cuma aksennya ikut
-  // voice default tsb.
-  function cariVoiceIndonesia(): SpeechSynthesisVoice | undefined {
-    const voices = voicesRef.current
-    return (
-      voices.find(v => v.lang?.toLowerCase() === 'id-id') ??
-      voices.find(v => v.lang?.toLowerCase().startsWith('id')) ??
-      undefined
-    )
-  }
-
-  // Ucapkan nama siswa yang melanggar via Web Speech API, dipanggil sesaat
-  // setelah playAlert() supaya pengawas yang tidak menatap layar tetap tahu
-  // SIAPA yang melanggar, bukan cuma dengar bip generik.
-  function speakPelanggaran(namaSiswa: string) {
+  // Suara "siswa selesai" — dua nada pendek naik (chime ringan), sengaja
+  // dibuat berlawanan arah (naik) dan lebih halus (sine) dibanding bunyi
+  // pelanggaran di atas (turun, sawtooth) supaya pengawas bisa langsung
+  // membedakan dua jenis notifikasi ini hanya dari bunyinya saja.
+  function playSelesai() {
+    const ctx = getAudioCtx()
+    if (!ctx) return
     try {
-      if (typeof window === 'undefined' || !('speechSynthesis' in window)) return
-      const utter = new SpeechSynthesisUtterance(`${namaSiswa} melakukan pelanggaran`)
-      utter.lang = 'id-ID'
-      const voiceId = cariVoiceIndonesia()
-      if (voiceId) utter.voice = voiceId // paksa pakai voice id-ID kalau tersedia di device
-      utter.rate = 1
-      utter.pitch = 1
-      utter.volume = 1
-      // Batalkan antrian ucapan sebelumnya supaya pelanggaran beruntun tidak
-      // numpuk dan malah terdengar bertumpuk-tumpuk/telat.
-      window.speechSynthesis.cancel()
-      window.speechSynthesis.speak(utter)
+      const nada = [{ freq: 659, t: 0 }, { freq: 988, t: 0.12 }] // E5 → B5
+      nada.forEach(n => {
+        const osc = ctx.createOscillator()
+        const gain = ctx.createGain()
+        osc.connect(gain); gain.connect(ctx.destination)
+        osc.type = 'sine'
+        const t0 = ctx.currentTime + n.t
+        osc.frequency.setValueAtTime(n.freq, t0)
+        gain.gain.setValueAtTime(0.001, t0)
+        gain.gain.linearRampToValueAtTime(0.3, t0 + 0.01)
+        gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.25)
+        osc.start(t0); osc.stop(t0 + 0.26)
+      })
     } catch { /* silent */ }
   }
 
@@ -349,6 +329,27 @@ export default function ModePengawasPage() {
         return next
       })
 
+      // Deteksi siswa yang BARU SAJA berubah status jadi SELESAI (bukan yang
+      // sudah SELESAI sejak sebelum halaman ini dibuka — key yang belum
+      // pernah tercatat sebelumnya cuma dipakai sbg baseline, tidak memicu
+      // notifikasi, persis sama dengan pola pelanggaran di bawah).
+      let siswaSelesaiBaru: SiswaAktif | null = null
+      sesiIds.forEach(id => {
+        (newSiswaMap[id] ?? []).forEach(s => {
+          const key = `${id}::${s.nis}`
+          const prevStatus = prevStatusSiswaRef.current[key]
+          if (prevStatus && prevStatus !== 'SELESAI' && s.status === 'SELESAI' && !siswaSelesaiBaru) {
+            siswaSelesaiBaru = s
+          }
+          prevStatusSiswaRef.current[key] = s.status
+        })
+      })
+      if (siswaSelesaiBaru) {
+        playSelesai()
+        setSelesaiNotif(siswaSelesaiBaru)
+        setTimeout(() => setSelesaiNotif(null), 8000)
+      }
+
       // Update pelanggaran map (daftar lengkap — dipakai sbg "safety net"
       // kalau poll cepat sempat terlewat, mis. tab browser sempat di-background
       // sehingga interval-nya di-throttle browser).
@@ -364,7 +365,6 @@ export default function ModePengawasPage() {
       const brandNew = allPel.filter(p => !seenPelIdsRef.current.has(p.id))
       if (brandNew.length > 0 && seenPelIdsRef.current.size > 0) {
         playAlert()
-        speakPelanggaran(brandNew[0].nama_siswa)
         setPelNotif(brandNew[0])
         setTimeout(() => setPelNotif(null), 8000)
       }
@@ -416,7 +416,6 @@ export default function ModePengawasPage() {
       // (seenPelIdsRef masih kosong berarti baru pertama kali load).
       if (brandNew.length > 0 && seenPelIdsRef.current.size > brandNew.length) {
         playAlert()
-        speakPelanggaran(brandNew[0].nama_siswa)
         setPelNotif(brandNew[0])
         setTimeout(() => setPelNotif(null), 8000)
       }
@@ -569,18 +568,31 @@ export default function ModePengawasPage() {
         </button>
       </div>
 
-      {/* Popup notif pelanggaran */}
-      {pelNotif && (
-        <div className="fixed top-4 right-4 z-50 bg-red-600 text-white px-4 py-3 rounded-2xl shadow-2xl flex items-center gap-3 animate-fade-in max-w-xs">
-          <ShieldAlert className="w-5 h-5 flex-shrink-0" />
-          <div>
-            <div className="text-xs font-bold uppercase tracking-wide">Pelanggaran Baru!</div>
-            <div className="text-sm font-semibold truncate">{pelNotif.nama_siswa}</div>
-            <div className="text-xs opacity-80">{terjemahJenis(pelNotif.jenis)}</div>
+      {/* Popup notif: pelanggaran & siswa selesai (ditumpuk kalau dua-duanya muncul) */}
+      <div className="fixed top-4 right-4 z-50 flex flex-col gap-3 items-end">
+        {pelNotif && (
+          <div className="bg-red-600 text-white px-4 py-3 rounded-2xl shadow-2xl flex items-center gap-3 animate-fade-in max-w-xs">
+            <ShieldAlert className="w-5 h-5 flex-shrink-0" />
+            <div>
+              <div className="text-xs font-bold uppercase tracking-wide">Pelanggaran Baru!</div>
+              <div className="text-sm font-semibold truncate">{pelNotif.nama_siswa}</div>
+              <div className="text-xs opacity-80">{terjemahJenis(pelNotif.jenis)}</div>
+            </div>
+            <button onClick={() => setPelNotif(null)} className="ml-1 opacity-70 hover:opacity-100 text-lg leading-none">×</button>
           </div>
-          <button onClick={() => setPelNotif(null)} className="ml-1 opacity-70 hover:opacity-100 text-lg leading-none">×</button>
-        </div>
-      )}
+        )}
+        {selesaiNotif && (
+          <div className="bg-emerald-600 text-white px-4 py-3 rounded-2xl shadow-2xl flex items-center gap-3 animate-fade-in max-w-xs">
+            <CheckCircle className="w-5 h-5 flex-shrink-0" />
+            <div>
+              <div className="text-xs font-bold uppercase tracking-wide">Siswa Selesai!</div>
+              <div className="text-sm font-semibold truncate">{selesaiNotif.nama}</div>
+              <div className="text-xs opacity-80">{selesaiNotif.kelas}</div>
+            </div>
+            <button onClick={() => setSelesaiNotif(null)} className="ml-1 opacity-70 hover:opacity-100 text-lg leading-none">×</button>
+          </div>
+        )}
+      </div>
 
       {jadwal.length === 0 ? (
         <div className="card py-12 flex flex-col items-center gap-3 text-slate-400">
