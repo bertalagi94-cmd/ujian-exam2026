@@ -122,6 +122,71 @@ export async function GET(req: NextRequest) {
     for (const g of (guruSusulanRaw ?? []) as { username: string; nama: string }[]) guruMap[g.username] = g.nama
   }
 
+  // ── Siswa belum ujian, untuk jadwal berstatus SELESAI ────────────────────
+  // Logikanya sama persis dengan pengecekan di DELETE/PATCH handler bawah
+  // (mencegah hapus jadwal kalau masih ada siswa yang belum ujian), tapi di
+  // sini dihitung untuk SEMUA jadwal SELESAI sekaligus dalam query batch,
+  // supaya list admin tidak melakukan query per-baris (N+1).
+  const selesaiRows = data.filter(r => r.status === 'SELESAI')
+  const belumUjianMap: Record<string, { nis: string; nama: string }[]> = {}
+
+  if (selesaiRows.length > 0) {
+    const kelasSelesai = [...new Set(selesaiRows.map(r => String(r.kelas)))]
+    const mapelIdSelesai = [...new Set(selesaiRows.map(r => r.mapel_id))]
+
+    // Semua siswa AKTIF di kelas-kelas yang relevan, dikelompokkan per kelas
+    const { data: siswaRaw } = await (db as any)
+      .from('siswa')
+      .select('nis, nama, kelas')
+      .eq('status', 'AKTIF')
+      .in('kelas', kelasSelesai)
+      .order('nama')
+    const siswaByKelas: Record<string, { nis: string; nama: string }[]> = {}
+    for (const s of (siswaRaw ?? []) as { nis: string; nama: string; kelas: string }[]) {
+      if (!siswaByKelas[s.kelas]) siswaByKelas[s.kelas] = []
+      siswaByKelas[s.kelas].push({ nis: s.nis, nama: s.nama })
+    }
+
+    // Semua sesi_ujian untuk kombinasi mapel+kelas yang relevan, dikelompokkan
+    // per kombinasi (satu jadwal = satu kombinasi mapel+kelas yang unik, tapi
+    // bisa punya lebih dari satu sesi_ujian kalau pernah dibuka ujian susulan)
+    const { data: sesiRaw } = await (db as any)
+      .from('sesi_ujian')
+      .select('id, mapel_id, kelas')
+      .in('mapel_id', mapelIdSelesai)
+      .in('kelas', kelasSelesai)
+    const sesiRows = (sesiRaw ?? []) as { id: string; mapel_id: string; kelas: string }[]
+    const sesiIdsPerCombo: Record<string, string[]> = {}
+    for (const s of sesiRows) {
+      const key = `${s.mapel_id}__${s.kelas}`
+      if (!sesiIdsPerCombo[key]) sesiIdsPerCombo[key] = []
+      sesiIdsPerCombo[key].push(s.id)
+    }
+
+    const semuaSesiIds = [...new Set(sesiRows.map(s => s.id))]
+    let nilaiRows: { nis: string; sesi_id: string }[] = []
+    if (semuaSesiIds.length > 0) {
+      const { data: nilaiRaw } = await (db as any).from('nilai').select('nis, sesi_id').in('sesi_id', semuaSesiIds)
+      nilaiRows = (nilaiRaw ?? []) as { nis: string; sesi_id: string }[]
+    }
+    const nisSudahPerSesi: Record<string, Set<string>> = {}
+    for (const n of nilaiRows) {
+      if (!nisSudahPerSesi[n.sesi_id]) nisSudahPerSesi[n.sesi_id] = new Set()
+      nisSudahPerSesi[n.sesi_id].add(n.nis)
+    }
+
+    for (const r of selesaiRows) {
+      const comboKey = `${r.mapel_id}__${r.kelas}`
+      const sesiIds = sesiIdsPerCombo[comboKey] ?? []
+      const sudahSet = new Set<string>()
+      for (const sid of sesiIds) for (const nis of (nisSudahPerSesi[sid] ?? [])) sudahSet.add(nis)
+
+      const siswaKelas = siswaByKelas[String(r.kelas)] ?? []
+      const belum = siswaKelas.filter(s => !sudahSet.has(s.nis))
+      if (belum.length > 0) belumUjianMap[r.id] = belum
+    }
+  }
+
   const enriched = data.map(r => {
     // Gunakan nama kelas langsung sebagai key (sudah konsisten dengan paketStatusMap yang baru)
     const kelasNama = String(r.kelas ?? '')
@@ -143,6 +208,7 @@ export async function GET(req: NextRequest) {
       status_soal: paketStatusMap[soalKey] ?? 'BELUM_ADA',
       pengawas_aktif: pengawasAktifUsername ? (guruMap[pengawasAktifUsername] ?? pengawasAktifUsername) : null,
       is_pengawas_susulan: isPengawasSusulan,
+      siswa_belum_ujian: belumUjianMap[r.id] ?? [],
     }
   })
 
