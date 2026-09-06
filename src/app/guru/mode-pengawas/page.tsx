@@ -55,6 +55,11 @@ interface SiswaAktif {
   waktu_selesai: string | null
   jumlah_pelanggaran: number
   kode_reset: string | null
+  // Diisi kalau siswa ini SELESAI di sesi LAIN pada jadwal yang sama (mis.
+  // sudah ujian reguler sebelum sesi susulan ini dibuka) — lihat FIX di
+  // /api/pengawas/sesi/[id]/siswa. Dipakai untuk menampilkan label pembeda
+  // di UI, murni tampilan.
+  dari_sesi_lain?: boolean
 }
 
 interface Pelanggaran {
@@ -805,6 +810,11 @@ export default function ModePengawasPage() {
                                     <span className={`text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${sw.status === 'AKTIF' ? 'bg-emerald-100 text-emerald-700' : sw.status === 'SELESAI' ? 'bg-blue-100 text-blue-700' : sw.status === 'RESET' ? 'bg-amber-100 text-amber-700' : sw.status === 'BELUM_LOGIN' ? 'bg-orange-50 text-orange-600' : 'bg-red-100 text-red-700'}`}>
                                       {sw.status === 'AKTIF' ? '● Ujian' : sw.status === 'SELESAI' ? '✓ Selesai' : sw.status === 'RESET' ? '⏳ Tunggu Kode' : sw.status === 'BELUM_LOGIN' ? '○ Belum Login' : '🔒 Terkunci'}
                                     </span>
+                                    {sw.dari_sesi_lain && (
+                                      <span className="text-xs font-medium px-2 py-0.5 rounded-full flex-shrink-0 bg-slate-100 text-slate-500">
+                                        Sesi sebelumnya
+                                      </span>
+                                    )}
                                     {sw.jumlah_pelanggaran > 0 && (
                                       <span className={`text-xs font-bold px-2 py-0.5 rounded-full flex-shrink-0 ${sw.jumlah_pelanggaran >= 3 ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
                                         {sw.jumlah_pelanggaran}× langgar
