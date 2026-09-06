@@ -17,7 +17,12 @@ export async function GET(req: NextRequest) {
     .limit(30)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  if (!data?.length) return NextResponse.json({ data: [] })
+  if (!data?.length) {
+    // FIX: sertakan zonaWaktu juga di jalur ini, biar frontend tetap
+    // konsisten memakai zona waktu sekolah walau jadwalnya kosong.
+    const zonaKosong = await getZonaWaktuSekolah()
+    return NextResponse.json({ data: [], zonaWaktu: { utcOffsetJam: zonaKosong.utcOffsetJam } })
+  }
 
   const mapelIds = [...new Set(data.map(j => j.mapel_id).filter(Boolean))]
   const { data: mapelList } = await db.from('mapel').select('id, nama').in('id', mapelIds)
@@ -73,6 +78,13 @@ export async function GET(req: NextRequest) {
         sudah_ikut: !!hasilSiswa,
         nilai_id: hasilSiswa?.id ?? null,
       }
-    })
+    }),
+    // FIX: kirim zona waktu sekolah ke client — sebelumnya tidak pernah
+    // dikirim, sehingga frontend selalu fallback ke WIB (+7) walaupun
+    // sekolah sebenarnya WITA (+8) / WIT (+9). Akibatnya, tepat setelah
+    // tengah malam di zona WITA/WIT, siswa melihat jadwal hari ini sebagai
+    // "jadwal terdekat" (mendatang) alih-alih "hari ini", padahal pengawas
+    // (yang menghitung dengan zona asli) sudah bisa membuka sesinya.
+    zonaWaktu: { utcOffsetJam: zona.utcOffsetJam },
   })
 }
