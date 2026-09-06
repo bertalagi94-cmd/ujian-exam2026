@@ -550,28 +550,61 @@ export default function ModePengawasPage() {
 
   const todayStr = new Date().toLocaleDateString('id-ID', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })
 
+  // Ringkasan kecil di header — murni turunan tampilan dari data `jadwal`
+  // yang sudah ada, tidak mengubah logika apa pun, cuma membantu pengawas
+  // menangkap gambaran umum sebelum menyisir tiap kartu satu per satu.
+  const jumlahBerjalan = jadwal.filter(j => j.status === 'BERJALAN' && j.sesi_ujian?.status === 'BERJALAN').length
+  const jumlahSelesai = jadwal.filter(j => j.status === 'SELESAI' || j.sesi_ujian?.status === 'SELESAI').length
+  const jumlahMenunggu = jadwal.length - jumlahBerjalan - jumlahSelesai
+
   return (
-    <div className="space-y-8 animate-fade-in pb-10 max-w-3xl mx-auto">
+    <div className="space-y-6 animate-fade-in pb-10 max-w-3xl mx-auto">
       {/* Header */}
-      <div className="flex items-start justify-between flex-wrap gap-4">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <div className="w-8 h-8 rounded-lg bg-orange-600 flex items-center justify-center">
-              <Shield className="w-4 h-4 text-white" />
+      <div className="rounded-2xl bg-gradient-to-br from-slate-900 to-slate-800 px-5 py-5 sm:px-6 sm:py-6 shadow-sm">
+        <div className="flex items-start justify-between flex-wrap gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-orange-500 flex items-center justify-center flex-shrink-0">
+              <Shield className="w-5 h-5 text-white" />
             </div>
-            <span className="text-xs font-semibold text-orange-600 uppercase tracking-wider">Mode Pengawas</span>
+            <div>
+              <span className="text-[11px] font-semibold text-orange-300 uppercase tracking-wider">Mode Pengawas</span>
+              <h1 className="text-xl sm:text-2xl font-bold text-white leading-tight">Pengawasan Ujian</h1>
+              <p className="text-slate-400 text-xs sm:text-sm mt-0.5">{todayStr}</p>
+            </div>
           </div>
-          <h1 className="text-2xl font-bold text-slate-900">Pengawasan Ujian</h1>
-          <p className="text-slate-500 text-sm mt-0.5">{todayStr}</p>
+          <button
+            onClick={() => load(true)}
+            disabled={refreshing}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white/10 hover:bg-white/15 text-white text-sm font-medium transition-colors flex-shrink-0"
+          >
+            <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
         </div>
-        <button
-          onClick={() => load(true)}
-          disabled={refreshing}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 text-sm font-medium transition-colors"
-        >
-          <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
-          Refresh
-        </button>
+
+        {/* Strip ringkasan — hanya tampil kalau ada jadwal hari ini */}
+        {jadwal.length > 0 && (
+          <div className="flex items-center gap-2 flex-wrap mt-5 pt-4 border-t border-white/10">
+            <span className="flex items-center gap-1.5 text-xs font-medium text-slate-300 bg-white/5 px-3 py-1.5 rounded-lg">
+              <BookOpen className="w-3.5 h-3.5" />{jadwal.length} ujian hari ini
+            </span>
+            {jumlahBerjalan > 0 && (
+              <span className="flex items-center gap-1.5 text-xs font-semibold text-amber-300 bg-amber-400/10 px-3 py-1.5 rounded-lg">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />{jumlahBerjalan} sedang berlangsung
+              </span>
+            )}
+            {jumlahMenunggu > 0 && (
+              <span className="flex items-center gap-1.5 text-xs font-medium text-slate-300 bg-white/5 px-3 py-1.5 rounded-lg">
+                <Clock className="w-3.5 h-3.5" />{jumlahMenunggu} menunggu jadwal
+              </span>
+            )}
+            {jumlahSelesai > 0 && (
+              <span className="flex items-center gap-1.5 text-xs font-medium text-slate-300 bg-white/5 px-3 py-1.5 rounded-lg">
+                <CheckCircle className="w-3.5 h-3.5" />{jumlahSelesai} selesai
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Popup notif: pelanggaran & siswa selesai (ditumpuk kalau dua-duanya muncul) */}
@@ -601,9 +634,14 @@ export default function ModePengawasPage() {
       </div>
 
       {jadwal.length === 0 ? (
-        <div className="card py-12 flex flex-col items-center gap-3 text-slate-400">
-          <BookOpen className="w-8 h-8" />
-          <p className="text-sm">Tidak ada jadwal pengawasan hari ini</p>
+        <div className="card py-14 flex flex-col items-center gap-3 text-center">
+          <div className="w-12 h-12 rounded-2xl bg-slate-50 flex items-center justify-center">
+            <BookOpen className="w-6 h-6 text-slate-300" />
+          </div>
+          <div>
+            <p className="text-sm font-medium text-slate-500">Tidak ada jadwal pengawasan hari ini</p>
+            <p className="text-xs text-slate-400 mt-0.5">Jadwal ujian yang perlu Anda awasi akan muncul di sini.</p>
+          </div>
         </div>
       ) : (
         <div className="space-y-4">
@@ -630,24 +668,26 @@ export default function ModePengawasPage() {
 
                 <div className="p-5">
                   {/* Top row */}
-                  <div className="flex items-start justify-between gap-3 mb-4">
-                    <div>
-                      <h3 className="font-bold text-slate-900 text-lg">{j.nama_mapel}</h3>
-                      <div className="flex items-center gap-3 mt-1 text-sm text-slate-500 flex-wrap">
-                        <span className="flex items-center gap-1"><Users className="w-3.5 h-3.5" />Kelas {j.nama_kelas}</span>
-                        <span className="flex items-center gap-1"><BookOpen className="w-3.5 h-3.5" />Sesi {j.sesi}</span>
-                        <span className="flex items-center gap-1"><Clock className="w-3.5 h-3.5" />{j.jam_mulai} – {j.jam_selesai}</span>
-                        <span className="text-slate-400">{j.durasi} menit</span>
+                  <div className="flex items-start justify-between gap-3 pb-4 mb-4 border-b border-slate-100">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h3 className="font-bold text-slate-900 text-lg leading-tight">{j.nama_mapel}</h3>
+                        <span className={`text-[11px] px-2 py-0.5 rounded-full font-semibold flex-shrink-0 ${diambilAlih ? 'bg-purple-100 text-purple-700' : isRunning ? 'bg-amber-100 text-amber-700' : isDone ? 'bg-emerald-100 text-emerald-700' : boleh ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>
+                          {diambilAlih ? '● Berlangsung' : isRunning ? '● Berlangsung' : isDone ? '✓ Selesai' : boleh ? '● Siap Dimulai' : '◷ Akan Datang'}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-x-3 gap-y-1 mt-1.5 text-sm text-slate-500 flex-wrap">
+                        <span className="flex items-center gap-1"><Users className="w-3.5 h-3.5 text-slate-400" />Kelas {j.nama_kelas}</span>
+                        <span className="flex items-center gap-1"><BookOpen className="w-3.5 h-3.5 text-slate-400" />Sesi {j.sesi}</span>
+                        <span className="flex items-center gap-1"><Clock className="w-3.5 h-3.5 text-slate-400" />{j.jam_mulai} – {j.jam_selesai}</span>
+                        <span className="text-slate-400">({j.durasi} menit)</span>
                       </div>
                       {!isRunning && !isDone && !diambilAlih && !soalSiap && (
-                        <div className="mt-1.5">
+                        <div className="mt-2">
                           <SoalStatusBadge status={j.status_soal} />
                         </div>
                       )}
                     </div>
-                    <span className={`text-xs px-2.5 py-1 rounded-full font-semibold flex-shrink-0 ${diambilAlih ? 'bg-purple-100 text-purple-700' : isRunning ? 'bg-amber-100 text-amber-700' : isDone ? 'bg-emerald-100 text-emerald-700' : boleh ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>
-                      {diambilAlih ? '● Berlangsung' : isRunning ? '● Berlangsung' : isDone ? '✓ Selesai' : boleh ? '● Siap Dimulai' : '◷ Akan Datang'}
-                    </span>
                   </div>
 
                   {/* Sesi diambil-alih pengawas susulan (ditugaskan admin) */}
@@ -690,26 +730,52 @@ export default function ModePengawasPage() {
                   {isRunning && j.sesi_ujian && (
                     <div className="bg-slate-50 border border-slate-100 rounded-2xl mb-4">
                       <KodeSesiDisplay kode={j.sesi_ujian.kode_sesi} />
-                      <div className="border-t border-slate-100 px-4 py-2.5 flex items-center flex-wrap gap-3 text-xs text-slate-500">
-                        <span>Mulai: <strong className="text-slate-700">{new Date(j.sesi_ujian.waktu_mulai).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}</strong></span>
-                        <span className="px-2 py-0.5 bg-emerald-50 text-emerald-700 rounded-lg font-semibold">{aktifCount} sedang ujian</span>
-                        {selesaiCount > 0 && <span className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded-lg font-semibold">{selesaiCount} selesai</span>}
-                        {resetCount > 0 && <span className="px-2 py-0.5 bg-amber-50 text-amber-700 rounded-lg font-semibold">{resetCount} menunggu kode</span>}
-                        {terkunciCount > 0 && <span className="px-2 py-0.5 bg-red-50 text-red-700 rounded-lg font-semibold">{terkunciCount} terkunci</span>}
-                        {belumLoginCount > 0 && <span className="px-2 py-0.5 bg-orange-50 text-orange-600 rounded-lg font-semibold">{belumLoginCount} belum login</span>}
-                        {pelList.length > 0 && (
-                          <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded-lg font-bold flex items-center gap-1">
-                            <ShieldAlert className="w-3 h-3" />{pelList.length} pelanggaran
+                      <div className="border-t border-slate-100 px-4 py-3.5">
+                        <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
+                          <span className="text-xs text-slate-400">
+                            Sesi dimulai pukul <strong className="text-slate-600 font-semibold">{new Date(j.sesi_ujian.waktu_mulai).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}</strong>
                           </span>
-                        )}
-                        {sesiId && (
-                          <button
-                            onClick={() => setExpandedSesi(prev => { const n = new Set(prev); isExpanded ? n.delete(sesiId) : n.add(sesiId); return n })}
-                            className="ml-auto flex items-center gap-1 text-slate-500 hover:text-slate-700 font-medium"
-                          >
-                            {isExpanded ? <><ChevronUp className="w-3.5 h-3.5" />Sembunyikan</> : <><ChevronDown className="w-3.5 h-3.5" />Daftar Siswa</>}
-                          </button>
-                        )}
+                          {sesiId && (
+                            <button
+                              onClick={() => setExpandedSesi(prev => { const n = new Set(prev); isExpanded ? n.delete(sesiId) : n.add(sesiId); return n })}
+                              className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-700 font-semibold"
+                            >
+                              {isExpanded ? <><ChevronUp className="w-3.5 h-3.5" />Sembunyikan detail</> : <><ChevronDown className="w-3.5 h-3.5" />Lihat daftar siswa</>}
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Grid kartu statistik — sama datanya dengan sebelumnya (pil
+                            sejajar), cuma disusun ulang jadi kotak-kotak kecil supaya
+                            lebih cepat dipindai sekilas oleh pengawas. */}
+                        <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+                          <div className="flex flex-col items-center justify-center gap-0.5 bg-emerald-50 rounded-xl py-2.5">
+                            <span className="text-base font-bold text-emerald-700 leading-none">{aktifCount}</span>
+                            <span className="text-[10px] font-medium text-emerald-600 text-center leading-tight">Sedang Ujian</span>
+                          </div>
+                          <div className="flex flex-col items-center justify-center gap-0.5 bg-blue-50 rounded-xl py-2.5">
+                            <span className="text-base font-bold text-blue-700 leading-none">{selesaiCount}</span>
+                            <span className="text-[10px] font-medium text-blue-600 text-center leading-tight">Selesai</span>
+                          </div>
+                          <div className={`flex flex-col items-center justify-center gap-0.5 rounded-xl py-2.5 ${belumLoginCount > 0 ? 'bg-orange-50' : 'bg-slate-100'}`}>
+                            <span className={`text-base font-bold leading-none ${belumLoginCount > 0 ? 'text-orange-600' : 'text-slate-400'}`}>{belumLoginCount}</span>
+                            <span className={`text-[10px] font-medium text-center leading-tight ${belumLoginCount > 0 ? 'text-orange-500' : 'text-slate-400'}`}>Belum Login</span>
+                          </div>
+                          <div className={`flex flex-col items-center justify-center gap-0.5 rounded-xl py-2.5 ${resetCount > 0 ? 'bg-amber-50' : 'bg-slate-100'}`}>
+                            <span className={`text-base font-bold leading-none ${resetCount > 0 ? 'text-amber-700' : 'text-slate-400'}`}>{resetCount}</span>
+                            <span className={`text-[10px] font-medium text-center leading-tight ${resetCount > 0 ? 'text-amber-600' : 'text-slate-400'}`}>Tunggu Kode</span>
+                          </div>
+                          <div className={`flex flex-col items-center justify-center gap-0.5 rounded-xl py-2.5 ${terkunciCount > 0 ? 'bg-red-50' : 'bg-slate-100'}`}>
+                            <span className={`text-base font-bold leading-none ${terkunciCount > 0 ? 'text-red-700' : 'text-slate-400'}`}>{terkunciCount}</span>
+                            <span className={`text-[10px] font-medium text-center leading-tight ${terkunciCount > 0 ? 'text-red-600' : 'text-slate-400'}`}>Terkunci</span>
+                          </div>
+                          <div className={`flex flex-col items-center justify-center gap-0.5 rounded-xl py-2.5 ${pelList.length > 0 ? 'bg-red-100' : 'bg-slate-100'}`}>
+                            <span className={`text-base font-bold leading-none flex items-center gap-1 ${pelList.length > 0 ? 'text-red-700' : 'text-slate-400'}`}>
+                              {pelList.length > 0 && <ShieldAlert className="w-3.5 h-3.5" />}{pelList.length}
+                            </span>
+                            <span className={`text-[10px] font-medium text-center leading-tight ${pelList.length > 0 ? 'text-red-600' : 'text-slate-400'}`}>Pelanggaran</span>
+                          </div>
+                        </div>
                       </div>
 
                       {/* Daftar siswa (expandable) */}
@@ -722,10 +788,10 @@ export default function ModePengawasPage() {
                             </div>
                           ) : (
                             <div>
-                              <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
+                              <div className="flex items-baseline gap-1.5 text-sm font-semibold text-slate-700 mb-2">
                                 Peserta Ujian
-                                <span className="ml-1.5 normal-case font-medium text-slate-400">
-                                  ({siswaList.length - belumLoginCount}/{siswaList.length} sudah login)
+                                <span className="font-medium text-slate-400 text-xs">
+                                  {siswaList.length - belumLoginCount}/{siswaList.length} sudah login
                                 </span>
                               </div>
                               <div className="space-y-1.5 max-h-72 overflow-y-auto">
@@ -767,8 +833,8 @@ export default function ModePengawasPage() {
                           {/* Pelanggaran */}
                           {pelList.length > 0 && (
                             <div>
-                              <div className="text-xs font-semibold text-red-500 uppercase tracking-wide mb-2 flex items-center gap-1">
-                                <ShieldAlert className="w-3.5 h-3.5" /> Log Pelanggaran
+                              <div className="text-sm font-semibold text-red-600 mb-2 flex items-center gap-1.5">
+                                <ShieldAlert className="w-4 h-4" /> Log Pelanggaran
                               </div>
                               <div className="space-y-1 max-h-48 overflow-y-auto">
                                 {pelList.map(p => (
