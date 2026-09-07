@@ -857,12 +857,14 @@ export default function LoginPage() {
 
       {/* ── LEFT — branding ── */}
       <div className="hidden lg:flex flex-col w-1/2 p-12 text-slate-900 relative">
-        {/* Ilustrasi siswa */}
+        {/* Ilustrasi siswa — ukuran diperkecil supaya tidak menimpa paragraf teks
+            "Sistem CBT modern..." di atasnya (sebelumnya w-[52vw] max-w-[660px]
+            terlalu besar dan bagian atas ilustrasi naik menutupi teks). */}
         <img
           src="/images/siswa-sekolah.webp"
           alt="" aria-hidden="true"
-          className="absolute left-0 w-[52vw] max-w-[660px] min-w-[360px] h-auto select-none transition-transform duration-500 ease-out hover:animate-float hover:scale-[1.03] hover:drop-shadow-2xl"
-          style={{ zIndex: 1, bottom: '-2%' }}
+          className="absolute left-0 w-[38vw] max-w-[440px] min-w-[260px] h-auto select-none transition-transform duration-500 ease-out hover:animate-float hover:scale-[1.03] hover:drop-shadow-2xl"
+          style={{ zIndex: 1, bottom: '0%' }}
         />
         <div className="relative z-10 space-y-8">
           <div className="flex items-center gap-4 cursor-default w-fit"
