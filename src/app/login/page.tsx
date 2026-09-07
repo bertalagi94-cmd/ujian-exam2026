@@ -1130,7 +1130,7 @@ export default function LoginPage() {
               <div
                 key={drapeState === 'opening' ? 'open' : drapeState}
                 className={drapeState === 'closing' ? 'drape-close' : 'drape-open'}
-                style={{ transformOrigin: 'top center', position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10 }}
+                style={{ transformOrigin: 'top center', position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10, maxHeight: '92vh', overflowY: 'auto' }}
                 onMouseEnter={resetIdleTimer}
                 onMouseMove={handleFormActivity}
               >
@@ -1143,7 +1143,7 @@ export default function LoginPage() {
                 }} />
 
                 <div
-                  className="rounded-b-3xl p-8"
+                  className="rounded-b-3xl p-6"
                   style={{
                     background: 'rgba(255, 255, 255, 0.95)',
                     backdropFilter: 'blur(24px)', WebkitBackdropFilter: 'blur(24px)',
@@ -1153,7 +1153,7 @@ export default function LoginPage() {
                   }}
                 >
                   {/* Bar tutup */}
-                  <div className="mb-4 flex items-center gap-2 justify-end">
+                  <div className="mb-3 flex items-center gap-2 justify-end">
                     <span className="text-[10px] text-slate-400">Auto-tutup dalam 10 detik tanpa aktivitas</span>
                     <button type="button" onClick={closeDrape}
                       className="w-5 h-5 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors">
@@ -1161,12 +1161,12 @@ export default function LoginPage() {
                     </button>
                   </div>
 
-                  <div className="mb-6">
-                    <h2 className="text-2xl font-bold text-slate-900">Selamat Datang</h2>
+                  <div className="mb-4">
+                    <h2 className="text-xl font-bold text-slate-900">Selamat Datang</h2>
                     <p className="text-slate-500 text-sm mt-1">Masuk ke akun Anda untuk melanjutkan</p>
                   </div>
 
-                  <form onSubmit={handleLogin} className="space-y-5" onInput={handleFormActivity} onChange={handleFormActivity}>
+                  <form onSubmit={handleLogin} className="space-y-4" onInput={handleFormActivity} onChange={handleFormActivity}>
                     {error && (
                       <div className="flex items-start gap-2 p-3 rounded-xl bg-red-50 border border-red-200 text-red-600 text-sm">
                         <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" /><span>{error}</span>
@@ -1181,7 +1181,7 @@ export default function LoginPage() {
                       >
                         <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                         <input type="text" placeholder="Masukkan username atau NIS"
-                          className="w-full pl-10 pr-4 py-3 rounded-xl text-sm text-slate-900 placeholder-slate-400 bg-slate-50 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-sky-400/60 focus:border-sky-400/60 transition-all"
+                          className="w-full pl-10 pr-4 py-2.5 rounded-xl text-sm text-slate-900 placeholder-slate-400 bg-slate-50 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-sky-400/60 focus:border-sky-400/60 transition-all"
                           value={form.username}
                           onChange={e => { setForm(f => ({ ...f, username: e.target.value })); resetIdleTimer() }}
                           autoComplete="username"
@@ -1197,7 +1197,7 @@ export default function LoginPage() {
                       >
                         <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                         <input type={showPw ? 'text' : 'password'} placeholder="Masukkan password"
-                          className="w-full pl-10 pr-10 py-3 rounded-xl text-sm text-slate-900 placeholder-slate-400 bg-slate-50 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-sky-400/60 focus:border-sky-400/60 transition-all"
+                          className="w-full pl-10 pr-10 py-2.5 rounded-xl text-sm text-slate-900 placeholder-slate-400 bg-slate-50 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-sky-400/60 focus:border-sky-400/60 transition-all"
                           value={form.password}
                           onChange={e => { setForm(f => ({ ...f, password: e.target.value })); resetIdleTimer() }}
                           autoComplete="current-password"
@@ -1210,7 +1210,7 @@ export default function LoginPage() {
                     </div>
 
                     <button type="submit" disabled={loading}
-                      className="btn-login-drape w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl text-white font-bold text-base mt-2 disabled:opacity-60"
+                      className="btn-login-drape w-full flex items-center justify-center gap-2 py-3 rounded-2xl text-white font-bold text-base mt-2 disabled:opacity-60"
                       style={{ boxShadow: '0 4px 24px rgba(37,99,235,0.3), 0 0 40px rgba(20,184,166,0.18)' }}
                     >
                       {loading ? (
@@ -1219,15 +1219,15 @@ export default function LoginPage() {
                     </button>
                   </form>
 
-                  <div className="mt-5 pt-5 border-t border-slate-100 space-y-3">
+                  <div className="mt-4 pt-4 border-t border-slate-100 space-y-2.5">
                     <p className="text-xs text-slate-400 text-center">Lupa password? Hubungi administrator sekolah.</p>
                     <div className="flex gap-2">
                       <button type="button" onClick={() => { setShowGuide(true); resetIdleTimer() }}
-                        className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl border border-slate-200 text-slate-500 hover:text-slate-800 hover:border-slate-300 text-xs font-medium transition-all">
+                        className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-xl border border-slate-200 text-slate-500 hover:text-slate-800 hover:border-slate-300 text-xs font-medium transition-all">
                         <BookMarked className="w-3.5 h-3.5" /> Panduan
                       </button>
                       <button type="button" onClick={() => { setShowQA(true); resetIdleTimer() }}
-                        className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl border border-slate-200 text-slate-500 hover:text-slate-800 hover:border-slate-300 text-xs font-medium transition-all">
+                        className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-xl border border-slate-200 text-slate-500 hover:text-slate-800 hover:border-slate-300 text-xs font-medium transition-all">
                         <HelpCircle className="w-3.5 h-3.5" /> Q&amp;A
                       </button>
                     </div>
@@ -1235,7 +1235,7 @@ export default function LoginPage() {
                     <button
                       type="button"
                       onClick={() => { setShowAktivitas(true); loadAktivitas(); resetIdleTimer() }}
-                      className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-semibold transition-all"
+                      className="w-full flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-semibold transition-all"
                       style={{
                         background: 'linear-gradient(135deg, rgba(14,165,233,0.12) 0%, rgba(20,184,166,0.12) 100%)',
                         border: '1px solid rgba(14,165,233,0.3)',
