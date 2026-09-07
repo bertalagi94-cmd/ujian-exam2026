@@ -40,17 +40,23 @@ interface SidebarProps {
 // explicit props, so the reference is stable across renders.
 // ─────────────────────────────────────────────────────────────────────────────
 
+interface SiteInfo {
+  namaSekolah: string
+  logoUrl: string
+}
+
 interface SidebarContentProps {
   navItems: NavItem[]
   roleColor: string
   roleLabel: string
   accent: string
   user: AuthUser | null
+  siteInfo: SiteInfo
   onClose: () => void
   onLogout: () => void
 }
 
-function SidebarContent({ navItems, roleColor, roleLabel, accent, user, onClose, onLogout }: SidebarContentProps) {
+function SidebarContent({ navItems, roleColor, roleLabel, accent, user, siteInfo, onClose, onLogout }: SidebarContentProps) {
   const pathname = usePathname()
 
   return (
@@ -65,14 +71,27 @@ function SidebarContent({ navItems, roleColor, roleLabel, accent, user, onClose,
         <line x1="60" y1="800" x2="220" y2="640" stroke={accent} strokeWidth="0.7" strokeOpacity="0.12"/>
       </svg>
       <div className="relative z-10 flex flex-col h-full">
-      {/* Logo */}
+      {/* Logo — pakai logo & nama sekolah dari Pengaturan jika sudah diisi,
+          sama seperti di halaman login. Fallback ke ikon default "SmartExam"
+          kalau admin belum upload logo / isi nama sekolah. */}
       <div className="px-4 py-5" style={{ borderBottom: '1px solid rgba(0,0,0,0.07)' }}>
         <div className="flex items-center gap-3">
-          <div className={cn('w-9 h-9 rounded-xl flex items-center justify-center', roleColor)}>
-            <GraduationCap className="w-5 h-5 text-white" />
-          </div>
-          <div>
-            <div className="font-bold text-slate-800 text-sm leading-tight">SmartExam</div>
+          {siteInfo.logoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={siteInfo.logoUrl}
+              alt={siteInfo.namaSekolah || 'Logo'}
+              className="w-9 h-9 rounded-xl object-contain bg-white/40 p-1 flex-shrink-0"
+            />
+          ) : (
+            <div className={cn('w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0', roleColor)}>
+              <GraduationCap className="w-5 h-5 text-white" />
+            </div>
+          )}
+          <div className="min-w-0">
+            <div className="font-bold text-slate-800 text-sm leading-tight truncate">
+              {siteInfo.namaSekolah || 'SmartExam'}
+            </div>
             <div className="text-xs text-slate-400">{roleLabel}</div>
           </div>
         </div>
@@ -150,11 +169,37 @@ export function Sidebar({ navItems, role, roleColor, roleLabel, accent = '#0891b
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const [user, setUser] = useState<AuthUser | null>(null)
+  const [siteInfo, setSiteInfo] = useState<SiteInfo>({ namaSekolah: '', logoUrl: '' })
 
   useEffect(() => {
     const stored = localStorage.getItem('user')
     if (stored) setUser(JSON.parse(stored))
   }, [])
+
+  // Ambil logo & nama sekolah dari Pengaturan (endpoint publik yang sama
+  // dipakai halaman login), supaya sidebar admin/guru/kepsek/siswa ikut
+  // menampilkan logo custom, bukan ikon default terus-menerus.
+  const loadSiteInfo = useCallback(() => {
+    fetch('/api/public/pengaturan?t=' + Date.now(), { cache: 'no-store' })
+      .then(r => r.json())
+      .then(json => {
+        if (json?.data) {
+          setSiteInfo({
+            namaSekolah: json.data.namaSekolah ?? '',
+            logoUrl: json.data.logoAplikasi || json.data.logoUrl || '',
+          })
+        }
+      })
+      .catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    loadSiteInfo()
+    // Pengaturan bisa diubah admin di halaman lain tanpa reload — dengarkan
+    // event yang sama yang sudah dipakai dashboard admin (lihat pengaturan/page.tsx).
+    window.addEventListener('pengaturan-changed', loadSiteInfo)
+    return () => window.removeEventListener('pengaturan-changed', loadSiteInfo)
+  }, [loadSiteInfo])
 
   // BUG FIX #2: logout() was recreated every render, which caused subtle
   // reference instability. Wrap with useCallback so it's stable.
@@ -213,6 +258,7 @@ export function Sidebar({ navItems, role, roleColor, roleLabel, accent = '#0891b
               roleLabel={roleLabel}
               accent={accent}
               user={user}
+              siteInfo={siteInfo}
               onClose={handleClose}
               onLogout={logout}
             />
@@ -236,6 +282,7 @@ export function Sidebar({ navItems, role, roleColor, roleLabel, accent = '#0891b
           roleLabel={roleLabel}
           accent={accent}
           user={user}
+          siteInfo={siteInfo}
           onClose={handleClose}
           onLogout={logout}
         />
