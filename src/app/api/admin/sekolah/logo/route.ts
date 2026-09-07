@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
+import { cacheDelPrefix } from '@/lib/cache'
 
 // Upload logo per sekolah atau logo aplikasi global
 // Query param: ?type=sekolah&id=SKL_xxx  atau  ?type=aplikasi
@@ -34,13 +35,20 @@ export async function POST(req: NextRequest) {
   if (uploadError) return NextResponse.json({ error: uploadError.message }, { status: 500 })
 
   const { data: urlData } = db.storage.from('assets').getPublicUrl(fileName)
-  const url = urlData.publicUrl
+  // Tambahkan parameter cache-busting (timestamp). Nama file di storage tetap
+  // sama antar-upload (upsert), jadi tanpa ini browser/CDN akan terus
+  // menampilkan file lama dari cache karena URL-nya persis sama setiap kali.
+  const url = `${urlData.publicUrl}?v=${Date.now()}`
 
   if (type === 'aplikasi') {
     await db.from('pengaturan').upsert({ key: 'logoAplikasi', value: url })
   } else if (sekolahId) {
     await db.from('sekolah').update({ logo_url: url }).eq('id', sekolahId)
   }
+
+  // Hapus cache in-memory endpoint publik supaya perubahan langsung terlihat,
+  // tidak perlu menunggu TTL 60 detik.
+  cacheDelPrefix('pengaturan:')
 
   return NextResponse.json({ url })
 }
@@ -60,6 +68,8 @@ export async function DELETE(req: NextRequest) {
   } else if (sekolahId) {
     await db.from('sekolah').update({ logo_url: '' }).eq('id', sekolahId)
   }
+
+  cacheDelPrefix('pengaturan:')
 
   return NextResponse.json({ message: 'Logo berhasil dihapus' })
 }
