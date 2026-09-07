@@ -460,6 +460,38 @@ export default function AdminSiswaPage() {
         </select>
       </div>
 
+      {/* Kartu Jumlah Siswa per Kelas */}
+      {kelas.length > 0 && (
+        <div className="flex gap-3 flex-wrap">
+          {kelas.map(k => {
+            const active = filterKelas === k.nama
+            return (
+              <button
+                key={k.id}
+                type="button"
+                onClick={() => { setFilterKelas(active ? '' : k.nama); setPage(1) }}
+                title={active ? 'Klik untuk hapus filter' : `Tampilkan hanya kelas ${k.nama}`}
+                className={`card py-3 px-4 flex items-center gap-3 min-w-[140px] text-left transition-colors ${
+                  active ? 'border-brand-500 ring-1 ring-brand-500 bg-brand-50/40' : 'hover:border-slate-300'
+                }`}
+              >
+                <div>
+                  <div className="text-xl font-bold text-slate-900">{k.jumlah ?? 0}</div>
+                  <div className="text-xs text-slate-500">Siswa</div>
+                </div>
+                <div className="h-8 w-px bg-slate-200" />
+                <div className="min-w-0">
+                  <div className="font-medium text-slate-800 truncate">{k.nama}</div>
+                  {k.wali_kelas && (
+                    <div className="text-xs text-slate-400 truncate">{k.wali_kelas}</div>
+                  )}
+                </div>
+              </button>
+            )
+          })}
+        </div>
+      )}
+
       {/* Table */}
       <div className="card p-0 overflow-hidden">
         <div className="table-wrapper">
