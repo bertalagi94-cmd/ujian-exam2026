@@ -32,65 +32,17 @@ export async function POST(req: NextRequest) {
     .eq('nis', nis)
     .single()
 
-  if (siswaUjianCheck && (siswaUjianCheck.status === 'TERKUNCI' || siswaUjianCheck.status === 'RESET')) {
-    const { data: nilaiSudahAda } = await db
-      .from('nilai')
-      .select('id, nilai, grade, benar, total, lulus')
-      .eq('sesi_id', sesiId)
-      .eq('nis', nis)
-      .single()
-
-    if (nilaiSudahAda) {
-      return NextResponse.json({
-        id: nilaiSudahAda.id,
-        nilai: nilaiSudahAda.nilai,
-        grade: nilaiSudahAda.grade,
-        benar: nilaiSudahAda.benar,
-        total: nilaiSudahAda.total,
-        lulus: nilaiSudahAda.lulus,
-      })
-    }
-
-    return NextResponse.json(
-      { error: 'Akses ujian Anda sedang dikunci/menunggu reset. Ujian tidak bisa diselesaikan sekarang.' },
-      { status: 403 }
-    )
-  }
-
-  // Cek dulu apakah sudah pernah submit — early return
-  const { data: nilaiExist } = await db
-    .from('nilai')
-    .select('id, nilai, grade, benar, total, lulus')
-    .eq('sesi_id', sesiId)
-    .eq('nis', nis)
-    .single()
-
-  if (nilaiExist) {
-    return NextResponse.json({
-      id: nilaiExist.id,
-      nilai: nilaiExist.nilai,
-      grade: nilaiExist.grade,
-      benar: nilaiExist.benar,
-      total: nilaiExist.total,
-      lulus: nilaiExist.lulus,
-    })
-  }
-
-  // FIX PERFORMA (load test 25 Jun 2026, 05.37): data di bawah ini — sesi,
-  // ID kelas, KKM mapel, paket soal yang dipakai, jumlah soal, dan kunci semua
-  // soal di paket — SAMA untuk SEMUA siswa di sesi ujian yang sama. Sebelumnya
-  // semua ini di-query ULANG dari Supabase setiap kali SATU siswa submit.
-  // Saat banyak siswa submit hampir bersamaan (mis. mendekati waktu habis),
-  // ini jadi puluhan query IDENTIK menghantam DB berbarengan → antrian/kontensi
-  // → latency melonjak (load test mencatat respons sampai ~65 detik) →
-  // sebagian request timeout/connection drop ("Submit selesai gagal").
-  //
-  // Sekarang di-cache 5 menit per sesi_id (memakai cachedFetch yang sama
-  // dengan src/app/api/public/pengaturan/route.ts) — jadi cuma di-query SEKALI
-  // per sesi, dipakai bersama oleh semua siswa yang submit dalam 5 menit itu.
-  // Trade-off: kalau admin mengubah paket/kunci soal di tengah sesi berjalan,
-  // perubahan baru terasa maks. 5 menit kemudian — sama seperti trade-off yang
-  // sudah diterima di endpoint pengaturan.
+  // FIX (kkm hilang di response duplikat/early-return — ditemukan dari 2 load
+  // test terpisah, 56+7 kejadian): sesiCache di bawah sebelumnya baru diambil
+  // SETELAH kedua early-return ini, jadi kalau siswa memanggil endpoint ini
+  // lagi untuk sesi yang SAMA (submit ganda, retry jaringan, refresh halaman
+  // hasil), response-nya kehilangan field `kkm` walau field lain (nilai,
+  // grade, lulus, dst) tetap ada — client yang menampilkan KKM di halaman
+  // hasil jadi menampilkan undefined. Diambil di sini (SEBELUM early-return)
+  // supaya kkm selalu konsisten ada di response, di jalur manapun. Aman untuk
+  // performa: ini query yang sama yang sudah di-cache 5 menit per sesi_id
+  // (lihat komentar "FIX PERFORMA" di bawah), jadi memindahkannya ke sini
+  // tidak menambah beban — cache-nya tetap dipakai bersama oleh semua siswa.
   const sesiCache = await cachedFetch(`selesai:sesi:${sesiId}`, 300, async () => {
     const { data: sesi } = await db
       .from('sesi_ujian')
@@ -142,7 +94,57 @@ export async function POST(req: NextRequest) {
       kunciMap: Object.fromEntries((soalList ?? []).map(s => [s.id, s.kunci])) as Record<string, string>,
     }
   })
+  const kkmUntukEarlyReturn = sesiCache?.kkm ?? 75
 
+  if (siswaUjianCheck && (siswaUjianCheck.status === 'TERKUNCI' || siswaUjianCheck.status === 'RESET')) {
+    const { data: nilaiSudahAda } = await db
+      .from('nilai')
+      .select('id, nilai, grade, benar, total, lulus')
+      .eq('sesi_id', sesiId)
+      .eq('nis', nis)
+      .single()
+
+    if (nilaiSudahAda) {
+      return NextResponse.json({
+        id: nilaiSudahAda.id,
+        nilai: nilaiSudahAda.nilai,
+        grade: nilaiSudahAda.grade,
+        benar: nilaiSudahAda.benar,
+        total: nilaiSudahAda.total,
+        lulus: nilaiSudahAda.lulus,
+        kkm: kkmUntukEarlyReturn,
+      })
+    }
+
+    return NextResponse.json(
+      { error: 'Akses ujian Anda sedang dikunci/menunggu reset. Ujian tidak bisa diselesaikan sekarang.' },
+      { status: 403 }
+    )
+  }
+
+  // Cek dulu apakah sudah pernah submit — early return
+  const { data: nilaiExist } = await db
+    .from('nilai')
+    .select('id, nilai, grade, benar, total, lulus')
+    .eq('sesi_id', sesiId)
+    .eq('nis', nis)
+    .single()
+
+  if (nilaiExist) {
+    return NextResponse.json({
+      id: nilaiExist.id,
+      nilai: nilaiExist.nilai,
+      grade: nilaiExist.grade,
+      benar: nilaiExist.benar,
+      total: nilaiExist.total,
+      lulus: nilaiExist.lulus,
+      kkm: kkmUntukEarlyReturn,
+    })
+  }
+
+  // (sesiCache sudah diambil di atas, sebelum kedua early-return, supaya
+  // field `kkm` tersedia konsisten di semua jalur response — lihat komentar
+  // FIX di atas. Query & cache-nya sama seperti sebelumnya, cuma dipindah.)
   if (!sesiCache) return NextResponse.json({ error: 'Sesi tidak ditemukan' }, { status: 404 })
   const { sesi, kkm, totalSoal, kunciMap } = sesiCache
 
