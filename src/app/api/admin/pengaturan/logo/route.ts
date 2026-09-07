@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
+import { cacheDelPrefix } from '@/lib/cache'
 
 export async function POST(req: NextRequest) {
   const auth = requireRole(req, ['ADMIN'])
@@ -39,6 +40,8 @@ export async function POST(req: NextRequest) {
       { onConflict: 'key' }
     )
 
+    cacheDelPrefix('pengaturan:')
+
     return NextResponse.json({ url: publicUrl })
   } catch (e: unknown) {
     return NextResponse.json(
@@ -66,6 +69,8 @@ export async function DELETE(req: NextRequest) {
       { key: 'logoUrl', value: '', deskripsi: 'URL Logo Sekolah' },
       { onConflict: 'key' }
     )
+
+    cacheDelPrefix('pengaturan:')
 
     return NextResponse.json({ message: 'Logo berhasil dihapus' })
   } catch (e: unknown) {
