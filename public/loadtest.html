@@ -677,7 +677,7 @@ const ENDPOINT_SCHEMAS = {
   // ataupun samakan strukturnya antar role di Smart Detection.
   'GET /api/admin/kisi-kisi':     { arrayField: 'data' },
   'GET /api/guru/kisi-kisi':      { arrayField: 'data' },
-  'GET /api/pengawas/jadwal':     { arrayField: 'data' },
+  'GET /api/guru/mode-pengawas':  { arrayField: 'data' },
   'GET /api/kepsek/jadwal':       { arrayField: 'data' },
   'GET /api/kepsek/nilai':        { arrayField: 'data' },
   'GET /api/admin/analisis-ujian': { fields: ['data'] },
@@ -1117,6 +1117,50 @@ async function phaseSetup() {
   }
 
   log('Fase setup selesai', 'ok');
+
+  // ── Ambil kelas_id ASLI dari tabel kelas ──────────────────────────────────
+  // AKAR MASALAH (ditemukan dari analisis laporan sebelumnya): endpoint
+  // POST /api/siswa/ujian/validasi mencari paket_soal berdasarkan kelas_id
+  // yang di-lookup dari tabel `kelas` (kelas.id, BUKAN kelas.nama) — lihat
+  // komentar "FIX kelas_id" di src/app/api/siswa/ujian/validasi/route.ts.
+  // Baris di tabel `kelas` untuk kelas testing ini BELUM ADA sama sekali
+  // sampai siswa pertama dibuat lewat POST /api/admin/siswa (endpoint itu
+  // yang otomatis insert ke tabel `kelas` dengan id ter-generate — lihat
+  // src/app/api/admin/siswa/route.ts). Kalau paket_soal dibuat SEBELUM itu
+  // dengan kelas_id = NAMA kelas (bukan ID asli), maka begitu baris `kelas`
+  // benar-benar ada, id-nya PASTI beda dari nama kelas — validasi siswa akan
+  // SELALU gagal dengan pesan "Belum ada paket soal yang disetujui", walau
+  // paket sudah benar-benar disetujui. Ini murni masalah SETUP test, bukan
+  // bug di aplikasi.
+  //
+  // Solusi: buat satu siswa "pemicu" dulu supaya baris `kelas` tercipta,
+  // lalu ambil ID aslinya dari GET /api/admin/kelas sebelum membuat paket.
+  setAction('Memastikan baris kelas testing sudah ada di database…');
+  state.kelasId = state.kelasNama; // fallback aman kalau langkah ini gagal
+  const seedNis = `${state.runId}_SEED`;
+  const seedSiswaRes = await api('POST', '/api/admin/siswa', {
+    nis: seedNis,
+    nama: `SEED LOADTEST ${state.runId}`,
+    kelas: state.kelasNama,
+    jenis_kelamin: 'L',
+    status: 'AKTIF',
+  }, state.adminToken);
+  if (seedSiswaRes.ok) {
+    const kelasListRes = await api('GET', '/api/admin/kelas', undefined, state.adminToken);
+    const kelasRow = (kelasListRes.data?.data ?? []).find(k => k.nama === state.kelasNama);
+    if (kelasRow?.id) {
+      state.kelasId = kelasRow.id;
+      log(`kelas_id asli untuk kelas testing: ${state.kelasId}`, 'ok');
+    } else {
+      recordBug(
+        'Baris kelas testing tidak ditemukan setelah siswa pemicu dibuat',
+        JSON.stringify(kelasListRes.data),
+        'GET /api/admin/kelas'
+      );
+    }
+  } else {
+    recordBug('Gagal membuat siswa pemicu untuk kelas testing', JSON.stringify(seedSiswaRes.data), 'POST /api/admin/siswa');
+  }
 }
 
 // =====================================================================
@@ -1128,7 +1172,7 @@ async function phaseSoal() {
   setAction('Membuat paket soal testing…');
   const paketRes = await api('POST', '/api/guru/paket', {
     mapel_id: state.mapelId,
-    kelas_id: state.kelasNama, // kelas_id testing belum ada di tabel kelas — akan dibuat saat siswa pertama ditambahkan
+    kelas_id: state.kelasId,
     acak: 'YA',
   }, state.guruToken);
 
@@ -1139,7 +1183,7 @@ async function phaseSoal() {
 
   // Ambil ID paket yang baru dibuat
   const listPaket = await api('GET', '/api/guru/paket', undefined, state.guruToken);
-  const myPaket = listPaket.data?.data?.find(p => p.mapel_id === state.mapelId && p.kelas_id === state.kelasNama);
+  const myPaket = listPaket.data?.data?.find(p => p.mapel_id === state.mapelId && p.kelas_id === state.kelasId);
   if (!myPaket) {
     recordBug('Paket soal tidak ditemukan setelah dibuat', JSON.stringify(listPaket.data), 'GET /api/guru/paket');
     throw new Error('Paket soal gagal diverifikasi.');
@@ -1157,7 +1201,7 @@ async function phaseSoal() {
     const benar = opts[i % 4];
     const r = await api('POST', '/api/guru/soal', {
       mapel_id: state.mapelId,
-      kelas_id: state.kelasNama,
+      kelas_id: state.kelasId,
       paket_id: state.paketId,
       teks: `[LOADTEST] Soal otomatis nomor ${i} — berapakah hasil dari ${i} + ${i}?`,
       opsi_a: `${i * 2 - 1}`,
@@ -1570,7 +1614,9 @@ async function phaseFeatures() {
 
   // ---------- 6e. Fitur pengawas lainnya ----------
   setAction('Menguji jadwal & log pelanggaran pengawas…');
-  await checkEndpoint('Jadwal pengawas', 'GET', '/api/pengawas/jadwal', undefined, state.guruToken);
+  // FIX: /api/pengawas/jadwal tidak ada di kode aplikasi — jadwal & sesi
+  // pengawasan guru diambil lewat GET /api/guru/mode-pengawas.
+  await checkEndpoint('Jadwal & sesi pengawasan (Mode Pengawas)', 'GET', '/api/guru/mode-pengawas', undefined, state.guruToken);
   await checkEndpoint('Log pelanggaran pengawas', 'GET', `/api/pengawas/pelanggaran?sesiId=${state.sesiId}`, undefined, state.guruToken);
 
   // ---------- 6f. Rekap nilai ----------
@@ -2402,7 +2448,7 @@ async function phaseSmartDetection() {
   setAction('Uji XSS probe: apakah input teks soal di-sanitize?…');
   const soalXss = await api('POST', '/api/guru/soal', {
     mapel_id: state.mapelId,
-    kelas_id: state.kelasNama,
+    kelas_id: state.kelasId,
     paket_id: state.paketId,
     teks: `\x3cscript\x3ewindow._xss_probe=true\x3c/script\x3e[LOADTEST XSS PROBE]`,
     opsi_a: `\x3cimg src=x onerror="alert(1)"\x3e`,
@@ -2667,7 +2713,14 @@ async function confirmCleanup() {
 
     if (guruToken) {
       const myPaketRes = await api('GET', '/api/guru/paket', undefined, guruToken);
-      const myPakets = (myPaketRes.data?.data || []).filter(p => p.kelas_id === kelasNama);
+      // CATATAN: dulu di sini ada filter tambahan `p.kelas_id === kelasNama`,
+      // tapi kelas_id paket_soal sekarang adalah ID ASLI dari tabel kelas
+      // (bukan nama kelas lagi — lihat fase setup), jadi filter itu tidak
+      // akan pernah cocok. Filter itu juga tidak perlu: GET /api/guru/paket
+      // sudah otomatis hanya mengembalikan paket milik guru testing ini
+      // (guru_id === username guru testing), jadi semua hasilnya memang
+      // milik run testing ini.
+      const myPakets = myPaketRes.data?.data || [];
       for (const paket of myPakets) {
         if (paket.status === 'DISETUJUI') {
           await api('POST', '/api/admin/soal', { paket_id: paket.id, action: 'BATAL_SETUJUI' }, state.adminToken);
