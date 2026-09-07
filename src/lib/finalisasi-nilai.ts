@@ -24,6 +24,7 @@
 
 import { createAdminClient } from '@/lib/supabase'
 import { generateId } from '@/lib/utils'
+import { ambilDataSesiUntukPenilaian, hitungHasilPenilaian } from '@/lib/penilaian-ujian'
 
 type DbClient = ReturnType<typeof createAdminClient>
 
@@ -34,51 +35,9 @@ export async function finalisasiNilaiPaksa(
 ): Promise<void> {
   if (!nisList.length) return
 
-  const { data: sesi } = await db
-    .from('sesi_ujian')
-    .select('mapel_id, kelas')
-    .eq('id', sesiId)
-    .single()
-  if (!sesi) return
-
-  // FIX (sama seperti di selesai/route.ts): sesi.kelas = nama kelas, tapi
-  // paket_soal.kelas_id = ID dari tabel kelas — perlu di-resolve dulu.
-  const { data: kelasRow } = await db
-    .from('kelas')
-    .select('id')
-    .eq('nama', String(sesi.kelas))
-    .maybeSingle()
-  const kelasId = kelasRow?.id ?? String(sesi.kelas)
-
-  const [{ data: mapel }, { data: paketData }] = await Promise.all([
-    db.from('mapel').select('kkm').eq('id', sesi.mapel_id).single(),
-    db.from('paket_soal')
-      .select('id, jumlah_soal')
-      .eq('mapel_id', sesi.mapel_id)
-      .eq('kelas_id', kelasId)
-      .eq('status', 'DISETUJUI')
-      .limit(1)
-      .single(),
-  ])
-
-  const [{ count: totalSoalCount }, { data: soalList }] = await Promise.all([
-    db.from('soal')
-      .select('*', { count: 'exact', head: true })
-      .eq('mapel_id', sesi.mapel_id)
-      .eq('status', 'DISETUJUI')
-      .eq('paket_id', paketData?.id ?? ''),
-    db.from('soal')
-      .select('id, kunci')
-      .eq('mapel_id', sesi.mapel_id)
-      .eq('paket_id', paketData?.id ?? '')
-      .eq('status', 'DISETUJUI'),
-  ])
-
-  const kkm = mapel?.kkm ?? 75
-  const totalSoal = totalSoalCount ?? paketData?.jumlah_soal ?? 0
-  const kunciMap = Object.fromEntries(
-    (soalList ?? []).map(s => [s.id, s.kunci])
-  ) as Record<string, string>
+  const sesiCache = await ambilDataSesiUntukPenilaian(db, sesiId)
+  if (!sesiCache) return
+  const { sesi, kkm, totalSoal, kunciMap } = sesiCache
 
   // Jangan timpa siswa yang kebetulan sudah punya baris nilai (mis. sempat
   // submit sendiri tepat sebelum sesi ditutup).
@@ -105,15 +64,7 @@ export async function finalisasiNilaiPaksa(
 
   const rows = perluDinilai.map(nis => {
     const jawabanSiswa = jawabanPerSiswa.get(nis) ?? []
-    let benar = 0
-    for (const j of jawabanSiswa) {
-      if (j.jawaban && kunciMap[j.soal_id] === j.jawaban) benar++
-    }
-    const total = totalSoal > 0 ? totalSoal : jawabanSiswa.length
-    const nilaiAngka = total > 0 ? Math.round((benar / total) * 100) : 0
-    const grade =
-      nilaiAngka >= 90 ? 'A' : nilaiAngka >= 80 ? 'B' : nilaiAngka >= 70 ? 'C' : nilaiAngka >= 60 ? 'D' : 'E'
-    const lulus = nilaiAngka >= kkm
+    const { benar, total, nilai: nilaiAngka, grade, lulus } = hitungHasilPenilaian(jawabanSiswa, kunciMap, totalSoal, kkm)
 
     const catatan = jawabanSiswa.length > 0
       ? 'Dinilai otomatis oleh sistem — sesi ditutup paksa oleh pengawas sebelum siswa sempat menekan "Selesai" sendiri (kemungkinan jaringan terputus total). Nilai dihitung dari jawaban terakhir yang berhasil tersinkron ke server. Mohon ditinjau.'
