@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 import { generateId } from '@/lib/utils'
-import { cachedFetch } from '@/lib/cache'
+import { ambilDataSesiUntukPenilaian, hitungHasilPenilaian } from '@/lib/penilaian-ujian'
 
 export async function POST(req: NextRequest) {
   const auth = requireRole(req, ['SISWA'])
@@ -43,57 +43,7 @@ export async function POST(req: NextRequest) {
   // performa: ini query yang sama yang sudah di-cache 5 menit per sesi_id
   // (lihat komentar "FIX PERFORMA" di bawah), jadi memindahkannya ke sini
   // tidak menambah beban — cache-nya tetap dipakai bersama oleh semua siswa.
-  const sesiCache = await cachedFetch(`selesai:sesi:${sesiId}`, 300, async () => {
-    const { data: sesi } = await db
-      .from('sesi_ujian')
-      .select('mapel_id, kelas, durasi')
-      .eq('id', sesiId)
-      .single()
-    if (!sesi) return null
-
-    // FIX: sesi.kelas = nama kelas, tapi paket_soal.kelas_id = ID dari tabel kelas
-    const { data: kelasRow } = await db
-      .from('kelas')
-      .select('id')
-      .eq('nama', String(sesi.kelas))
-      .maybeSingle()
-    const kelasId = kelasRow?.id ?? String(sesi.kelas)
-
-    const [{ data: mapel }, { data: paketData }] = await Promise.all([
-      db.from('mapel').select('kkm').eq('id', sesi.mapel_id).single(),
-      db.from('paket_soal')
-        .select('id, jumlah_soal')
-        .eq('mapel_id', sesi.mapel_id)
-        .eq('kelas_id', kelasId)   // ← FIX: pakai kelasId bukan sesi.kelas
-        .eq('status', 'DISETUJUI')
-        .limit(1)
-        .single(),
-    ])
-
-    const [{ count: totalSoalCount }, { data: soalList }] = await Promise.all([
-      db.from('soal')
-        .select('*', { count: 'exact', head: true })
-        .eq('mapel_id', sesi.mapel_id)
-        .eq('status', 'DISETUJUI')
-        .eq('paket_id', paketData?.id ?? ''),
-      // Ambil kunci SEMUA soal di paket ini sekaligus (bukan per-siswa
-      // berdasarkan soal yang dia jawab) — supaya satu hasil cache ini bisa
-      // dipakai untuk menghitung nilai siswa MANAPUN di sesi ini, bukan cuma
-      // siswa yang memicu query pertama kali.
-      db.from('soal')
-        .select('id, kunci')
-        .eq('mapel_id', sesi.mapel_id)
-        .eq('paket_id', paketData?.id ?? '')
-        .eq('status', 'DISETUJUI'),
-    ])
-
-    return {
-      sesi,
-      kkm: mapel?.kkm ?? 75,
-      totalSoal: totalSoalCount ?? paketData?.jumlah_soal ?? 0,
-      kunciMap: Object.fromEntries((soalList ?? []).map(s => [s.id, s.kunci])) as Record<string, string>,
-    }
-  })
+  const sesiCache = await ambilDataSesiUntukPenilaian(db, sesiId)
   const kkmUntukEarlyReturn = sesiCache?.kkm ?? 75
 
   if (siswaUjianCheck && (siswaUjianCheck.status === 'TERKUNCI' || siswaUjianCheck.status === 'RESET')) {
@@ -172,18 +122,7 @@ export async function POST(req: NextRequest) {
 
   // Hitung nilai — kunciMap sudah didapat dari cache di atas, tidak perlu
   // query soal lagi di sini.
-  let benar = 0
-  const total = totalSoal > 0 ? totalSoal : (jawabanSiswa?.length ?? 0)
-
-  if (jawabanSiswa?.length) {
-    for (const j of jawabanSiswa) {
-      if (j.jawaban && kunciMap[j.soal_id] === j.jawaban) benar++
-    }
-  }
-
-  const nilaiAngka = total > 0 ? Math.round((benar / total) * 100) : 0
-  const grade = nilaiAngka >= 90 ? 'A' : nilaiAngka >= 80 ? 'B' : nilaiAngka >= 70 ? 'C' : nilaiAngka >= 60 ? 'D' : 'E'
-  const lulus = nilaiAngka >= kkm
+  const { benar, total, nilai: nilaiAngka, grade, lulus } = hitungHasilPenilaian(jawabanSiswa, kunciMap, totalSoal, kkm)
 
   const nilaiData = {
     id: generateId('NIL'),
