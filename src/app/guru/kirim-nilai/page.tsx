@@ -167,14 +167,28 @@ export default function KirimNilaiPage() {
     }
   }
 
+  // FIX (kelas campuran PG-only vs PG+Essay): backend sekarang bisa mengirim
+  // SEBAGIAN saja (siswa yang siap) dan melewati siswa yang essay-nya belum
+  // dirilis guru — lihat `tertunda` di response PATCH kirim_ke_wali. Toast di
+  // sini SEBELUMNYA statis ("berhasil dikirim ✓") tanpa peduli isi response,
+  // jadi guru tidak pernah tahu ada siswa yang di-skip. Sekarang dibaca dari
+  // `res.message` (sudah menyebutkan jumlah & nama yang tertunda kalau ada),
+  // dan tipe toast jadi 'error' kalau TIDAK ADA siswa yang berhasil dikirim
+  // sama sekali (semuanya tertunda), supaya guru sadar perlu koreksi/rilis
+  // essay dulu sebelum kirim ulang.
   async function kirimKelompok(mapel_id: string, kelas: string, kunci: string) {
     setSending(kunci)
     try {
-      await apiRequest('/api/guru/kirim-nilai', {
-        method: 'PATCH',
-        body: JSON.stringify({ aksi: 'kirim_ke_wali', mapel_id, kelas }),
-      })
-      showToast(`Nilai ${kelas} berhasil dikirim ke wali kelas ✓`)
+      const res = await apiRequest<{ message: string; jumlah: number; tertunda: { nis: string; nama: string }[] }>(
+        '/api/guru/kirim-nilai',
+        {
+          method: 'PATCH',
+          body: JSON.stringify({ aksi: 'kirim_ke_wali', mapel_id, kelas }),
+        }
+      )
+      const adaTertunda = (res.tertunda?.length ?? 0) > 0
+      const tidakAdaYangTerkirim = res.jumlah === 0 && adaTertunda
+      showToast(res.message ?? `Nilai ${kelas} berhasil dikirim ke wali kelas ✓`, tidakAdaYangTerkirim ? 'error' : 'success')
       await load()
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'Gagal mengirim', 'error')
