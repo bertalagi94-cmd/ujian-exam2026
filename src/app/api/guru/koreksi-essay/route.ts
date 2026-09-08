@@ -32,10 +32,16 @@ export async function GET(req: NextRequest) {
 
   const modeJawaban = sesi.info_json?.essay_mode_jawaban
 
+  // FIX BUG (fitur essay): filter status = 'DISETUJUI' — sebelumnya soal
+  // DRAFT ikut dihitung di totalBobotMaks, padahal soal DRAFT itu TIDAK
+  // pernah benar-benar dikerjakan siswa (lihat FIX di essay/soal/route.ts),
+  // sehingga skala nilai essay (0-100) yang dihitung guru bisa salah kalau
+  // masih ada draft soal essay yang belum dihapus/difinalisasi.
   const { data: soalEssayList } = await db
     .from('soal_essay')
     .select('id, teks, bobot_maks, urutan')
     .eq('jadwal_id', sesi.jadwal_id)
+    .eq('status', 'DISETUJUI')
     .order('urutan', { ascending: true })
 
   const totalBobotMaks = (soalEssayList ?? []).reduce((sum, s) => sum + Number(s.bobot_maks), 0)
@@ -144,10 +150,14 @@ export async function PUT(req: NextRequest) {
     finalNilaiEssay = 0
     statusEssayUpdate = 'TIDAK_MENGERJAKAN'
   } else {
+    // FIX BUG (fitur essay): sama seperti di GET — filter status = 'DISETUJUI'
+    // supaya totalBobotMaks yang dipakai untuk konversi nilai essay ke skala
+    // 0-100 SELALU konsisten dengan soal yang benar-benar dikerjakan siswa.
     const { data: soalEssayList } = await db
       .from('soal_essay')
       .select('bobot_maks')
       .eq('jadwal_id', sesi.jadwal_id)
+      .eq('status', 'DISETUJUI')
     const totalBobotMaks = (soalEssayList ?? []).reduce((sum, s) => sum + Number(s.bobot_maks), 0) || 100
 
     const nilaiEssayAngka = Number(nilaiEssay)
