@@ -139,6 +139,11 @@ export async function PUT(req: NextRequest) {
     .single()
   if (!jadwal) return NextResponse.json({ error: 'Anda bukan pengawas sesi ini' }, { status: 403 })
 
+  // FIX (bobot PG:Essay): sejak sesi dibuka, bobot SELALU sudah tersalin ke
+  // sesi.info_json dari paket_essay saat itu (lihat resolveEssayInfoJson di
+  // src/lib/gabungKirim.ts) — fallback ke kolom jadwal di bawah ini HANYA
+  // relevan untuk sesi yang dibuat SEBELUM migrasi bobot ke paket_essay
+  // (lihat 09_bobot_paket_essay.sql), supaya nilai lama tidak berubah tiba-tiba.
   const bobotPg = sesi.info_json?.essay_bobot_pg_persen ?? jadwal.essay_bobot_pg_persen ?? 50
   const bobotEssay = sesi.info_json?.essay_bobot_essay_persen ?? jadwal.essay_bobot_essay_persen ?? 50
 
