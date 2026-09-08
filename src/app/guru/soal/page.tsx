@@ -547,8 +547,11 @@ export default function GuruBankSoalPage() {
     if (!kirimId) return
     setSaving(true)
     try {
-      await apiRequest(`/api/guru/paket/${kirimId}/kirim`, { method: 'POST' })
-      showToast('Paket berhasil dikirim untuk validasi')
+      // FIX (migrasi paket_essay): backend bisa ikut mengirim paket Essay
+      // pasangan (mapel+kelas sama) sekaligus — tampilkan pesannya apa
+      // adanya supaya guru tahu itu terjadi, bukan pesan generik.
+      const res = await apiRequest<{ message?: string }>(`/api/guru/paket/${kirimId}/kirim`, { method: 'POST' })
+      showToast(res?.message || 'Paket berhasil dikirim untuk validasi')
       setKirimId(null)
       // Refresh soal agar status berubah
       if (expandedId === kirimId) await loadSoalPaket(kirimId)
