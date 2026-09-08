@@ -38,11 +38,25 @@ export async function GET(req: NextRequest) {
   const siswaMap = Object.fromEntries((siswaList ?? []).map((s: { nis: string; nama: string }) => [s.nis, s.nama]))
   const mapelMap = Object.fromEntries((guruMapel ?? []).map((m: { id: string; nama: string }) => [m.id, m.nama]))
 
-  const enriched = (nilaiData ?? []).map((r: Record<string, unknown>) => ({
-    ...r,
-    nama_siswa: siswaMap[r.nis as string] ?? r.nis,
-    nama_mapel: mapelMap[r.mapel_id as string] ?? r.mapel_id,
-  }))
+  // FIX (kirim ke wali vs essay belum dirilis): supaya frontend BISA menandai
+  // baris siswa yang nilainya belum boleh dikirim ke wali (karena sesinya
+  // essay_aktif tapi belum dirilis guru), enrich tiap baris dengan flag
+  // `essay_belum_dirilis`. Logika penentuannya SAMA dengan yang dipakai di
+  // aksi 'kirim_ke_wali'/'kirim_semua' di bawah — lihat helper
+  // `petakanEssayAktifPerSesi` supaya tidak dobel logika.
+  const essayAktifMap = await petakanEssayAktifPerSesi(db, (nilaiData ?? []).map((r: { sesi_id: string | null }) => r.sesi_id))
+
+  const enriched = (nilaiData ?? []).map((r: Record<string, unknown>) => {
+    const essayAktif = essayAktifMap.get(r.sesi_id as string) ?? false
+    return {
+      ...r,
+      nama_siswa: siswaMap[r.nis as string] ?? r.nis,
+      nama_mapel: mapelMap[r.mapel_id as string] ?? r.mapel_id,
+      // true kalau sesi ini pakai essay TAPI guru belum menekan rilis untuk
+      // siswa ini — baris begini akan DILEWATI oleh kirim_ke_wali/kirim_semua.
+      essay_belum_dirilis: essayAktif && r.dirilis !== true,
+    }
+  })
 
   // ── Roster siswa yang BELUM ujian ───────────────────────────────────────
   // BUG SEBELUMNYA: endpoint ini hanya query tabel `nilai`, jadi siswa yang
@@ -186,6 +200,21 @@ export async function PATCH(req: NextRequest) {
   }
 
   // ── Kirim nilai ke wali kelas (per mapel+kelas) ──
+  //
+  // FIX (kelas campuran PG-only vs PG+Essay): SEBELUM ini, aksi ini mengirim
+  // SEMUA baris `nilai` di mapel+kelas tsb tanpa peduli apakah essay-nya
+  // (kalau sesi itu pakai essay) sudah dinilai & DIRILIS guru. Akibatnya wali
+  // kelas bisa menerima nilai_total yang masih kosong (null) untuk siswa yang
+  // essay-nya belum dikoreksi, sementara siswa lain di kelas yang sama (mis.
+  // PG-only, atau essay-nya sudah dirilis) sudah punya nilai lengkap.
+  //
+  // FIX-nya: pisahkan dulu mana baris yang SIAP dikirim (tidak butuh essay,
+  // ATAU essay-nya sudah dirilis) dari yang TERTUNDA (essay_aktif tapi belum
+  // dirilis). Yang siap tetap langsung terkirim (tidak perlu tunggu SEMUA
+  // siswa selesai — beda dengan 'rilis_essay_sekaligus' yang memang sengaja
+  // all-or-nothing). Yang tertunda TIDAK dikirim, dan namanya dikembalikan
+  // di response supaya guru tahu siapa saja yang masih harus dikoreksi/
+  // dirilis essay-nya dulu.
   if (aksi === 'kirim_ke_wali') {
     const { mapel_id, kelas } = body as { mapel_id: string; kelas: string }
 
@@ -193,33 +222,73 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: 'Tidak diizinkan' }, { status: 403 })
     }
 
-    const now = new Date().toISOString()
-    const { error, count } = await db
+    const { data: kandidat } = await db
       .from('nilai')
-      .update({ dikirim_ke_wali: true, dikirim_at: now, dikembalikan: false })
+      .select('id, nis, sesi_id, dirilis')
       .eq('mapel_id', mapel_id)
       .eq('kelas', kelas)
       .eq('dikirim_ke_wali', false)
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    const { siapIds, tertunda } = await pisahkanSiapKirim(db, kandidat ?? [])
 
-    return NextResponse.json({ message: `Nilai berhasil dikirim ke wali kelas`, jumlah: count ?? 0 })
+    const now = new Date().toISOString()
+    let jumlahTerkirim = 0
+    if (siapIds.length > 0) {
+      const { error, count } = await db
+        .from('nilai')
+        .update({ dikirim_ke_wali: true, dikirim_at: now, dikembalikan: false })
+        .in('id', siapIds)
+
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+      jumlahTerkirim = count ?? siapIds.length
+    }
+
+    const namaTertunda = await ambilNamaSiswa(db, tertunda.map(t => t.nis))
+    const pesanTertunda = tertunda.length > 0
+      ? ` ${tertunda.length} siswa belum dikirim karena nilai essay-nya belum dirilis: ${tertunda.map(t => namaTertunda[t.nis] ?? t.nis).join(', ')}.`
+      : ''
+
+    return NextResponse.json({
+      message: `Nilai berhasil dikirim ke wali kelas untuk ${jumlahTerkirim} siswa.${pesanTertunda}`,
+      jumlah: jumlahTerkirim,
+      tertunda: tertunda.map(t => ({ nis: t.nis, nama: namaTertunda[t.nis] ?? t.nis })),
+    })
   }
 
   // ── Kirim semua nilai yang belum dikirim (dari semua mapel guru ini) ──
   if (aksi === 'kirim_semua') {
-    if (!mapelIds.length) return NextResponse.json({ message: 'Tidak ada mapel', jumlah: 0 })
+    if (!mapelIds.length) return NextResponse.json({ message: 'Tidak ada mapel', jumlah: 0, tertunda: [] })
 
-    const now = new Date().toISOString()
-    const { error, count } = await db
+    const { data: kandidat } = await db
       .from('nilai')
-      .update({ dikirim_ke_wali: true, dikirim_at: now, dikembalikan: false })
+      .select('id, nis, sesi_id, dirilis')
       .in('mapel_id', mapelIds)
       .eq('dikirim_ke_wali', false)
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    const { siapIds, tertunda } = await pisahkanSiapKirim(db, kandidat ?? [])
 
-    return NextResponse.json({ message: 'Semua nilai berhasil dikirim ke wali kelas', jumlah: count ?? 0 })
+    const now = new Date().toISOString()
+    let jumlahTerkirim = 0
+    if (siapIds.length > 0) {
+      const { error, count } = await db
+        .from('nilai')
+        .update({ dikirim_ke_wali: true, dikirim_at: now, dikembalikan: false })
+        .in('id', siapIds)
+
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+      jumlahTerkirim = count ?? siapIds.length
+    }
+
+    const namaTertunda = await ambilNamaSiswa(db, tertunda.map(t => t.nis))
+    const pesanTertunda = tertunda.length > 0
+      ? ` ${tertunda.length} siswa belum dikirim karena nilai essay-nya belum dirilis: ${tertunda.map(t => namaTertunda[t.nis] ?? t.nis).join(', ')}.`
+      : ''
+
+    return NextResponse.json({
+      message: `Semua nilai yang siap berhasil dikirim ke wali kelas (${jumlahTerkirim} siswa).${pesanTertunda}`,
+      jumlah: jumlahTerkirim,
+      tertunda: tertunda.map(t => ({ nis: t.nis, nama: namaTertunda[t.nis] ?? t.nis })),
+    })
   }
 
   // ── FIX (fitur essay): rilis nilai essay/total ke SISWA ──────────────────
@@ -311,4 +380,60 @@ function hitungGrade(nilai: number): string {
   if (nilai >= 70) return 'C'
   if (nilai >= 60) return 'D'
   return 'E'
+}
+
+// FIX (kelas campuran PG-only vs PG+Essay): ambil info_json.essay_aktif dari
+// sesi_ujian untuk sekumpulan sesi_id, dikembalikan sebagai Map<sesiId, bool>.
+// sesi_id null/kosong (mis. data lama sebelum fitur essay ada) TIDAK masuk
+// map, sehingga default-nya dianggap "tidak pakai essay" oleh pemanggil.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function petakanEssayAktifPerSesi(db: any, sesiIds: (string | null | undefined)[]): Promise<Map<string, boolean>> {
+  const idUnik = [...new Set(sesiIds.filter((id): id is string => !!id))]
+  const map = new Map<string, boolean>()
+  if (idUnik.length === 0) return map
+
+  const { data: sesiList } = await db
+    .from('sesi_ujian')
+    .select('id, info_json')
+    .in('id', idUnik)
+
+  for (const s of sesiList ?? []) {
+    map.set(s.id, !!s.info_json?.essay_aktif)
+  }
+  return map
+}
+
+// FIX (kelas campuran PG-only vs PG+Essay): dari sekumpulan baris `nilai`
+// kandidat kirim-ke-wali, pisahkan mana yang SIAP dikirim (tidak pakai essay,
+// atau essay-nya sudah dirilis guru lewat rilis_essay_individu/sekaligus) dan
+// mana yang TERTUNDA (sesinya essay_aktif tapi kolom `dirilis` masih false).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function pisahkanSiapKirim(db: any, kandidat: { id: string; nis: string; sesi_id: string | null; dirilis: boolean | null }[]) {
+  const essayAktifMap = await petakanEssayAktifPerSesi(db, kandidat.map(k => k.sesi_id))
+
+  const siapIds: string[] = []
+  const tertunda: { id: string; nis: string }[] = []
+
+  for (const k of kandidat) {
+    const essayAktif = k.sesi_id ? (essayAktifMap.get(k.sesi_id) ?? false) : false
+    const siap = !essayAktif || k.dirilis === true
+    if (siap) {
+      siapIds.push(k.id)
+    } else {
+      tertunda.push({ id: k.id, nis: k.nis })
+    }
+  }
+
+  return { siapIds, tertunda }
+}
+
+// Ambil nama siswa untuk sekumpulan NIS, dipakai untuk pesan "tertunda" yang
+// ramah dibaca guru (menampilkan nama, bukan cuma NIS).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function ambilNamaSiswa(db: any, nisList: string[]): Promise<Record<string, string>> {
+  const nisUnik = [...new Set(nisList)]
+  if (nisUnik.length === 0) return {}
+
+  const { data } = await db.from('siswa').select('nis, nama').in('nis', nisUnik)
+  return Object.fromEntries((data ?? []).map((s: { nis: string; nama: string }) => [s.nis, s.nama]))
 }
