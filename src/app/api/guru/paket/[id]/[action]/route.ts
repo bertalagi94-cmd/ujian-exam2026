@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
+import { kirimPasanganPaket } from '@/lib/gabungKirim'
 
 export async function POST(
   req: NextRequest,
@@ -15,7 +16,7 @@ export async function POST(
 
   const { data: paket } = await db
     .from('paket_soal')
-    .select('guru_id, status, jumlah_soal')
+    .select('guru_id, status, jumlah_soal, mapel_id, kelas_id')
     .eq('id', paketId)
     .single()
 
@@ -49,7 +50,21 @@ export async function POST(
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
     await db.from('soal').update({ status: 'MENUNGGU' }).eq('paket_id', paketId).eq('status', 'DRAFT')
-    return NextResponse.json({ message: 'Paket berhasil dikirim untuk validasi' })
+
+    // Ikut ajukan paket Essay untuk mapel+kelas yang sama (kalau ada draft-nya)
+    const pasangan = await kirimPasanganPaket(db, {
+      mapelId: paket.mapel_id,
+      kelasId: paket.kelas_id,
+      guruId: user.username,
+      jenisPasangan: 'ESSAY',
+    })
+
+    return NextResponse.json({
+      message: pasangan.submitted
+        ? 'Paket PG dan Essay untuk mapel & kelas ini berhasil dikirim sekaligus untuk validasi'
+        : 'Paket berhasil dikirim untuk validasi',
+      gabungEssay: pasangan.submitted,
+    })
   }
 
   if (action === 'tarik') {
