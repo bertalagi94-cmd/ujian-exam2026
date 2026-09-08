@@ -329,6 +329,28 @@ export async function POST(req: NextRequest) {
     }, { status: 409 })
   }
 
+  // FIX BUG (fitur essay): sebelumnya sesi dengan essay_aktif=true bisa
+  // dibuka walau belum ada satupun soal_essay yang berstatus DISETUJUI untuk
+  // jadwal ini (mis. guru baru bikin draft, atau semua soal essay dihapus
+  // lagi setelah essay_aktif sempat true). Siswa yang submit PG akan
+  // diarahkan ke fase essay (lihat selesai/route.ts) tapi /essay/soal akan
+  // mengembalikan daftar kosong (setelah FIX filter status di sana) —
+  // siswa macet tidak bisa menyelesaikan ujian. Sekarang dicegah di sini,
+  // sebelum sesi sempat dibuka.
+  if (jadwal.essay_aktif) {
+    const { count: jumlahSoalEssayDisetujui } = await db
+      .from('soal_essay')
+      .select('id', { count: 'exact', head: true })
+      .eq('jadwal_id', jadwalId)
+      .eq('status', 'DISETUJUI')
+
+    if (!jumlahSoalEssayDisetujui) {
+      return NextResponse.json({
+        error: 'Essay aktif untuk jadwal ini tapi belum ada soal essay yang disetujui. Setujui minimal 1 soal essay dulu di halaman Soal Essay, atau nonaktifkan essay untuk jadwal ini.',
+      }, { status: 400 })
+    }
+  }
+
   const sesiId = generateId('SES')
   const kodeSesi = generateKodeSesi7()
 
