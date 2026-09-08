@@ -160,8 +160,6 @@ export async function POST(req: NextRequest) {
   const infoJsonEssay = await resolveEssayInfoJson(db, {
     mapelId: jadwal.mapel_id,
     kelasNama: String(jadwal.kelas),
-    bobotPgPersen: jadwal.essay_bobot_pg_persen,
-    bobotEssayPersen: jadwal.essay_bobot_essay_persen,
     instruksi: jadwal.essay_instruksi,
   })
 
