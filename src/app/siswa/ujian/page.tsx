@@ -7,7 +7,7 @@ import { startExamLock, endExamLock } from '@/lib/exam-lock'
 import { Soal } from '@/types'
 import { Confirm, Spinner } from '@/components/ui'
 
-type Phase = 'CEK_JADWAL' | 'PERSIAPAN' | 'KODE' | 'UJIAN' | 'SELESAI' | 'RESET_KODE'
+type Phase = 'CEK_JADWAL' | 'PERSIAPAN' | 'KODE' | 'UJIAN' | 'ESSAY_INFO' | 'ESSAY_KERJAKAN' | 'SELESAI' | 'RESET_KODE'
 
 interface JadwalHariIni {
   id: string
@@ -19,6 +19,11 @@ interface JadwalHariIni {
   sesi: number
   status: string
   sudah_ikut: boolean
+  // FIX (fitur essay): lihat komentar di src/app/api/siswa/jadwal/route.ts —
+  // dipakai untuk mengarahkan siswa langsung ke fase essay setelah refresh
+  // browser, tanpa perlu memasukkan kode ujian lagi.
+  essayPending?: boolean
+  sesiIdEssayPending?: string | null
 }
 
 interface SesiInfo {
@@ -37,6 +42,29 @@ interface SoalUjian extends Soal {
 }
 
 interface JawabanMap { [soalId: string]: string }
+
+// ── Tipe untuk fase essay (fitur essay) ───────────────────────────────────
+interface EssayInfo {
+  namaMapel: string
+  namaGuru: string | null
+  jumlahSoal: number
+  durasiMenit: number
+  modeJawaban: 'DIGITAL' | 'KERTAS'
+  instruksi: string | null
+  statusEssay: string
+  akses_kirim_essay_dibuka?: boolean
+}
+
+interface SoalEssay {
+  id: string
+  teks: string
+  gambar_url: string | null
+  urutan: number
+}
+
+interface JawabanEssayMap { [soalEssayId: string]: string }
+
+interface HasilAkhir { id?: string; nilai: number; benar: number; total: number; grade: string; lulus: boolean; kkm: number }
 
 // ── Fullscreen helpers ────────────────────────────────────────────────────────
 function requestFullscreen(el: Element) {
@@ -136,7 +164,35 @@ export default function SiswaUjianPage() {
   const [error, setError] = useState('')
   const [confirmSelesai, setConfirmSelesai] = useState(false)
   const [submitting, setSubmitting] = useState(false)
-  const [hasilNilai, setHasilNilai] = useState<{ id?: string; nilai: number; benar: number; total: number; grade: string; lulus: boolean; kkm: number } | null>(null)
+  const [hasilNilai, setHasilNilai] = useState<HasilAkhir | null>(null)
+
+  // ── State fase ESSAY (fitur essay) ────────────────────────────────────────
+  // KKM dibawa dari response /selesai (lanjutEssay:true) supaya bisa dipakai
+  // lagi saat menampilkan hasil PG di layar SELESAI setelah essay dikirim.
+  const [kkmAwal, setKkmAwal] = useState<number>(75)
+  const [essayInfo, setEssayInfo] = useState<EssayInfo | null>(null)
+  const [loadingEssayInfo, setLoadingEssayInfo] = useState(false)
+  const [errorEssay, setErrorEssay] = useState('')
+  const [essayList, setEssayList] = useState<SoalEssay[]>([])
+  const [loadingEssaySoal, setLoadingEssaySoal] = useState(false)
+  const [jawabanEssay, setJawabanEssay] = useState<JawabanEssayMap>({})
+  const [essayCurrentIdx, setEssayCurrentIdx] = useState(0)
+  const [sisaWaktuEssay, setSisaWaktuEssay] = useState(0)
+  const [essaySyncStatus, setEssaySyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error'>('idle')
+  // Mode KERTAS
+  const [fotoUrl, setFotoUrl] = useState<string | null>(null)
+  const [uploadingFoto, setUploadingFoto] = useState(false)
+  const [uploadFotoError, setUploadFotoError] = useState('')
+  const [aksesKirimDibuka, setAksesKirimDibuka] = useState(false)
+  const [essayWaktuHabisPopup, setEssayWaktuHabisPopup] = useState(false) // mode KERTAS: waktu habis, TIDAK auto-lock, hanya beri tahu + bunyi
+  // Kirim essay
+  const [confirmKirimEssay, setConfirmKirimEssay] = useState(false)
+  const [submittingEssay, setSubmittingEssay] = useState(false)
+  const [nilaiPgSetelahEssay, setNilaiPgSetelahEssay] = useState<{ id?: string; benar: number; total: number; kkm: number } | null>(null)
+  // true = siswa baru saja mengirim essay — halaman SELESAI harus menampilkan
+  // tampilan "menunggu koreksi guru" (bukan lulus/grade seperti ujian biasa,
+  // karena nilai_total memang belum ada sampai guru mengoreksi & merilis).
+  const [essaySelesaiDikirim, setEssaySelesaiDikirim] = useState(false)
 
   // ── Status sinkronisasi jawaban ke server ─────────────────────────────────
   // 'idle' = belum ada perubahan yang perlu disinkron
@@ -193,9 +249,31 @@ export default function SiswaUjianPage() {
   const sesiInfoRef = useRef<SesiInfo | null>(null)
   const phaseRef = useRef<Phase>('CEK_JADWAL')
 
+  // ── Refs fase ESSAY ────────────────────────────────────────────────────────
+  const essayInfoRef = useRef<EssayInfo | null>(null)
+  const jawabanEssayRef = useRef<JawabanEssayMap>({})
+  const essayTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const essaySyncRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const essayAksesPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
   useEffect(() => { jawabanRef.current = jawaban }, [jawaban])
   useEffect(() => { sesiInfoRef.current = sesiInfo }, [sesiInfo])
   useEffect(() => { phaseRef.current = phase }, [phase])
+  useEffect(() => { essayInfoRef.current = essayInfo }, [essayInfo])
+  useEffect(() => { jawabanEssayRef.current = jawabanEssay }, [jawabanEssay])
+
+  // ── Backup lokal jawaban essay (mode DIGITAL) ─────────────────────────────
+  // Sama seperti backup jawaban PG — jaga-jaga kalau tab reload di tengah
+  // fase essay sebelum sempat sync ke server.
+  useEffect(() => {
+    if (phase !== 'ESSAY_KERJAKAN' || essayInfo?.modeJawaban !== 'DIGITAL') return
+    const currentSesi = sesiInfoRef.current
+    if (!currentSesi) return
+    const user = JSON.parse(localStorage.getItem('user') ?? '{}')
+    if (user?.nis) {
+      try { localStorage.setItem(`ujian_essay_backup_${currentSesi.sesiId}_${user.nis}`, JSON.stringify(jawabanEssay)) } catch { /* abaikan */ }
+    }
+  }, [jawabanEssay, phase, essayInfo])
 
   // ── Backup tiap kali jawaban berubah (lihat catatan di backupKey/saveBackup) ──
   useEffect(() => {
@@ -207,16 +285,16 @@ export default function SiswaUjianPage() {
   // ── Peringatkan siswa jika mencoba menutup/refresh tab saat masih ada
   // jawaban yang belum terkonfirmasi tersimpan di server ──────────────────
   useEffect(() => {
-    if (phase !== 'UJIAN') return
+    if (phase !== 'UJIAN' && phase !== 'ESSAY_INFO' && phase !== 'ESSAY_KERJAKAN') return
     function onBeforeUnload(e: BeforeUnloadEvent) {
-      if (syncStatus === 'error' || syncStatus === 'syncing') {
+      if (syncStatus === 'error' || syncStatus === 'syncing' || essaySyncStatus === 'error' || essaySyncStatus === 'syncing') {
         e.preventDefault()
         e.returnValue = ''
       }
     }
     window.addEventListener('beforeunload', onBeforeUnload)
     return () => window.removeEventListener('beforeunload', onBeforeUnload)
-  }, [phase, syncStatus])
+  }, [phase, syncStatus, essaySyncStatus])
 
   // ── Ambil batasPelanggaran dari pengaturan saat mount ─────────────────────
   useEffect(() => {
@@ -235,6 +313,29 @@ export default function SiswaUjianPage() {
       setLoadingJadwal(true)
       try {
         const res = await apiRequest<{ data: JadwalHariIni[]; zonaWaktu?: { utcOffsetJam: number } }>('/api/siswa/jadwal')
+
+        // FIX (fitur essay): kalau siswa sempat me-refresh browser di tengah
+        // fase essay (submit PG sudah tapi essay belum dikirim), lompat
+        // langsung ke halaman essay — JANGAN masuk alur KODE lagi karena
+        // /api/siswa/ujian/validasi akan menolak (nilai PG sudah ada).
+        const essayPendingEntry = (res.data ?? []).find(j => j.essayPending && j.sesiIdEssayPending)
+        if (essayPendingEntry?.sesiIdEssayPending) {
+          setSesiInfo({
+            sesiId: essayPendingEntry.sesiIdEssayPending,
+            mapelId: '',
+            namaMapel: essayPendingEntry.nama_mapel,
+            kelas: '',
+            durasi: 0,
+            waktu_mulai: '',
+            soalList: [],
+            minSubmitMenit: 0,
+          })
+          setPhase('ESSAY_INFO')
+          setLoadingJadwal(false)
+          fetchEssayInfo()
+          return
+        }
+
         const zona = res.zonaWaktu?.utcOffsetJam ?? 7
         const shifted = new Date(Date.now() + zona * 60 * 60 * 1000)
         const today = shifted.toISOString().slice(0, 10)
@@ -282,7 +383,7 @@ export default function SiswaUjianPage() {
 
   // ── Minta izin blokir notifikasi saat ujian dimulai ───────────────────────
   useEffect(() => {
-    if (phase !== 'UJIAN') return
+    if (phase !== 'UJIAN' && phase !== 'ESSAY_INFO' && phase !== 'ESSAY_KERJAKAN') return
     if ('Notification' in window && Notification.permission === 'default') {
       Notification.requestPermission()
     }
@@ -290,7 +391,7 @@ export default function SiswaUjianPage() {
 
   // ── Masuk fullscreen saat phase UJIAN ─────────────────────────────────────
   useEffect(() => {
-    if (phase !== 'UJIAN') return
+    if (phase !== 'UJIAN' && phase !== 'ESSAY_INFO' && phase !== 'ESSAY_KERJAKAN') return
     const el = document.documentElement
     requestFullscreen(el).catch(() => {
       // FIX: sebelumnya kegagalan di sini dibuang total tanpa jejak apapun.
@@ -326,7 +427,7 @@ export default function SiswaUjianPage() {
 
   // ── Deteksi keluar fullscreen saat ujian ─────────────────────────────────
   useEffect(() => {
-    if (phase !== 'UJIAN') return
+    if (phase !== 'UJIAN' && phase !== 'ESSAY_INFO' && phase !== 'ESSAY_KERJAKAN') return
     let fsCooldown: ReturnType<typeof setTimeout> | null = null
     function onFSChange() {
       if (!isFullscreen()) {
@@ -357,7 +458,7 @@ export default function SiswaUjianPage() {
 
   // ── Anti-cheat: tab switch / visibilitychange ─────────────────────────────
   useEffect(() => {
-    if (phase !== 'UJIAN') return
+    if (phase !== 'UJIAN' && phase !== 'ESSAY_INFO' && phase !== 'ESSAY_KERJAKAN') return
     // Cooldown mencegah event ganda (visibilitychange + blur keduanya fire sekaligus)
     let visCooldown: ReturnType<typeof setTimeout> | null = null
     function onVisibilityChange() {
@@ -381,7 +482,7 @@ export default function SiswaUjianPage() {
 
   // ── Anti-cheat: blokir klik kanan ────────────────────────────────────────
   useEffect(() => {
-    if (phase !== 'UJIAN') return
+    if (phase !== 'UJIAN' && phase !== 'ESSAY_INFO' && phase !== 'ESSAY_KERJAKAN') return
     function block(e: MouseEvent) { e.preventDefault() }
     document.addEventListener('contextmenu', block)
     return () => document.removeEventListener('contextmenu', block)
@@ -389,7 +490,7 @@ export default function SiswaUjianPage() {
 
   // ── Anti-cheat: blokir shortcut keyboard berbahaya ───────────────────────
   useEffect(() => {
-    if (phase !== 'UJIAN') return
+    if (phase !== 'UJIAN' && phase !== 'ESSAY_INFO' && phase !== 'ESSAY_KERJAKAN') return
     function onKeyDown(e: KeyboardEvent) {
       const blockedKeys = [
         e.ctrlKey && e.key === 'c',
@@ -416,7 +517,7 @@ export default function SiswaUjianPage() {
 
   // ── Anti-cheat: blokir copy/paste/cut ────────────────────────────────────
   useEffect(() => {
-    if (phase !== 'UJIAN') return
+    if (phase !== 'UJIAN' && phase !== 'ESSAY_INFO' && phase !== 'ESSAY_KERJAKAN') return
     function block(e: ClipboardEvent) { e.preventDefault() }
     document.addEventListener('copy', block)
     document.addEventListener('cut', block)
@@ -430,7 +531,7 @@ export default function SiswaUjianPage() {
 
   // ── Anti-cheat: blokir drag & drop ───────────────────────────────────────
   useEffect(() => {
-    if (phase !== 'UJIAN') return
+    if (phase !== 'UJIAN' && phase !== 'ESSAY_INFO' && phase !== 'ESSAY_KERJAKAN') return
     function block(e: DragEvent) { e.preventDefault() }
     document.addEventListener('dragstart', block)
     document.addEventListener('drop', block)
@@ -442,7 +543,7 @@ export default function SiswaUjianPage() {
 
   // ── Anti-cheat: blokir window blur (pindah aplikasi di HP) ───────────────
   useEffect(() => {
-    if (phase !== 'UJIAN') return
+    if (phase !== 'UJIAN' && phase !== 'ESSAY_INFO' && phase !== 'ESSAY_KERJAKAN') return
     // Cooldown timer untuk mencegah event blur/visibilitychange terpicu berganda
     let blurCooldown: ReturnType<typeof setTimeout> | null = null
     function onBlur() {
@@ -480,7 +581,7 @@ export default function SiswaUjianPage() {
   const cekStatusSesi = useCallback(async () => {
     const currentSesi = sesiInfoRef.current
     const currentPhase = phaseRef.current
-    if (!currentSesi || currentPhase !== 'UJIAN') return
+    if (!currentSesi || (currentPhase !== 'UJIAN' && currentPhase !== 'ESSAY_INFO' && currentPhase !== 'ESSAY_KERJAKAN')) return
     try {
       const res = await apiRequest<{ sesi_status?: string; siswa_status?: string; diambil_alih_device_lain?: boolean } | null>(
         `/api/siswa/ujian/cek-sesi?sesiId=${currentSesi.sesiId}&deviceId=${getDeviceId()}`
@@ -492,6 +593,9 @@ export default function SiswaUjianPage() {
         clearInterval(timerRef.current!)
         clearInterval(syncRef.current!)
         clearInterval(sesiPollRef.current!)
+        clearInterval(essayTimerRef.current!)
+        clearInterval(essaySyncRef.current!)
+        clearInterval(essayAksesPollRef.current!)
         setDiambilAlihDevice(true)
         return
       }
@@ -504,6 +608,9 @@ export default function SiswaUjianPage() {
         clearInterval(timerRef.current!)
         clearInterval(syncRef.current!)
         clearInterval(sesiPollRef.current!)
+        clearInterval(essayTimerRef.current!)
+        clearInterval(essaySyncRef.current!)
+        clearInterval(essayAksesPollRef.current!)
         setDikeluarkan(true)
         return
       }
@@ -525,15 +632,28 @@ export default function SiswaUjianPage() {
         clearInterval(timerRef.current!)
         clearInterval(syncRef.current!)
         clearInterval(sesiPollRef.current!)
+        clearInterval(essayTimerRef.current!)
+        clearInterval(essaySyncRef.current!)
+        clearInterval(essayAksesPollRef.current!)
         setSesiDitutupPaksa(true)
-        await handleSelesai(true, true)
+        // FIX (fitur essay): kalau pengawas menutup sesi SAAT siswa sudah
+        // mulai mengerjakan essay, jalur penutupannya adalah endpoint
+        // .../essay/kirim (BUKAN .../selesai lagi — itu sudah dipakai untuk
+        // PG). Kalau siswa baru di halaman info essay (belum tekan "Mulai"),
+        // tidak ada yang perlu dikirim — cukup tampilkan notifikasi sesi
+        // ditutup, guru nanti menandai TIDAK_MENGERJAKAN lewat panel koreksi.
+        if (currentPhase === 'ESSAY_KERJAKAN') {
+          await handleKirimEssay(true)
+        } else if (currentPhase !== 'ESSAY_INFO') {
+          await handleSelesai(true, true)
+        }
       }
     } catch { /* silent */ }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
-    if (phase !== 'UJIAN') return
+    if (phase !== 'UJIAN' && phase !== 'ESSAY_INFO' && phase !== 'ESSAY_KERJAKAN') return
     sesiPollRef.current = setInterval(cekStatusSesi, 10000)
     return () => clearInterval(sesiPollRef.current!)
   }, [phase, cekStatusSesi])
@@ -779,6 +899,26 @@ export default function SiswaUjianPage() {
     setLoadingJadwal(true)
     try {
       const res = await apiRequest<{ data: JadwalHariIni[]; zonaWaktu?: { utcOffsetJam: number } }>('/api/siswa/jadwal')
+
+      // FIX (fitur essay): sama seperti di cekJadwal() — lihat komentar di sana.
+      const essayPendingEntry = (res.data ?? []).find(j => j.essayPending && j.sesiIdEssayPending)
+      if (essayPendingEntry?.sesiIdEssayPending) {
+        setSesiInfo({
+          sesiId: essayPendingEntry.sesiIdEssayPending,
+          mapelId: '',
+          namaMapel: essayPendingEntry.nama_mapel,
+          kelas: '',
+          durasi: 0,
+          waktu_mulai: '',
+          soalList: [],
+          minSubmitMenit: 0,
+        })
+        setPhase('ESSAY_INFO')
+        setLoadingJadwal(false)
+        fetchEssayInfo()
+        return
+      }
+
       const zona = res.zonaWaktu?.utcOffsetJam ?? 7
       const shifted = new Date(Date.now() + zona * 60 * 60 * 1000)
       const today = shifted.toISOString().slice(0, 10)
@@ -927,7 +1067,7 @@ export default function SiswaUjianPage() {
     try {
       const user = JSON.parse(localStorage.getItem('user') ?? '{}')
       const currentSesi = sesiInfoRef.current
-      const res = await apiRequest<{ id?: string; nilai: number; benar: number; total: number; grade: string; lulus: boolean; kkm: number }>('/api/siswa/ujian/selesai', {
+      const res = await apiRequest<{ id?: string; lanjutEssay?: boolean; kkm?: number } & Partial<HasilAkhir>>('/api/siswa/ujian/selesai', {
         method: 'POST',
         body: JSON.stringify({
           sesiId: currentSesi!.sesiId,
@@ -935,7 +1075,21 @@ export default function SiswaUjianPage() {
           isTimeout,
         }),
       })
-      setHasilNilai(res)
+
+      // FIX (fitur essay): sesi ini punya essay — JANGAN tampilkan halaman
+      // hasil dan JANGAN lepas fullscreen. Nilai PG sudah dihitung & tersimpan
+      // di server tapi baru dibuka ke siswa setelah essay dikirim (lihat
+      // .../essay/kirim/route.ts). Backup jawaban PG boleh dibersihkan karena
+      // jawaban PG sudah final di titik ini.
+      if (res.lanjutEssay) {
+        if (currentSesi && user?.nis) clearBackup(currentSesi.sesiId, user.nis)
+        setKkmAwal(res.kkm ?? 75)
+        setPhase('ESSAY_INFO')
+        fetchEssayInfo()
+        return
+      }
+
+      setHasilNilai(res as HasilAkhir)
       setPhase('SELESAI')
       if (currentSesi && user?.nis) clearBackup(currentSesi.sesiId, user.nis)
     } catch (err: unknown) {
@@ -1036,6 +1190,262 @@ export default function SiswaUjianPage() {
     } finally { setKodeResetLoading(false) }
   }
 
+  // ═══════════════════════════════════════════════════════════════════════
+  // ── FASE ESSAY (fitur essay) ──────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════════════
+
+  // ── Ambil info essay (halaman sebelum tombol "Mulai") ─────────────────────
+  async function fetchEssayInfo() {
+    const currentSesi = sesiInfoRef.current
+    if (!currentSesi) return
+    setLoadingEssayInfo(true)
+    setErrorEssay('')
+    try {
+      const res = await apiRequest<EssayInfo>(`/api/siswa/ujian/essay/info?sesiId=${currentSesi.sesiId}`)
+      setEssayInfo(res)
+      essayInfoRef.current = res
+      setAksesKirimDibuka(!!res.akses_kirim_essay_dibuka)
+      // Idempotent: kalau siswa sudah pernah menekan "Mulai" sebelumnya (mis.
+      // refresh halaman di tengah mengerjakan essay), langsung lanjut ke
+      // halaman soal — jangan tampilkan lagi halaman info + tombol "Mulai".
+      if (res.statusEssay === 'MENGERJAKAN') {
+        await masukKeHalamanEssay(currentSesi.sesiId)
+      }
+    } catch (err: unknown) {
+      setErrorEssay(err instanceof Error ? err.message : 'Gagal memuat info essay')
+    } finally {
+      setLoadingEssayInfo(false)
+    }
+  }
+
+  // ── Mulai timer essay + ambil soal + pulihkan draft jawaban, lalu pindah
+  // ke phase ESSAY_KERJAKAN. Dipakai baik dari tombol "Mulai" (entry baru)
+  // maupun dari resume otomatis (refresh halaman saat status sudah MENGERJAKAN).
+  async function masukKeHalamanEssay(sesiId: string) {
+    setLoadingEssaySoal(true)
+    setErrorEssay('')
+    try {
+      const [mulaiRes, soalRes] = await Promise.all([
+        apiRequest<{ waktuMulaiEssay: string }>('/api/siswa/ujian/essay/mulai', {
+          method: 'POST',
+          body: JSON.stringify({ sesiId }),
+        }),
+        apiRequest<{ data: SoalEssay[] }>(`/api/siswa/ujian/essay/soal?sesiId=${sesiId}`),
+      ])
+      setEssayList(soalRes.data ?? [])
+
+      const info = essayInfoRef.current
+      const durasiDetik = (info?.durasiMenit ?? 0) * 60
+      const terpakai = Math.floor((Date.now() - new Date(mulaiRes.waktuMulaiEssay).getTime()) / 1000)
+      setSisaWaktuEssay(Math.max(0, durasiDetik - terpakai))
+
+      // Pulihkan draft jawaban (mode DIGITAL): dari server dulu, lalu ditimpa
+      // backup lokal — pola sama seperti resumeJawaban() untuk PG.
+      if (info?.modeJawaban === 'DIGITAL') {
+        const user = JSON.parse(localStorage.getItem('user') ?? '{}')
+        let serverJawaban: JawabanEssayMap = {}
+        try {
+          const jr = await apiRequest<{ jawaban: { soal_essay_id: string; jawaban_teks: string }[] }>(
+            `/api/siswa/ujian/essay/jawab?sesiId=${sesiId}`
+          )
+          serverJawaban = Object.fromEntries((jr.jawaban ?? []).map(j => [j.soal_essay_id, j.jawaban_teks]))
+        } catch { /* pakai backup lokal saja kalau gagal */ }
+        let backup: JawabanEssayMap = {}
+        try {
+          const raw = localStorage.getItem(`ujian_essay_backup_${sesiId}_${user.nis}`)
+          backup = raw ? JSON.parse(raw) : {}
+        } catch { /* abaikan */ }
+        const merged = { ...serverJawaban, ...backup }
+        jawabanEssayRef.current = merged
+        setJawabanEssay(merged)
+      }
+
+      setPhase('ESSAY_KERJAKAN')
+      setTimeout(() => requestFullscreen(document.documentElement).catch(() => {}), 100)
+    } catch (err: unknown) {
+      setErrorEssay(err instanceof Error ? err.message : 'Gagal memulai essay')
+    } finally {
+      setLoadingEssaySoal(false)
+    }
+  }
+
+  async function handleMulaiEssay() {
+    const currentSesi = sesiInfoRef.current
+    if (!currentSesi) return
+    await masukKeHalamanEssay(currentSesi.sesiId)
+  }
+
+  // ── Autosave jawaban essay (mode DIGITAL), dengan retry pola sama seperti
+  // syncJawaban() untuk PG. ─────────────────────────────────────────────────
+  const MAX_ESSAY_SYNC_RETRY = 4
+  const syncJawabanEssay = useCallback(async (): Promise<{ ok: boolean }> => {
+    const currentSesi = sesiInfoRef.current
+    const currentJawaban = jawabanEssayRef.current
+    if (!currentSesi) return { ok: true }
+    const entries = Object.entries(currentJawaban)
+    if (entries.length === 0) return { ok: true }
+
+    setEssaySyncStatus('syncing')
+    for (let attempt = 1; attempt <= MAX_ESSAY_SYNC_RETRY; attempt++) {
+      try {
+        await apiRequest('/api/siswa/ujian/essay/jawab', {
+          method: 'POST',
+          body: JSON.stringify({
+            sesiId: currentSesi.sesiId,
+            jawaban: entries.map(([soal_essay_id, teks]) => ({ soal_essay_id, jawaban_teks: teks })),
+          }),
+        })
+        setEssaySyncStatus('synced')
+        return { ok: true }
+      } catch (e) {
+        console.warn(`Sync essay percobaan ke-${attempt} gagal:`, e)
+        const status = (e as { status?: number } | undefined)?.status
+        if (status === 409 || status === 403) {
+          // Sesi ditutup / akses dikunci — tidak ada gunanya mengulang.
+          setEssaySyncStatus('error')
+          return { ok: false }
+        }
+        if (attempt < MAX_ESSAY_SYNC_RETRY) {
+          await new Promise(r => setTimeout(r, attempt * 1500))
+        }
+      }
+    }
+    setEssaySyncStatus('error')
+    return { ok: false }
+  }, [])
+
+  // ── Timer fase essay — pola sama seperti timer PG: dihitung ulang tiap
+  // tick dari referensi absolut (waktu mulai essay), bukan sekadar counter
+  // lokal, supaya tahan terhadap tab yang di-throttle browser. ──────────────
+  useEffect(() => {
+    if (phase !== 'ESSAY_KERJAKAN') return
+    essayTimerRef.current = setInterval(() => {
+      const info = essayInfoRef.current
+      if (!info) return
+      // Kita tidak menyimpan waktuMulaiEssay di state terpisah — cukup pakai
+      // sisaWaktuEssay sebagai basis pengurangan per detik karena durasi essay
+      // biasanya jauh lebih pendek dari PG dan referensi mutlak sudah
+      // ditegakkan di server (validasi ulang saat kirim). Untuk konsistensi
+      // dengan pola anti-drift PG, sisa waktu tetap dikurangi tiap detik di
+      // sini; drift kecil akibat tab throttle tidak fatal karena backend TIDAK
+      // menolak kirim essay berdasarkan waktu (mode digital: auto-submit saat
+      // sisaWaktuEssay mencapai 0; mode kertas: hanya munculkan popup).
+      setSisaWaktuEssay(prev => {
+        if (prev <= 1) {
+          clearInterval(essayTimerRef.current!)
+          if (info.modeJawaban === 'DIGITAL') {
+            setTimeout(() => handleKirimEssay(true), 0)
+          } else {
+            // Mode KERTAS: JANGAN auto-submit — cukup beri tahu siswa +
+            // bunyi, siswa tetap menunggu pengawas membuka akses kirim.
+            setEssayWaktuHabisPopup(true)
+            try {
+              const audio = new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=')
+              audio.play().catch(() => {})
+            } catch { /* abaikan kalau browser blokir autoplay */ }
+          }
+          return 0
+        }
+        return prev - 1
+      })
+    }, 1000)
+    return () => clearInterval(essayTimerRef.current!)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase])
+
+  // ── Auto sync jawaban essay tiap 30 detik (mode DIGITAL saja) ────────────
+  useEffect(() => {
+    if (phase !== 'ESSAY_KERJAKAN' || essayInfo?.modeJawaban !== 'DIGITAL') return
+    essaySyncRef.current = setInterval(() => syncJawabanEssay(), 30000)
+    return () => clearInterval(essaySyncRef.current!)
+  }, [phase, essayInfo, syncJawabanEssay])
+
+  // ── Poll akses kirim essay (mode KERTAS saja) — supaya tombol "Kirim"
+  // otomatis aktif begitu pengawas menekan "Buka Akses Kirim", tanpa siswa
+  // perlu refresh manual. ────────────────────────────────────────────────
+  useEffect(() => {
+    if (phase !== 'ESSAY_KERJAKAN' || essayInfo?.modeJawaban !== 'KERTAS') return
+    const currentSesi = sesiInfoRef.current
+    if (!currentSesi) return
+    const cek = async () => {
+      try {
+        const res = await apiRequest<EssayInfo>(`/api/siswa/ujian/essay/info?sesiId=${currentSesi.sesiId}`)
+        setAksesKirimDibuka(!!res.akses_kirim_essay_dibuka)
+      } catch { /* silent, dicoba lagi di interval berikutnya */ }
+    }
+    cek()
+    essayAksesPollRef.current = setInterval(cek, 8000)
+    return () => clearInterval(essayAksesPollRef.current!)
+  }, [phase, essayInfo])
+
+  // ── Upload foto lembar jawaban (mode KERTAS) ─────────────────────────────
+  async function handleUploadFoto(file: File) {
+    const currentSesi = sesiInfoRef.current
+    if (!currentSesi) return
+    setUploadingFoto(true)
+    setUploadFotoError('')
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('sesiId', currentSesi.sesiId)
+      const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
+      const res = await fetch('/api/siswa/ujian/essay/upload-foto', {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        body: formData,
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error ?? 'Upload gagal')
+      setFotoUrl(data.url)
+    } catch (err: unknown) {
+      setUploadFotoError(err instanceof Error ? err.message : 'Upload foto gagal')
+    } finally {
+      setUploadingFoto(false)
+    }
+  }
+
+  // ── Kirim essay (titik akhir alur) — membuka nilai PG & melepas fullscreen ─
+  async function handleKirimEssay(isTimeout = false) {
+    if (submittingEssay) return
+    setConfirmKirimEssay(false)
+    setSubmittingEssay(true)
+    const currentSesi = sesiInfoRef.current
+    if (!currentSesi) { setSubmittingEssay(false); return }
+
+    // Mode DIGITAL: pastikan draft terakhir tersimpan dulu (best-effort,
+    // sama semangatnya dengan verifikasi sync PG — tapi essay tidak
+    // memblokir pengiriman kalau sync gagal, karena tidak ada kunci jawaban
+    // otomatis yang membuat "jawaban hilang" berakibat fatal seperti PG;
+    // guru tetap bisa lihat draft yang sempat tersimpan).
+    if (essayInfoRef.current?.modeJawaban === 'DIGITAL') {
+      await syncJawabanEssay()
+    }
+
+    clearInterval(essayTimerRef.current!)
+    clearInterval(essaySyncRef.current!)
+    clearInterval(essayAksesPollRef.current!)
+
+    try {
+      const res = await apiRequest<{ sudahDikirim: boolean; nilaiPg: { id?: string; benar: number; total: number; kkm: number } | null }>(
+        '/api/siswa/ujian/essay/kirim',
+        { method: 'POST', body: JSON.stringify({ sesiId: currentSesi.sesiId }) }
+      )
+      // Tampilkan halaman hasil KHUSUS essay (nilai_total masih menunggu
+      // koreksi guru, jadi TIDAK memakai layout lulus/grade biasa) — BARU DI
+      // SINI lepas fullscreen (ditangani oleh efek [phase] yang sudah ada,
+      // karena 'SELESAI' termasuk dalam daftar fase yang melepas fullscreen).
+      setNilaiPgSetelahEssay(res.nilaiPg)
+      setEssaySelesaiDikirim(true)
+      setPhase('SELESAI')
+    } catch (err: unknown) {
+      console.error(err)
+      setErrorEssay(err instanceof Error ? err.message : 'Gagal mengirim essay. Periksa koneksi dan coba lagi.')
+    } finally {
+      setSubmittingEssay(false)
+      void isTimeout
+    }
+  }
+
   const formatWaktu = (detik: number) => {
     const m = Math.floor(detik / 60)
     const s = detik % 60
@@ -1054,6 +1464,404 @@ export default function SiswaUjianPage() {
     const mulai = new Date(now)
     mulai.setHours(h, m, 0, 0)
     return Math.floor((mulai.getTime() - now.getTime()) / 60000)
+  }
+
+  // ── Overlay yang dipakai bersama di fase UJIAN, ESSAY_INFO, ESSAY_KERJAKAN ─
+  // (diekstrak supaya siswa mendapat proteksi anti-kecurangan yang SAMA
+  // persis selama fase essay seperti selama fase PG — bukan cuma di UJIAN).
+  const pelanggaranOverlayJSX = showWarningOverlay && (
+    <div
+      className="fixed inset-0 z-[9999] flex flex-col items-center justify-center"
+      style={{ background: 'rgba(15,23,42,0.97)' }}
+    >
+      <div className="max-w-sm w-full mx-4 bg-white rounded-2xl p-8 text-center shadow-2xl">
+        <div className="w-16 h-16 bg-red-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+          <AlertTriangle className="w-8 h-8 text-red-600" />
+        </div>
+        <h2 className="text-lg font-bold text-slate-900 mb-2">Pelanggaran Terdeteksi!</h2>
+        <p className="text-sm text-slate-600 mb-1">{warningMsg}</p>
+        <p className="text-xs text-red-500 font-medium mb-4">
+          Pelanggaran ke-{pelanggRef.current} — Aktivitas ini dilaporkan ke pengawas
+        </p>
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4 text-left">
+          <p className="text-xs text-amber-700 font-semibold mb-1">⚠ Diperlukan Kode dari Pengawas</p>
+          <p className="text-xs text-amber-600">Hubungi pengawas dan minta kode 7 digit untuk melanjutkan ujian.</p>
+        </div>
+        {kodeResetError && (
+          <div className="alert-error mb-3 text-left text-xs flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+            <span>{kodeResetError}</span>
+          </div>
+        )}
+        <input
+          type="text"
+          className="input text-center text-xl font-mono tracking-widest uppercase mb-3"
+          placeholder="KODE RESET"
+          maxLength={7}
+          value={kodeReset}
+          onChange={e => { setKodeReset(e.target.value.toUpperCase()); setKodeResetError('') }}
+          onKeyDown={e => e.key === 'Enter' && handleVerifikasiResetDariOverlay()}
+        />
+        <button
+          onClick={handleVerifikasiResetDariOverlay}
+          disabled={kodeResetLoading}
+          className="btn-primary w-full justify-center py-3 text-base"
+        >
+          {kodeResetLoading ? <Spinner size="sm" /> : (
+            <>
+              <KeyRound className="w-4 h-4" />
+              Masukkan Kode &amp; Lanjutkan Ujian
+            </>
+          )}
+        </button>
+      </div>
+    </div>
+  )
+
+  const sesiDitutupOverlayJSX = sesiDitutupPaksa && (phase === 'UJIAN' || phase === 'ESSAY_INFO' || phase === 'ESSAY_KERJAKAN') && (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 text-center animate-fade-in">
+        <div className="w-12 h-12 rounded-full bg-amber-100 flex items-center justify-center mx-auto mb-4">
+          <AlertTriangle className="w-6 h-6 text-amber-600" />
+        </div>
+        <h3 className="text-lg font-bold text-slate-900 mb-2">Sesi Ditutup Pengawas</h3>
+        <p className="text-sm text-slate-500">
+          Pengawas telah menutup sesi ujian ini. Jawaban Anda yang sudah tersimpan sedang dinilai, mohon tunggu sebentar...
+        </p>
+      </div>
+    </div>
+  )
+
+  // Banner peringatan fullscreen belum aktif — dipakai bersama juga.
+  const fsWarningBannerJSX = !isFS && (
+    <div className="card py-3 bg-amber-50 border border-amber-200">
+      <div className="flex items-start gap-2.5">
+        <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+        <div className="flex-1 min-w-0">
+          <p className="text-xs text-amber-700 font-medium">
+            {fsSupported
+              ? 'Mode layar penuh belum aktif. Ujian tetap bisa dikerjakan, tapi sebagian proteksi anti-kecurangan tidak berjalan sampai layar penuh aktif.'
+              : 'Perangkat/browser Anda tidak mendukung mode layar penuh otomatis. Tetap fokus di halaman ujian — pengawas dapat memantau Anda secara manual.'}
+          </p>
+        </div>
+        {fsSupported && (
+          <button
+            onClick={handleRetryFullscreen}
+            className="btn-sm bg-amber-600 text-white hover:bg-amber-700 font-semibold flex-shrink-0"
+          >
+            <Maximize className="w-3.5 h-3.5" />
+            Coba Lagi
+          </button>
+        )}
+      </div>
+    </div>
+  )
+
+  // ── Phase: ESSAY_INFO — halaman info sebelum tombol "Mulai" ──────────────
+  if (phase === 'ESSAY_INFO') {
+    return (
+      <>
+        {pelanggaranOverlayJSX}
+        {sesiDitutupOverlayJSX}
+        <div className="max-w-md mx-auto animate-fade-in space-y-4 select-none">
+          {fsWarningBannerJSX}
+          <div className="card">
+            <div className="w-14 h-14 bg-brand-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+              <BookOpen className="w-7 h-7 text-brand-600" />
+            </div>
+
+            {loadingEssayInfo ? (
+              <div className="flex flex-col items-center justify-center py-8 gap-3">
+                <Spinner size="lg" />
+                <p className="text-sm text-slate-400">Memuat info soal essay...</p>
+              </div>
+            ) : errorEssay ? (
+              <>
+                <div className="alert-error mb-4 text-left">
+                  <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                  <span>{errorEssay}</span>
+                </div>
+                <button onClick={fetchEssayInfo} className="btn-primary w-full justify-center py-3">
+                  <RefreshCw className="w-4 h-4" /> Coba Lagi
+                </button>
+              </>
+            ) : essayInfo ? (
+              <>
+                <h1 className="text-xl font-bold text-slate-900 mb-1 text-center">Lanjut ke Soal Essay</h1>
+                <p className="text-sm text-slate-500 mb-4 text-center">
+                  Nilai pilihan ganda Anda sudah tersimpan. Selesaikan soal essay berikut untuk menyelesaikan ujian.
+                </p>
+
+                <div className="bg-brand-50 border border-brand-100 rounded-xl px-4 py-3 mb-4 space-y-1.5">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-brand-600">Mata Pelajaran</span>
+                    <span className="font-semibold text-brand-900">{essayInfo.namaMapel}</span>
+                  </div>
+                  {essayInfo.namaGuru && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-brand-600">Guru</span>
+                      <span className="font-semibold text-brand-900">{essayInfo.namaGuru}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between text-sm">
+                    <span className="text-brand-600">Jumlah Soal</span>
+                    <span className="font-semibold text-brand-900">{essayInfo.jumlahSoal} soal</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-brand-600">Durasi</span>
+                    <span className="font-semibold text-brand-900">{essayInfo.durasiMenit} menit</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-brand-600">Mode Jawaban</span>
+                    <span className="font-semibold text-brand-900">
+                      {essayInfo.modeJawaban === 'DIGITAL' ? 'Ketik langsung (Digital)' : 'Tulis di kertas (Kertas)'}
+                    </span>
+                  </div>
+                </div>
+
+                {essayInfo.instruksi && (
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 mb-4 text-left">
+                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Instruksi dari Guru</p>
+                    <p className="text-sm text-slate-700 whitespace-pre-wrap">{essayInfo.instruksi}</p>
+                  </div>
+                )}
+
+                {essayInfo.modeJawaban === 'KERTAS' && (
+                  <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-4 text-left">
+                    <p className="text-xs text-amber-700">
+                      Anda akan menuliskan jawaban di kertas. Setelah waktu habis, tunggu pengawas membuka akses kirim,
+                      lalu foto dan unggah lembar jawaban Anda dari halaman ini.
+                    </p>
+                  </div>
+                )}
+
+                <button
+                  onClick={handleMulaiEssay}
+                  disabled={loadingEssaySoal}
+                  className="btn-primary w-full justify-center py-3 text-base"
+                >
+                  {loadingEssaySoal ? <Spinner size="sm" /> : 'Mulai Jawab Essay'}
+                </button>
+              </>
+            ) : null}
+          </div>
+        </div>
+      </>
+    )
+  }
+
+  // ── Phase: ESSAY_KERJAKAN — mengerjakan soal essay ────────────────────────
+  if (phase === 'ESSAY_KERJAKAN') {
+    const soalEssayList = essayList
+    const soalEssayCurrent = soalEssayList[essayCurrentIdx]
+    const modeJawaban = essayInfo?.modeJawaban ?? 'DIGITAL'
+
+    return (
+      <>
+        {pelanggaranOverlayJSX}
+        {sesiDitutupOverlayJSX}
+
+        {/* Popup waktu habis — MODE KERTAS SAJA. Sengaja BUKAN overlay pemblokir
+            penuh (siswa masih boleh melihat soal sambil menunggu pengawas). */}
+        {essayWaktuHabisPopup && modeJawaban === 'KERTAS' && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 text-center animate-fade-in">
+              <div className="w-12 h-12 rounded-full bg-amber-100 flex items-center justify-center mx-auto mb-4">
+                <Clock className="w-6 h-6 text-amber-600" />
+              </div>
+              <h3 className="text-lg font-bold text-slate-900 mb-2">Waktu Essay Habis</h3>
+              <p className="text-sm text-slate-500 mb-4">
+                Waktu mengerjakan sudah habis. Tetap tenang di tempat duduk Anda dan tunggu pengawas
+                membuka akses kirim, lalu foto dan unggah lembar jawaban Anda.
+              </p>
+              <button onClick={() => setEssayWaktuHabisPopup(false)} className="btn-secondary w-full justify-center">
+                Mengerti
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className="max-w-3xl mx-auto space-y-4 animate-fade-in select-none">
+          {/* Header */}
+          <div className="card py-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex-1 min-w-0">
+                <div className="font-semibold text-slate-900 text-sm truncate">{essayInfo?.namaMapel} — Essay</div>
+                {modeJawaban === 'DIGITAL' && (
+                  <div className="text-xs font-medium text-slate-400">
+                    {Object.values(jawabanEssay).filter(v => v && v.trim().length > 0).length}/{soalEssayList.length} terjawab
+                  </div>
+                )}
+              </div>
+              <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-mono font-bold text-base flex-shrink-0 ${
+                sisaWaktuEssay < 300 ? 'bg-red-50 text-red-600' :
+                sisaWaktuEssay < 600 ? 'bg-amber-50 text-amber-600' :
+                'bg-brand-50 text-brand-700'
+              }`}>
+                <Clock className="w-3.5 h-3.5" />
+                {formatWaktu(sisaWaktuEssay)}
+              </div>
+            </div>
+            {modeJawaban === 'DIGITAL' && (
+              <div className={`text-[11px] mt-1.5 flex items-center gap-1 ${
+                essaySyncStatus === 'error' ? 'text-red-600 font-semibold' :
+                essaySyncStatus === 'syncing' ? 'text-amber-500' :
+                essaySyncStatus === 'synced' ? 'text-emerald-600' : 'text-slate-400'
+              }`}>
+                {essaySyncStatus === 'error' && '⚠ Gagal menyimpan ke server, mencoba lagi...'}
+                {essaySyncStatus === 'syncing' && 'Menyimpan ke server...'}
+                {essaySyncStatus === 'synced' && '✓ Tersimpan di server'}
+                {essaySyncStatus === 'idle' && 'Belum ada jawaban yang disimpan'}
+              </div>
+            )}
+          </div>
+
+          {fsWarningBannerJSX}
+
+          {errorEssay && (
+            <div className="alert-error">
+              <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+              <span>{errorEssay}</span>
+            </div>
+          )}
+
+          {/* Navigator soal essay */}
+          {soalEssayList.length > 1 && (
+            <div className="card py-3">
+              <div className="flex flex-wrap gap-1.5">
+                {soalEssayList.map((s, i) => (
+                  <button
+                    key={s.id}
+                    onClick={() => setEssayCurrentIdx(i)}
+                    className={`w-8 h-8 rounded-lg text-xs font-medium transition-all ${
+                      i === essayCurrentIdx
+                        ? 'bg-brand-600 text-white shadow-sm'
+                        : (modeJawaban === 'DIGITAL' && jawabanEssay[s.id]?.trim())
+                        ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
+                  >
+                    {i + 1}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Soal essay */}
+          {soalEssayCurrent && (
+            <div className="card">
+              <div className="flex items-center gap-2 mb-4">
+                <span className="badge-blue font-semibold">Soal {essayCurrentIdx + 1}</span>
+                <span className="text-slate-400 text-xs">dari {soalEssayList.length}</span>
+              </div>
+              <p className="text-slate-800 text-base leading-relaxed mb-4 whitespace-pre-wrap">{soalEssayCurrent.teks}</p>
+              {soalEssayCurrent.gambar_url && (
+                <div className="mb-6">
+                  <img
+                    src={soalEssayCurrent.gambar_url}
+                    alt="Gambar soal"
+                    className="w-full max-w-lg mx-auto rounded-lg border border-slate-200 object-contain block"
+                    style={{ maxHeight: '320px' }}
+                  />
+                </div>
+              )}
+
+              {modeJawaban === 'DIGITAL' ? (
+                <textarea
+                  className="input w-full min-h-[220px] resize-y"
+                  placeholder="Ketik jawaban Anda di sini..."
+                  value={jawabanEssay[soalEssayCurrent.id] ?? ''}
+                  onChange={e => setJawabanEssay(prev => ({ ...prev, [soalEssayCurrent.id]: e.target.value }))}
+                />
+              ) : (
+                <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-500">
+                  Tuliskan jawaban Anda di kertas yang disediakan. Tidak perlu diketik di sini.
+                </div>
+              )}
+
+              {soalEssayList.length > 1 && (
+                <div className="flex items-center justify-between mt-6 pt-4 border-t border-slate-100">
+                  <button
+                    onClick={() => setEssayCurrentIdx(prev => Math.max(0, prev - 1))}
+                    disabled={essayCurrentIdx === 0}
+                    className="btn-secondary btn-sm disabled:opacity-40"
+                  >
+                    <ChevronLeft className="w-4 h-4" /> Sebelumnya
+                  </button>
+                  <span className="text-sm text-slate-400">{essayCurrentIdx + 1} / {soalEssayList.length}</span>
+                  <button
+                    onClick={() => setEssayCurrentIdx(prev => Math.min(soalEssayList.length - 1, prev + 1))}
+                    disabled={essayCurrentIdx === soalEssayList.length - 1}
+                    className="btn-secondary btn-sm disabled:opacity-40"
+                  >
+                    Berikutnya <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Mode KERTAS: upload foto + tombol kirim (disabled sampai akses dibuka) */}
+          {modeJawaban === 'KERTAS' && (
+            <div className="card space-y-3">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Unggah Lembar Jawaban</p>
+              {fotoUrl ? (
+                <div className="space-y-2">
+                  <img src={fotoUrl} alt="Foto lembar jawaban" className="w-full max-w-xs mx-auto rounded-lg border border-slate-200 object-contain" style={{ maxHeight: '240px' }} />
+                  <label className="btn-secondary w-full justify-center cursor-pointer">
+                    Ganti Foto
+                    <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
+                      onChange={e => e.target.files?.[0] && handleUploadFoto(e.target.files[0])} />
+                  </label>
+                </div>
+              ) : (
+                <label className="btn-primary w-full justify-center cursor-pointer">
+                  {uploadingFoto ? <Spinner size="sm" /> : 'Pilih & Unggah Foto'}
+                  <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" disabled={uploadingFoto}
+                    onChange={e => e.target.files?.[0] && handleUploadFoto(e.target.files[0])} />
+                </label>
+              )}
+              {uploadFotoError && (
+                <div className="alert-error text-xs">
+                  <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                  <span>{uploadFotoError}</span>
+                </div>
+              )}
+              <p className={`text-xs ${aksesKirimDibuka ? 'text-emerald-600' : 'text-amber-600'}`}>
+                {aksesKirimDibuka
+                  ? '✓ Pengawas sudah membuka akses kirim.'
+                  : 'Menunggu pengawas membuka akses kirim...'}
+              </p>
+            </div>
+          )}
+
+          {/* Tombol kirim */}
+          <button
+            onClick={() => setConfirmKirimEssay(true)}
+            disabled={
+              submittingEssay ||
+              (modeJawaban === 'KERTAS' && (!aksesKirimDibuka || !fotoUrl))
+            }
+            className="btn-success w-full justify-center py-3 text-base disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <Send className="w-4 h-4" />
+            {submittingEssay ? 'Mengirim...' : 'Kirim Jawaban Essay'}
+          </button>
+        </div>
+
+        <Confirm
+          open={confirmKirimEssay}
+          onClose={() => setConfirmKirimEssay(false)}
+          onConfirm={() => handleKirimEssay(false)}
+          title="Kirim Jawaban Essay?"
+          message="Setelah dikirim, jawaban essay tidak dapat diubah lagi. Pastikan semua jawaban sudah benar."
+          confirmLabel="Ya, Kirim"
+          variant="primary"
+          loading={submittingEssay}
+        />
+      </>
+    )
   }
 
   // ── Phase: CEK_JADWAL ────────────────────────────────────────────────────
@@ -1449,6 +2257,50 @@ export default function SiswaUjianPage() {
     )
   }
 
+  // ── Phase: SELESAI (setelah essay dikirim) ────────────────────────────────
+  // Tampilan KHUSUS — TIDAK memakai layout lulus/grade biasa karena
+  // nilai_total memang belum ada sampai guru mengoreksi essay & merilis
+  // (lihat catatan arsitektur di HANDOFF.md: `nilai.dirilis` = false).
+  if (phase === 'SELESAI' && essaySelesaiDikirim) {
+    return (
+      <div className="max-w-md mx-auto animate-fade-in">
+        <div className="card text-center">
+          <div className="w-20 h-20 bg-emerald-100 rounded-3xl flex items-center justify-center mx-auto mb-4">
+            <CheckCircle className="w-10 h-10 text-emerald-600" />
+          </div>
+          <h2 className="text-xl font-bold text-slate-900 mb-1">Ujian Selesai</h2>
+          <p className="text-sm text-slate-500 mb-4">{essayInfo?.namaMapel}</p>
+
+          <div className="bg-brand-50 border border-brand-100 rounded-xl p-3 mb-4 text-sm text-brand-700">
+            Jawaban essay Anda sudah terkirim. Nilai akhir akan tersedia setelah guru mengoreksi
+            dan merilis nilai essay Anda.
+          </div>
+
+          {nilaiPgSetelahEssay && (
+            <div className="grid grid-cols-3 gap-3 mb-6">
+              <div className="bg-slate-50 rounded-xl p-4">
+                <div className="text-2xl font-bold text-slate-900">{nilaiPgSetelahEssay.benar}/{nilaiPgSetelahEssay.total}</div>
+                <div className="text-xs text-slate-400 mt-1">Benar PG</div>
+              </div>
+              <div className="bg-slate-50 rounded-xl p-4">
+                <div className="text-2xl font-bold text-slate-600">{nilaiPgSetelahEssay.kkm}</div>
+                <div className="text-xs text-slate-400 mt-1">KKM</div>
+              </div>
+              <div className="bg-amber-50 rounded-xl p-4">
+                <div className="text-2xl font-bold text-amber-600">?</div>
+                <div className="text-xs text-slate-400 mt-1">Nilai Total</div>
+              </div>
+            </div>
+          )}
+
+          <button onClick={() => window.location.href = '/siswa'} className="btn-primary w-full justify-center">
+            Kembali ke Beranda
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   // ── Phase: SELESAI ────────────────────────────────────────────────────────
   if (phase === 'SELESAI' && hasilNilai) {
     return (
@@ -1544,68 +2396,9 @@ export default function SiswaUjianPage() {
   return (
     <>
       {/* Overlay peringatan saat keluar fullscreen / pindah tab */}
-      {showWarningOverlay && (
-        <div
-          className="fixed inset-0 z-[9999] flex flex-col items-center justify-center"
-          style={{ background: 'rgba(15,23,42,0.97)' }}
-        >
-          <div className="max-w-sm w-full mx-4 bg-white rounded-2xl p-8 text-center shadow-2xl">
-            <div className="w-16 h-16 bg-red-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
-              <AlertTriangle className="w-8 h-8 text-red-600" />
-            </div>
-            <h2 className="text-lg font-bold text-slate-900 mb-2">Pelanggaran Terdeteksi!</h2>
-            <p className="text-sm text-slate-600 mb-1">{warningMsg}</p>
-            <p className="text-xs text-red-500 font-medium mb-4">
-              Pelanggaran ke-{pelanggRef.current} — Aktivitas ini dilaporkan ke pengawas
-            </p>
-            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4 text-left">
-              <p className="text-xs text-amber-700 font-semibold mb-1">⚠ Diperlukan Kode dari Pengawas</p>
-              <p className="text-xs text-amber-600">Hubungi pengawas dan minta kode 7 digit untuk melanjutkan ujian.</p>
-            </div>
-            {kodeResetError && (
-              <div className="alert-error mb-3 text-left text-xs flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-                <span>{kodeResetError}</span>
-              </div>
-            )}
-            <input
-              type="text"
-              className="input text-center text-xl font-mono tracking-widest uppercase mb-3"
-              placeholder="KODE RESET"
-              maxLength={7}
-              value={kodeReset}
-              onChange={e => { setKodeReset(e.target.value.toUpperCase()); setKodeResetError('') }}
-              onKeyDown={e => e.key === 'Enter' && handleVerifikasiResetDariOverlay()}
-            />
-            <button
-              onClick={handleVerifikasiResetDariOverlay}
-              disabled={kodeResetLoading}
-              className="btn-primary w-full justify-center py-3 text-base"
-            >
-              {kodeResetLoading ? <Spinner size="sm" /> : (
-                <>
-                  <KeyRound className="w-4 h-4" />
-                  Masukkan Kode &amp; Lanjutkan Ujian
-                </>
-              )}
-            </button>
-          </div>
-        </div>
-      )}
+      {pelanggaranOverlayJSX}
 
-      {sesiDitutupPaksa && phase === 'UJIAN' && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 text-center animate-fade-in">
-            <div className="w-12 h-12 rounded-full bg-amber-100 flex items-center justify-center mx-auto mb-4">
-              <AlertTriangle className="w-6 h-6 text-amber-600" />
-            </div>
-            <h3 className="text-lg font-bold text-slate-900 mb-2">Sesi Ditutup Pengawas</h3>
-            <p className="text-sm text-slate-500">
-              Pengawas telah menutup sesi ujian ini. Jawaban Anda yang sudah tersimpan sedang dinilai, mohon tunggu sebentar...
-            </p>
-          </div>
-        </div>
-      )}
+      {sesiDitutupOverlayJSX}
 
       <div className="max-w-3xl mx-auto space-y-4 animate-fade-in select-none">
         {/* Header */}
@@ -1710,29 +2503,7 @@ export default function SiswaUjianPage() {
               tombol "Coba Lagi" muncul, retry ini terjadi di dalam klik
               (user gesture) sehingga peluang berhasilnya lebih tinggi
               dibanding percobaan otomatis. */}
-        {!isFS && (
-          <div className="card py-3 bg-amber-50 border border-amber-200">
-            <div className="flex items-start gap-2.5">
-              <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
-              <div className="flex-1 min-w-0">
-                <p className="text-xs text-amber-700 font-medium">
-                  {fsSupported
-                    ? 'Mode layar penuh belum aktif. Ujian tetap bisa dikerjakan, tapi sebagian proteksi anti-kecurangan tidak berjalan sampai layar penuh aktif.'
-                    : 'Perangkat/browser Anda tidak mendukung mode layar penuh otomatis. Tetap fokus di halaman ujian — pengawas dapat memantau Anda secara manual.'}
-                </p>
-              </div>
-              {fsSupported && (
-                <button
-                  onClick={handleRetryFullscreen}
-                  className="btn-sm bg-amber-600 text-white hover:bg-amber-700 font-semibold flex-shrink-0"
-                >
-                  <Maximize className="w-3.5 h-3.5" />
-                  Coba Lagi
-                </button>
-              )}
-            </div>
-          </div>
-        )}
+        {fsWarningBannerJSX}
 
         {/* Navigator */}
         <div className="card py-3">
