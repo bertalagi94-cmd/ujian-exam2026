@@ -23,6 +23,10 @@ interface SesiUjianInfo {
   ditutup_paksa_oleh_admin?: string | null
   ditutup_paksa_oleh_admin_nama?: string | null
   ditutup_paksa_pada?: string | null
+  // FIX (fitur essay): info_json juga membawa konfigurasi essay yang sudah
+  // disalin & dibekukan saat sesi dibuka (lihat 07_essay.sql) — dipakai
+  // untuk menampilkan tombol "Buka Akses Kirim" khusus mode KERTAS.
+  info_json?: { essay_mode_jawaban?: 'DIGITAL' | 'KERTAS' } | null
 }
 
 interface JadwalHariIni {
@@ -41,6 +45,9 @@ interface JadwalHariIni {
   diambil_alih_pengawas: { username: string; nama: string } | null
   status_soal?: 'BELUM_ADA' | 'DRAFT' | 'MENUNGGU' | 'DITOLAK' | 'DISETUJUI'
   status_soal_guru?: string | null
+  // FIX (fitur essay): dipakai untuk menentukan apakah tombol "Buka Akses
+  // Kirim" (mode KERTAS) perlu ditampilkan untuk jadwal ini.
+  essay_aktif?: boolean
 }
 
 interface SiswaAktif {
@@ -178,6 +185,9 @@ export default function ModePengawasPage() {
   const [stopping, setStopping] = useState<string | null>(null)
   const [confirmTutup, setConfirmTutup] = useState<JadwalHariIni | null>(null)
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
+
+  // FIX (fitur essay): "Buka Akses Kirim" untuk sesi essay mode KERTAS
+  const [bukaAksesLoading, setBukaAksesLoading] = useState<string | null>(null)
 
   // Monitor: siswa aktif & pelanggaran per sesi
   const [siswaMap, setSiswaMap] = useState<Record<string, SiswaAktif[]>>({})
@@ -535,6 +545,23 @@ export default function ModePengawasPage() {
     } finally { setStopping(null); setConfirmTutup(null) }
   }
 
+  // FIX (fitur essay): buka akses tombol "Kirim" untuk siswa mode KERTAS
+  // yang sedang mengerjakan essay di sesi ini.
+  async function handleBukaAksesEssay(sesiId: string) {
+    setBukaAksesLoading(sesiId)
+    try {
+      const res = await apiRequest<{ message: string }>('/api/guru/mode-pengawas/buka-akses-essay', {
+        method: 'POST',
+        body: JSON.stringify({ sesiId }),
+      })
+      showToast(res.message ?? 'Akses kirim essay berhasil dibuka')
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Gagal membuka akses kirim', 'error')
+    } finally {
+      setBukaAksesLoading(null)
+    }
+  }
+
   async function handleReset() {
     if (!resetTarget) return
     setResetting(true)
@@ -782,6 +809,27 @@ export default function ModePengawasPage() {
                           </div>
                         </div>
                       </div>
+
+                      {/* FIX (fitur essay): tombol "Buka Akses Kirim" — hanya
+                          untuk sesi dengan essay mode KERTAS. Siswa mode
+                          KERTAS tidak bisa menekan tombol "Kirim" sampai
+                          pengawas menekan tombol ini. */}
+                      {j.essay_aktif && j.sesi_ujian?.info_json?.essay_mode_jawaban === 'KERTAS' && (
+                        <div className="border-t border-slate-100 px-4 py-3.5 flex items-center justify-between gap-3 flex-wrap bg-amber-50/40">
+                          <div className="flex items-center gap-2 text-xs text-amber-700">
+                            <FileQuestion className="w-3.5 h-3.5 flex-shrink-0" />
+                            Mode Kertas: siswa yang sudah selesai menulis harus difoto lembar jawabannya, lalu tombol "Kirim" mereka baru aktif setelah Anda membuka akses di sini.
+                          </div>
+                          <button
+                            onClick={() => sesiId && handleBukaAksesEssay(sesiId)}
+                            disabled={bukaAksesLoading === sesiId}
+                            className="flex-shrink-0 flex items-center gap-1.5 text-xs px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-semibold transition-all"
+                          >
+                            {bukaAksesLoading === sesiId ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <KeyRound className="w-3.5 h-3.5" />}
+                            Buka Akses Kirim Semua
+                          </button>
+                        </div>
+                      )}
 
                       {/* Daftar siswa (expandable) */}
                       {isExpanded && sesiId && (
