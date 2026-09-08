@@ -4,14 +4,18 @@ import { useState, useEffect, useCallback } from 'react'
 import { CheckCircle, XCircle, Eye, BookOpen, RotateCcw } from 'lucide-react'
 import { Modal, StatusBadge, EmptyState, Spinner, Toast, Badge } from '@/components/ui'
 import { apiRequest, formatDateTime } from '@/lib/utils'
-import { PaketSoal, Soal } from '@/types'
+import { PaketSoal, Soal, PaketEssay, SoalEssay } from '@/types'
+
+type CombinedPaket = PaketSoal | PaketEssay
+type CombinedSoal = Soal | SoalEssay
 
 export default function AdminSoalPage() {
-  const [pakets, setPakets] = useState<PaketSoal[]>([])
+  const [jenisSoal, setJenisSoal] = useState<'PG' | 'ESSAY'>('PG')
+  const [pakets, setPakets] = useState<CombinedPaket[]>([])
   const [activeTab, setActiveTab] = useState<'MENUNGGU' | 'DISETUJUI' | 'DITOLAK'>('MENUNGGU')
   const [loading, setLoading] = useState(true)
-  const [previewPaket, setPreviewPaket] = useState<PaketSoal | null>(null)
-  const [soalPreview, setSoalPreview] = useState<Soal[]>([])
+  const [previewPaket, setPreviewPaket] = useState<CombinedPaket | null>(null)
+  const [soalPreview, setSoalPreview] = useState<CombinedSoal[]>([])
   const [loadingSoal, setLoadingSoal] = useState(false)
   const [catatanTolak, setCatatanTolak] = useState('')
   const [actionId, setActionId] = useState<string | null>(null)
@@ -24,19 +28,29 @@ export default function AdminSoalPage() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await apiRequest<{ data: PaketSoal[] }>(`/api/admin/soal?status=${activeTab}`)
-      setPakets(res.data)
+      if (jenisSoal === 'ESSAY') {
+        const res = await apiRequest<{ data: PaketEssay[] }>(`/api/admin/soal-essay?status=${activeTab}`)
+        setPakets(res.data)
+      } else {
+        const res = await apiRequest<{ data: PaketSoal[] }>(`/api/admin/soal?status=${activeTab}`)
+        setPakets(res.data)
+      }
     } finally { setLoading(false) }
-  }, [activeTab])
+  }, [activeTab, jenisSoal])
 
   useEffect(() => { load() }, [load])
 
-  async function openPreview(p: PaketSoal) {
+  async function openPreview(p: CombinedPaket) {
     setPreviewPaket(p)
     setLoadingSoal(true)
     try {
-      const res = await apiRequest<{ data: Soal[] }>(`/api/admin/soal/${p.id}/soal`)
-      setSoalPreview(res.data)
+      if (jenisSoal === 'ESSAY') {
+        const res = await apiRequest<{ data: SoalEssay[] }>(`/api/admin/soal-essay/${p.id}/soal`)
+        setSoalPreview(res.data)
+      } else {
+        const res = await apiRequest<{ data: Soal[] }>(`/api/admin/soal/${p.id}/soal`)
+        setSoalPreview(res.data)
+      }
     } finally { setLoadingSoal(false) }
   }
 
@@ -44,7 +58,7 @@ export default function AdminSoalPage() {
     if (!actionId || !actionType) return
     setSaving(true)
     try {
-      await apiRequest('/api/admin/soal', {
+      await apiRequest(jenisSoal === 'ESSAY' ? '/api/admin/soal-essay' : '/api/admin/soal', {
         method: 'POST',
         body: JSON.stringify({ paket_id: actionId, action: actionType, catatan: catatanTolak }),
       })
@@ -77,6 +91,26 @@ export default function AdminSoalPage() {
       <div>
         <h1 className="page-title">Validasi Soal</h1>
         <p className="page-subtitle">Tinjau dan setujui paket soal dari guru</p>
+      </div>
+
+      {/* Toggle jenis soal */}
+      <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-fit">
+        <button
+          onClick={() => setJenisSoal('PG')}
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+            jenisSoal === 'PG' ? 'bg-white shadow-card text-slate-900' : 'text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          Soal PG
+        </button>
+        <button
+          onClick={() => setJenisSoal('ESSAY')}
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+            jenisSoal === 'ESSAY' ? 'bg-white shadow-card text-slate-900' : 'text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          Soal Essay
+        </button>
       </div>
 
       {/* Tabs */}
@@ -169,31 +203,48 @@ export default function AdminSoalPage() {
           <div className="flex justify-center py-10"><Spinner size="lg" /></div>
         ) : (
           <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
-            {soalPreview.map((s, i) => (
-              <div key={s.id} className="border border-slate-100 rounded-xl p-4">
-                <div className="flex items-start gap-2 mb-3">
-                  <span className="badge-blue font-bold flex-shrink-0">{i + 1}</span>
-                  <p className="text-sm text-slate-800 leading-relaxed">{s.teks}</p>
+            {jenisSoal === 'ESSAY' ? (
+              (soalPreview as SoalEssay[]).map((s, i) => (
+                <div key={s.id} className="border border-slate-100 rounded-xl p-4">
+                  <div className="flex items-start gap-2 mb-3">
+                    <span className="badge-blue font-bold flex-shrink-0">{i + 1}</span>
+                    <p className="text-sm text-slate-800 leading-relaxed">{s.teks}</p>
+                  </div>
+                  <div className="pl-6 space-y-2">
+                    {s.gambar_url && (
+                      <img src={s.gambar_url} alt="Gambar soal" className="max-h-40 rounded-lg border border-slate-200" />
+                    )}
+                    <p className="text-xs text-slate-500">Bobot Maksimal: <span className="font-medium text-slate-700">{s.bobot_maks}</span></p>
+                  </div>
                 </div>
-                <div className="space-y-1.5 pl-6">
-                  {['a', 'b', 'c', 'd', 'e'].slice(0, s.jumlah_opsi).map(l => {
-                    const opsiText = s[`opsi_${l}` as keyof Soal] as string
-                    const isKunci = s.kunci === l.toUpperCase()
-                    return (
-                      <div key={l} className={`flex items-center gap-2 text-xs px-3 py-2 rounded-lg ${
-                        isKunci ? 'bg-emerald-50 text-emerald-800 font-medium' : 'text-slate-600'
-                      }`}>
-                        <span className={`w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold flex-shrink-0 ${
-                          isKunci ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-500'
-                        }`}>{l.toUpperCase()}</span>
-                        {opsiText}
-                        {isKunci && <span className="ml-auto text-emerald-600 text-[10px]">✓ Kunci</span>}
-                      </div>
-                    )
-                  })}
+              ))
+            ) : (
+              (soalPreview as Soal[]).map((s, i) => (
+                <div key={s.id} className="border border-slate-100 rounded-xl p-4">
+                  <div className="flex items-start gap-2 mb-3">
+                    <span className="badge-blue font-bold flex-shrink-0">{i + 1}</span>
+                    <p className="text-sm text-slate-800 leading-relaxed">{s.teks}</p>
+                  </div>
+                  <div className="space-y-1.5 pl-6">
+                    {['a', 'b', 'c', 'd', 'e'].slice(0, s.jumlah_opsi).map(l => {
+                      const opsiText = s[`opsi_${l}` as keyof Soal] as string
+                      const isKunci = s.kunci === l.toUpperCase()
+                      return (
+                        <div key={l} className={`flex items-center gap-2 text-xs px-3 py-2 rounded-lg ${
+                          isKunci ? 'bg-emerald-50 text-emerald-800 font-medium' : 'text-slate-600'
+                        }`}>
+                          <span className={`w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold flex-shrink-0 ${
+                            isKunci ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-500'
+                          }`}>{l.toUpperCase()}</span>
+                          {opsiText}
+                          {isKunci && <span className="ml-auto text-emerald-600 text-[10px]">✓ Kunci</span>}
+                        </div>
+                      )
+                    })}
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))
+            )}
             {soalPreview.length === 0 && (
               <EmptyState message="Tidak ada soal dalam paket ini" />
             )}
