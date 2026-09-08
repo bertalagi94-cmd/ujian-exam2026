@@ -55,6 +55,32 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // FIX (fitur essay): sebelumnya `sudah_ikut` HANYA berdasarkan ada/tidaknya
+  // baris `nilai` — tapi sejak fitur essay, baris `nilai` (PG) sudah dibuat
+  // SAAT PG disubmit walau siswa belum menyelesaikan fase essay (lihat
+  // src/app/api/siswa/ujian/selesai/route.ts). Tanpa fix ini, begitu siswa
+  // submit PG lalu me-refresh browser SEBELUM mengirim essay, jadwal ini
+  // langsung dianggap "sudah diikuti" dan hilang dari daftar ujian hari ini —
+  // siswa terjebak tanpa jalan kembali ke fase essay-nya (karena endpoint
+  // /validasi menolak re-entry begitu baris nilai ada). Di sini kita cari
+  // tahu, untuk tiap jadwal, apakah ada sesi dengan status_essay yang MASIH
+  // menggantung (BELUM_MULAI/MENGERJAKAN) — kalau ada, sertakan sesiId-nya
+  // supaya frontend bisa langsung melompat ke halaman essay tanpa kode ujian.
+  const essayPendingByJadwal: Record<string, string> = {}
+  if (sesiIds.length > 0) {
+    const { data: siswaUjianEssayList } = await db
+      .from('siswa_ujian')
+      .select('sesi_id, status_essay')
+      .in('sesi_id', sesiIds)
+      .eq('nis', user.nis!)
+    for (const su of siswaUjianEssayList ?? []) {
+      if (su.status_essay === 'BELUM_MULAI' || su.status_essay === 'MENGERJAKAN') {
+        const jadwalId = sesiToJadwal[su.sesi_id]
+        if (jadwalId) essayPendingByJadwal[jadwalId] = su.sesi_id
+      }
+    }
+  }
+
   // FIX: sinkronkan status — jadwal yang tanggalnya sudah lewat tapi masih AKTIF
   // di-override ke SELESAI agar konsisten dengan tampilan guru
   const zona = await getZonaWaktuSekolah()
@@ -66,6 +92,7 @@ export async function GET(req: NextRequest) {
       // Override status jika tanggal sudah lewat dan status masih AKTIF
       const status = (j.status === 'AKTIF' && tanggal < today) ? 'SELESAI' : j.status
       const hasilSiswa = nilaiByJadwal[j.id] ?? null
+      const sesiIdEssayPending = essayPendingByJadwal[j.id] ?? null
       return {
         ...j,
         status,                                          // ← FIX
@@ -75,8 +102,11 @@ export async function GET(req: NextRequest) {
         // + link ke menu Nilai, alih-alih cuma status sesi yang masih
         // "Berjalan" sampai pengawas menutupnya. Nilai/benar-salah SENGAJA
         // tidak diulang di sini — sudah ada di menu Nilai, biar tidak dobel.
-        sudah_ikut: !!hasilSiswa,
+        sudah_ikut: !!hasilSiswa && !sesiIdEssayPending,
         nilai_id: hasilSiswa?.id ?? null,
+        // FIX (fitur essay): lihat komentar di atas.
+        essayPending: !!sesiIdEssayPending,
+        sesiIdEssayPending,
       }
     }),
     // FIX: kirim zona waktu sekolah ke client — sebelumnya tidak pernah
