@@ -45,10 +45,19 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Sesi essay belum dimulai. Tekan tombol Mulai terlebih dahulu.' }, { status: 403 })
   }
 
+  // FIX BUG (fitur essay): sebelumnya query ini TIDAK memfilter status,
+  // sehingga soal essay yang masih 'DRAFT' (belum disetujui/difinalisasi
+  // guru) ikut ditampilkan ke siswa. Ini tidak konsisten dengan tabel `soal`
+  // (PG) yang SELALU difilter `status = 'DISETUJUI'` sebelum ditampilkan ke
+  // siswa (lihat validasi/route.ts) — dan bertentangan dengan desain yang
+  // didokumentasikan di 07_essay.sql ("status ... mengikuti konvensi status
+  // di 'soal'"). Sekarang disamakan: hanya soal essay DISETUJUI yang boleh
+  // dikerjakan siswa.
   const { data: soalList, error } = await db
     .from('soal_essay')
     .select('id, teks, gambar_url, urutan')
     .eq('jadwal_id', sesi.jadwal_id)
+    .eq('status', 'DISETUJUI')
     .order('urutan', { ascending: true })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
