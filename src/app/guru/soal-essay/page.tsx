@@ -401,4 +401,192 @@ export default function GuruSoalEssayPage() {
 
       {loading ? (
         <div className="flex justify-center py-20"><Spinner size="lg" /></div>
-      ) : jadwalList.length ===
+      ) : jadwalList.length === 0 ? (
+        <div className="card">
+          <EmptyState icon={Calendar} title="Belum ada jadwal" description="Jadwal ujian yang Anda awasi akan muncul di sini." />
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+          {/* Daftar jadwal */}
+          <div className="lg:col-span-2 space-y-2">
+            {jadwalList.map(j => (
+              <button
+                key={j.id}
+                onClick={() => selectJadwal(j)}
+                className={`w-full text-left card p-3.5 transition-all ${selectedId === j.id ? 'ring-2 ring-brand-400 border-brand-300' : 'hover:border-slate-300'}`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-slate-900 truncate">{j.nama_mapel}</p>
+                    <p className="text-xs text-slate-500 flex items-center gap-1 mt-0.5">
+                      <Users className="w-3 h-3" /> Kelas {j.nama_kelas}
+                      <span className="text-slate-300">·</span>
+                      <Calendar className="w-3 h-3" /> {formatDate(j.tanggal)}
+                    </p>
+                  </div>
+                  <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                    {j.essay_aktif ? (
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-semibold">Essay Aktif</span>
+                    ) : (
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 font-semibold">PG Saja</span>
+                    )}
+                    <ChevronRight className="w-4 h-4 text-slate-300" />
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+
+          {/* Detail jadwal terpilih */}
+          <div className="lg:col-span-3 space-y-4">
+            {!selected ? (
+              <div className="card">
+                <EmptyState icon={PenSquare} title="Pilih jadwal" description="Pilih jadwal di sebelah kiri untuk mengatur soal essay-nya." />
+              </div>
+            ) : (
+              <>
+                <EssaySettingForm jadwal={selected} showToast={showToast} onSaved={loadJadwal} />
+
+                <div className="card space-y-4">
+                  <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                    <div className="flex items-center gap-2">
+                      <PenSquare className="w-4 h-4 text-brand-600" />
+                      <h2 className="font-semibold text-slate-900">Bank Soal Essay</h2>
+                    </div>
+                    <span className="text-xs text-slate-400">Total bobot (disetujui): {totalBobot}</span>
+                  </div>
+
+                  {jumlahDraft > 0 && (
+                    <div className="alert-info text-xs flex items-start gap-2">
+                      <Info className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                      Ada {jumlahDraft} soal essay berstatus <strong>Draft</strong> — soal draft tidak akan ditampilkan ke siswa dan tidak dihitung ke total bobot sampai Anda menyetujuinya.
+                    </div>
+                  )}
+
+                  {soalTerkunci && (
+                    <div className="alert-info text-xs flex items-start gap-2">
+                      <Lock className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                      Sesi ujian untuk jadwal ini sedang/sudah berjalan — soal essay tidak bisa diubah lagi.
+                    </div>
+                  )}
+
+                  {loadingSoal ? (
+                    <div className="flex justify-center py-6"><Spinner size="sm" /></div>
+                  ) : soalList.length === 0 ? (
+                    <p className="text-xs text-slate-400 text-center py-4">Belum ada soal essay untuk jadwal ini</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {soalList.map((s, i) => (
+                        <div key={s.id} className="flex items-start gap-2 text-sm text-slate-700 bg-slate-50 rounded-lg px-3 py-2.5 border border-slate-100">
+                          <span className="w-6 h-6 rounded-full bg-brand-100 text-brand-700 font-bold text-xs flex items-center justify-center flex-shrink-0 mt-0.5">
+                            {i + 1}
+                          </span>
+                          <div className="flex-1 min-w-0">
+                            <p className="line-clamp-2">{s.teks}</p>
+                            <div className="flex items-center gap-2 mt-1">
+                              {s.gambar_url && <span className="text-xs text-brand-500">📷 Ada gambar</span>}
+                              {s.status === 'DISETUJUI' ? (
+                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-semibold">Disetujui</span>
+                              ) : (
+                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-semibold">Draft</span>
+                              )}
+                            </div>
+                          </div>
+                          <span className="text-xs text-slate-400 flex-shrink-0">Bobot: {s.bobot_maks}</span>
+                          {!soalTerkunci && (
+                            <div className="flex items-center gap-1 flex-shrink-0">
+                              <button
+                                onClick={() => handleToggleStatus(s)}
+                                disabled={saving}
+                                className={`btn-ghost btn-icon btn-sm ${s.status === 'DISETUJUI' ? 'text-amber-600 hover:bg-amber-50' : 'text-emerald-600 hover:bg-emerald-50'}`}
+                                title={s.status === 'DISETUJUI' ? 'Batalkan persetujuan (kembalikan ke Draft)' : 'Setujui soal (tampilkan ke siswa)'}
+                              >
+                                {s.status === 'DISETUJUI' ? <Undo2 className="w-3.5 h-3.5" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                              </button>
+                              <button onClick={() => openEdit(s)} className="btn-ghost btn-icon btn-sm text-blue-600 hover:bg-blue-50" title="Edit soal">
+                                <Pencil className="w-3.5 h-3.5" />
+                              </button>
+                              <button onClick={() => setDeleteId(s.id)} className="btn-ghost btn-icon btn-sm text-red-600 hover:bg-red-50" title="Hapus soal">
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {!soalTerkunci && (
+                    addOpen ? (
+                      <div className="border-t border-slate-100 pt-4">
+                        <div className="flex items-center justify-between mb-3">
+                          <p className="text-sm font-medium text-slate-700">Soal ke-{soalList.length + 1}</p>
+                          <button onClick={() => { setAddOpen(false); setAddGambar('') }} className="btn-ghost btn-sm text-slate-400">
+                            <X className="w-3.5 h-3.5" /> Batal
+                          </button>
+                        </div>
+                        <SoalEssayForm
+                          formId="add-soal-essay-form"
+                          onSubmit={handleAdd}
+                          gambarUrl={addGambar}
+                          setGambarUrl={setAddGambar}
+                          uploading={uploading}
+                          onTriggerUpload={() => triggerUpload('add')}
+                        />
+                        <div className="flex justify-end pt-3">
+                          <button form="add-soal-essay-form" type="submit" className="btn-primary btn-sm" disabled={saving || uploading}>
+                            {saving ? <Spinner size="sm" /> : <><Plus className="w-4 h-4" /> Simpan Soal</>}
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button onClick={() => setAddOpen(true)} className="btn-secondary btn-sm w-full">
+                        <Plus className="w-3.5 h-3.5" /> Tambah Soal Essay
+                      </button>
+                    )
+                  )}
+
+                  {!selected.essay_aktif && soalList.length > 0 && (
+                    <div className="alert-info text-xs flex items-start gap-2">
+                      <Info className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                      Sudah ada soal essay, tapi essay belum aktif untuk jadwal ini — simpan Pengaturan Sesi Essay di atas untuk mengaktifkannya.
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Modal Edit Soal */}
+      <Modal open={!!editSoal} onClose={() => setEditSoal(null)} title="Edit Soal Essay" size="lg"
+        footer={
+          <>
+            <button onClick={() => setEditSoal(null)} className="btn-secondary" disabled={saving}>Batal</button>
+            <button form="edit-soal-essay-form" type="submit" className="btn-primary" disabled={saving || uploading}>
+              {saving ? <Spinner size="sm" /> : 'Simpan Perubahan'}
+            </button>
+          </>
+        }
+      >
+        {editSoal && (
+          <SoalEssayForm
+            formId="edit-soal-essay-form"
+            soal={editSoal}
+            onSubmit={handleEdit}
+            gambarUrl={editGambar}
+            setGambarUrl={setEditGambar}
+            uploading={uploading}
+            onTriggerUpload={() => triggerUpload('edit')}
+          />
+        )}
+      </Modal>
+
+      {/* Confirm Hapus */}
+      <Confirm open={!!deleteId} onClose={() => setDeleteId(null)} onConfirm={handleDelete}
+        title="Hapus Soal Essay" message="Soal ini akan dihapus permanen. Lanjutkan?"
+        confirmLabel="Ya, Hapus" loading={saving} />
+    </div>
+  )
+}
