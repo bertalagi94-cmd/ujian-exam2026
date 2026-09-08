@@ -25,9 +25,12 @@ export async function POST(req: NextRequest) {
   // jadi 2 round-trip terpisah ke tabel siswa_ujian (satu untuk `status`, satu
   // lagi belakangan untuk `waktu_mulai_awal`). Sekarang digabung jadi SATU
   // query — keduanya dari baris yang sama, tidak ada alasan dipisah.
+  // FIX (fitur essay): tambah status_essay ke select supaya kita tahu, di
+  // SEMUA jalur (early-return maupun jalur submit baru), apakah siswa ini
+  // masih perlu diarahkan ke fase essay sebelum nilai PG-nya boleh dibuka.
   const { data: siswaUjianCheck } = await db
     .from('siswa_ujian')
-    .select('status, waktu_mulai_awal')
+    .select('status, waktu_mulai_awal, status_essay')
     .eq('sesi_id', sesiId)
     .eq('nis', nis)
     .single()
@@ -46,6 +49,18 @@ export async function POST(req: NextRequest) {
   const sesiCache = await ambilDataSesiUntukPenilaian(db, sesiId)
   const kkmUntukEarlyReturn = sesiCache?.kkm ?? 75
 
+  // FIX (fitur essay): sesi punya essay kalau info_json.essay_aktif = true
+  // (disalin dari jadwal saat sesi dibuka — lihat 07_essay.sql &
+  // HANDOFF.md poin 1). Dipakai di SEMUA jalur di bawah untuk memutuskan
+  // apakah nilai PG boleh langsung dibuka atau harus menunggu essay dikirim.
+  const essayAktif = !!sesiCache?.sesi?.info_json?.essay_aktif
+
+  // Helper: apakah fase essay siswa ini sudah "selesai" (sudah kirim, atau
+  // ditandai tidak mengerjakan oleh guru)? Kalau ya, nilai PG boleh dibuka
+  // di jalur early-return (mis. refresh halaman hasil setelah essay dikirim).
+  const essaySudahSelesai = (statusEssay: string | null | undefined) =>
+    statusEssay === 'SUDAH_KIRIM' || statusEssay === 'TIDAK_MENGERJAKAN'
+
   if (siswaUjianCheck && (siswaUjianCheck.status === 'TERKUNCI' || siswaUjianCheck.status === 'RESET')) {
     const { data: nilaiSudahAda } = await db
       .from('nilai')
@@ -55,6 +70,12 @@ export async function POST(req: NextRequest) {
       .single()
 
     if (nilaiSudahAda) {
+      // FIX (fitur essay): kalau sesi ini punya essay dan siswa belum
+      // menyelesaikan fase essay, JANGAN buka nilai PG — arahkan ke fase
+      // essay dulu (sesuai desain: nilai baru tampil setelah essay dikirim).
+      if (essayAktif && !essaySudahSelesai(siswaUjianCheck.status_essay)) {
+        return NextResponse.json({ id: nilaiSudahAda.id, lanjutEssay: true, kkm: kkmUntukEarlyReturn })
+      }
       return NextResponse.json({
         id: nilaiSudahAda.id,
         nilai: nilaiSudahAda.nilai,
@@ -81,6 +102,11 @@ export async function POST(req: NextRequest) {
     .single()
 
   if (nilaiExist) {
+    // FIX (fitur essay): sama seperti early-return TERKUNCI/RESET di atas —
+    // kalau essay masih menggantung, jangan bocorkan nilai PG di sini.
+    if (essayAktif && !essaySudahSelesai(siswaUjianCheck?.status_essay)) {
+      return NextResponse.json({ id: nilaiExist.id, lanjutEssay: true, kkm: kkmUntukEarlyReturn })
+    }
     return NextResponse.json({
       id: nilaiExist.id,
       nilai: nilaiExist.nilai,
@@ -139,6 +165,15 @@ export async function POST(req: NextRequest) {
     timestamp: new Date().toISOString(),
   }
 
+  // FIX (fitur essay): kalau sesi ini punya essay, JANGAN tandai siswa_ujian
+  // SELESAI di sini — siswa harus melalui fase essay dulu. Fase essay yang
+  // akan menandai status = SELESAI (lihat src/app/api/siswa/ujian/essay/kirim/route.ts).
+  // Di sini kita hanya menandai status_essay = BELUM_MULAI supaya endpoint
+  // .../essay/info tahu siswa sudah boleh melihat halaman info essay.
+  const updateSiswaUjian = essayAktif
+    ? { status_essay: 'BELUM_MULAI' }
+    : { status: 'SELESAI', waktu_selesai: new Date().toISOString() }
+
   // Simpan nilai + update status — PARALEL
   // FIX: pakai upsert+ignoreDuplicates (bukan insert biasa) supaya kalau ada
   // race condition (misal klik 2x atau retry jaringan) tidak menghasilkan
@@ -146,7 +181,7 @@ export async function POST(req: NextRequest) {
   await Promise.all([
     db.from('nilai').upsert(nilaiData, { onConflict: 'sesi_id,nis', ignoreDuplicates: true }),
     db.from('siswa_ujian')
-      .update({ status: 'SELESAI', waktu_selesai: new Date().toISOString() })
+      .update(updateSiswaUjian)
       .eq('sesi_id', sesiId)
       .eq('nis', nis),
   ])
@@ -163,6 +198,14 @@ export async function POST(req: NextRequest) {
     .eq('nis', nis)
     .single()
   const nilaiIdFinal = nilaiTersimpan?.id ?? nilaiData.id
+
+  // FIX (fitur essay): kalau sesi punya essay, JANGAN kirim nilai/grade/lulus
+  // ke client sekarang — sesuai desain, nilai PG baru boleh tampil setelah
+  // essay dikirim (lihat .../essay/kirim/route.ts). Cukup beri sinyal
+  // `lanjutEssay` supaya frontend redirect ke halaman info essay.
+  if (essayAktif) {
+    return NextResponse.json({ id: nilaiIdFinal, lanjutEssay: true, kkm })
+  }
 
   // FIX: sertakan `kkm` di response — sebelumnya tidak dikirim ke client,
   // jadi halaman hasil ujian siswa tidak bisa menampilkan KKM atau menjelaskan
