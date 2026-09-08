@@ -1,265 +1,78 @@
-# SmartExam CBT — MTS Alkhairaat Tatakalai
+# Fitur Soal Essay — Backend LENGKAP (siap timpa langsung ke repo)
 
-Sistem ujian CBT (Computer Based Test) modern berbasis **Next.js 14 + Supabase + Vercel**.
+Total **17 file backend** sudah selesai dan siap ditimpa/ditambahkan ke
+`bertalagi94-cmd/ujian-exam2026`. Ini SEMUA logika server (database, API,
+validasi, rumus nilai) — yang tersisa HANYA tampilan (UI) di frontend,
+lihat bagian "SISA PEKERJAAN" di bawah.
 
----
-
-## 🗂️ Struktur Project
-
-```
-smartexam/
-├── src/
-│   ├── app/
-│   │   ├── login/page.tsx          ← Halaman login (semua role)
-│   │   ├── admin/                  ← Dashboard Admin
-│   │   │   ├── page.tsx            ← Dashboard
-│   │   │   ├── siswa/page.tsx      ← Manajemen Siswa
-│   │   │   ├── users/page.tsx      ← Manajemen Guru/Staff
-│   │   │   ├── kelas/page.tsx      ← Manajemen Kelas
-│   │   │   ├── mapel/page.tsx      ← Manajemen Mapel
-│   │   │   ├── jadwal/page.tsx     ← Jadwal Ujian
-│   │   │   ├── soal/page.tsx       ← Validasi Soal
-│   │   │   ├── nilai/page.tsx      ← Rekap Nilai
-│   │   │   └── pengaturan/page.tsx ← Pengaturan Sistem
-│   │   ├── guru/                   ← Dashboard Guru
-│   │   │   ├── page.tsx            ← Dashboard
-│   │   │   ├── soal/page.tsx       ← Bank Soal (CRUD)
-│   │   │   ├── paket/page.tsx      ← Paket Soal
-│   │   │   └── nilai/page.tsx      ← Rekap Nilai Mapel
-│   │   ├── siswa/                  ← Dashboard Siswa
-│   │   │   ├── page.tsx            ← Beranda
-│   │   │   ├── ujian/page.tsx      ← Halaman Ujian (real-time)
-│   │   │   ├── nilai/page.tsx      ← Riwayat Nilai
-│   │   │   └── jadwal/page.tsx     ← Jadwal Ujian
-│   │   ├── pengawas/               ← Dashboard Pengawas
-│   │   │   └── page.tsx            ← Buka/tutup sesi
-│   │   ├── kepsek/                 ← Dashboard Kepala Sekolah
-│   │   │   └── page.tsx            ← Overview akademik
-│   │   └── api/                    ← Semua backend API routes
-│   ├── components/
-│   │   ├── ui/index.tsx            ← Komponen UI reusable
-│   │   └── shared/Sidebar.tsx      ← Sidebar per role
-│   ├── lib/
-│   │   ├── supabase.ts             ← Supabase client
-│   │   ├── auth.ts                 ← JWT utilities
-│   │   └── utils.ts                ← Helper functions
-│   ├── types/index.ts              ← TypeScript types
-│   └── styles/globals.css          ← Global CSS + Tailwind
-├── supabase/
-│   ├── 01_schema.sql               ← DDL: buat semua tabel
-│   ├── 01b_seed_master_part1.sql   ← Seed: pengaturan, users, kelas, mapel
-│   ├── 02_seed_master.sql          ← Seed: siswa, jadwal, paket, soal
-│   ├── 03_seed_transaksi.sql       ← Seed: nilai, siswa_ujian, log
-│   └── 04_seed_jawaban.sql         ← Seed: 33.196 jawaban (import terpisah)
-├── scripts/
-│   └── import-data.js              ← Script import otomatis dari Excel
-├── .env.local.example              ← Template environment variables
-└── .gitignore
-```
-
----
-
-## 🚀 Panduan Deploy Lengkap (Step by Step)
-
-### LANGKAH 1 — Persiapan Akun
-
-1. **GitHub**: Buat repo baru bernama `smartexam` (Private)
-2. **Supabase**: Daftar di [supabase.com](https://supabase.com) → New Project
-   - Pilih region terdekat (Singapore)
-   - Catat: Project URL, anon key, service_role key
-3. **Vercel**: Daftar di [vercel.com](https://vercel.com) → Connect GitHub
-
----
-
-### LANGKAH 2 — Setup Database Supabase
-
-Buka **Supabase Dashboard → SQL Editor** dan jalankan file SQL ini **secara berurutan**:
+## Cara pasang
+Struktur folder di dalam zip ini SAMA PERSIS dengan struktur repo Anda —
+tinggal copy-timpa folder `src/` dan `supabase/` di zip ini ke repo Anda,
+lalu jalankan migrasi SQL-nya.
 
 ```
-1. supabase/01_schema.sql          ← Buat semua tabel
-2. supabase/01b_seed_master_part1.sql
-3. supabase/02_seed_master.sql
-4. supabase/03_seed_transaksi.sql
-5. supabase/04_seed_jawaban.sql    ← Opsional, atau pakai script import
+supabase/07_essay.sql   ← BARU, jalankan di Supabase SQL editor dulu
+
+src/lib/penilaian-ujian.ts                                          ← DIEDIT (tambah info_json ke select)
+src/app/api/siswa/ujian/selesai/route.ts                              ← DIEDIT (cabang alur essay)
+src/app/api/guru/mode-pengawas/route.ts                               ← DIEDIT (salin config essay ke sesi)
+src/app/api/guru/susulan/route.ts                                     ← DIEDIT (idem, untuk sesi susulan guru)
+src/app/api/admin/susulan/route.ts                                    ← DIEDIT (idem, untuk sesi susulan admin)
+src/app/api/guru/kirim-nilai/route.ts                                 ← DIEDIT (tambah aksi rilis_essay_individu / rilis_essay_sekaligus)
+
+src/app/api/guru/soal-essay/route.ts                                  ← BARU (CRUD bank soal essay - list & create)
+src/app/api/guru/soal-essay/[id]/route.ts                             ← BARU (CRUD - update & delete)
+src/app/api/guru/jadwal/[id]/essay-setting/route.ts                   ← BARU (set mode/durasi/bobot per jadwal)
+src/app/api/guru/mode-pengawas/buka-akses-essay/route.ts              ← BARU (buka akses kirim, mode KERTAS)
+src/app/api/guru/koreksi-essay/route.ts                               ← BARU (lihat jawaban + input nilai essay)
+src/app/api/siswa/ujian/essay/info/route.ts                           ← BARU (halaman info sebelum mulai essay)
+src/app/api/siswa/ujian/essay/mulai/route.ts                          ← BARU (mulai timer essay)
+src/app/api/siswa/ujian/essay/jawab/route.ts                          ← BARU (autosave jawaban, mode DIGITAL)
+src/app/api/siswa/ujian/essay/upload-foto/route.ts                    ← BARU (upload foto, mode KERTAS)
+src/app/api/siswa/ujian/essay/kirim/route.ts                          ← BARU (kirim essay, buka nilai PG + lepas fullscreen)
 ```
 
-> ⚠️ File 04 berisi 33.000+ record. Jika timeout di SQL Editor, gunakan script import di bawah.
+**PENTING**: file yang ditandai "DIEDIT" adalah file yang SUDAH ADA di
+repo Anda — file di zip ini adalah versi LENGKAP (bukan diff/patch), jadi
+langsung TIMPA file lama dengan file ini. Perubahan yang saya buat di
+masing-masing ditandai komentar `// FIX (fitur essay): ...` di dalam kode,
+supaya gampang dilacak kalau ada konflik dengan perubahan lain yang mungkin
+sudah Anda buat di file yang sama sejak repo di-clone.
 
----
+## Alur yang SUDAH lengkap di backend ini
+1. Guru buat soal essay + atur mode jawaban/durasi/bobot per jadwal
+2. Sesi dibuka → konfigurasi essay ikut tersalin & terkunci di sesi tsb
+3. Siswa submit PG → nilai PG dihitung & DISIMPAN tapi TIDAK dibuka ke
+   siswa dulu → diarahkan ke fase essay
+4. Siswa lihat info essay → mulai → jawab (digital: ketik & autosave;
+   kertas: hanya baca soal + upload foto setelah pengawas buka akses)
+5. Siswa kirim essay → BARU DI SINI nilai PG dibuka & status ujian jadi
+   SELESAI (frontend bisa lepas fullscreen)
+6. Guru koreksi essay (lihat jawaban/foto, input nilai) → sistem hitung
+   nilai_total otomatis dari bobot PG:Essay
+7. Guru rilis nilai (per individu / sekaligus — sekaligus terkunci sampai
+   SEMUA siswa dinilai) → siswa baru bisa lihat nilai_essay/nilai_total
 
-### LANGKAH 3 — Import Data dengan Script (Rekomendasi)
+## SISA PEKERJAAN — hanya UI/Frontend (untuk dilanjutkan AI lain)
+Backend TIDAK butuh apa-apa lagi untuk fitur ini berfungsi lewat API
+langsung (Postman/curl). Yang belum ada HANYA tampilan di browser:
 
-Script ini lebih cepat dan reliable untuk data besar:
+1. **`src/app/siswa/ujian/page.tsx`** (paling besar, 1906 baris) — tambah
+   state/tampilan baru setelah submit PG: halaman info essay → form
+   jawab essay (digital/kertas) → tombol kirim. INI YANG PALING RUMIT
+   karena harus terintegrasi dengan fullscreen-lock & anti-kecurangan yang
+   sudah ada di file itu.
+2. Halaman guru: form buat/edit soal essay + setting sesi (pakai endpoint
+   `/api/guru/soal-essay` & `/api/guru/jadwal/[id]/essay-setting`)
+3. Halaman guru: panel koreksi essay (pakai `/api/guru/koreksi-essay`)
+4. Tombol "Buka Akses Kirim" di halaman Mode Pengawas guru, untuk mode
+   KERTAS (pakai `/api/guru/mode-pengawas/buka-akses-essay`)
+5. `src/app/guru/kirim-nilai/page.tsx` — tambah tombol rilis nilai essay
+   (pakai aksi `rilis_essay_individu` / `rilis_essay_sekaligus`)
+6. Halaman Pengaturan Admin — tambah 2 field untuk
+   `batas_durasi_essay_min_menit` / `batas_durasi_essay_max_menit`
+   (endpoint-nya sudah ada, generik key-value, tidak perlu API baru)
 
-```bash
-# Install dependencies
-npm install xlsx bcryptjs @supabase/supabase-js
-
-# Set environment variables
-export SUPABASE_URL="https://xxxxx.supabase.co"
-export SUPABASE_SERVICE_ROLE_KEY="eyJhbGc..."
-export EXCEL_PATH="/path/to/aplikasi_baru__2_.xlsx"
-
-# Jalankan import
-node scripts/import-data.js
-```
-
-Script ini akan mengimport:
-- ✅ 14 pengaturan sistem
-- ✅ 31 users (guru, admin, pengawas)
-- ✅ 7 kelas
-- ✅ 41 mata pelajaran
-- ✅ 78 relasi kelas-mapel
-- ✅ 122 siswa (dengan password di-hash)
-- ✅ 36 jadwal ujian
-- ✅ 70 paket soal
-- ✅ 1.824 soal
-- ✅ 944 nilai
-- ✅ 783 siswa ujian
-- ✅ 33.196 jawaban
-- ✅ 504 log aktivitas
-
----
-
-### LANGKAH 4 — Setup Project Lokal
-
-```bash
-# Clone atau copy project ini
-git clone https://github.com/USERNAME/smartexam.git
-cd smartexam
-
-# Install dependencies
-npm install
-
-# Copy dan isi environment variables
-cp .env.local.example .env.local
-```
-
-Edit `.env.local`:
-```env
-NEXT_PUBLIC_SUPABASE_URL=https://XXXXX.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGc...
-SUPABASE_SERVICE_ROLE_KEY=eyJhbGc...
-JWT_SECRET=buat_random_string_32_karakter_minimal
-```
-
-Cara generate JWT_SECRET:
-```bash
-node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
-```
-
-```bash
-# Jalankan development server
-npm run dev
-# Buka http://localhost:3000
-```
-
----
-
-### LANGKAH 5 — Push ke GitHub
-
-```bash
-git add .
-git commit -m "feat: SmartExam CBT v2.0 - Next.js + Supabase"
-git push origin main
-```
-
-> ⚠️ Pastikan `.env.local` ada di `.gitignore` dan TIDAK ikut ter-push!
-
----
-
-### LANGKAH 6 — Deploy ke Vercel
-
-1. Buka [vercel.com](https://vercel.com) → **New Project**
-2. Import repo `smartexam` dari GitHub
-3. Di bagian **Environment Variables**, tambahkan semua variabel dari `.env.local`:
-   - `NEXT_PUBLIC_SUPABASE_URL`
-   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-   - `SUPABASE_SERVICE_ROLE_KEY`
-   - `JWT_SECRET`
-4. Klik **Deploy**
-5. Tunggu ~2-3 menit → aplikasi live!
-
----
-
-### LANGKAH 7 — Setup Domain (Opsional)
-
-Di Vercel Dashboard → Project → Settings → Domains:
-- Tambahkan domain kustom, misalnya: `cbtedu.mtsalkhairaat.sch.id`
-- Ikuti instruksi DNS yang diberikan Vercel
-
----
-
-## 🔐 Akun Default Setelah Import
-
-| Role | Username | Password Default |
-|------|----------|-----------------|
-| Admin | (dari Excel) | (password asli dari Excel) |
-| Guru | (dari Excel) | (password asli dari Excel) |
-| Pengawas | (dari Excel) | (password asli dari Excel) |
-| Siswa | NIS siswa | Password dari Excel |
-
-> 💡 Jika password lupa, admin bisa reset via halaman Manajemen Siswa/Users.
-
----
-
-## 🎨 Fitur Utama
-
-### Admin
-- Dashboard statistik real-time
-- CRUD Siswa, Guru, Kelas, Mapel, Jadwal
-- Validasi paket soal (Setujui/Tolak)
-- Rekap nilai dengan filter dan export CSV
-- Pengaturan sistem
-
-### Guru
-- Dashboard dengan statistik soal
-- Bank soal (CRUD, filter, cari)
-- Manajemen paket soal (Buat, Kirim, Tarik)
-- Rekap nilai mapel yang diajar
-
-### Pengawas
-- Lihat jadwal ujian hari ini
-- Buka sesi ujian (generate kode 6 digit otomatis)
-- Tutup sesi ujian
-- Monitor peserta real-time
-
-### Siswa
-- Dashboard dengan nilai terbaru dan jadwal
-- Masuk ujian dengan kode sesi
-- Interface ujian dengan timer countdown
-- Auto-save jawaban setiap 30 detik
-- Anti-nyontek (deteksi pindah tab)
-- Hasil nilai langsung setelah submit
-
-### Kepala Sekolah
-- Overview akademik (rata-rata per kelas dan mapel)
-- Rekap nilai keseluruhan
-
----
-
-## 🛠️ Teknologi
-
-| Teknologi | Kegunaan |
-|-----------|----------|
-| Next.js 14 | Full-stack React framework |
-| TypeScript | Type safety |
-| Tailwind CSS | Styling dengan design system custom |
-| Supabase | Database PostgreSQL + Auth + Storage |
-| bcryptjs | Hashing password |
-| JSON Web Token | Autentikasi sesi |
-| Vercel | Hosting dan deployment |
-
----
-
-## 📞 Bantuan
-
-Jika ada masalah saat setup atau deployment, periksa:
-1. Semua environment variables sudah diisi dengan benar
-2. Schema SQL sudah dijalankan di Supabase
-3. Data sudah berhasil diimport (cek tabel di Supabase)
-4. Tidak ada error di Vercel deployment logs
-
----
-
-*SmartExam CBT v2.0 — MTS Alkhairaat Tatakalai*
+Detail teknis & alasan setiap keputusan desain ada di `HANDOFF.md` yang
+disertakan dalam paket ini — silakan lampirkan ke sesi AI berikutnya
+sebagai konteks.
