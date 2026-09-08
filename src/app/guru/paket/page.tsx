@@ -1599,6 +1599,12 @@ export default function GuruBuatSoalPage() {
   // siswa otomatis 100% dari PG (lihat penjelasan di kartu di bawah).
   const [bobotPg, setBobotPg] = useState('50')
   const [bobotEssay, setBobotEssay] = useState('50')
+  // FIX (tata letak Buat Soal): info bobot dulu tampil sebagai kartu penuh
+  // yang justru lebih besar daripada dua pilihan jenis soal-nya sendiri —
+  // padahal ini cuma pengaturan sekunder yang jarang diubah. Sekarang
+  // default-nya DITUTUP (cuma strip ringkasan setinggi satu baris), dan
+  // baru meluas kalau guru sengaja membukanya.
+  const [bobotTerbuka, setBobotTerbuka] = useState(false)
 
   function handleBobotPgChange(val: string) {
     setBobotPg(val)
@@ -1614,6 +1620,8 @@ export default function GuruBuatSoalPage() {
   if (kind === 'pg') return <PgSoalFlow onBack={() => setKind('choice')} />
   if (kind === 'essay') return <EssaySoalFlow onBack={() => setKind('choice')} initialBobotPg={Number(bobotPg) || 50} initialBobotEssay={Number(bobotEssay) || 50} />
 
+  const bobotTidakSeimbang = Number(bobotPg) + Number(bobotEssay) !== 100
+
   return (
     <div className="space-y-6 animate-fade-in">
       <div>
@@ -1621,51 +1629,100 @@ export default function GuruBuatSoalPage() {
         <p className="page-subtitle">Pilih jenis soal yang ingin dibuat</p>
       </div>
 
-      {/* FIX (bobot PG:Essay): input bobot ditaruh di tengah, di atas kedua
-          kartu pilihan jenis soal — supaya guru langsung mengatur proporsi
-          nilai sebelum memilih mau membuat soal PG atau Essay dulu. */}
-      <div className="max-w-2xl mx-auto space-y-4">
-        <div className="card">
-          <h2 className="font-semibold text-slate-800 mb-1">Bobot Nilai PG : Essay</h2>
-          <p className="text-sm text-slate-500 mb-4">
-            Menentukan seberapa besar nilai pilihan ganda dan essay masing-masing berkontribusi ke nilai akhir siswa untuk mapel & kelas yang sama.
-          </p>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="label">Bobot PG (%)</label>
-              <input type="number" min={0} max={100} className="input text-center text-lg font-semibold"
-                value={bobotPg} onChange={e => handleBobotPgChange(e.target.value)} />
+      <div className="max-w-4xl mx-auto space-y-4">
+        {/* Dua pilihan jenis soal — dibuat jadi elemen utama halaman ini,
+            masing-masing dengan warna & nuansa sendiri supaya langsung
+            terasa beda karakter (PG = otomatis/sistem, Essay = manual/guru). */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+          <button
+            onClick={() => setKind('pg')}
+            className="group relative text-left rounded-3xl p-8 min-h-[280px] flex flex-col
+                       bg-gradient-to-br from-brand-500 to-brand-700 text-white
+                       shadow-card hover:shadow-card-md hover:-translate-y-0.5 transition-all duration-200"
+          >
+            <div className="w-16 h-16 rounded-2xl bg-white/15 flex items-center justify-center mb-6">
+              <ListChecks className="w-8 h-8" />
             </div>
-            <div>
-              <label className="label">Bobot Essay (%)</label>
-              <input type="number" min={0} max={100} className="input text-center text-lg font-semibold"
-                value={bobotEssay} onChange={e => handleBobotEssayChange(e.target.value)} />
+            <h2 className="text-2xl font-bold mb-2">Soal PG</h2>
+            <p className="text-brand-50/90 leading-relaxed">
+              Buat soal pilihan ganda dengan kunci jawaban. Sistem menilai otomatis begitu siswa mengumpulkan.
+            </p>
+            <div className="mt-auto pt-6 flex items-center gap-1.5 text-sm font-semibold text-white">
+              Mulai buat soal PG
+              <ChevronRight className="w-4 h-4 transition-transform group-hover:translate-x-0.5" />
             </div>
-          </div>
-          {Number(bobotPg) + Number(bobotEssay) !== 100 && (
-            <p className="text-xs text-red-600 mt-2">Bobot PG dan Essay harus berjumlah 100%.</p>
-          )}
-          <div className="alert-info text-xs flex items-start gap-2 mt-4">
-            <Info className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
-            Bobot ini baru berlaku kalau Anda membuat soal Essay untuk mapel & kelas yang sama (diatur ulang saat membuat paket Essay di bawah — bisa berbeda tiap mapel/kelas). <strong>Kalau Anda hanya membuat soal Pilihan Ganda saja</strong>, bobot ini tidak berpengaruh — nilai akhir siswa otomatis 100% dari soal yang ada (PG saja).
-          </div>
+          </button>
+
+          <button
+            onClick={() => setKind('essay')}
+            className="group relative text-left rounded-3xl p-8 min-h-[280px] flex flex-col
+                       bg-gradient-to-br from-emerald-500 to-emerald-700 text-white
+                       shadow-card hover:shadow-card-md hover:-translate-y-0.5 transition-all duration-200"
+          >
+            <div className="w-16 h-16 rounded-2xl bg-white/15 flex items-center justify-center mb-6">
+              <PenSquare className="w-8 h-8" />
+            </div>
+            <h2 className="text-2xl font-bold mb-2">Soal Essay</h2>
+            <p className="text-emerald-50/90 leading-relaxed">
+              Buat soal essay untuk dinilai manual oleh guru setelah siswa mengumpulkan jawaban.
+            </p>
+            <div className="mt-auto pt-6 flex items-center gap-1.5 text-sm font-semibold text-white">
+              Mulai buat soal Essay
+              <ChevronRight className="w-4 h-4 transition-transform group-hover:translate-x-0.5" />
+            </div>
+          </button>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <button onClick={() => setKind('pg')} className="card text-left hover:shadow-lg transition-shadow p-6">
-            <div className="w-12 h-12 rounded-xl bg-brand-100 text-brand-600 flex items-center justify-center mb-3">
-              <ListChecks className="w-6 h-6" />
+        {/* Bobot PG:Essay — diciutkan jadi satu strip ringkas. Guru yang
+            memang perlu mengubah proporsi nilai tinggal klik untuk membuka;
+            selain itu tidak memakan tempat di layar. */}
+        <div className="card-sm">
+          <button
+            onClick={() => setBobotTerbuka(v => !v)}
+            className="w-full flex items-center justify-between gap-3 text-left"
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              <Info className="w-4 h-4 text-slate-400 flex-shrink-0" />
+              <span className="text-sm text-slate-600 truncate">
+                Bobot Nilai PG : Essay — <strong className="text-slate-800">{bobotPg || 0}% : {bobotEssay || 0}%</strong>
+              </span>
+              {bobotTidakSeimbang && (
+                <span className="badge badge-red flex-shrink-0">Belum 100%</span>
+              )}
             </div>
-            <h2 className="font-semibold text-slate-900 mb-1">Soal PG</h2>
-            <p className="text-sm text-slate-500">Buat soal pilihan ganda dengan kunci jawaban otomatis dinilai sistem.</p>
+            {bobotTerbuka ? (
+              <ChevronUp className="w-4 h-4 text-slate-400 flex-shrink-0" />
+            ) : (
+              <ChevronDown className="w-4 h-4 text-slate-400 flex-shrink-0" />
+            )}
           </button>
-          <button onClick={() => setKind('essay')} className="card text-left hover:shadow-lg transition-shadow p-6">
-            <div className="w-12 h-12 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center mb-3">
-              <PenSquare className="w-6 h-6" />
+
+          {bobotTerbuka && (
+            <div className="mt-4 pt-4 border-t border-slate-100">
+              <p className="text-sm text-slate-500 mb-4">
+                Menentukan seberapa besar nilai pilihan ganda dan essay masing-masing berkontribusi ke nilai akhir siswa untuk mapel & kelas yang sama.
+              </p>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="label">Bobot PG (%)</label>
+                  <input type="number" min={0} max={100} className="input text-center text-lg font-semibold"
+                    value={bobotPg} onChange={e => handleBobotPgChange(e.target.value)} />
+                </div>
+                <div>
+                  <label className="label">Bobot Essay (%)</label>
+                  <input type="number" min={0} max={100} className="input text-center text-lg font-semibold"
+                    value={bobotEssay} onChange={e => handleBobotEssayChange(e.target.value)} />
+                </div>
+              </div>
+              {bobotTidakSeimbang && (
+                <p className="text-xs text-red-600 mt-2">Bobot PG dan Essay harus berjumlah 100%.</p>
+              )}
+              <div className="alert-info text-xs flex items-start gap-2 mt-4">
+                <Info className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                Bobot ini baru berlaku kalau Anda membuat soal Essay untuk mapel & kelas yang sama (diatur ulang saat membuat paket Essay di bawah — bisa berbeda tiap mapel/kelas). <strong>Kalau Anda hanya membuat soal Pilihan Ganda saja</strong>, bobot ini tidak berpengaruh — nilai akhir siswa otomatis 100% dari soal yang ada (PG saja).
+              </div>
             </div>
-            <h2 className="font-semibold text-slate-900 mb-1">Soal Essay</h2>
-            <p className="text-sm text-slate-500">Buat soal essay untuk dinilai manual oleh guru setelah siswa mengumpulkan jawaban.</p>
-          </button>
+          )}
         </div>
       </div>
     </div>
