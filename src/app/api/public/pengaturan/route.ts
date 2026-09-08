@@ -13,7 +13,7 @@ export async function GET() {
       const { data, error } = await db
         .from('pengaturan')
         .select('key, value')
-        .in('key', ['namaSekolah', 'tahunAjaran', 'kota', 'logoUrl', 'logoAplikasi', 'batasPelanggaran', 'jumlahOpsi'])
+        .in('key', ['namaSekolah', 'tahunAjaran', 'kota', 'logoUrl', 'logoAplikasi', 'batasPelanggaran', 'jumlahOpsi', 'batas_durasi_essay_min_menit', 'batas_durasi_essay_max_menit'])
 
       if (error) return {}
       const map: Record<string, string> = {}
