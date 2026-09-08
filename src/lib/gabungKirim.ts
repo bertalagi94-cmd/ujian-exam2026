@@ -65,21 +65,22 @@ export async function kirimPasanganPaket(
 }
 
 /**
- * Menentukan konfigurasi essay (mode jawaban, durasi) untuk sesi_ujian baru
- * yang akan dibuat dari sebuah jadwal, berdasarkan paket_essay yang
+ * Menentukan konfigurasi essay (mode jawaban, durasi, bobot) untuk sesi_ujian
+ * baru yang akan dibuat dari sebuah jadwal, berdasarkan paket_essay yang
  * DISETUJUI untuk kombinasi mapel+kelas jadwal tsb — meniru cara PG
  * mengambil paket_soal DISETUJUI berdasarkan mapel_id+kelas_id (lihat
- * siswa/ujian/validasi/route.ts), BUKAN lagi dari jadwal.essay_aktif /
- * essay_mode_jawaban / essay_durasi_menit (kolom lama, sudah tidak dipakai
- * untuk essay baru — lihat 08_paket_essay.sql).
+ * siswa/ujian/validasi/route.ts).
  *
- * Bobot PG vs Essay (essay_bobot_pg_persen/essay_bobot_essay_persen) TETAP
- * diambil dari kolom jadwal apa adanya (default 50/50) — itu bukan bagian
- * dari bank soal, dan guru tetap menilai essay secara manual seperti biasa.
+ * FIX (bobot PG:Essay): bobot sekarang JUGA diambil dari paket_essay (kolom
+ * bobot_pg_persen/bobot_essay_persen — lihat 09_bobot_paket_essay.sql),
+ * bukan lagi dari kolom jadwal.essay_bobot_pg_persen/essay_bobot_essay_persen
+ * (kolom lama, dibiarkan ada di DB untuk histori tapi tidak dibaca lagi).
+ * Guru mengatur bobot SEKALI saat membuat paket essay (menu Buat Soal),
+ * bukan per jadwal — konsisten dengan mode_jawaban & durasi_menit.
  */
 export async function resolveEssayInfoJson(
   db: SupabaseClient,
-  opts: { mapelId: string; kelasNama: string; bobotPgPersen?: number | null; bobotEssayPersen?: number | null; instruksi?: string | null }
+  opts: { mapelId: string; kelasNama: string; instruksi?: string | null }
 ): Promise<Record<string, unknown>> {
   const { data: kelasRow } = await db
     .from('kelas')
@@ -90,7 +91,7 @@ export async function resolveEssayInfoJson(
 
   const { data: paketEssay } = await db
     .from('paket_essay')
-    .select('mode_jawaban, durasi_menit')
+    .select('mode_jawaban, durasi_menit, bobot_pg_persen, bobot_essay_persen')
     .eq('mapel_id', opts.mapelId)
     .eq('kelas_id', kelasId)
     .eq('status', 'DISETUJUI')
@@ -103,8 +104,8 @@ export async function resolveEssayInfoJson(
     essay_aktif: true,
     essay_mode_jawaban: paketEssay.mode_jawaban ?? 'DIGITAL',
     essay_durasi_menit: paketEssay.durasi_menit ?? 30,
-    essay_bobot_pg_persen: opts.bobotPgPersen ?? 50,
-    essay_bobot_essay_persen: opts.bobotEssayPersen ?? 50,
+    essay_bobot_pg_persen: paketEssay.bobot_pg_persen ?? 50,
+    essay_bobot_essay_persen: paketEssay.bobot_essay_persen ?? 50,
     essay_instruksi: opts.instruksi ?? null,
   }
 }
