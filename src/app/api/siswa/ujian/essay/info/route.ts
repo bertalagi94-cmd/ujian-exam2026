@@ -43,7 +43,11 @@ export async function GET(req: NextRequest) {
   const [{ data: jadwal }, { data: mapel }, { count: jumlahSoal }] = await Promise.all([
     db.from('jadwal').select('pengawas').eq('id', sesi.jadwal_id).single(),
     db.from('mapel').select('nama').eq('id', sesi.mapel_id).single(),
-    db.from('soal_essay').select('id', { count: 'exact', head: true }).eq('jadwal_id', sesi.jadwal_id),
+    // FIX BUG (fitur essay): hitung hanya soal essay yang sudah DISETUJUI —
+    // sebelumnya soal DRAFT ikut terhitung, sehingga "jumlah soal" yang
+    // ditampilkan di halaman info bisa lebih besar dari jumlah soal yang
+    // sebenarnya akan diberikan ke siswa di /essay/soal (lihat FIX di sana).
+    db.from('soal_essay').select('id', { count: 'exact', head: true }).eq('jadwal_id', sesi.jadwal_id).eq('status', 'DISETUJUI'),
   ])
 
   let namaGuru: string | null = null
