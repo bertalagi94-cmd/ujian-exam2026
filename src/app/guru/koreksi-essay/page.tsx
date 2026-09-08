@@ -16,8 +16,12 @@ interface JadwalKoreksi {
   kelas: string
   nama_mapel: string
   nama_kelas: string
-  essay_aktif: boolean
-  sesi_ujian: { id: string; status: string } | null
+  // FIX (migrasi paket_essay): `jadwal.essay_aktif` sudah TIDAK dipakai lagi
+  // sejak essay ditentukan otomatis dari paket_essay yang DISETUJUI untuk
+  // mapel+kelas (lihat resolveEssayInfoJson di src/lib/gabungKirim.ts).
+  // Status essay aktif-atau-tidak untuk sesi yang SUDAH dibuka disimpan di
+  // sesi_ujian.info_json.essay_aktif, BUKAN lagi di kolom jadwal ini.
+  sesi_ujian: { id: string; status: string; info_json?: { essay_aktif?: boolean } | null } | null
 }
 
 interface SoalEssayRingkas { id: string; teks: string; bobot_maks: number; urutan: number }
@@ -68,7 +72,10 @@ export default function GuruKoreksiEssayPage() {
     setLoading(true)
     try {
       const res = await apiRequest<{ data: JadwalKoreksi[] }>('/api/guru/jadwal-pengawasan')
-      const relevan = (res.data ?? []).filter(j => j.essay_aktif && j.sesi_ujian)
+      // FIX (migrasi paket_essay): filter berdasarkan info_json sesi yang
+      // sudah dibuka, bukan lagi `jadwal.essay_aktif` (sudah tidak pernah
+      // di-set oleh mana pun sejak migrasi ke paket_essay).
+      const relevan = (res.data ?? []).filter(j => j.sesi_ujian?.info_json?.essay_aktif && j.sesi_ujian)
       setJadwalList(relevan)
     } catch (e: unknown) {
       showToast(e instanceof Error ? e.message : 'Gagal memuat jadwal', 'error')
