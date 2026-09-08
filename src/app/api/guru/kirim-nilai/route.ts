@@ -222,6 +222,86 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ message: 'Semua nilai berhasil dikirim ke wali kelas', jumlah: count ?? 0 })
   }
 
+  // ── FIX (fitur essay): rilis nilai essay/total ke SISWA ──────────────────
+  // PENTING: ini BEDA dengan aksi 'kirim_ke_wali' di atas (itu guru → wali
+  // kelas). Ini guru → siswa langsung, sesuai desain yang disepakati: nilai
+  // essay/total baru boleh dilihat siswa setelah guru menekan tombol ini,
+  // per-individu ATAU sekaligus (sekaligus hanya aktif kalau SEMUA peserta
+  // sesi sudah dinilai/ditandai tidak mengerjakan).
+  if (aksi === 'rilis_essay_individu') {
+    const { sesiId, nis } = body as { sesiId: string; nis: string }
+    if (!sesiId || !nis) return NextResponse.json({ error: 'sesiId dan nis diperlukan' }, { status: 400 })
+
+    const { data: nilaiRow } = await db
+      .from('nilai')
+      .select('id, mapel_id, nilai_essay')
+      .eq('sesi_id', sesiId)
+      .eq('nis', nis)
+      .single()
+
+    if (!nilaiRow || !mapelIds.includes(nilaiRow.mapel_id)) {
+      return NextResponse.json({ error: 'Tidak diizinkan' }, { status: 403 })
+    }
+    if (nilaiRow.nilai_essay === null || nilaiRow.nilai_essay === undefined) {
+      return NextResponse.json({ error: 'Siswa ini belum dinilai essay-nya' }, { status: 409 })
+    }
+
+    const { error } = await db
+      .from('nilai')
+      .update({ dirilis: true, dirilis_pada: new Date().toISOString() })
+      .eq('id', nilaiRow.id)
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ message: `Nilai untuk siswa ${nis} berhasil dirilis` })
+  }
+
+  if (aksi === 'rilis_essay_sekaligus') {
+    const { sesiId } = body as { sesiId: string }
+    if (!sesiId) return NextResponse.json({ error: 'sesiId diperlukan' }, { status: 400 })
+
+    const { data: sesi } = await db.from('sesi_ujian').select('mapel_id').eq('id', sesiId).single()
+    if (!sesi || !mapelIds.includes(sesi.mapel_id)) {
+      return NextResponse.json({ error: 'Tidak diizinkan' }, { status: 403 })
+    }
+
+    // Semua siswa yang SUDAH_KIRIM/TIDAK_MENGERJAKAN essay harus sudah
+    // punya nilai_essay sebelum rilis massal diizinkan.
+    const { data: pesertaEssay } = await db
+      .from('siswa_ujian')
+      .select('nis, status_essay')
+      .eq('sesi_id', sesiId)
+      .in('status_essay', ['SUDAH_KIRIM', 'TIDAK_MENGERJAKAN'])
+
+    const nisWajibDinilai = (pesertaEssay ?? []).map(p => p.nis)
+    if (nisWajibDinilai.length === 0) {
+      return NextResponse.json({ error: 'Belum ada siswa yang menyelesaikan essay di sesi ini' }, { status: 409 })
+    }
+
+    const { data: nilaiBelumDinilai } = await db
+      .from('nilai')
+      .select('nis')
+      .eq('sesi_id', sesiId)
+      .in('nis', nisWajibDinilai)
+      .is('nilai_essay', null)
+
+    if (nilaiBelumDinilai && nilaiBelumDinilai.length > 0) {
+      return NextResponse.json({
+        error: `Masih ada ${nilaiBelumDinilai.length} siswa yang belum dinilai essay-nya. Rilis sekaligus hanya bisa dilakukan setelah SEMUA siswa dinilai.`,
+        belumDinilai: nilaiBelumDinilai.map(n => n.nis),
+      }, { status: 409 })
+    }
+
+    const now = new Date().toISOString()
+    const { error, count } = await db
+      .from('nilai')
+      .update({ dirilis: true, dirilis_pada: now })
+      .eq('sesi_id', sesiId)
+      .in('nis', nisWajibDinilai)
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ message: 'Nilai berhasil dirilis ke semua siswa', jumlah: count ?? 0 })
+  }
+
   return NextResponse.json({ error: 'Aksi tidak dikenali' }, { status: 400 })
 }
 
