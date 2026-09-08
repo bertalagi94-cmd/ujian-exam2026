@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   Send, Save, RotateCcw, ChevronDown, ChevronUp,
   AlertTriangle, CheckCircle, Clock, BarChart3, MessageSquare,
+  FileText, CheckCircle2,
 } from 'lucide-react'
 import { apiRequest, nilaiColor, formatDateTime } from '@/lib/utils'
 import { PageLoader, Toast } from '@/components/ui'
@@ -27,6 +28,14 @@ interface NilaiRow {
   dikirim_at: string | null
   dikembalikan: boolean
   catatan_guru: string | null
+  // FIX (fitur essay): field tambahan dari nilai — dipakai untuk menampilkan
+  // status nilai essay & tombol rilis di halaman ini (lihat GET di
+  // /api/guru/kirim-nilai, kolom ditambahkan ke select).
+  sesi_id?: string | null
+  nilai_essay?: number | null
+  nilai_total?: number | null
+  dirilis?: boolean
+  dirilis_pada?: string | null
   // true kalau siswa ini belum sama sekali mengerjakan ujian mapel ini —
   // tidak ada nilai untuk diedit/dikirim, hanya ditampilkan sebagai info.
   belum_ujian?: boolean
@@ -64,6 +73,10 @@ export default function KirimNilaiPage() {
   const [sending, setSending] = useState<string | null>(null)
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null)
+
+  // FIX (fitur essay): rilis nilai essay/total ke siswa
+  const [rilisNis, setRilisNis] = useState<string | null>(null)
+  const [rilisSesi, setRilisSesi] = useState<string | null>(null)
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => setToast({ msg, type })
 
@@ -170,6 +183,42 @@ export default function KirimNilaiPage() {
     }
   }
 
+  // FIX (fitur essay): rilis nilai essay/total per-individu — begitu dirilis,
+  // siswa yang bersangkutan baru bisa melihat nilai_essay/nilai_total-nya.
+  async function rilisEssayIndividu(sesiId: string, nis: string) {
+    setRilisNis(nis)
+    try {
+      await apiRequest('/api/guru/kirim-nilai', {
+        method: 'PATCH',
+        body: JSON.stringify({ aksi: 'rilis_essay_individu', sesiId, nis }),
+      })
+      showToast(`Nilai essay untuk ${nis} berhasil dirilis`)
+      await load()
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Gagal merilis nilai', 'error')
+    } finally {
+      setRilisNis(null)
+    }
+  }
+
+  // FIX (fitur essay): rilis nilai essay/total sekaligus untuk satu sesi —
+  // backend akan menolak kalau masih ada peserta essay yang belum dinilai.
+  async function rilisEssaySekaligus(sesiId: string) {
+    setRilisSesi(sesiId)
+    try {
+      const res = await apiRequest<{ message: string; jumlah: number }>('/api/guru/kirim-nilai', {
+        method: 'PATCH',
+        body: JSON.stringify({ aksi: 'rilis_essay_sekaligus', sesiId }),
+      })
+      showToast(res.message ?? 'Nilai essay berhasil dirilis ke semua siswa')
+      await load()
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Gagal merilis nilai', 'error')
+    } finally {
+      setRilisSesi(null)
+    }
+  }
+
   if (loading) return <PageLoader />
   if (!apiData) return null
 
@@ -237,6 +286,18 @@ export default function KirimNilaiPage() {
         const semuaDikirim = grup.sudahDikirim === grup.total && grup.total > 0
         const adaDikembalikan = grup.rows.some(r => r.dikembalikan)
         const isOpen = expandedGroup === grup.kunciMapel
+
+        // FIX (fitur essay): siswa di kelompok ini yang essay-nya sudah
+        // dinilai guru (nilai_essay tidak null) — dikelompokkan lagi per
+        // sesi_id karena rilis sekaligus dilakukan per-sesi, bukan per
+        // mapel+kelas (satu jadwal bisa punya sesi reguler & susulan).
+        const esaiPerSesi: Record<string, NilaiRow[]> = {}
+        for (const r of grup.rows) {
+          if (r.nilai_essay === null || r.nilai_essay === undefined || !r.sesi_id) continue
+          if (!esaiPerSesi[r.sesi_id]) esaiPerSesi[r.sesi_id] = []
+          esaiPerSesi[r.sesi_id].push(r)
+        }
+        const sesiEssayIds = Object.keys(esaiPerSesi)
 
         return (
           <div
@@ -399,6 +460,71 @@ export default function KirimNilaiPage() {
                     </tbody>
                   </table>
                 </div>
+                )}
+
+                {/* FIX (fitur essay): panel rilis nilai essay — hanya tampil
+                    kalau ada siswa di kelompok ini yang sudah dinilai
+                    essay-nya oleh guru (lihat Koreksi Essay). */}
+                {sesiEssayIds.length > 0 && (
+                  <div className="border-t border-slate-100">
+                    {sesiEssayIds.map(sesiId => {
+                      const rowsSesi = esaiPerSesi[sesiId]
+                      const semuaDirilis = rowsSesi.every(r => r.dirilis)
+                      const isRilisSesi = rilisSesi === sesiId
+                      return (
+                        <div key={sesiId} className="px-5 py-4 bg-indigo-50/40">
+                          <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
+                            <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                              <FileText className="w-4 h-4 text-indigo-500" />
+                              Nilai Essay ({rowsSesi.length} siswa dinilai)
+                            </div>
+                            <button
+                              onClick={() => rilisEssaySekaligus(sesiId)}
+                              disabled={isRilisSesi || semuaDirilis}
+                              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              {isRilisSesi ? (
+                                <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                              ) : (
+                                <Send className="w-3.5 h-3.5" />
+                              )}
+                              {semuaDirilis ? 'Semua Sudah Dirilis' : 'Rilis Semua ke Siswa'}
+                            </button>
+                          </div>
+                          <div className="space-y-1.5">
+                            {rowsSesi.map(r => (
+                              <div key={r.id} className="flex items-center justify-between gap-2 text-sm bg-white rounded-lg px-3 py-2 border border-indigo-100">
+                                <div>
+                                  <span className="font-medium text-slate-800">{r.nama_siswa}</span>
+                                  <span className="text-xs text-slate-400 ml-2">
+                                    Essay: {r.nilai_essay} · Total: {r.nilai_total ?? '-'}
+                                  </span>
+                                </div>
+                                {r.dirilis ? (
+                                  <span className="flex items-center gap-1 text-xs text-emerald-600 font-medium">
+                                    <CheckCircle2 className="w-3.5 h-3.5" /> Dirilis
+                                  </span>
+                                ) : (
+                                  <button
+                                    onClick={() => rilisEssayIndividu(sesiId, r.nis)}
+                                    disabled={rilisNis === r.nis}
+                                    className="btn-ghost btn-sm text-indigo-600 text-xs"
+                                  >
+                                    {rilisNis === r.nis ? (
+                                      <span className="w-3 h-3 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
+                                    ) : (
+                                      <Send className="w-3.5 h-3.5" />
+                                    )}
+                                    Rilis
+                                  </button>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
                 )}
 
                 {/* Info siswa yang belum mengikuti ujian ini sama sekali */}
