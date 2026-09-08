@@ -7,6 +7,7 @@ import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 import { generateId } from '@/lib/utils'
 import { cekSesiBentrokKelas, pesanBentrokKelas } from '@/lib/sesi-kelas'
+import { resolveEssayInfoJson } from '@/lib/gabungKirim'
 
 function generateKode7(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
@@ -168,16 +169,15 @@ export async function POST(req: NextRequest) {
   const sesiBaruId = generateId('SES')
   const kodeBaru = generateKode7()
 
-  // FIX (fitur essay): salin konfigurasi essay dari jadwal ke info_json —
-  // sesi susulan tetap ikut aturan essay yang sama dengan sesi normalnya.
-  const infoJsonEssay = jadwal.essay_aktif ? {
-    essay_aktif: true,
-    essay_mode_jawaban: jadwal.essay_mode_jawaban,
-    essay_durasi_menit: jadwal.essay_durasi_menit,
-    essay_bobot_pg_persen: jadwal.essay_bobot_pg_persen,
-    essay_bobot_essay_persen: jadwal.essay_bobot_essay_persen,
-    essay_instruksi: jadwal.essay_instruksi,
-  } : {}
+  // Essay sekarang mengikuti pola PG: aktif otomatis kalau ada paket_essay
+  // DISETUJUI untuk mapel+kelas jadwal ini — lihat 08_paket_essay.sql.
+  const infoJsonEssay = await resolveEssayInfoJson(db, {
+    mapelId: jadwal.mapel_id,
+    kelasNama: String(jadwal.kelas),
+    bobotPgPersen: jadwal.essay_bobot_pg_persen,
+    bobotEssayPersen: jadwal.essay_bobot_essay_persen,
+    instruksi: jadwal.essay_instruksi,
+  })
 
   const { error } = await db.from('sesi_ujian').insert({
     id: sesiBaruId,
