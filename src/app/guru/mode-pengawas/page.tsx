@@ -26,7 +26,7 @@ interface SesiUjianInfo {
   // FIX (fitur essay): info_json juga membawa konfigurasi essay yang sudah
   // disalin & dibekukan saat sesi dibuka (lihat 07_essay.sql) — dipakai
   // untuk menampilkan tombol "Buka Akses Kirim" khusus mode KERTAS.
-  info_json?: { essay_mode_jawaban?: 'DIGITAL' | 'KERTAS' } | null
+  info_json?: { essay_aktif?: boolean; essay_mode_jawaban?: 'DIGITAL' | 'KERTAS' } | null
 }
 
 interface JadwalHariIni {
@@ -45,9 +45,6 @@ interface JadwalHariIni {
   diambil_alih_pengawas: { username: string; nama: string } | null
   status_soal?: 'BELUM_ADA' | 'DRAFT' | 'MENUNGGU' | 'DITOLAK' | 'DISETUJUI'
   status_soal_guru?: string | null
-  // FIX (fitur essay): dipakai untuk menentukan apakah tombol "Buka Akses
-  // Kirim" (mode KERTAS) perlu ditampilkan untuk jadwal ini.
-  essay_aktif?: boolean
 }
 
 interface SiswaAktif {
@@ -814,7 +811,7 @@ export default function ModePengawasPage() {
                           untuk sesi dengan essay mode KERTAS. Siswa mode
                           KERTAS tidak bisa menekan tombol "Kirim" sampai
                           pengawas menekan tombol ini. */}
-                      {j.essay_aktif && j.sesi_ujian?.info_json?.essay_mode_jawaban === 'KERTAS' && (
+                      {j.sesi_ujian?.info_json?.essay_aktif && j.sesi_ujian?.info_json?.essay_mode_jawaban === 'KERTAS' && (
                         <div className="border-t border-slate-100 px-4 py-3.5 flex items-center justify-between gap-3 flex-wrap bg-amber-50/40">
                           <div className="flex items-center gap-2 text-xs text-amber-700">
                             <FileQuestion className="w-3.5 h-3.5 flex-shrink-0" />
