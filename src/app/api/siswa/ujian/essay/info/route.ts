@@ -40,6 +40,15 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Selesaikan soal pilihan ganda terlebih dahulu' }, { status: 403 })
   }
 
+  // Soal essay sekarang berupa bank per mapel+kelas (paket_essay), sama
+  // seperti soal PG — bukan lagi melekat ke jadwal_id. Lihat 08_paket_essay.sql.
+  const { data: kelasRow } = await db
+    .from('kelas')
+    .select('id')
+    .eq('nama', String(sesi.kelas))
+    .maybeSingle()
+  const kelasId = kelasRow?.id ?? String(sesi.kelas)
+
   const [{ data: jadwal }, { data: mapel }, { count: jumlahSoal }] = await Promise.all([
     db.from('jadwal').select('pengawas').eq('id', sesi.jadwal_id).single(),
     db.from('mapel').select('nama').eq('id', sesi.mapel_id).single(),
@@ -47,7 +56,7 @@ export async function GET(req: NextRequest) {
     // sebelumnya soal DRAFT ikut terhitung, sehingga "jumlah soal" yang
     // ditampilkan di halaman info bisa lebih besar dari jumlah soal yang
     // sebenarnya akan diberikan ke siswa di /essay/soal (lihat FIX di sana).
-    db.from('soal_essay').select('id', { count: 'exact', head: true }).eq('jadwal_id', sesi.jadwal_id).eq('status', 'DISETUJUI'),
+    db.from('soal_essay').select('id', { count: 'exact', head: true }).eq('mapel_id', sesi.mapel_id).eq('kelas_id', kelasId).eq('status', 'DISETUJUI'),
   ])
 
   let namaGuru: string | null = null
