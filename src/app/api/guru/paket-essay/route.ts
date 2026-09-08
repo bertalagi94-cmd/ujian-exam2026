@@ -66,6 +66,26 @@ export async function POST(req: NextRequest) {
   const modeJawaban = body.mode_jawaban === 'KERTAS' ? 'KERTAS' : 'DIGITAL'
   const durasiMenit = Number(body.durasi_menit) > 0 ? Number(body.durasi_menit) : 30
 
+  // FIX (gap): batas durasi essay yang ditentukan admin (Pengaturan > Ujian)
+  // tadinya hanya tersimpan di tabel `pengaturan` tanpa pernah divalidasi di
+  // mana pun. Divalidasi di sini sebagai sumber kebenaran (bukan lewat
+  // /api/public/pengaturan yang di-cache 60 detik), supaya guru tidak bisa
+  // membuat paket dengan durasi di luar batas walau lewat panggilan API
+  // langsung.
+  const { data: batasRows } = await db
+    .from('pengaturan')
+    .select('key, value')
+    .in('key', ['batas_durasi_essay_min_menit', 'batas_durasi_essay_max_menit'])
+  const batasMap = Object.fromEntries((batasRows ?? []).map(r => [r.key, r.value]))
+  const durasiMin = Number(batasMap.batas_durasi_essay_min_menit) || 10
+  const durasiMax = Number(batasMap.batas_durasi_essay_max_menit) || 180
+  if (durasiMenit < durasiMin || durasiMenit > durasiMax) {
+    return NextResponse.json(
+      { error: `Durasi essay harus antara ${durasiMin} dan ${durasiMax} menit (diatur oleh admin).` },
+      { status: 400 }
+    )
+  }
+
   // Cegah guru membuat paket essay ganda untuk mapel + kelas yang sama
   const { data: existing, error: checkError } = await db
     .from('paket_essay')
