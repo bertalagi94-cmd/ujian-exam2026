@@ -60,9 +60,12 @@ export async function POST(req: NextRequest) {
   }
 
   // Ambil data jadwal
+  // FIX (fitur essay): tambah kolom essay_* supaya bisa disalin ke
+  // sesi_ujian.info_json saat insert sesi susulan di bawah — lihat
+  // HANDOFF.md poin 1.
   const { data: jadwal } = await db
     .from('jadwal')
-    .select('id, kelas, mapel_id, durasi, status, pengawas')
+    .select('id, kelas, mapel_id, durasi, status, pengawas, essay_aktif, essay_mode_jawaban, essay_durasi_menit, essay_bobot_pg_persen, essay_bobot_essay_persen, essay_instruksi')
     .eq('id', jadwalId)
     .single()
 
@@ -169,6 +172,16 @@ export async function POST(req: NextRequest) {
       pengawas_susulan: guru.username,
       pengawas_susulan_nama: guru.nama,
       pengawas_asli: jadwal.pengawas ?? null,
+      // FIX (fitur essay): salin konfigurasi essay dari jadwal, sama seperti
+      // di guru/mode-pengawas/route.ts dan guru/susulan/route.ts.
+      ...(jadwal.essay_aktif ? {
+        essay_aktif: true,
+        essay_mode_jawaban: jadwal.essay_mode_jawaban,
+        essay_durasi_menit: jadwal.essay_durasi_menit,
+        essay_bobot_pg_persen: jadwal.essay_bobot_pg_persen,
+        essay_bobot_essay_persen: jadwal.essay_bobot_essay_persen,
+        essay_instruksi: jadwal.essay_instruksi,
+      } : {}),
     },
   })
 
