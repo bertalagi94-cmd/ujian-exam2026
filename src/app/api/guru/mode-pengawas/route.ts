@@ -5,6 +5,7 @@ import { generateId } from '@/lib/utils'
 import { getZonaWaktuSekolah, tanggalHariIni } from '@/lib/pengaturan-waktu'
 import { computeStatusSoalDetailMap, getStatusSoalDetail, isStatusSoalSiap, pesanStatusSoal, buildStatusSoalKey } from '@/lib/soal-status'
 import { cekSesiBentrokKelas, pesanBentrokKelas } from '@/lib/sesi-kelas'
+import { resolveEssayInfoJson } from '@/lib/gabungKirim'
 
 function generateKodeSesi7(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
@@ -329,44 +330,20 @@ export async function POST(req: NextRequest) {
     }, { status: 409 })
   }
 
-  // FIX BUG (fitur essay): sebelumnya sesi dengan essay_aktif=true bisa
-  // dibuka walau belum ada satupun soal_essay yang berstatus DISETUJUI untuk
-  // jadwal ini (mis. guru baru bikin draft, atau semua soal essay dihapus
-  // lagi setelah essay_aktif sempat true). Siswa yang submit PG akan
-  // diarahkan ke fase essay (lihat selesai/route.ts) tapi /essay/soal akan
-  // mengembalikan daftar kosong (setelah FIX filter status di sana) —
-  // siswa macet tidak bisa menyelesaikan ujian. Sekarang dicegah di sini,
-  // sebelum sesi sempat dibuka.
-  if (jadwal.essay_aktif) {
-    const { count: jumlahSoalEssayDisetujui } = await db
-      .from('soal_essay')
-      .select('id', { count: 'exact', head: true })
-      .eq('jadwal_id', jadwalId)
-      .eq('status', 'DISETUJUI')
-
-    if (!jumlahSoalEssayDisetujui) {
-      return NextResponse.json({
-        error: 'Essay aktif untuk jadwal ini tapi belum ada soal essay yang disetujui. Setujui minimal 1 soal essay dulu di halaman Soal Essay, atau nonaktifkan essay untuk jadwal ini.',
-      }, { status: 400 })
-    }
-  }
+  // Essay sekarang mengikuti pola PG: aktif otomatis kalau ada paket_essay
+  // yang sudah DISETUJUI untuk kombinasi mapel+kelas jadwal ini (bukan lagi
+  // toggle manual jadwal.essay_aktif) — lihat 08_paket_essay.sql &
+  // src/lib/gabungKirim.ts.
+  const infoJsonEssay = await resolveEssayInfoJson(db, {
+    mapelId: jadwal.mapel_id,
+    kelasNama: String(jadwal.kelas),
+    bobotPgPersen: jadwal.essay_bobot_pg_persen,
+    bobotEssayPersen: jadwal.essay_bobot_essay_persen,
+    instruksi: jadwal.essay_instruksi,
+  })
 
   const sesiId = generateId('SES')
   const kodeSesi = generateKodeSesi7()
-
-  // FIX (fitur essay): salin konfigurasi essay dari jadwal ke
-  // sesi_ujian.info_json SAAT sesi dibuka, supaya kalau guru mengubah
-  // pengaturan essay di jadwal SETELAH sesi ini berjalan, sesi yang sudah
-  // aktif tidak ikut berubah (sama seperti field `durasi` yang sudah lebih
-  // dulu disalin dari jadwal ke sesi_ujian). Lihat HANDOFF.md poin 1.
-  const infoJsonEssay = jadwal.essay_aktif ? {
-    essay_aktif: true,
-    essay_mode_jawaban: jadwal.essay_mode_jawaban,
-    essay_durasi_menit: jadwal.essay_durasi_menit,
-    essay_bobot_pg_persen: jadwal.essay_bobot_pg_persen,
-    essay_bobot_essay_persen: jadwal.essay_bobot_essay_persen,
-    essay_instruksi: jadwal.essay_instruksi,
-  } : {}
 
   const { error } = await db.from('sesi_ujian').insert({
     id: sesiId,
