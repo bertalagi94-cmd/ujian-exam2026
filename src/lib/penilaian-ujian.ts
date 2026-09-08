@@ -14,7 +14,7 @@ import { SupabaseClient } from '@supabase/supabase-js'
 import { cachedFetch } from '@/lib/cache'
 
 export interface DataSesiUntukPenilaian {
-  sesi: { mapel_id: string; kelas: string; durasi?: number }
+  sesi: { mapel_id: string; kelas: string; durasi?: number; info_json?: Record<string, unknown> }
   kkm: number
   totalSoal: number
   kunciMap: Record<string, string>
@@ -40,9 +40,13 @@ export async function ambilDataSesiUntukPenilaian(
   sesiId: string
 ): Promise<DataSesiUntukPenilaian | null> {
   return cachedFetch(`selesai:sesi:${sesiId}`, 300, async () => {
+    // FIX (fitur essay): tambah info_json ke select supaya caller (terutama
+    // selesai/route.ts) bisa tahu apakah sesi ini punya essay
+    // (info_json.essay_aktif) tanpa query terpisah — data ini statis untuk
+    // sesi yang sama jadi aman ikut di-cache 5 menit bersama field lain.
     const { data: sesi } = await db
       .from('sesi_ujian')
-      .select('mapel_id, kelas, durasi')
+      .select('mapel_id, kelas, durasi, info_json')
       .eq('id', sesiId)
       .single()
     if (!sesi) return null
