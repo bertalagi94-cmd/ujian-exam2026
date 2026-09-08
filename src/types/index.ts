@@ -150,6 +150,10 @@ export interface PaketEssay {
   jumlah_soal: number
   mode_jawaban: 'DIGITAL' | 'KERTAS'
   durasi_menit: number
+  // FIX (bobot PG:Essay): bobot nilai sekarang diatur di sini (per
+  // mapel+kelas), bukan lagi per jadwal — lihat 09_bobot_paket_essay.sql.
+  bobot_pg_persen: number
+  bobot_essay_persen: number
   // joined
   nama_mapel?: string
   nama_kelas?: string
