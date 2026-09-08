@@ -45,6 +45,10 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   maintenanceSelesai: '',
   deadline_kirim_nilai: '',
   reminder_nilai_jam: '24',
+  // FIX (fitur essay): batas durasi essay yang boleh diatur guru per jadwal
+  // (dipakai untuk validasi di /api/guru/jadwal/[id]/essay-setting).
+  batas_durasi_essay_min_menit: '10',
+  batas_durasi_essay_max_menit: '180',
 }
 
 type Tab = 'ujian' | 'pengiriman_nilai' | 'maintenance' | 'backup' | 'reset'
@@ -568,10 +572,36 @@ export default function AdminPengaturanPage() {
               </div>
             </div>
 
+            {/* FIX (fitur essay): batas durasi essay yang boleh diatur guru
+                saat mengonfigurasi sesi essay per jadwal (lihat validasi di
+                /api/guru/jadwal/[id]/essay-setting). */}
+            <div className="pt-4 border-t border-slate-100">
+              <p className="text-sm font-medium text-slate-700 mb-1">Batas Durasi Soal Essay</p>
+              <p className="text-xs text-slate-400 mb-3">Rentang durasi (menit) yang boleh diatur guru untuk sesi essay per jadwal</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="label">Durasi Minimal (menit)</label>
+                  <input
+                    type="number" className="input" min={1} max={999}
+                    value={values.batas_durasi_essay_min_menit}
+                    onChange={e => set('batas_durasi_essay_min_menit', e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="label">Durasi Maksimal (menit)</label>
+                  <input
+                    type="number" className="input" min={1} max={999}
+                    value={values.batas_durasi_essay_max_menit}
+                    onChange={e => set('batas_durasi_essay_max_menit', e.target.value)}
+                  />
+                </div>
+              </div>
+            </div>
+
             <div className="pt-2 flex justify-end">
               <button
                 type="button"
-                onClick={() => saveSection(['batasPelanggaran','jumlahOpsi'], 'Pengaturan Ujian')}
+                onClick={() => saveSection(['batasPelanggaran', 'jumlahOpsi', 'batas_durasi_essay_min_menit', 'batas_durasi_essay_max_menit'], 'Pengaturan Ujian')}
                 className="btn-primary btn-sm"
                 disabled={savingSection === 'Pengaturan Ujian'}
               >
