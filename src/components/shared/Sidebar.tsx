@@ -7,7 +7,7 @@ import {
   LayoutDashboard, Users, BookOpen, Calendar, ClipboardList,
   BarChart3, Settings, LogOut, Menu, X, ChevronRight,
   GraduationCap, School, Bell, User, FileText, Eye, ShieldAlert, Send,
-  FileBarChart, PenSquare, CheckSquare
+  FileBarChart, CheckSquare
 } from 'lucide-react'
 import { cn, apiRequest } from '@/lib/utils'
 import { AuthUser } from '@/types'
@@ -441,7 +441,6 @@ export function GuruSidebar() {
       icon: ClipboardList,
       badge: counts.bankSoal || undefined,
     },
-    { label: 'Soal Essay', href: '/guru/soal-essay', icon: PenSquare },
     { label: 'Koreksi Essay', href: '/guru/koreksi-essay', icon: CheckSquare },
     { label: 'Rekap Nilai', href: '/guru/nilai', icon: BarChart3 },
     { label: 'Kirim Nilai ke Wali Kelas', href: '/guru/kirim-nilai', icon: Send },
