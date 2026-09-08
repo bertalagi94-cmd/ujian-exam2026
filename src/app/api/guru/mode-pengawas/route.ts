@@ -218,6 +218,9 @@ export async function POST(req: NextRequest) {
   const { jadwalId } = await req.json()
 
   // Verify jadwal belongs to this guru as pengawas
+  // FIX (fitur essay): '*' sudah mengambil semua kolom termasuk kolom
+  // essay_* baru di tabel jadwal, jadi tidak perlu ubah select ini — cukup
+  // pastikan dipakai saat insert sesi_ujian di bawah (lihat FIX di situ).
   const { data: jadwal } = await db
     .from('jadwal')
     .select('*')
@@ -329,6 +332,20 @@ export async function POST(req: NextRequest) {
   const sesiId = generateId('SES')
   const kodeSesi = generateKodeSesi7()
 
+  // FIX (fitur essay): salin konfigurasi essay dari jadwal ke
+  // sesi_ujian.info_json SAAT sesi dibuka, supaya kalau guru mengubah
+  // pengaturan essay di jadwal SETELAH sesi ini berjalan, sesi yang sudah
+  // aktif tidak ikut berubah (sama seperti field `durasi` yang sudah lebih
+  // dulu disalin dari jadwal ke sesi_ujian). Lihat HANDOFF.md poin 1.
+  const infoJsonEssay = jadwal.essay_aktif ? {
+    essay_aktif: true,
+    essay_mode_jawaban: jadwal.essay_mode_jawaban,
+    essay_durasi_menit: jadwal.essay_durasi_menit,
+    essay_bobot_pg_persen: jadwal.essay_bobot_pg_persen,
+    essay_bobot_essay_persen: jadwal.essay_bobot_essay_persen,
+    essay_instruksi: jadwal.essay_instruksi,
+  } : {}
+
   const { error } = await db.from('sesi_ujian').insert({
     id: sesiId,
     jadwal_id: jadwalId,
@@ -339,6 +356,7 @@ export async function POST(req: NextRequest) {
     status: 'BERJALAN',
     waktu_mulai: new Date().toISOString(),
     jumlah_peserta: 0,
+    info_json: infoJsonEssay,
   })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
