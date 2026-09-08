@@ -1,10 +1,13 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Plus, ChevronDown, ChevronUp, Trash2, ImagePlus, X, ArrowLeft, CheckCircle2, Pencil, Eye, Lock } from 'lucide-react'
+import {
+  Plus, ChevronDown, ChevronUp, Trash2, ImagePlus, X, ArrowLeft, CheckCircle2, Pencil, Eye, Lock,
+  ListChecks, PenSquare, Send, RotateCcw, Copy, Info, ChevronRight,
+} from 'lucide-react'
 import { Modal, Confirm, StatusBadge, EmptyState, Spinner, Toast } from '@/components/ui'
 import { apiRequest, formatDateTime } from '@/lib/utils'
-import { PaketSoal, Mapel, Kelas, Soal } from '@/types'
+import { PaketSoal, Mapel, Kelas, Soal, PaketEssay, SoalEssay } from '@/types'
 
 interface SoalWithImg extends Soal {
   gambar_pertanyaan?: string
@@ -16,6 +19,8 @@ interface SoalWithImg extends Soal {
 }
 
 type Step = 'list' | 'setup' | 'buat'
+type EssayStep = 'list' | 'setup' | 'detail'
+type Kind = 'choice' | 'pg' | 'essay'
 
 const opsiLabels = ['A', 'B', 'C', 'D', 'E']
 
@@ -39,7 +44,7 @@ function ImageUploadButton({ label, url, onUrl, uploadKey, uploading, onTrigger 
   )
 }
 
-export default function GuruBuatSoalPage() {
+function PgSoalFlow({ onBack }: { onBack: () => void }) {
   const [pakets, setPakets] = useState<PaketSoal[]>([])
   const [guruMapelList, setGuruMapelList] = useState<Mapel[]>([])
   const [allMapelList, setAllMapelList] = useState<Mapel[]>([])
@@ -616,7 +621,10 @@ export default function GuruBuatSoalPage() {
 
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="page-title">Buat Soal</h1>
+          <button onClick={onBack} className="btn-ghost btn-sm text-slate-500 mb-1">
+            <ArrowLeft className="w-4 h-4" /> Ganti Jenis Soal
+          </button>
+          <h1 className="page-title">Buat Soal PG</h1>
           <p className="page-subtitle">Kelola paket soal yang telah dibuat · Kirim ke admin melalui menu <strong>Bank Soal</strong></p>
         </div>
         <button onClick={() => setStep('setup')} className="btn-primary btn-sm">
@@ -839,4 +847,719 @@ export default function GuruBuatSoalPage() {
       </form>
     )
   }
+}
+
+// ── ESSAY SOAL FLOW ──────────────────────────────────────────────────
+function EssaySoalFlow({ onBack }: { onBack: () => void }) {
+  const [step, setStep] = useState<EssayStep>('list')
+  const [pakets, setPakets] = useState<PaketEssay[]>([])
+  const [guruMapelList, setGuruMapelList] = useState<Mapel[]>([])
+  const [allMapelList, setAllMapelList] = useState<Mapel[]>([])
+  const [allKelasList, setAllKelasList] = useState<Kelas[]>([])
+  const [loading, setLoading] = useState(true)
+  const [loadingSoal, setLoadingSoal] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
+
+  const [activePaket, setActivePaket] = useState<PaketEssay | null>(null)
+  const [soalList, setSoalList] = useState<SoalEssay[]>([])
+
+  // Setup state
+  const [setupMapel, setSetupMapel] = useState('')
+  const [setupKelas, setSetupKelas] = useState('')
+  const [setupMode, setSetupMode] = useState<'DIGITAL' | 'KERTAS'>('DIGITAL')
+  const [setupDurasi, setSetupDurasi] = useState('30')
+
+  // Aksi paket: kirim/tarik/duplikasi/hapus
+  const [kirimId, setKirimId] = useState<string | null>(null)
+  const [tarikId, setTarikId] = useState<string | null>(null)
+  const [dupId, setDupId] = useState<string | null>(null)
+  const [dupKelas, setDupKelas] = useState('')
+  const [hapusPaketId, setHapusPaketId] = useState<string | null>(null)
+
+  // Soal form (tambah)
+  const [gambarUrl, setGambarUrl] = useState('')
+  const [uploadingImg, setUploadingImg] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [pendingUploadKey, setPendingUploadKey] = useState<string | null>(null)
+  const formRef = useRef<HTMLFormElement>(null)
+
+  // Edit soal
+  const [editSoal, setEditSoal] = useState<SoalEssay | null>(null)
+  const [editGambarUrl, setEditGambarUrl] = useState('')
+  const [deleteSoalId, setDeleteSoalId] = useState<string | null>(null)
+  const [viewSoal, setViewSoal] = useState<SoalEssay | null>(null)
+
+  const showToast = (msg: string, type: 'success' | 'error' = 'success') => setToast({ msg, type })
+
+  const ESSAY_SYNC_EVENT = 'guru-paket-essay-updated'
+
+  const loadPakets = useCallback(async () => {
+    setLoading(true)
+    try {
+      const res = await apiRequest<{ data: PaketEssay[] }>('/api/guru/paket-essay')
+      setPakets(res.data)
+      return res.data
+    } finally { setLoading(false) }
+  }, [])
+
+  useEffect(() => { loadPakets() }, [loadPakets])
+
+  useEffect(() => {
+    const handler = () => loadPakets()
+    window.addEventListener(ESSAY_SYNC_EVENT, handler)
+    return () => window.removeEventListener(ESSAY_SYNC_EVENT, handler)
+  }, [loadPakets])
+
+  useEffect(() => {
+    const user = localStorage.getItem('user')
+    const guruId = user ? JSON.parse(user).username : ''
+    Promise.all([
+      apiRequest<{ data: Mapel[] }>(`/api/admin/mapel?guru_id=${guruId}`),
+      apiRequest<{ data: Mapel[] }>('/api/admin/mapel'),
+      apiRequest<{ data: Kelas[] }>('/api/admin/kelas'),
+    ]).then(([m, allM, k]) => {
+      setGuruMapelList(m.data ?? [])
+      setAllMapelList(allM.data ?? [])
+      setAllKelasList(k.data ?? [])
+    })
+  }, [])
+
+  const kelasUntukMapel: Kelas[] = (() => {
+    if (!setupMapel) return []
+    const mapel = guruMapelList.find(m => m.id === setupMapel)
+    if (!mapel?.kelas_list) return []
+    const kelasDiMapel = mapel.kelas_list.split(',').map(s => s.trim()).filter(Boolean)
+    return allKelasList.filter(k => kelasDiMapel.includes(k.nama))
+  })()
+
+  useEffect(() => { setSetupKelas('') }, [setupMapel])
+
+  const getNamaMapel = (id: string) => guruMapelList.find(m => m.id === id)?.nama ?? allMapelList.find(m => m.id === id)?.nama ?? id
+  const getNamaKelas = (id: string) => allKelasList.find(k => k.id === id)?.nama ?? id
+  const isEditable = (status: string) => ['DRAFT', 'DITOLAK'].includes(status)
+
+  function resetSoalForm() {
+    formRef.current?.reset()
+    setGambarUrl('')
+  }
+
+  async function loadSoalPaket(paketId: string) {
+    setLoadingSoal(true)
+    try {
+      const res = await apiRequest<{ data: SoalEssay[] }>(`/api/guru/soal-essay?paket_id=${paketId}`)
+      setSoalList(res.data)
+      return res.data
+    } catch {
+      setSoalList([])
+      return []
+    } finally { setLoadingSoal(false) }
+  }
+
+  async function startBuatPaket() {
+    if (!setupMapel || !setupKelas) {
+      showToast('Pilih mata pelajaran dan kelas terlebih dahulu', 'error')
+      return
+    }
+    setSaving(true)
+    try {
+      await apiRequest<{ id?: string; message: string }>('/api/guru/paket-essay', {
+        method: 'POST',
+        body: JSON.stringify({
+          mapel_id: setupMapel,
+          kelas_id: setupKelas,
+          mode_jawaban: setupMode,
+          durasi_menit: Number(setupDurasi) || 30,
+        }),
+      })
+      const listRes = await apiRequest<{ data: PaketEssay[] }>('/api/guru/paket-essay')
+      setPakets(listRes.data)
+      const matched = listRes.data.find(p => p.mapel_id === setupMapel && p.kelas_id === setupKelas)
+      if (matched) {
+        setActivePaket(matched)
+        setSoalList([])
+        resetSoalForm()
+        setStep('detail')
+      } else {
+        setStep('list')
+      }
+      window.dispatchEvent(new Event(ESSAY_SYNC_EVENT))
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Gagal membuat paket', 'error')
+    } finally { setSaving(false) }
+  }
+
+  async function bukaKelolaSoal(p: PaketEssay) {
+    setActivePaket(p)
+    setSoalList([])
+    resetSoalForm()
+    setStep('detail')
+    await loadSoalPaket(p.id)
+  }
+
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file || !pendingUploadKey) return
+    setUploadingImg(pendingUploadKey)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const token = localStorage.getItem('token')
+      const res = await fetch('/api/guru/soal/upload', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Upload gagal')
+      if (pendingUploadKey === 'edit') setEditGambarUrl(data.url)
+      else setGambarUrl(data.url)
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Upload gambar gagal', 'error')
+    } finally { setUploadingImg(null); e.target.value = '' }
+  }
+
+  function triggerUpload(key: string) {
+    setPendingUploadKey(key)
+    setTimeout(() => fileInputRef.current?.click(), 50)
+  }
+
+  async function handleTambahSoal(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    if (!activePaket) return
+    const fd = new FormData(e.currentTarget)
+    const teks = String(fd.get('teks') ?? '')
+    const bobotMaks = Number(fd.get('bobot_maks'))
+    if (!bobotMaks || bobotMaks <= 0) {
+      showToast('Bobot maksimal soal harus lebih dari 0', 'error')
+      return
+    }
+    setSaving(true)
+    try {
+      await apiRequest('/api/guru/soal-essay', {
+        method: 'POST',
+        body: JSON.stringify({
+          paket_id: activePaket.id,
+          teks,
+          gambar_url: gambarUrl || null,
+          bobot_maks: bobotMaks,
+        }),
+      })
+      showToast('Soal berhasil ditambahkan')
+      resetSoalForm()
+      const [soalRes, listRes] = await Promise.all([
+        loadSoalPaket(activePaket.id),
+        apiRequest<{ data: PaketEssay[] }>('/api/guru/paket-essay'),
+      ])
+      void soalRes
+      setPakets(listRes.data)
+      const updated = listRes.data.find(p => p.id === activePaket.id)
+      if (updated) setActivePaket(updated)
+      window.dispatchEvent(new Event(ESSAY_SYNC_EVENT))
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Gagal menyimpan soal', 'error')
+    } finally { setSaving(false) }
+  }
+
+  function openEditSoal(s: SoalEssay) {
+    setEditSoal(s)
+    setEditGambarUrl(s.gambar_url || '')
+  }
+
+  async function handleSaveEditSoal(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    if (!editSoal?.id) return
+    const fd = new FormData(e.currentTarget)
+    const teks = String(fd.get('teks') ?? '')
+    const bobotMaks = Number(fd.get('bobot_maks'))
+    if (!bobotMaks || bobotMaks <= 0) {
+      showToast('Bobot maksimal soal harus lebih dari 0', 'error')
+      return
+    }
+    setSaving(true)
+    try {
+      await apiRequest(`/api/guru/soal-essay/${editSoal.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ teks, gambar_url: editGambarUrl || null, bobot_maks: bobotMaks }),
+      })
+      showToast('Soal berhasil diperbarui')
+      setEditSoal(null)
+      if (activePaket) await loadSoalPaket(activePaket.id)
+      window.dispatchEvent(new Event(ESSAY_SYNC_EVENT))
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Gagal menyimpan', 'error')
+    } finally { setSaving(false) }
+  }
+
+  async function handleDeleteSoal() {
+    if (!deleteSoalId || !activePaket) return
+    setSaving(true)
+    try {
+      await apiRequest(`/api/guru/soal-essay/${deleteSoalId}`, { method: 'DELETE' })
+      showToast('Soal berhasil dihapus')
+      setDeleteSoalId(null)
+      await loadSoalPaket(activePaket.id)
+      const listRes = await apiRequest<{ data: PaketEssay[] }>('/api/guru/paket-essay')
+      setPakets(listRes.data)
+      const updated = listRes.data.find(p => p.id === activePaket.id)
+      if (updated) setActivePaket(updated)
+      window.dispatchEvent(new Event(ESSAY_SYNC_EVENT))
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Gagal menghapus', 'error')
+    } finally { setSaving(false) }
+  }
+
+  async function handleKirim() {
+    if (!kirimId) return
+    setSaving(true)
+    try {
+      const res = await apiRequest<{ message: string }>(`/api/guru/paket-essay/${kirimId}/kirim`, { method: 'POST' })
+      showToast(res.message || 'Paket berhasil dikirim')
+      setKirimId(null)
+      await loadPakets()
+      window.dispatchEvent(new Event(ESSAY_SYNC_EVENT))
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Gagal mengirim paket', 'error')
+    } finally { setSaving(false) }
+  }
+
+  async function handleTarik() {
+    if (!tarikId) return
+    setSaving(true)
+    try {
+      await apiRequest(`/api/guru/paket-essay/${tarikId}/tarik`, { method: 'POST' })
+      showToast('Paket berhasil ditarik')
+      setTarikId(null)
+      await loadPakets()
+      window.dispatchEvent(new Event(ESSAY_SYNC_EVENT))
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Gagal menarik paket', 'error')
+    } finally { setSaving(false) }
+  }
+
+  async function handleDuplicate() {
+    if (!dupId || !dupKelas) return
+    setSaving(true)
+    try {
+      await apiRequest(`/api/guru/paket-essay/${dupId}/duplicate`, {
+        method: 'POST',
+        body: JSON.stringify({ kelas_id: dupKelas }),
+      })
+      showToast('Paket berhasil diduplikasi')
+      setDupId(null)
+      setDupKelas('')
+      await loadPakets()
+      window.dispatchEvent(new Event(ESSAY_SYNC_EVENT))
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Gagal menduplikasi paket', 'error')
+    } finally { setSaving(false) }
+  }
+
+  async function handleHapusPaket() {
+    if (!hapusPaketId) return
+    setSaving(true)
+    try {
+      await apiRequest(`/api/guru/paket-essay/${hapusPaketId}`, { method: 'DELETE' })
+      showToast('Paket berhasil dihapus')
+      setHapusPaketId(null)
+      await loadPakets()
+      window.dispatchEvent(new Event(ESSAY_SYNC_EVENT))
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Gagal menghapus paket', 'error')
+    } finally { setSaving(false) }
+  }
+
+  // Kelas tujuan untuk duplikasi: exclude kelas milik paket sumber sendiri
+  const dupPaketSumber = pakets.find(p => p.id === dupId) ?? null
+  const kelasTujuanDuplikasi = dupPaketSumber
+    ? allKelasList.filter(k => k.id !== dupPaketSumber.kelas_id)
+    : []
+
+  // ── Render daftar soal (dipakai di step detail) ──
+  function renderSoalList() {
+    if (soalList.length === 0) {
+      return <p className="text-xs text-slate-400 text-center py-4">Belum ada soal dalam paket ini</p>
+    }
+    return soalList.map((s, i) => (
+      <div key={s.id || i} className="flex items-start gap-2 text-sm text-slate-700 bg-white rounded-lg px-3 py-2 border border-slate-100">
+        <span className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-700 font-bold text-xs flex items-center justify-center flex-shrink-0 mt-0.5">{i + 1}</span>
+        <div className="flex-1 min-w-0">
+          <p className="line-clamp-2">{s.teks}</p>
+          <div className="flex items-center gap-2 mt-0.5">
+            {s.gambar_url && <span className="text-xs text-brand-500">📷 Ada gambar</span>}
+            <span className="text-xs text-slate-400">Bobot: {s.bobot_maks}</span>
+          </div>
+        </div>
+        <div className="flex items-center gap-1 flex-shrink-0">
+          {isEditable(s.status) ? (
+            <>
+              <button onClick={() => openEditSoal(s)} className="btn-ghost btn-icon btn-sm text-blue-600 hover:bg-blue-50" title="Edit soal">
+                <Pencil className="w-3.5 h-3.5" />
+              </button>
+              <button onClick={() => setDeleteSoalId(s.id)} className="btn-ghost btn-icon btn-sm text-red-600 hover:bg-red-50" title="Hapus soal">
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </>
+          ) : (
+            <>
+              <button onClick={() => setViewSoal(s)} className="btn-ghost btn-icon btn-sm text-slate-500 hover:bg-slate-100" title="Lihat soal">
+                <Eye className="w-3.5 h-3.5" />
+              </button>
+              <span title="Soal tidak bisa diedit" className="btn-ghost btn-icon btn-sm text-slate-300 cursor-not-allowed">
+                <Lock className="w-3.5 h-3.5" />
+              </span>
+            </>
+          )}
+        </div>
+      </div>
+    ))
+  }
+
+  // ── STEP: DETAIL ─────────────────────────────────────────────────
+  if (step === 'detail' && activePaket) {
+    const namaMapel = activePaket.nama_mapel ?? getNamaMapel(activePaket.mapel_id)
+    const namaKelas = activePaket.nama_kelas ?? getNamaKelas(activePaket.kelas_id)
+    const editable = isEditable(activePaket.status)
+    return (
+      <div className="space-y-6 animate-fade-in">
+        {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
+        <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
+
+        <div>
+          <button onClick={() => { setStep('list'); setActivePaket(null); setSoalList([]) }} className="btn-ghost btn-sm text-slate-500 mb-1">
+            <ArrowLeft className="w-4 h-4" /> Kembali
+          </button>
+          <h1 className="page-title">Kelola Soal Essay</h1>
+          <p className="page-subtitle">
+            {namaMapel} · Kelas {namaKelas} · Mode {activePaket.mode_jawaban} · {activePaket.durasi_menit} menit · {soalList.length} soal
+          </p>
+        </div>
+
+        {!editable && (
+          <div className="alert-info text-sm flex items-center gap-2">
+            <Lock className="w-4 h-4 flex-shrink-0" />
+            Paket ini sudah dikirim/disetujui dan terkunci — soal tidak bisa ditambah, diedit, atau dihapus.
+          </div>
+        )}
+
+        {editable && (
+          <div className="card">
+            <div className="flex items-center gap-2 mb-4">
+              <span className="w-8 h-8 rounded-full bg-emerald-600 text-white font-bold text-sm flex items-center justify-center flex-shrink-0">
+                {soalList.length + 1}
+              </span>
+              <h2 className="font-semibold text-slate-800">Soal ke-{soalList.length + 1}</h2>
+            </div>
+            <form ref={formRef} onSubmit={handleTambahSoal} className="space-y-4">
+              <div>
+                <label className="label">Teks Pertanyaan *</label>
+                <textarea name="teks" className="textarea" rows={3} required placeholder="Tulis pertanyaan essay di sini..." />
+                <div className="mt-2">
+                  <ImageUploadButton label="Tambah Gambar" url={gambarUrl}
+                    onUrl={setGambarUrl} uploadKey="tambah" uploading={uploadingImg} onTrigger={triggerUpload} />
+                </div>
+              </div>
+              <div>
+                <label className="label">Bobot Maksimal *</label>
+                <input name="bobot_maks" type="number" min={1} className="input" required placeholder="Contoh: 20" />
+              </div>
+              <div className="flex gap-3 pt-2 flex-wrap">
+                <button type="submit" className="btn-primary" disabled={saving || !!uploadingImg}>
+                  {saving ? <Spinner size="sm" /> : <><Plus className="w-4 h-4" /> Tambah & Lanjut ke Soal Berikutnya</>}
+                </button>
+                <button type="button" onClick={() => { setStep('list'); setActivePaket(null); setSoalList([]) }} className="btn-secondary">
+                  Selesai ({soalList.length} soal)
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
+
+        {(soalList.length > 0 || loadingSoal) && (
+          <div className="card">
+            <p className="text-sm font-medium text-slate-600 mb-3">Soal yang sudah dibuat ({soalList.length})</p>
+            {loadingSoal ? (
+              <div className="flex justify-center py-4"><Spinner size="sm" /></div>
+            ) : (
+              <div className="space-y-2">{renderSoalList()}</div>
+            )}
+          </div>
+        )}
+
+        {/* Modal Edit Soal */}
+        <Modal open={!!editSoal} onClose={() => setEditSoal(null)} title="Edit Soal Essay" size="lg"
+          footer={
+            <>
+              <button onClick={() => setEditSoal(null)} className="btn-secondary" disabled={saving}>Batal</button>
+              <button form="soal-essay-edit-form" type="submit" className="btn-primary" disabled={saving || uploadingImg === 'edit'}>
+                {saving ? <Spinner size="sm" /> : 'Simpan Perubahan'}
+              </button>
+            </>
+          }
+        >
+          {editSoal && (
+            <form id="soal-essay-edit-form" onSubmit={handleSaveEditSoal} className="space-y-4">
+              <div>
+                <label className="label">Teks Pertanyaan *</label>
+                <textarea name="teks" className="textarea" rows={3} required defaultValue={editSoal.teks ?? ''} />
+                <div className="mt-2">
+                  <ImageUploadButton label="Tambah Gambar" url={editGambarUrl}
+                    onUrl={setEditGambarUrl} uploadKey="edit" uploading={uploadingImg} onTrigger={triggerUpload} />
+                </div>
+              </div>
+              <div>
+                <label className="label">Bobot Maksimal *</label>
+                <input name="bobot_maks" type="number" min={1} className="input" required defaultValue={editSoal.bobot_maks} />
+              </div>
+            </form>
+          )}
+        </Modal>
+
+        {/* Modal View (read-only) */}
+        <Modal open={!!viewSoal} onClose={() => setViewSoal(null)} title="Detail Soal Essay" size="lg">
+          {viewSoal && (
+            <div className="space-y-4">
+              <div className="alert-info text-xs flex items-center gap-2">
+                <Lock className="w-3.5 h-3.5 flex-shrink-0" />
+                Soal ini sudah dikirim/disetujui dan tidak bisa diedit atau dihapus.
+              </div>
+              <div>
+                <p className="label mb-1">Pertanyaan</p>
+                <p className="text-sm text-slate-800 leading-relaxed">{viewSoal.teks}</p>
+              </div>
+              {viewSoal.gambar_url && (
+                <div>
+                  <p className="label mb-1">Gambar</p>
+                  <img src={viewSoal.gambar_url} alt="Gambar soal" className="max-h-48 rounded-lg border border-slate-200" />
+                </div>
+              )}
+              <div>
+                <p className="label mb-1">Bobot Maksimal</p>
+                <p className="text-sm text-slate-700">{viewSoal.bobot_maks}</p>
+              </div>
+            </div>
+          )}
+        </Modal>
+
+        <Confirm open={!!deleteSoalId} onClose={() => setDeleteSoalId(null)}
+          onConfirm={handleDeleteSoal} title="Hapus Soal"
+          message="Soal ini akan dihapus permanen. Lanjutkan?"
+          confirmLabel="Ya, Hapus" loading={saving} />
+      </div>
+    )
+  }
+
+  // ── STEP: SETUP ──────────────────────────────────────────────────
+  if (step === 'setup') {
+    return (
+      <div className="space-y-6 animate-fade-in">
+        {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
+        <div>
+          <button onClick={() => setStep('list')} className="btn-ghost btn-sm text-slate-500 mb-2">
+            <ArrowLeft className="w-4 h-4" /> Kembali
+          </button>
+          <h1 className="page-title">Buat Paket Soal Essay</h1>
+          <p className="page-subtitle">Atur mata pelajaran, kelas, mode jawaban, dan durasi terlebih dahulu</p>
+        </div>
+
+        <div className="card max-w-lg">
+          <div className="space-y-4">
+            <div>
+              <label className="label">Mata Pelajaran *</label>
+              <select className="select" value={setupMapel} onChange={e => setSetupMapel(e.target.value)} required>
+                <option value="">Pilih Mata Pelajaran</option>
+                {guruMapelList.map(m => <option key={m.id} value={m.id}>{m.nama}</option>)}
+              </select>
+              {guruMapelList.length === 0 && (
+                <p className="text-xs text-amber-600 mt-1">Belum ada mata pelajaran yang diampu. Hubungi admin.</p>
+              )}
+            </div>
+            <div>
+              <label className="label">Kelas *</label>
+              <select className="select" value={setupKelas} onChange={e => setSetupKelas(e.target.value)} required disabled={!setupMapel}>
+                <option value="">{setupMapel ? 'Pilih Kelas' : 'Pilih mapel dulu'}</option>
+                {kelasUntukMapel.map(k => <option key={k.id} value={k.id}>{k.nama}</option>)}
+              </select>
+              {setupMapel && kelasUntukMapel.length === 0 && (
+                <p className="text-xs text-amber-600 mt-1">Tidak ada kelas yang terdaftar untuk mapel ini. Hubungi admin.</p>
+              )}
+            </div>
+            <div>
+              <label className="label">Mode Jawaban</label>
+              <select className="select" value={setupMode} onChange={e => setSetupMode(e.target.value as 'DIGITAL' | 'KERTAS')}>
+                <option value="DIGITAL">Digital — siswa mengetik jawaban di layar</option>
+                <option value="KERTAS">Kertas — siswa menulis jawaban di kertas</option>
+              </select>
+            </div>
+            <div>
+              <label className="label">Durasi (menit) *</label>
+              <input type="number" min={1} className="input" value={setupDurasi} onChange={e => setSetupDurasi(e.target.value)} required />
+            </div>
+            <div className="alert-info text-xs flex items-center gap-2">
+              <Info className="w-3.5 h-3.5 flex-shrink-0" />
+              Pengaturan ini hanya perlu diisi sekali. Setelah itu Anda bisa langsung membuat soal satu per satu.
+            </div>
+            <div className="flex gap-3 pt-2">
+              <button onClick={startBuatPaket} className="btn-primary" disabled={saving || !setupMapel || !setupKelas}>
+                {saving ? <Spinner size="sm" /> : 'Lanjut Buat Soal →'}
+              </button>
+              <button onClick={() => setStep('list')} className="btn-secondary">Batal</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // ── STEP: LIST ───────────────────────────────────────────────────
+  return (
+    <div className="space-y-6 animate-fade-in">
+      {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
+
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <button onClick={onBack} className="btn-ghost btn-sm text-slate-500 mb-1">
+            <ArrowLeft className="w-4 h-4" /> Ganti Jenis Soal
+          </button>
+          <h1 className="page-title">Buat Soal Essay</h1>
+          <p className="page-subtitle">Kelola paket soal essay yang telah dibuat</p>
+        </div>
+        <button onClick={() => setStep('setup')} className="btn-primary btn-sm">
+          <Plus className="w-4 h-4" /> Buat Soal Baru
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center py-20"><Spinner size="lg" /></div>
+      ) : pakets.length === 0 ? (
+        <div className="card">
+          <EmptyState message="Belum ada soal essay. Klik 'Buat Soal Baru' untuk mulai membuat soal." />
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {pakets.map(p => (
+            <div key={p.id} className="card p-0 overflow-hidden">
+              <div className="flex items-center gap-4 p-4 flex-wrap">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-semibold text-slate-900">{p.nama_mapel ?? getNamaMapel(p.mapel_id)}</span>
+                    <span className="text-slate-400 text-xs">·</span>
+                    <span className="text-sm text-slate-600">Kelas {p.nama_kelas ?? getNamaKelas(p.kelas_id)}</span>
+                    <StatusBadge status={p.status} />
+                  </div>
+                  <div className="text-xs text-slate-400 mt-1">
+                    {p.jumlah_soal} soal · Mode {p.mode_jawaban} · {p.durasi_menit} menit · {formatDateTime(p.tanggal)}
+                  </div>
+                  {p.catatan && (
+                    <div className="mt-2 text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2 border border-amber-100">
+                      📝 Catatan Admin: {p.catatan}
+                    </div>
+                  )}
+                  {p.status === 'DITOLAK' && (
+                    <div className="mt-1 text-xs text-red-600">Soal ditolak — silakan edit soal lalu kirim ulang</div>
+                  )}
+                  {p.status === 'MENUNGGU' && p.catatan && (
+                    <div className="mt-1 text-xs text-slate-500">Menunggu validasi admin</div>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
+                  <button onClick={() => { setDupId(p.id); setDupKelas('') }} className="btn-ghost btn-sm text-slate-600" title="Duplikasi paket ke kelas lain">
+                    <Copy className="w-3.5 h-3.5" /> Duplikasi
+                  </button>
+                  {['DRAFT', 'DITOLAK'].includes(p.status) && (
+                    <button onClick={() => setKirimId(p.id)} className="btn-secondary btn-sm">
+                      <Send className="w-3.5 h-3.5" /> {p.status === 'DITOLAK' ? 'Kirim Ulang' : 'Kirim'}
+                    </button>
+                  )}
+                  {p.status === 'MENUNGGU' && (
+                    <button onClick={() => setTarikId(p.id)} className="btn-secondary btn-sm">
+                      <RotateCcw className="w-3.5 h-3.5" /> Tarik
+                    </button>
+                  )}
+                  {['DRAFT', 'DITOLAK'].includes(p.status) && (
+                    <button onClick={() => setHapusPaketId(p.id)} className="btn-ghost btn-sm text-red-600 hover:bg-red-50" title="Hapus paket">
+                      <Trash2 className="w-3.5 h-3.5" /> Hapus
+                    </button>
+                  )}
+                  <button onClick={() => bukaKelolaSoal(p)} className="btn-primary btn-sm">
+                    Kelola Soal <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Modal Duplikasi */}
+      <Modal open={!!dupId} onClose={() => { setDupId(null); setDupKelas('') }} title="Duplikasi Paket Essay"
+        footer={
+          <>
+            <button onClick={() => { setDupId(null); setDupKelas('') }} className="btn-secondary" disabled={saving}>Batal</button>
+            <button onClick={handleDuplicate} className="btn-primary" disabled={saving || !dupKelas}>
+              {saving ? <Spinner size="sm" /> : 'Duplikasi'}
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <p className="text-sm text-slate-600">Pilih kelas tujuan. Semua soal dalam paket ini akan disalin sebagai paket baru berstatus Draft.</p>
+          <div>
+            <label className="label">Kelas Tujuan *</label>
+            <select className="select" value={dupKelas} onChange={e => setDupKelas(e.target.value)} required>
+              <option value="">Pilih Kelas</option>
+              {kelasTujuanDuplikasi.map(k => <option key={k.id} value={k.id}>{k.nama}</option>)}
+            </select>
+          </div>
+        </div>
+      </Modal>
+
+      <Confirm open={!!kirimId} onClose={() => setKirimId(null)} onConfirm={handleKirim}
+        title="Kirim Paket" variant="primary"
+        message="Paket ini beserta seluruh soal di dalamnya akan dikirim untuk divalidasi admin. Lanjutkan?"
+        confirmLabel="Ya, Kirim" loading={saving} />
+
+      <Confirm open={!!tarikId} onClose={() => setTarikId(null)} onConfirm={handleTarik}
+        title="Tarik Paket" variant="primary"
+        message="Paket ini akan ditarik kembali menjadi Draft dan tidak lagi menunggu validasi admin. Lanjutkan?"
+        confirmLabel="Ya, Tarik" loading={saving} />
+
+      <Confirm open={!!hapusPaketId} onClose={() => setHapusPaketId(null)} onConfirm={handleHapusPaket}
+        title="Hapus Paket"
+        message="Paket beserta seluruh soal di dalamnya akan dihapus permanen. Lanjutkan?"
+        confirmLabel="Ya, Hapus" loading={saving} />
+    </div>
+  )
+}
+
+export default function GuruBuatSoalPage() {
+  const [kind, setKind] = useState<Kind>('choice')
+
+  if (kind === 'pg') return <PgSoalFlow onBack={() => setKind('choice')} />
+  if (kind === 'essay') return <EssaySoalFlow onBack={() => setKind('choice')} />
+
+  return (
+    <div className="space-y-6 animate-fade-in">
+      <div>
+        <h1 className="page-title">Buat Soal</h1>
+        <p className="page-subtitle">Pilih jenis soal yang ingin dibuat</p>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-2xl">
+        <button onClick={() => setKind('pg')} className="card text-left hover:shadow-lg transition-shadow p-6">
+          <div className="w-12 h-12 rounded-xl bg-brand-100 text-brand-600 flex items-center justify-center mb-3">
+            <ListChecks className="w-6 h-6" />
+          </div>
+          <h2 className="font-semibold text-slate-900 mb-1">Soal PG</h2>
+          <p className="text-sm text-slate-500">Buat soal pilihan ganda dengan kunci jawaban otomatis dinilai sistem.</p>
+        </button>
+        <button onClick={() => setKind('essay')} className="card text-left hover:shadow-lg transition-shadow p-6">
+          <div className="w-12 h-12 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center mb-3">
+            <PenSquare className="w-6 h-6" />
+          </div>
+          <h2 className="font-semibold text-slate-900 mb-1">Soal Essay</h2>
+          <p className="text-sm text-slate-500">Buat soal essay untuk dinilai manual oleh guru setelah siswa mengumpulkan jawaban.</p>
+        </button>
+      </div>
+    </div>
+  )
 }
