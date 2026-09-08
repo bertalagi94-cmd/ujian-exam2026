@@ -25,6 +25,26 @@ export async function PUT(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: 'Soal essay tidak ditemukan' }, { status: 404 })
   }
 
+  // FIX BUG: sebelumnya PUT tidak pernah mengecek status sesi, tidak seperti
+  // DELETE di bawah yang sudah menolak perubahan saat sesi BERJALAN. Akibatnya
+  // guru masih bisa mengubah teks/bobot_maks/status soal essay yang SEDANG
+  // dikerjakan siswa — bisa membuat siswa melihat soal berubah di tengah
+  // ujian, atau bobot_maks berubah setelah siswa submit tapi sebelum guru
+  // koreksi, sehingga skala nilai essay jadi tidak konsisten.
+  const { data: sesiBerjalanUntukEdit } = await db
+    .from('sesi_ujian')
+    .select('id')
+    .eq('jadwal_id', existing.jadwal_id)
+    .eq('status', 'BERJALAN')
+    .maybeSingle()
+
+  if (sesiBerjalanUntukEdit) {
+    return NextResponse.json(
+      { error: 'Tidak bisa mengubah soal essay saat sesi ujian untuk jadwal ini sedang berjalan' },
+      { status: 409 }
+    )
+  }
+
   const update: Record<string, unknown> = {}
   if (body.teks !== undefined) {
     const teks = stripHtmlTags(body.teks)
@@ -40,7 +60,17 @@ export async function PUT(req: NextRequest, { params }: Params) {
     update.bobot_maks = bobotMaks
   }
   if (body.urutan !== undefined) update.urutan = Number(body.urutan)
-  if (body.status !== undefined) update.status = body.status
+  // FIX: batasi nilai status yang boleh disimpan hanya 'DRAFT' atau
+  // 'DISETUJUI' — sebelumnya body.status disimpan mentah-mentah tanpa
+  // validasi, padahal endpoint siswa (essay/soal, essay/info) dan koreksi
+  // guru sekarang bergantung pada status ini untuk memutuskan soal mana
+  // yang ditampilkan/dihitung (lihat FIX di essay/soal/route.ts).
+  if (body.status !== undefined) {
+    if (body.status !== 'DRAFT' && body.status !== 'DISETUJUI') {
+      return NextResponse.json({ error: "status harus 'DRAFT' atau 'DISETUJUI'" }, { status: 400 })
+    }
+    update.status = body.status
+  }
 
   if (Object.keys(update).length === 0) {
     return NextResponse.json({ error: 'Tidak ada perubahan' }, { status: 400 })
