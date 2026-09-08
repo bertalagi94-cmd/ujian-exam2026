@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
   // Ambil nilai
   const { data: nilaiData, error } = await db
     .from('nilai')
-    .select('id, nis, mapel_id, kelas, nilai, grade, lulus, kkm, timestamp, nilai_edit, grade_edit, lulus_edit, dikirim_ke_wali, dikirim_at, dikembalikan, catatan_guru')
+    .select('id, nis, mapel_id, kelas, nilai, grade, lulus, kkm, timestamp, nilai_edit, grade_edit, lulus_edit, dikirim_ke_wali, dikirim_at, dikembalikan, catatan_guru, sesi_id, nilai_essay, nilai_total, dirilis, dirilis_pada')
     .in('mapel_id', mapelIds)
     .order('kelas', { ascending: true })
 
