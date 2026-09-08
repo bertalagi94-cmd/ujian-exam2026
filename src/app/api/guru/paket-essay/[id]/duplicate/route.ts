@@ -50,6 +50,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     jumlah_soal: 0,
     mode_jawaban: paketSumber.mode_jawaban,
     durasi_menit: paketSumber.durasi_menit,
+    bobot_pg_persen: paketSumber.bobot_pg_persen,
+    bobot_essay_persen: paketSumber.bobot_essay_persen,
   })
 
   if (paketErr) return NextResponse.json({ error: paketErr.message }, { status: 500 })
