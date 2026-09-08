@@ -870,6 +870,22 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
   const [setupMode, setSetupMode] = useState<'DIGITAL' | 'KERTAS'>('DIGITAL')
   const [setupDurasi, setSetupDurasi] = useState('30')
 
+  // FIX (gap): batas durasi essay ditentukan admin (Pengaturan > Ujian) —
+  // sebelumnya field ini ada di halaman Admin tapi tidak pernah dibaca di
+  // sini, jadi guru tidak tahu batasnya sampai gagal submit di backend.
+  const [durasiMin, setDurasiMin] = useState(10)
+  const [durasiMax, setDurasiMax] = useState(180)
+  useEffect(() => {
+    apiRequest<{ data: Record<string, string> }>('/api/public/pengaturan')
+      .then(r => {
+        const min = Number(r.data?.batas_durasi_essay_min_menit)
+        const max = Number(r.data?.batas_durasi_essay_max_menit)
+        if (min > 0) setDurasiMin(min)
+        if (max > 0) setDurasiMax(max)
+      })
+      .catch(() => { })
+  }, [])
+
   // Aksi paket: kirim/tarik/duplikasi/hapus
   const [kirimId, setKirimId] = useState<string | null>(null)
   const [tarikId, setTarikId] = useState<string | null>(null)
@@ -1393,14 +1409,19 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
             </div>
             <div>
               <label className="label">Durasi (menit) *</label>
-              <input type="number" min={1} className="input" value={setupDurasi} onChange={e => setSetupDurasi(e.target.value)} required />
+              <input type="number" min={durasiMin} max={durasiMax} className="input" value={setupDurasi} onChange={e => setSetupDurasi(e.target.value)} required />
+              <p className="text-xs text-slate-400 mt-1">Durasi harus antara {durasiMin}–{durasiMax} menit (ditentukan admin).</p>
             </div>
             <div className="alert-info text-xs flex items-center gap-2">
               <Info className="w-3.5 h-3.5 flex-shrink-0" />
               Pengaturan ini hanya perlu diisi sekali. Setelah itu Anda bisa langsung membuat soal satu per satu.
             </div>
             <div className="flex gap-3 pt-2">
-              <button onClick={startBuatPaket} className="btn-primary" disabled={saving || !setupMapel || !setupKelas}>
+              <button
+                onClick={startBuatPaket}
+                className="btn-primary"
+                disabled={saving || !setupMapel || !setupKelas || Number(setupDurasi) < durasiMin || Number(setupDurasi) > durasiMax}
+              >
                 {saving ? <Spinner size="sm" /> : 'Lanjut Buat Soal →'}
               </button>
               <button onClick={() => setStep('list')} className="btn-secondary">Batal</button>
