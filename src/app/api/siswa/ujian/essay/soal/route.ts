@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
 
   const { data: sesi } = await db
     .from('sesi_ujian')
-    .select('id, jadwal_id, info_json')
+    .select('id, jadwal_id, mapel_id, kelas, info_json')
     .eq('id', sesiId)
     .single()
 
@@ -29,6 +29,15 @@ export async function GET(req: NextRequest) {
   if (!sesi.info_json?.essay_aktif) {
     return NextResponse.json({ error: 'Sesi ini tidak memiliki soal essay' }, { status: 400 })
   }
+
+  // Soal essay sekarang berupa bank per mapel+kelas (paket_essay), sama
+  // seperti soal PG — bukan lagi melekat ke jadwal_id. Lihat 08_paket_essay.sql.
+  const { data: kelasRow } = await db
+    .from('kelas')
+    .select('id')
+    .eq('nama', String(sesi.kelas))
+    .maybeSingle()
+  const kelasId = kelasRow?.id ?? String(sesi.kelas)
 
   const { data: siswaUjian } = await db
     .from('siswa_ujian')
@@ -56,7 +65,8 @@ export async function GET(req: NextRequest) {
   const { data: soalList, error } = await db
     .from('soal_essay')
     .select('id, teks, gambar_url, urutan')
-    .eq('jadwal_id', sesi.jadwal_id)
+    .eq('mapel_id', sesi.mapel_id)
+    .eq('kelas_id', kelasId)
     .eq('status', 'DISETUJUI')
     .order('urutan', { ascending: true })
 
