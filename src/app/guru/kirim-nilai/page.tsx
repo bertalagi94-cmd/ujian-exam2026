@@ -312,6 +312,7 @@ export default function KirimNilaiPage() {
           esaiPerSesi[r.sesi_id].push(r)
         }
         const sesiEssayIds = Object.keys(esaiPerSesi)
+        const jumlahTertunda = grup.rows.filter(r => r.essay_belum_dirilis).length
 
         return (
           <div
@@ -350,6 +351,9 @@ export default function KirimNilaiPage() {
               </div>
               <div className="flex items-center gap-3 flex-shrink-0">
                 <span className="text-xs text-slate-500">{grup.sudahDikirim}/{grup.total} terkirim</span>
+                {jumlahTertunda > 0 && (
+                  <span className="text-xs text-indigo-500">· {jumlahTertunda} menunggu essay</span>
+                )}
                 {grup.belumUjian.length > 0 && (
                   <span className="text-xs text-slate-400">· {grup.belumUjian.length} belum ujian</span>
                 )}
@@ -388,7 +392,18 @@ export default function KirimNilaiPage() {
                           <tr key={n.id} className={n.dikembalikan ? 'bg-orange-50' : n.dikirim_ke_wali ? 'bg-emerald-50/40' : ''}>
                             <td className="text-slate-400 text-xs">{i + 1}</td>
                             <td>
-                              <div className="font-medium text-slate-800">{n.nama_siswa}</div>
+                              <div className="font-medium text-slate-800 flex items-center gap-1.5 flex-wrap">
+                                {n.nama_siswa}
+                                {/* FIX (kelas campuran PG-only vs PG+Essay): badge ini muncul
+                                    SEBELUM guru menekan tombol kirim, bukan cuma lewat toast
+                                    sesudahnya — supaya kelihatan dari awal siswa mana yang akan
+                                    dilewati saat "Kirim ke Wali Kelas" ditekan. */}
+                                {n.essay_belum_dirilis && (
+                                  <span className="flex items-center gap-1 text-[11px] bg-indigo-100 text-indigo-700 border border-indigo-200 px-1.5 py-0.5 rounded-full font-medium">
+                                    <FileText className="w-3 h-3" /> Menunggu essay
+                                  </span>
+                                )}
+                              </div>
                               <div className="text-xs text-slate-400">{n.nis}</div>
                             </td>
                             <td className="text-center">
@@ -448,6 +463,10 @@ export default function KirimNilaiPage() {
                               ) : n.dikembalikan ? (
                                 <span className="flex items-center gap-1 justify-center text-xs text-orange-600 font-medium">
                                   <RotateCcw className="w-3.5 h-3.5" /> Dikembalikan
+                                </span>
+                              ) : n.essay_belum_dirilis ? (
+                                <span className="flex items-center gap-1 justify-center text-xs text-indigo-600 font-medium" title="Akan dilewati saat 'Kirim ke Wali Kelas' ditekan, sampai nilai essay-nya dirilis">
+                                  <FileText className="w-3.5 h-3.5" /> Tertunda
                                 </span>
                               ) : (
                                 <span className="text-xs text-slate-400">Belum</span>
@@ -538,6 +557,18 @@ export default function KirimNilaiPage() {
                         </div>
                       )
                     })}
+                  </div>
+                )}
+
+                {/* Info siswa yang essay-nya belum dirilis guru — nama-nama ini
+                    akan DILEWATI kalau tombol "Kirim ke Wali Kelas" di bawah
+                    ditekan sekarang, sampai nilai essay-nya dirilis lewat
+                    panel "Nilai Essay" di atas (atau dikoreksi dulu kalau
+                    belum muncul di panel itu sama sekali). */}
+                {jumlahTertunda > 0 && (
+                  <div className="px-5 py-3 bg-indigo-50 border-t border-indigo-100 text-xs text-indigo-800">
+                    <strong>{jumlahTertunda} siswa menunggu rilis nilai essay:</strong>{' '}
+                    {grup.rows.filter(r => r.essay_belum_dirilis).map(s => s.nama_siswa).join(', ')}
                   </div>
                 )}
 
