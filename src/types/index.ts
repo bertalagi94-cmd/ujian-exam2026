@@ -139,6 +139,36 @@ export interface Soal {
   paket_id?: string
 }
 
+export interface PaketEssay {
+  id: string
+  mapel_id: string
+  kelas_id: string
+  guru_id: string
+  status: 'DRAFT' | 'MENUNGGU' | 'DISETUJUI' | 'DITOLAK'
+  tanggal: string
+  catatan?: string
+  jumlah_soal: number
+  mode_jawaban: 'DIGITAL' | 'KERTAS'
+  durasi_menit: number
+  // joined
+  nama_mapel?: string
+  nama_kelas?: string
+  nama_guru?: string
+}
+
+export interface SoalEssay {
+  id: string
+  paket_essay_id?: string
+  mapel_id: string
+  kelas_id: string
+  guru_id: string
+  teks: string
+  gambar_url?: string
+  bobot_maks: number
+  urutan: number
+  status: 'DRAFT' | 'MENUNGGU' | 'DISETUJUI' | 'DITOLAK'
+}
+
 export interface SesiUjian {
   id: string
   jadwal_id?: string
