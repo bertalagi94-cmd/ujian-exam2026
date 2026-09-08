@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
 
   const { data: sesi } = await db
     .from('sesi_ujian')
-    .select('id, jadwal_id, info_json')
+    .select('id, jadwal_id, mapel_id, kelas, info_json')
     .eq('id', sesiId)
     .single()
   if (!sesi) return NextResponse.json({ error: 'Sesi tidak ditemukan' }, { status: 404 })
@@ -32,6 +32,15 @@ export async function GET(req: NextRequest) {
 
   const modeJawaban = sesi.info_json?.essay_mode_jawaban
 
+  // Soal essay sekarang berupa bank per mapel+kelas (paket_essay), sama
+  // seperti soal PG — bukan lagi melekat ke jadwal_id. Lihat 08_paket_essay.sql.
+  const { data: kelasRow } = await db
+    .from('kelas')
+    .select('id')
+    .eq('nama', String(sesi.kelas))
+    .maybeSingle()
+  const kelasId = kelasRow?.id ?? String(sesi.kelas)
+
   // FIX BUG (fitur essay): filter status = 'DISETUJUI' — sebelumnya soal
   // DRAFT ikut dihitung di totalBobotMaks, padahal soal DRAFT itu TIDAK
   // pernah benar-benar dikerjakan siswa (lihat FIX di essay/soal/route.ts),
@@ -40,7 +49,8 @@ export async function GET(req: NextRequest) {
   const { data: soalEssayList } = await db
     .from('soal_essay')
     .select('id, teks, bobot_maks, urutan')
-    .eq('jadwal_id', sesi.jadwal_id)
+    .eq('mapel_id', sesi.mapel_id)
+    .eq('kelas_id', kelasId)
     .eq('status', 'DISETUJUI')
     .order('urutan', { ascending: true })
 
@@ -116,7 +126,7 @@ export async function PUT(req: NextRequest) {
 
   const { data: sesi } = await db
     .from('sesi_ujian')
-    .select('id, jadwal_id, info_json')
+    .select('id, jadwal_id, mapel_id, kelas, info_json')
     .eq('id', sesiId)
     .single()
   if (!sesi) return NextResponse.json({ error: 'Sesi tidak ditemukan' }, { status: 404 })
@@ -150,13 +160,23 @@ export async function PUT(req: NextRequest) {
     finalNilaiEssay = 0
     statusEssayUpdate = 'TIDAK_MENGERJAKAN'
   } else {
+    // Soal essay sekarang berupa bank per mapel+kelas (paket_essay), sama
+    // seperti soal PG — bukan lagi melekat ke jadwal_id. Lihat 08_paket_essay.sql.
+    const { data: kelasRow } = await db
+      .from('kelas')
+      .select('id')
+      .eq('nama', String(sesi.kelas))
+      .maybeSingle()
+    const kelasId = kelasRow?.id ?? String(sesi.kelas)
+
     // FIX BUG (fitur essay): sama seperti di GET — filter status = 'DISETUJUI'
     // supaya totalBobotMaks yang dipakai untuk konversi nilai essay ke skala
     // 0-100 SELALU konsisten dengan soal yang benar-benar dikerjakan siswa.
     const { data: soalEssayList } = await db
       .from('soal_essay')
       .select('bobot_maks')
-      .eq('jadwal_id', sesi.jadwal_id)
+      .eq('mapel_id', sesi.mapel_id)
+      .eq('kelas_id', kelasId)
       .eq('status', 'DISETUJUI')
     const totalBobotMaks = (soalEssayList ?? []).reduce((sum, s) => sum + Number(s.bobot_maks), 0) || 100
 
