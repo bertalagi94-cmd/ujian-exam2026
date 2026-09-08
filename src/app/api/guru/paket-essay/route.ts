@@ -66,6 +66,19 @@ export async function POST(req: NextRequest) {
   const modeJawaban = body.mode_jawaban === 'KERTAS' ? 'KERTAS' : 'DIGITAL'
   const durasiMenit = Number(body.durasi_menit) > 0 ? Number(body.durasi_menit) : 30
 
+  // FIX (bobot PG:Essay): bobot sekarang diatur di sini (per paket_essay,
+  // per mapel+kelas), bukan lagi per jadwal — lihat 09_bobot_paket_essay.sql.
+  // Kedua angka wajib berjumlah 100; kalau tidak dikirim, default 50/50.
+  let bobotPgPersen = Number(body.bobot_pg_persen)
+  let bobotEssayPersen = Number(body.bobot_essay_persen)
+  if (!Number.isFinite(bobotPgPersen) || !Number.isFinite(bobotEssayPersen)) {
+    bobotPgPersen = 50
+    bobotEssayPersen = 50
+  }
+  if (bobotPgPersen < 0 || bobotPgPersen > 100 || bobotEssayPersen < 0 || bobotEssayPersen > 100 || bobotPgPersen + bobotEssayPersen !== 100) {
+    return NextResponse.json({ error: 'Bobot PG dan Essay harus berjumlah 100%' }, { status: 400 })
+  }
+
   // FIX (gap): batas durasi essay yang ditentukan admin (Pengaturan > Ujian)
   // tadinya hanya tersimpan di tabel `pengaturan` tanpa pernah divalidasi di
   // mana pun. Divalidasi di sini sebagai sumber kebenaran (bukan lewat
@@ -112,6 +125,8 @@ export async function POST(req: NextRequest) {
     jumlah_soal: 0,
     mode_jawaban: modeJawaban,
     durasi_menit: durasiMenit,
+    bobot_pg_persen: bobotPgPersen,
+    bobot_essay_persen: bobotEssayPersen,
   })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
