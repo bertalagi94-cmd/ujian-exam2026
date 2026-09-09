@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
+import { petakanEssayAktifPerSesi } from '@/app/api/guru/kirim-nilai/route'
 
 // Rincian hasil ujian per nomor soal.
 //
@@ -20,15 +21,31 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   // Ambil baris nilai — sekaligus pastikan baris ini benar milik siswa yang
   // login (bukan NIS siswa lain), supaya siswa A tidak bisa intip rincian
   // siswa B hanya dengan menebak/mengganti id di URL.
+  // FIX (bug nilai essay tidak tampil di siswa): sebelumnya select ini TIDAK
+  // menyertakan nilai_essay/nilai_total/dirilis sama sekali, sehingga
+  // halaman rincian nilai siswa tidak mungkin menampilkan nilai gabungan
+  // PG+essay walau guru sudah merilisnya. Kolom essay di-mask sama seperti
+  // di /api/siswa/nilai — hanya boleh dilihat siswa kalau dirilis === true.
   const { data: nilai, error: nilaiError } = await db
     .from('nilai')
-    .select('id, sesi_id, nis, mapel_id, kelas, benar, total, nilai, grade, lulus, kkm, timestamp')
+    .select('id, sesi_id, nis, mapel_id, kelas, benar, total, nilai, grade, lulus, kkm, timestamp, nilai_essay, nilai_total, dirilis, dinilai_pada')
     .eq('id', id)
     .eq('nis', user.nis!)
     .single()
 
   if (nilaiError || !nilai) {
     return NextResponse.json({ error: 'Data nilai tidak ditemukan' }, { status: 404 })
+  }
+
+  const essayDirilis = nilai.dirilis === true
+  const essayAktifMap = await petakanEssayAktifPerSesi(db, [nilai.sesi_id])
+  const essayAktif = nilai.sesi_id ? (essayAktifMap.get(nilai.sesi_id) ?? false) : false
+  const nilaiMasked = {
+    ...nilai,
+    nilai_essay: essayDirilis ? nilai.nilai_essay : null,
+    nilai_total: essayDirilis ? nilai.nilai_total : null,
+    dinilai_pada: essayDirilis ? nilai.dinilai_pada : null,
+    essay_belum_dirilis: essayAktif && !essayDirilis,
   }
 
   const { data: mapel } = await db.from('mapel').select('nama').eq('id', nilai.mapel_id).single()
@@ -73,7 +90,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 
   return NextResponse.json({
     nilai: {
-      ...nilai,
+      ...nilaiMasked,
       nama_mapel: mapel?.nama ?? nilai.mapel_id,
     },
     rincian,
