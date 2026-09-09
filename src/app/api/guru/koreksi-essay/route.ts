@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
   // yang bertugas mengawas ruangan ujian tsb. Sekarang akses diberikan kalau
   // salah satu terpenuhi: dia pengawas sesi ATAU dia guru pengampu mapel ini.
   const [{ data: jadwal }, { data: mapel }] = await Promise.all([
-    db.from('jadwal').select('id, pengawas').eq('id', sesi.jadwal_id).maybeSingle(),
+    db.from('jadwal').select('id, pengawas, essay_bobot_pg_persen, essay_bobot_essay_persen').eq('id', sesi.jadwal_id).maybeSingle(),
     db.from('mapel').select('id, guru_id').eq('id', sesi.mapel_id).maybeSingle(),
   ])
   const isPengawas = jadwal?.pengawas === user.username
@@ -36,6 +36,14 @@ export async function GET(req: NextRequest) {
   if (!isPengawas && !isGuruPengampu) {
     return NextResponse.json({ error: 'Anda bukan pengawas maupun guru pengampu sesi ini' }, { status: 403 })
   }
+
+  // UX (menghindari kebingungan skala nilai essay): sertakan bobot PG:Essay
+  // yang berlaku untuk sesi ini di response, supaya UI koreksi bisa
+  // menampilkan pratinjau konversi nilai essay & rumus nilai total dengan
+  // jelas — sebelumnya guru tidak melihat info ini sama sekali di halaman
+  // koreksi, jadi tidak tahu kenapa "20" yang diinput bisa jadi "67".
+  const bobotPg = sesi.info_json?.essay_bobot_pg_persen ?? jadwal?.essay_bobot_pg_persen ?? 50
+  const bobotEssay = sesi.info_json?.essay_bobot_essay_persen ?? jadwal?.essay_bobot_essay_persen ?? 50
 
   const modeJawaban = sesi.info_json?.essay_mode_jawaban
 
@@ -71,12 +79,12 @@ export async function GET(req: NextRequest) {
 
   const nisList = (pesertaList ?? []).map(p => p.nis)
   if (nisList.length === 0) {
-    return NextResponse.json({ soalEssay: soalEssayList ?? [], totalBobotMaks, peserta: [], modeJawaban })
+    return NextResponse.json({ soalEssay: soalEssayList ?? [], totalBobotMaks, peserta: [], modeJawaban, bobotPg, bobotEssay })
   }
 
   const [{ data: siswaList }, { data: nilaiList }] = await Promise.all([
     db.from('siswa').select('nis, nama').in('nis', nisList),
-    db.from('nilai').select('nis, benar, total, kkm, nilai_essay, nilai_total, dinilai_pada, dirilis').eq('sesi_id', sesiId).in('nis', nisList),
+    db.from('nilai').select('nis, benar, total, kkm, nilai, nilai_essay, nilai_total, dinilai_pada, dirilis').eq('sesi_id', sesiId).in('nis', nisList),
   ])
   const namaMap = Object.fromEntries((siswaList ?? []).map(s => [s.nis, s.nama]))
   const nilaiMap = Object.fromEntries((nilaiList ?? []).map(n => [n.nis, n]))
@@ -110,14 +118,14 @@ export async function GET(req: NextRequest) {
     waktuKirimEssay: p.waktu_kirim_essay,
     jawabanTeks: modeJawaban === 'DIGITAL' ? (jawabanMap[p.nis] ?? []) : undefined,
     fotoUrl: modeJawaban === 'KERTAS' ? (fotoMap[p.nis] ?? null) : undefined,
-    nilaiPg: nilaiMap[p.nis] ? { benar: nilaiMap[p.nis].benar, total: nilaiMap[p.nis].total, kkm: nilaiMap[p.nis].kkm } : null,
+    nilaiPg: nilaiMap[p.nis] ? { benar: nilaiMap[p.nis].benar, total: nilaiMap[p.nis].total, kkm: nilaiMap[p.nis].kkm, nilai: nilaiMap[p.nis].nilai } : null,
     nilaiEssay: nilaiMap[p.nis]?.nilai_essay ?? null,
     nilaiTotal: nilaiMap[p.nis]?.nilai_total ?? null,
     sudahDinilai: nilaiMap[p.nis]?.dinilai_pada != null || p.status_essay === 'TIDAK_MENGERJAKAN',
     dirilis: nilaiMap[p.nis]?.dirilis ?? false,
   }))
 
-  return NextResponse.json({ soalEssay: soalEssayList ?? [], totalBobotMaks, peserta, modeJawaban })
+  return NextResponse.json({ soalEssay: soalEssayList ?? [], totalBobotMaks, peserta, modeJawaban, bobotPg, bobotEssay })
 }
 
 // PUT { sesiId, nis, nilaiEssay } — input/ubah nilai essay 1 siswa & hitung nilai_total.
