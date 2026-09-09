@@ -71,11 +71,31 @@ export async function GET(req: NextRequest) {
 
   const totalBobotMaks = (soalEssayList ?? []).reduce((sum, s) => sum + Number(s.bobot_maks), 0)
 
+  // FIX BUG (siswa hilang dari antrean koreksi essay setelah sesi ditutup
+  // paksa): sebelumnya filter di sini HANYA mengambil status_essay yang
+  // sudah "final" (SUDAH_KIRIM / TIDAK_MENGERJAKAN). Tapi siswa yang sesinya
+  // ditutup paksa (POST /api/guru/mode-pengawas/tutup atau
+  // /api/admin/sesi/[id]/tutup-paksa) SAAT MASIH mengerjakan PG, di halaman
+  // info essay, atau di tengah mengerjakan essay — status_essay mereka
+  // berhenti di null/'BELUM_MULAI'/'MENGERJAKAN' selamanya (penutupan paksa
+  // hanya menghitung nilai PG lewat finalisasiNilaiPaksa, lihat
+  // src/lib/finalisasi-nilai.ts — TIDAK PERNAH menyentuh status_essay).
+  // Akibatnya siswa itu TIDAK PERNAH muncul di halaman koreksi ini, guru
+  // tidak punya cara menandai "Tidak Mengerjakan" untuk mereka (karena
+  // mereka bukan bagian dari peserta list sama sekali), dan nilai_total
+  // mereka tidak akan pernah bisa dirilis lewat UI.
+  //
+  // FIX: sertakan juga siswa yang siswa_ujian.status sudah 'SELESAI'
+  // (mencakup baik yang menyelesaikan essay sendiri maupun yang sesinya
+  // ditutup paksa) meskipun status_essay-nya belum final — supaya guru
+  // tetap melihat mereka di daftar (jawaban essay yang sempat ter-autosave
+  // ikut ditampilkan jika ada) dan bisa memakai tombol "Tidak Mengerjakan"
+  // atau input nilai seperti biasa untuk menuntaskan nilai_total mereka.
   const { data: pesertaList } = await db
     .from('siswa_ujian')
-    .select('nis, status_essay, waktu_kirim_essay')
+    .select('nis, status, status_essay, waktu_kirim_essay')
     .eq('sesi_id', sesiId)
-    .in('status_essay', ['SUDAH_KIRIM', 'TIDAK_MENGERJAKAN'])
+    .or('status_essay.in.(SUDAH_KIRIM,TIDAK_MENGERJAKAN),status.eq.SELESAI')
 
   const nisList = (pesertaList ?? []).map(p => p.nis)
   if (nisList.length === 0) {
