@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { ChevronLeft, CheckCircle2, XCircle } from 'lucide-react'
 import { PageLoader, EmptyState, Badge } from '@/components/ui'
-import { apiRequest, formatDateTime, nilaiColor } from '@/lib/utils'
+import { apiRequest, formatDateTime, nilaiColor, hitungGrade } from '@/lib/utils'
 
 interface RincianSoal {
   no: number
@@ -20,6 +20,11 @@ interface RincianSoal {
 interface NilaiDetail {
   id: string; nama_mapel: string; nilai: number; grade: string
   benar: number; total: number; lulus: boolean; kkm: number; timestamp: string
+  // FIX (bug nilai essay tidak tampil di siswa): field gabungan PG+essay,
+  // null selama guru belum merilis (lihat masking di API).
+  nilai_essay?: number | null
+  nilai_total?: number | null
+  essay_belum_dirilis?: boolean
 }
 
 const LABELS = ['A', 'B', 'C', 'D', 'E'] as const
@@ -52,6 +57,17 @@ export default function RincianNilaiPage() {
     return <EmptyState message={error ?? 'Data tidak ditemukan'} icon={XCircle} />
   }
 
+  // FIX (bug nilai essay tidak tampil di siswa): sebelumnya kartu ringkasan
+  // ini SELALU pakai nilai.nilai/nilai.lulus (nilai PG saja), walau guru
+  // sudah merilis nilai_total gabungan PG+essay. Sekarang: kalau sudah
+  // dirilis (nilai_total terisi, di-mask null oleh API selama belum
+  // dirilis), tampilkan nilai_total sebagai "Nilai" & hitung ulang
+  // grade/status lulus dari situ.
+  const sudahDirilis = nilai.nilai_total != null
+  const nilaiTampil = sudahDirilis ? nilai.nilai_total! : nilai.nilai
+  const gradeTampil = sudahDirilis ? hitungGrade(nilai.nilai_total!) : nilai.grade
+  const lulusTampil = sudahDirilis ? nilai.nilai_total! >= nilai.kkm : nilai.lulus
+
   return (
     <div className="space-y-6 animate-fade-in">
       <button onClick={() => router.back()} className="btn-secondary btn-sm">
@@ -67,15 +83,21 @@ export default function RincianNilaiPage() {
       <div className="card flex flex-wrap items-center gap-6">
         <div>
           <div className="text-xs text-slate-500">Nilai</div>
-          <div className={`text-3xl font-bold ${nilaiColor(nilai.nilai)}`}>{nilai.nilai}</div>
+          <div className={`text-3xl font-bold ${nilaiColor(nilaiTampil)}`}>{nilaiTampil}</div>
+          {sudahDirilis && (
+            <div className="text-[11px] text-slate-400 mt-0.5">PG {nilai.nilai} + Essay {nilai.nilai_essay}</div>
+          )}
+          {nilai.essay_belum_dirilis && (
+            <div className="text-[11px] text-amber-600 mt-0.5">Menunggu rilis nilai essay dari guru</div>
+          )}
         </div>
         <div>
           <div className="text-xs text-slate-500">Grade</div>
           <span className={`badge font-bold ${
-            nilai.grade === 'A' ? 'badge-green' :
-            nilai.grade === 'B' ? 'badge-blue' :
-            nilai.grade === 'C' ? 'badge-yellow' : 'badge-red'
-          }`}>{nilai.grade}</span>
+            gradeTampil === 'A' ? 'badge-green' :
+            gradeTampil === 'B' ? 'badge-blue' :
+            gradeTampil === 'C' ? 'badge-yellow' : 'badge-red'
+          }`}>{gradeTampil}</span>
         </div>
         <div>
           <div className="text-xs text-slate-500">Benar/Total</div>
@@ -83,8 +105,8 @@ export default function RincianNilaiPage() {
         </div>
         <div>
           <div className="text-xs text-slate-500">Status</div>
-          <span className={`badge ${nilai.lulus ? 'badge-green' : 'badge-red'}`}>
-            {nilai.lulus ? '✓ Lulus' : '✗ Tidak Lulus'}
+          <span className={`badge ${lulusTampil ? 'badge-green' : 'badge-red'}`}>
+            {lulusTampil ? '✓ Lulus' : '✗ Tidak Lulus'}
           </span>
         </div>
         <div>
