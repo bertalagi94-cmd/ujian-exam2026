@@ -20,10 +20,31 @@ export async function GET(req: NextRequest) {
   const { data: mapelList } = await db.from('mapel').select('id, nama').in('id', mapelIds.length ? mapelIds : ['__'])
   const mapelMap = Object.fromEntries((mapelList ?? []).map(m => [m.id, m.nama]))
 
-  const enriched = (nilaiList ?? []).map(n => ({
-    ...n,
-    nama_mapel: mapelMap[n.mapel_id] ?? n.mapel_id,
-  }))
+  // FIX (keamanan): sebelumnya endpoint ini mengembalikan SEMUA kolom tabel
+  // `nilai` apa adanya, termasuk `nilai_essay` dan `nilai_total`. Akibatnya
+  // siswa bisa melihat nilai essay/total lewat panggilan API ini walau guru
+  // BELUM menekan tombol rilis (kolom `dirilis` masih false) — gate rilis
+  // yang dimaksud di 07_essay.sql cuma ditegakkan di satu halaman UI
+  // (/siswa/ujian, tampilan "?" setelah submit essay), bukan di endpoint ini.
+  //
+  // Karena app ini pakai service_role di semua route (RLS di-bypass, lihat
+  // 05_fix_rls.sql), satu-satunya penjaga akses adalah kode di sini. Maka:
+  // kolom yang baru boleh dilihat siswa SETELAH `dirilis === true` di-mask
+  // jadi null selama belum dirilis. Kolom nilai PG dasar (`nilai`, `grade`,
+  // `lulus`, `benar`, `total`) TIDAK disentuh karena tidak pernah diubah
+  // oleh alur koreksi essay (lihat koreksi-essay/route.ts) — jadi aman
+  // ditampilkan seperti biasa.
+  const enriched = (nilaiList ?? []).map(n => {
+    const essayDirilis = n.dirilis === true
+    return {
+      ...n,
+      nilai_essay: essayDirilis ? n.nilai_essay : null,
+      nilai_total: essayDirilis ? n.nilai_total : null,
+      dinilai_pada: essayDirilis ? n.dinilai_pada : null,
+      dinilai_oleh: essayDirilis ? n.dinilai_oleh : null,
+      nama_mapel: mapelMap[n.mapel_id] ?? n.mapel_id,
+    }
+  })
 
   const nums = enriched.map(n => n.nilai || 0)
   const stats = {
