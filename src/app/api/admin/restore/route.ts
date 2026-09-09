@@ -24,17 +24,35 @@ import { cacheDel, cacheDelPrefix } from '@/lib/cache'
 // violation) saat insert kelas/users yang sekolah_id-nya menunjuk ke baris
 // sekolah yang tidak ada. `sekolah` harus DIHAPUS SETELAH kelas & users
 // (dia induk dari keduanya), dan DI-INSERT SEBELUM kelas & users.
+// BUG FIX (fitur Soal Essay tidak diakomodir backup/restore): sama persis
+// dengan bug `kisi_kisi` & `sekolah` yang dijelaskan di atas — tabel-tabel
+// essay (`paket_essay`, `soal_essay`, `jawaban_essay`, `jawaban_essay_foto`,
+// lihat supabase/07_essay.sql & 08_paket_essay.sql) ditambahkan lewat migrasi
+// terpisah SETELAH 01_schema.sql dan tidak pernah dimasukkan ke sini. Akibat:
+// (1) restore SKIP DIAM-DIAM data essay dari backup lama (SCHEMA_TABLES tidak
+// mengenalnya), dan (2) walau backup-nya sudah diperbaiki agar menyertakan
+// tabel-tabel ini, restore tetap butuh tabel ini terdaftar untuk benar-benar
+// menghapus & meng-insert-nya. Urutan mengikuti ketergantungan logis yang
+// sama seperti paket_soal/soal (tidak ada FK constraint di level DB untuk
+// tabel manapun di aplikasi ini — sama seperti kisi_kisi — jadi urutan di
+// sini murni demi konsistensi, bukan syarat FK):
+//   paket_essay ~ setara paket_soal · soal_essay ~ setara soal ·
+//   jawaban_essay/jawaban_essay_foto ~ setara jawaban
 const DELETE_ORDER = [
   'log_aktivitas',
   'log_reset',
   'pelanggaran',
   'nilai',
   'jawaban',
+  'jawaban_essay',
+  'jawaban_essay_foto',
   'siswa_ujian',
   'sesi_ujian',
   'soal',
+  'soal_essay',
   'kisi_kisi',
   'paket_soal',
+  'paket_essay',
   'jadwal',
   'users',
   'siswa',
@@ -57,9 +75,13 @@ const INSERT_ORDER = [
   'paket_soal',
   'soal',
   'kisi_kisi',
+  'paket_essay',
+  'soal_essay',
   'sesi_ujian',
   'siswa_ujian',
   'jawaban',
+  'jawaban_essay',
+  'jawaban_essay_foto',
   'nilai',
   'pelanggaran',
   'log_reset',
@@ -88,8 +110,9 @@ async function clearTable(
     } else if (table === 'siswa') {
       // siswa: PK = nis (TEXT)
       ;({ error } = await (db as any).from('siswa').delete().not('nis', 'is', null))
-    } else if (table === 'siswa_ujian' || table === 'jawaban' || table === 'log_reset') {
-      // BIGSERIAL PK — pakai gt 0
+    } else if (table === 'siswa_ujian' || table === 'jawaban' || table === 'log_reset' || table === 'jawaban_essay' || table === 'jawaban_essay_foto') {
+      // BIGSERIAL PK — pakai gt 0 (jawaban_essay & jawaban_essay_foto ikut
+      // pola yang sama dengan jawaban, lihat catatan bug fix di atas)
       ;({ error } = await (db as any).from(table).delete().gt('id', 0))
     } else {
       // Tabel lain punya id TEXT
