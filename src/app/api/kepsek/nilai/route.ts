@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 import { getKepsekScope } from '@/lib/kepsek-scope'
+import { petakanEssayAktifPerSesi } from '@/app/api/guru/kirim-nilai/route'
 
 export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['KEPSEK', 'ADMIN'])
@@ -66,29 +67,50 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Parameter kelas dan mapel_id wajib diisi' }, { status: 400 })
   }
 
+  // BUG FIX (rekap nilai Kepsek belum menyesuaikan fitur essay): sebelumnya
+  // di-order & di-rank langsung dari kolom `nilai` (PG-only) di database.
+  // Untuk mapel yang punya essay aktif, urutan rangking bisa berbeda dari
+  // nilai_total (PG+Essay) yang sebenarnya dirilis ke siswa — sekarang
+  // diambil tanpa order dari DB dulu, lalu di-enrich dengan info essay dan
+  // di-sort ulang di sini pakai nilai efektif.
   const { data, error } = await db
     .from('nilai')
     .select('*')
     .eq('kelas', kelas)
     .eq('mapel_id', mapelId)
-    .order('nilai', { ascending: false })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  const rows = (data ?? []) as { id: string; nis: string; nilai: number; grade: string; benar: number; total: number; lulus: boolean; kkm: number; timestamp: string }[]
+  const rows = (data ?? []) as { id: string; nis: string; sesi_id: string | null; nilai: number; grade: string; benar: number; total: number; lulus: boolean; kkm: number; timestamp: string; nilai_essay?: number | null; nilai_total?: number | null; dirilis?: boolean }[]
 
   const nisSet = [...new Set(rows.map(r => r.nis))]
-  const [{ data: siswaList }, { data: mapelRow }] = await Promise.all([
+  const [{ data: siswaList }, { data: mapelRow }, essayAktifMap] = await Promise.all([
     db.from('siswa').select('nis, nama').in('nis', nisSet.length ? nisSet : ['__']).neq('is_tester', 'YES'),
     db.from('mapel').select('id, nama').eq('id', mapelId).maybeSingle(),
+    petakanEssayAktifPerSesi(db, rows.map(r => r.sesi_id)),
   ])
   const siswaMap = Object.fromEntries((siswaList ?? []).map(s => [s.nis, s.nama]))
 
+  const nilaiEfektif = (r: (typeof rows)[number]) => {
+    const essayAktif = r.sesi_id ? (essayAktifMap.get(r.sesi_id) ?? false) : false
+    return (essayAktif && r.dirilis && r.nilai_total != null) ? r.nilai_total : r.nilai
+  }
+
   const enriched = rows
     .filter(r => siswaMap[r.nis]) // exclude tester
-    .map((r, i) => ({ ...r, nama_siswa: siswaMap[r.nis] ?? r.nis, rank: i + 1 }))
+    .map(r => {
+      const essayAktif = r.sesi_id ? (essayAktifMap.get(r.sesi_id) ?? false) : false
+      return {
+        ...r,
+        nama_siswa: siswaMap[r.nis] ?? r.nis,
+        essay_aktif: essayAktif,
+        essay_belum_dirilis: essayAktif && r.dirilis !== true,
+      }
+    })
+    .sort((a, b) => nilaiEfektif(b) - nilaiEfektif(a))
+    .map((r, i) => ({ ...r, rank: i + 1 }))
 
-  const nums = enriched.map(r => r.nilai)
+  const nums = enriched.map(nilaiEfektif)
   const summary = {
     jumlahSiswa: enriched.length,
     rataRata: nums.length ? Math.round((nums.reduce((a, b) => a + b, 0) / nums.length) * 100) / 100 : 0,
