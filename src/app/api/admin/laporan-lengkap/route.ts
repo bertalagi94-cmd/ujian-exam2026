@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 import { cachedFetch } from '@/lib/cache'
+import { petakanEssayAktifPerSesi } from '@/app/api/guru/kirim-nilai/route'
 
 // =============================================================================
 // GET /api/admin/laporan-lengkap
@@ -290,23 +291,37 @@ async function fetchLaporanLengkap() {
     totalSiswaByKelas.set(s.kelas, (totalSiswaByKelas.get(s.kelas) ?? 0) + 1)
   }
 
-  // ── 5. SETELAH UJIAN: nilai ────────────────────────────────────────────────
+    // ── 5. SETELAH UJIAN: nilai ────────────────────────────────────────────────
+  // BUG FIX (rekap nilai admin/laporan belum menyesuaikan fitur essay):
+  // sebelumnya `rataRata` per mapel+kelas dihitung murni dari kolom `nilai`
+  // (PG-only) — untuk mapel yang punya essay aktif & sudah dirilis, rata-
+  // rata di laporan ini bisa berbeda dari nilai_total yang sebenarnya
+  // diterima siswa. Ditambahkan sesi_id/nilai_total/dirilis ke select, lalu
+  // pakai nilai efektif (nilai_total kalau essay aktif & dirilis) untuk
+  // sumNilai. `lulus`/`tidakLulus` tidak perlu penyesuaian terpisah karena
+  // kolom nilai.lulus sendiri sudah dihitung ulang dari nilai_total begitu
+  // essay dinilai (lihat koreksi-essay/route.ts).
   const { data: nilaiRows } = await db
     .from('nilai')
-    .select('mapel_id, kelas, nilai, lulus, dikirim_ke_wali, dikembalikan')
+    .select('mapel_id, kelas, sesi_id, nilai, nilai_total, dirilis, lulus, dikirim_ke_wali, dikembalikan')
     .in('mapel_id', safeIn(mapelIdsAll))
     .in('kelas', safeIn(namaKelasAll))
 
-  type NilaiRow = { mapel_id: string; kelas: string; nilai: number; lulus: boolean; dikirim_ke_wali: boolean; dikembalikan: boolean }
+  type NilaiRow = { mapel_id: string; kelas: string; sesi_id: string | null; nilai: number; nilai_total: number | null; dirilis: boolean | null; lulus: boolean; dikirim_ke_wali: boolean; dikembalikan: boolean }
+  const nilaiRowsTyped = (nilaiRows ?? []) as NilaiRow[]
+  const essayAktifMapLaporan = await petakanEssayAktifPerSesi(db, nilaiRowsTyped.map(n => n.sesi_id))
+
   const nilaiAggMap = new Map<string, { total: number; sumNilai: number; lulus: number; tidakLulus: number; dikirimWali: number; dikembalikan: boolean }>()
-  for (const n of (nilaiRows ?? []) as NilaiRow[]) {
+  for (const n of nilaiRowsTyped) {
     const key = `${n.mapel_id}::${n.kelas}`
     if (!nilaiAggMap.has(key)) {
       nilaiAggMap.set(key, { total: 0, sumNilai: 0, lulus: 0, tidakLulus: 0, dikirimWali: 0, dikembalikan: false })
     }
     const b = nilaiAggMap.get(key)!
+    const essayAktif = n.sesi_id ? (essayAktifMapLaporan.get(n.sesi_id) ?? false) : false
+    const nilaiEfektif = (essayAktif && n.dirilis && n.nilai_total != null) ? n.nilai_total : n.nilai
     b.total++
-    b.sumNilai += Number(n.nilai ?? 0)
+    b.sumNilai += Number(nilaiEfektif ?? 0)
     if (n.lulus) b.lulus++
     else b.tidakLulus++
     if (n.dikirim_ke_wali) b.dikirimWali++
