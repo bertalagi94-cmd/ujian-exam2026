@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
+import { petakanEssayAktifPerSesi } from '@/app/api/guru/kirim-nilai/route'
 
 export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['ADMIN', 'KEPSEK'])
@@ -53,11 +54,31 @@ export async function GET(req: NextRequest) {
   const siswaMap = Object.fromEntries((siswaList ?? []).map(s => [s.nis, s.nama]))
   const mapelMap = Object.fromEntries((mapelList ?? []).map(m => [m.id, m.nama]))
 
-  const enriched = data.map(r => ({
-    ...r,
-    nama_siswa: siswaMap[r.nis] ?? r.nis,
-    nama_mapel: mapelMap[r.mapel_id] ?? r.mapel_id,
-  }))
+  // BUG FIX (Rekap Nilai admin tidak mengakomodir soal essay): sebelumnya
+  // baris nilai dikembalikan apa adanya — `nilai`/`grade`/`lulus` (yang
+  // dipakai UI sebagai kolom utama) HANYA mencerminkan skor PG dan TIDAK
+  // PERNAH diubah oleh alur koreksi essay (lihat koreksi-essay/route.ts,
+  // yang hanya meng-update nilai_essay & nilai_total). Untuk mapel yang
+  // punya essay aktif, admin jadi melihat nilai/grade/status lulus yang PG-
+  // only — bisa jauh berbeda dari nilai_total (PG+Essay) yang sebenarnya
+  // dirilis ke siswa. Di sini ditambahkan flag `essay_aktif`/`essay_belum_dirilis`
+  // (pakai helper yang sama dengan guru/kirim-nilai & siswa/nilai supaya
+  // konsisten) — beda dari endpoint siswa, di sini nilai_essay/nilai_total
+  // TIDAK di-mask (admin punya kewenangan penuh melihatnya kapan saja,
+  // bukan menunggu rilis), hanya diberi flag supaya UI bisa membedakan
+  // "mapel ini memang PG-only" vs "essay ada tapi belum dinilai/dirilis".
+  const essayAktifMap = await petakanEssayAktifPerSesi(db, data.map(r => r.sesi_id))
+
+  const enriched = data.map(r => {
+    const essayAktif = r.sesi_id ? (essayAktifMap.get(r.sesi_id) ?? false) : false
+    return {
+      ...r,
+      nama_siswa: siswaMap[r.nis] ?? r.nis,
+      nama_mapel: mapelMap[r.mapel_id] ?? r.mapel_id,
+      essay_aktif: essayAktif,
+      essay_belum_dirilis: essayAktif && r.dirilis !== true,
+    }
+  })
 
   return NextResponse.json({ data: enriched, total: count ?? 0 })
 }
@@ -106,25 +127,38 @@ export async function PATCH(req: NextRequest) {
   if (!sesi) return NextResponse.json({ error: 'Sesi ujian tidak ditemukan' }, { status: 404 })
 
   // Hapus seluruh jejak pengerjaan siswa ini di sesi tersebut:
-  // - jawaban yang sudah tersimpan
+  // - jawaban PG yang sudah tersimpan
+  // - jawaban essay (mode digital) & foto jawaban essay (mode kertas)
   // - nilai yang sudah dihasilkan (kalau ada)
   // - riwayat pelanggaran di sesi ini
   // - baris pencatatan di siswa_ujian (status AKTIF/SELESAI/TERKUNCI/RESET dsb.)
   // Menghapus baris siswa_ujian (bukan sekadar mengubah status) membuat siswa kembali
   // berstatus "belum pernah masuk sesi" sehingga datanya bersih untuk ujian ulang.
   //
+  // BUG FIX (fitur Soal Essay belum diakomodir reset nilai): sebelumnya hanya
+  // `jawaban` (PG), `nilai`, `pelanggaran`, `siswa_ujian` yang dihapus —
+  // `jawaban_essay` dan `jawaban_essay_foto` (lihat supabase/07_essay.sql)
+  // tidak pernah disertakan. Akibatnya kalau mapel/sesi ini punya essay
+  // aktif: (1) jawaban essay lama siswa TETAP ada di database walau
+  // "direset", jadi kalau siswa mengerjakan ulang essay di sesi yang sama
+  // insert-nya bisa gagal (kolom jawaban_essay punya UNIQUE(sesi_id, nis,
+  // soal_essay_id)), dan (2) jawaban essay lama itu bisa "nyasar" terbaca
+  // lagi di halaman Koreksi Essay guru padahal siswa dianggap belum ujian.
+  //
   // CATATAN: endpoint ini HANYA menghapus data — tidak membuka/menutup sesi ujian
   // secara otomatis. Kapan dan bagaimana siswa diberi akses ujian ulang (mis. lewat
   // sesi susulan, sesi baru, atau membuka kembali sesi ini secara manual) ditentukan
   // sendiri oleh admin/pengawas di langkah berikutnya.
-  const [delJawaban, delNilai, delPelanggaran, delSiswaUjian] = await Promise.all([
+  const [delJawaban, delJawabanEssay, delJawabanEssayFoto, delNilai, delPelanggaran, delSiswaUjian] = await Promise.all([
     db.from('jawaban').delete().eq('sesi_id', sesiId).eq('nis', nis),
+    db.from('jawaban_essay').delete().eq('sesi_id', sesiId).eq('nis', nis),
+    db.from('jawaban_essay_foto').delete().eq('sesi_id', sesiId).eq('nis', nis),
     db.from('nilai').delete().eq('sesi_id', sesiId).eq('nis', nis),
     db.from('pelanggaran').delete().eq('sesi_id', sesiId).eq('nis', nis),
     db.from('siswa_ujian').delete().eq('sesi_id', sesiId).eq('nis', nis),
   ])
 
-  const errors = [delJawaban, delNilai, delPelanggaran, delSiswaUjian]
+  const errors = [delJawaban, delJawabanEssay, delJawabanEssayFoto, delNilai, delPelanggaran, delSiswaUjian]
     .map(r => r.error?.message)
     .filter(Boolean)
 
