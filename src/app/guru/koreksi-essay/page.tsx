@@ -68,13 +68,15 @@ export default function GuruKoreksiEssayPage() {
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => setToast({ msg, type })
 
   // ── Daftar jadwal essay yang sesinya sudah pernah dibuka ──────────
+  // FIX BUG: sebelumnya memakai /api/guru/jadwal-pengawasan, yang hanya
+  // berisi sesi di mana guru ini bertugas sebagai PENGAWAS RUANGAN. Guru
+  // pengampu mapel yang tidak kebagian jaga (sesi diawasi guru lain) jadi
+  // tidak pernah melihat sesi mapelnya sendiri di sini. Sekarang memakai
+  // endpoint yang berbasis mapel yang diampu (mapel.guru_id), bukan pengawas.
   const loadJadwal = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await apiRequest<{ data: JadwalKoreksi[] }>('/api/guru/jadwal-pengawasan')
-      // FIX (migrasi paket_essay): filter berdasarkan info_json sesi yang
-      // sudah dibuka, bukan lagi `jadwal.essay_aktif` (sudah tidak pernah
-      // di-set oleh mana pun sejak migrasi ke paket_essay).
+      const res = await apiRequest<{ data: JadwalKoreksi[] }>('/api/guru/koreksi-essay/jadwal')
       const relevan = (res.data ?? []).filter(j => j.sesi_ujian?.info_json?.essay_aktif && j.sesi_ujian)
       setJadwalList(relevan)
     } catch (e: unknown) {
