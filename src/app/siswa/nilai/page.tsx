@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { BarChart3, TrendingUp, Trophy, BookOpen, ChevronRight } from 'lucide-react'
 import { PageLoader, EmptyState, Badge } from '@/components/ui'
-import { apiRequest, formatDateTime, nilaiColor } from '@/lib/utils'
+import { apiRequest, formatDateTime, nilaiColor, hitungGrade } from '@/lib/utils'
 import { Nilai } from '@/types'
 
 interface NilaiStats { totalUjian: number; rataRata: number; nilaiTertinggi: number; nilaiTerendah: number }
@@ -73,27 +73,47 @@ export default function SiswaNilaiPage() {
                 </tr>
               </thead>
               <tbody>
-                {nilaiList.map((n, i) => (
+                {nilaiList.map((n, i) => {
+                  // FIX (bug nilai essay tidak tampil di siswa): sebelumnya
+                  // baris ini SELALU pakai n.nilai/n.lulus (nilai PG saja),
+                  // walau guru sudah merilis nilai_total gabungan PG+essay.
+                  // Sekarang: kalau sudah dirilis (nilai_total terisi),
+                  // tampilkan nilai_total sebagai "Nilai" & hitung ulang
+                  // grade/status lulus dari situ; kalau belum, tetap
+                  // tampilkan nilai PG apa adanya plus penanda "menunggu".
+                  const essayDirilis = n.dirilis === true && n.nilai_total != null
+                  const nilaiTampil = essayDirilis ? n.nilai_total! : n.nilai
+                  const gradeTampil = essayDirilis ? hitungGrade(n.nilai_total!) : n.grade
+                  const lulusTampil = essayDirilis ? n.nilai_total! >= n.kkm : n.lulus
+                  const essayTertunda = n.essay_belum_dirilis === true
+
+                  return (
                   <tr key={n.id} onClick={() => router.push(`/siswa/nilai/${n.id}`)} className="cursor-pointer hover:bg-slate-50">
                     <td className="text-slate-400 text-xs">{i + 1}</td>
                     <td className="font-medium text-slate-800">{n.nama_mapel}</td>
                     <td>
-                      <span className={`text-lg font-bold ${nilaiColor(n.nilai)}`}>{n.nilai}</span>
+                      <span className={`text-lg font-bold ${nilaiColor(nilaiTampil)}`}>{nilaiTampil}</span>
+                      {essayDirilis && (
+                        <div className="text-[11px] text-slate-400">PG {n.nilai} + Essay {n.nilai_essay}</div>
+                      )}
                     </td>
                     <td>
                       <span className={`badge font-bold ${
-                        n.grade === 'A' ? 'badge-green' :
-                        n.grade === 'B' ? 'badge-blue' :
-                        n.grade === 'C' ? 'badge-yellow' :
+                        gradeTampil === 'A' ? 'badge-green' :
+                        gradeTampil === 'B' ? 'badge-blue' :
+                        gradeTampil === 'C' ? 'badge-yellow' :
                         'badge-red'
-                      }`}>{n.grade}</span>
+                      }`}>{gradeTampil}</span>
                     </td>
                     <td className="text-slate-600">{n.benar}/{n.total}</td>
                     <td className="text-slate-500">{n.kkm}</td>
                     <td>
-                      <span className={`badge ${n.lulus ? 'badge-green' : 'badge-red'}`}>
-                        {n.lulus ? '✓ Lulus' : '✗ Tidak Lulus'}
+                      <span className={`badge ${lulusTampil ? 'badge-green' : 'badge-red'}`}>
+                        {lulusTampil ? '✓ Lulus' : '✗ Tidak Lulus'}
                       </span>
+                      {essayTertunda && (
+                        <div className="text-[11px] text-amber-600 mt-0.5">Menunggu rilis nilai essay</div>
+                      )}
                     </td>
                     <td className="text-xs text-slate-400">{formatDateTime(n.timestamp)}</td>
                     <td className="text-right">
@@ -102,7 +122,8 @@ export default function SiswaNilaiPage() {
                       </span>
                     </td>
                   </tr>
-                ))}
+                  )
+                })}
               </tbody>
             </table>
           </div>
