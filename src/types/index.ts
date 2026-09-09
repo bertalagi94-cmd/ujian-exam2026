@@ -213,6 +213,14 @@ export interface Nilai {
   timestamp: string
   lulus: boolean
   kkm: number
+  // FIX (bug nilai essay tidak tampil di siswa): field gabungan PG+essay.
+  // Selalu null selama guru belum merilis (lihat masking di
+  // /api/siswa/nilai dan /api/siswa/dashboard) — jadi aman dikonsumsi
+  // langsung oleh UI siswa tanpa perlu cek tambahan di client.
+  nilai_essay?: number | null
+  nilai_total?: number | null
+  dirilis?: boolean
+  essay_belum_dirilis?: boolean
   // joined
   nama_siswa?: string
   nama_mapel?: string
