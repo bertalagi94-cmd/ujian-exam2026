@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
+import { petakanEssayAktifPerSesi } from '@/app/api/guru/kirim-nilai/route'
 
 export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['SISWA'])
@@ -34,8 +35,17 @@ export async function GET(req: NextRequest) {
   // `lulus`, `benar`, `total`) TIDAK disentuh karena tidak pernah diubah
   // oleh alur koreksi essay (lihat koreksi-essay/route.ts) — jadi aman
   // ditampilkan seperti biasa.
+  // FIX (bug nilai essay tidak tampil di siswa): tambahkan flag
+  // `essay_belum_dirilis` supaya UI bisa membedakan "mapel ini memang
+  // PG-only" vs "essay ada tapi guru belum merilis" — sebelumnya tidak ada
+  // cara bagi frontend membedakan keduanya sehingga nilai_total/nilai_essay
+  // tidak pernah ditampilkan sama sekali. Pakai helper yang sama dengan
+  // guru/kirim-nilai supaya logikanya konsisten di kedua sisi.
+  const essayAktifMap = await petakanEssayAktifPerSesi(db, (nilaiList ?? []).map(n => n.sesi_id))
+
   const enriched = (nilaiList ?? []).map(n => {
     const essayDirilis = n.dirilis === true
+    const essayAktif = n.sesi_id ? (essayAktifMap.get(n.sesi_id) ?? false) : false
     return {
       ...n,
       nilai_essay: essayDirilis ? n.nilai_essay : null,
@@ -43,6 +53,7 @@ export async function GET(req: NextRequest) {
       dinilai_pada: essayDirilis ? n.dinilai_pada : null,
       dinilai_oleh: essayDirilis ? n.dinilai_oleh : null,
       nama_mapel: mapelMap[n.mapel_id] ?? n.mapel_id,
+      essay_belum_dirilis: essayAktif && !essayDirilis,
     }
   })
 
