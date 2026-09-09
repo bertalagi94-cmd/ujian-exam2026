@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
+import { petakanEssayAktifPerSesi } from '@/app/api/guru/kirim-nilai/route'
 
 export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['GURU'])
@@ -43,17 +44,40 @@ export async function GET(req: NextRequest) {
     : { data: [] as { nis: string; nama: string }[] }
   const siswaMap = Object.fromEntries((siswaList ?? []).map(s => [s.nis, s.nama]))
 
-  const enriched = nilaiData.map(r => ({
-    ...r,
-    nama_siswa: siswaMap[r.nis] ?? r.nis,
-    nama_mapel: mapelMap[r.mapel_id] ?? r.mapel_id,
-  }))
+  // BUG FIX (rekap nilai guru belum menyesuaikan fitur essay): sebelumnya
+  // halaman ini (dan endpoint ini) tidak tahu sama sekali apakah suatu sesi
+  // punya essay aktif — nilai/grade/status lulus yang ditampilkan guru
+  // untuk mapelnya sendiri selalu PG-only, walau nilai_total (PG+Essay)
+  // sudah ada. Sama seperti /api/admin/nilai, tambahkan flag `essay_aktif`
+  // & `essay_belum_dirilis` per baris pakai helper yang sama.
+  const essayAktifMap = await petakanEssayAktifPerSesi(db, nilaiData.map(r => r.sesi_id))
+
+  const enriched = nilaiData.map(r => {
+    const essayAktif = r.sesi_id ? (essayAktifMap.get(r.sesi_id) ?? false) : false
+    return {
+      ...r,
+      nama_siswa: siswaMap[r.nis] ?? r.nis,
+      nama_mapel: mapelMap[r.mapel_id] ?? r.mapel_id,
+      essay_aktif: essayAktif,
+      essay_belum_dirilis: essayAktif && r.dirilis !== true,
+    }
+  })
 
   // Stats — HANYA dari siswa yang benar-benar sudah ujian (nilaiData asli),
   // bukan dari placeholder "belum ujian" yang ditambahkan di bawah.
   // Tetap `null` kalau belum ada nilai sama sekali (sama seperti perilaku
   // lama) supaya kartu statistik di UI tidak muncul dengan angka 0 palsu.
-  const vals = enriched.map(r => r.nilai)
+  //
+  // BUG FIX: `vals` sebelumnya selalu `r.nilai` (PG-only). Sekarang pakai
+  // nilai efektif — nilai_total kalau sesi essay-nya aktif & sudah dirilis
+  // guru, kalau belum tetap fallback ke nilai PG — supaya Rata-rata/
+  // Tertinggi/Terendah konsisten dengan nilai akhir yang benar-benar
+  // diterima siswa. `lulus`/`tidakLulus` tidak perlu penyesuaian terpisah
+  // karena kolom `nilai.lulus` sendiri sudah dihitung ulang dari nilai_total
+  // begitu essay dinilai (lihat koreksi-essay/route.ts).
+  const nilaiEfektif = (r: (typeof enriched)[number]) =>
+    (r.essay_aktif && r.dirilis && r.nilai_total != null) ? r.nilai_total : r.nilai
+  const vals = enriched.map(nilaiEfektif)
   const stats = enriched.length === 0 ? null : {
     total: enriched.length,
     rataRata: Math.round(vals.reduce((a, b) => a + b, 0) / vals.length),
