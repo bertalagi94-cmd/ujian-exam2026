@@ -442,7 +442,13 @@ export function GuruSidebar() {
     { label: 'Koreksi Essay', href: '/guru/koreksi-essay', icon: CheckSquare },
     { label: 'Rekap Nilai', href: '/guru/nilai', icon: BarChart3 },
     { label: 'Kirim Nilai ke Wali Kelas', href: '/guru/kirim-nilai', icon: Send },
-    { label: 'Analisis Ujian', href: '/guru/analisis-ujian', icon: BarChart3 },
+    // FIX (kejelasan menu): sebelumnya pakai ikon BarChart3 yang sama persis
+    // dengan "Rekap Nilai" di atas, jadi dua menu berbeda fungsi terlihat
+    // seperti menu yang sama sekilas pandang. Dipakaikan FileBarChart (sudah
+    // dipakai di sidebar admin untuk "Laporan Lengkap", jadi maknanya
+    // konsisten: laporan/analisis, bukan tabel nilai mentah) supaya guru bisa
+    // membedakan dua menu ini tanpa harus membaca labelnya dulu.
+    { label: 'Analisis Ujian', href: '/guru/analisis-ujian', icon: FileBarChart },
   ]
 
   const extras: NavItem[] = []
