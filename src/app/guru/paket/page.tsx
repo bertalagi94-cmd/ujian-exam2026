@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Plus, ChevronDown, ChevronUp, Trash2, ImagePlus, X, ArrowLeft, CheckCircle2, Pencil, Eye, Lock,
-  ListChecks, PenSquare, Send, RotateCcw, Copy, Info, ChevronRight, Save,
+  ListChecks, PenSquare, Send, RotateCcw, Copy, Info, ChevronRight,
 } from 'lucide-react'
 import { Modal, Confirm, StatusBadge, EmptyState, Spinner, Toast } from '@/components/ui'
 import { EssayFlowGuide } from '@/components/shared/EssayFlowGuide'
@@ -1026,7 +1026,7 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
 }
 
 // ── ESSAY SOAL FLOW ──────────────────────────────────────────────────
-function EssaySoalFlow({ onBack, initialBobotPg, initialBobotEssay }: { onBack: () => void; initialBobotPg: number; initialBobotEssay: number }) {
+function EssaySoalFlow({ onBack }: { onBack: () => void }) {
   const [step, setStep] = useState<EssayStep>('list')
   const [pakets, setPakets] = useState<PaketEssay[]>([])
   const [guruMapelList, setGuruMapelList] = useState<Mapel[]>([])
@@ -1045,11 +1045,14 @@ function EssaySoalFlow({ onBack, initialBobotPg, initialBobotEssay }: { onBack: 
   const [setupKelas, setSetupKelas] = useState('')
   const [setupMode, setSetupMode] = useState<'DIGITAL' | 'KERTAS'>('DIGITAL')
   const [setupDurasi, setSetupDurasi] = useState('30')
-  // FIX (bobot PG:Essay): nilai awal dibawa dari input di layar pilihan
-  // jenis soal (lihat GuruBuatSoalPage) supaya guru tidak perlu mengisi
-  // ulang — tapi tetap bisa diubah lagi di sini per mapel+kelas.
-  const [setupBobotPg, setSetupBobotPg] = useState(String(initialBobotPg))
-  const [setupBobotEssay, setSetupBobotEssay] = useState(String(initialBobotEssay))
+  // FIX (hapus bobot "global"): sebelumnya nilai awal dibawa dari kartu
+  // "Nilai Awal" di layar pilihan jenis soal — kartu itu sudah dihapus
+  // (lihat GuruBuatSoalPage), jadi form ini sekarang default 50:50 sendiri,
+  // sama seperti sebelum kartu tersebut pernah ada. Guru tetap bisa
+  // mengubahnya di sini, dan nilai inilah yang benar-benar tersimpan per
+  // mapel+kelas.
+  const [setupBobotPg, setSetupBobotPg] = useState('50')
+  const [setupBobotEssay, setSetupBobotEssay] = useState('50')
 
   function handleBobotPgChange(val: string) {
     setSetupBobotPg(val)
@@ -1624,16 +1627,6 @@ function EssaySoalFlow({ onBack, initialBobotPg, initialBobotEssay }: { onBack: 
                 <input type="number" min={0} max={100} className="input" value={setupBobotEssay} onChange={e => handleBobotEssayChange(e.target.value)} />
               </div>
             </div>
-            {/* FIX (kejelasan "global" vs "per mapel"): nilai di atas SUDAH
-                diisi otomatis dari kartu "Nilai Awal" di layar sebelumnya
-                (kalau ada), tapi begitu ditekan "Lanjut Buat Soal", nilai INI
-                yang benar-benar dikirim & tersimpan permanen untuk mapel+kelas
-                ini (lihat startBuatPaket → POST /api/guru/paket-essay) —
-                bukan nilai di layar sebelumnya. */}
-            <p className="text-xs text-slate-400 -mt-2">
-              Nilai ini yang benar-benar tersimpan untuk mata pelajaran &amp; kelas yang dipilih di atas — beda
-              dari kartu "Nilai Awal" di layar sebelumnya yang cuma pengisi otomatis.
-            </p>
             <div className="alert-info text-xs flex items-center gap-2">
               <Info className="w-3.5 h-3.5 flex-shrink-0" />
               Pengaturan ini hanya perlu diisi sekali. Setelah itu Anda bisa langsung membuat soal satu per satu.
@@ -1798,42 +1791,18 @@ export default function GuruBuatSoalPage() {
     return () => window.removeEventListener('beforeunload', handler)
   }, [kind])
 
-  // FIX (bobot PG:Essay): guru mengatur bobot di layar pilihan ini SEBELUM
-  // masuk ke alur PG/Essay — nilainya dibawa sebagai default awal ke
-  // EssaySoalFlow (form setup paket essay), tempat bobot ini benar-benar
-  // disimpan (per mapel+kelas, lihat 09_bobot_paket_essay.sql). Kalau guru
-  // cuma pernah membuat paket PG (tidak pernah membuat/menyetujui paket
-  // essay), nilai bobot ini tidak berpengaruh sama sekali — nilai akhir
-  // siswa otomatis 100% dari PG (lihat penjelasan di kartu di bawah).
-  const [bobotPg, setBobotPg] = useState('50')
-  const [bobotEssay, setBobotEssay] = useState('50')
-  const [bobotTersimpan, setBobotTersimpan] = useState({ pg: 50, essay: 50 })
-
-  function handleBobotPgChange(val: string) {
-    setBobotPg(val)
-    const n = Number(val)
-    if (Number.isFinite(n)) setBobotEssay(String(100 - n))
-  }
-  function handleBobotEssayChange(val: string) {
-    setBobotEssay(val)
-    const n = Number(val)
-    if (Number.isFinite(n)) setBobotPg(String(100 - n))
-  }
-
-  const bobotTidakSeimbang = Number(bobotPg) + Number(bobotEssay) !== 100
-  const bobotBelumDisimpan = Number(bobotPg) !== bobotTersimpan.pg || Number(bobotEssay) !== bobotTersimpan.essay
-
-  function simpanBobot() {
-    if (bobotTidakSeimbang) {
-      showToast('Bobot PG dan Essay harus berjumlah 100%', 'error')
-      return
-    }
-    setBobotTersimpan({ pg: Number(bobotPg), essay: Number(bobotEssay) })
-    showToast(`Nilai awal diterapkan: ${bobotPg}% PG : ${bobotEssay}% Essay — akan otomatis mengisi form saat Anda mulai membuat paket Essay baru`)
-  }
-
+  // FIX (hapus bobot "global"): kartu "Nilai Awal Bobot PG:Essay" di layar
+  // pilihan ini DIHAPUS atas permintaan eksplisit — nilainya cuma pengisi
+  // otomatis form (tidak pernah tersimpan ke server) dan justru menambah
+  // kebingungan karena terlihat seperti pengaturan permanen. Bobot yang
+  // SUNGGUHAN berlaku tetap ada & tidak berubah sama sekali: diisi per
+  // mapel+kelas di form "Buat Paket Soal Essay" (EssaySoalFlow di bawah),
+  // tersimpan ke kolom bobot_pg_persen/bobot_essay_persen tabel
+  // paket_essay (lihat 09_bobot_paket_essay.sql). EssaySoalFlow sekarang
+  // memakai default 50:50 sendiri (lihat setupBobotPg/setupBobotEssay di
+  // EssaySoalFlow), sama seperti sebelum kartu ini pernah ada.
   if (kind === 'pg') return <PgSoalFlow onBack={() => setKind('choice')} />
-  if (kind === 'essay') return <EssaySoalFlow onBack={() => setKind('choice')} initialBobotPg={bobotTersimpan.pg} initialBobotEssay={bobotTersimpan.essay} />
+  if (kind === 'essay') return <EssaySoalFlow onBack={() => setKind('choice')} />
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -1845,59 +1814,6 @@ export default function GuruBuatSoalPage() {
       </div>
 
       <div className="max-w-4xl mx-auto space-y-4">
-        {/* Bobot PG:Essay — tetap tampil terbuka di bagian atas (bukan
-            disembunyikan di balik klik) supaya guru langsung tahu ini bisa
-            diedit, tapi tetap ringkas: satu baris input + tombol Simpan,
-            bukan kartu panjang seperti sebelumnya. */}
-        {/* FIX (kejelasan "global" vs "per mapel"): sebelumnya kartu ini
-            berlabel "Bobot Nilai PG : Essay" dan tombolnya "Simpan" dengan
-            toast "Bobot disimpan sebagai default" — kata "disimpan" itu
-            menyesatkan karena nilai di sini TIDAK PERNAH dikirim ke server
-            (lihat simpanBobot() di bawah: cuma setState lokal). Nilai yang
-            SUNGGUHAN tersimpan ke database ada di form "Buat Paket Soal
-            Essay" per mapel+kelas (kolom bobot_pg_persen/bobot_essay_persen
-            di tabel paket_essay). Kartu ini HANYA nilai awal yang otomatis
-            mengisi form tersebut supaya guru tidak perlu ketik ulang setiap
-            kali — tidak lebih. Perilakunya TIDAK diubah, hanya bahasanya
-            dijujurkan supaya tidak terbaca sebagai pengaturan permanen. */}
-        <div className="card-sm">
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="flex items-center gap-2 text-sm font-medium text-slate-700 flex-shrink-0">
-              <Info className="w-4 h-4 text-slate-400" />
-              Nilai Awal Bobot PG : Essay
-            </div>
-            <div className="flex items-center gap-2">
-              <input type="number" min={0} max={100} className="input w-20 text-center text-sm font-semibold py-1.5"
-                value={bobotPg} onChange={e => handleBobotPgChange(e.target.value)} />
-              <span className="text-slate-400 text-sm">% PG</span>
-            </div>
-            <span className="text-slate-300">:</span>
-            <div className="flex items-center gap-2">
-              <input type="number" min={0} max={100} className="input w-20 text-center text-sm font-semibold py-1.5"
-                value={bobotEssay} onChange={e => handleBobotEssayChange(e.target.value)} />
-              <span className="text-slate-400 text-sm">% Essay</span>
-            </div>
-            <button
-              onClick={simpanBobot}
-              className="btn-primary btn-sm ml-auto"
-            >
-              <Save className="w-3.5 h-3.5" />
-              Terapkan
-            </button>
-          </div>
-          {bobotTidakSeimbang ? (
-            <p className="text-xs text-red-600 mt-2">Bobot PG dan Essay harus berjumlah 100%.</p>
-          ) : (
-            <p className="text-xs text-slate-400 mt-2">
-              Ini <strong>bukan</strong> pengaturan permanen — nilainya cuma otomatis mengisi form saat Anda mulai
-              membuat <em>paket Essay baru</em>, dan tidak berpengaruh ke paket yang sudah ada (bobot paket yang
-              sudah ada diubah lewat kartu paket masing-masing). Nilai di sini juga akan kembali ke 50:50 kalau
-              halaman ini dimuat ulang. Kalau hanya membuat soal PG saja, nilai akhir otomatis 100% dari PG.
-              {bobotBelumDisimpan && <span className="text-amber-600 font-medium"> Ada perubahan belum diterapkan.</span>}
-            </p>
-          )}
-        </div>
-
         {/* Dua pilihan jenis soal — elemen utama halaman ini, masing-masing
             dengan warna & nuansa sendiri supaya langsung terasa beda
             karakter (PG = otomatis/sistem, Essay = manual/guru). */}
