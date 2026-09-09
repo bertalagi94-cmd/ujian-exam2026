@@ -54,6 +54,20 @@ export function nilaiColor(nilai: number): string {
   return 'text-red-600'
 }
 
+// FIX (bug nilai essay tidak tampil di akun siswa): dipakai di halaman
+// /siswa/nilai untuk menghitung grade dari nilai_total (gabungan PG+essay)
+// begitu sudah dirilis guru — sebelumnya UI siswa cuma pernah menampilkan
+// grade dari nilai PG saja, tidak pernah dari nilai_total. Threshold sama
+// persis dengan hitungGrade() di src/app/api/guru/kirim-nilai/route.ts,
+// supaya grade yang dilihat guru & siswa selalu konsisten.
+export function hitungGrade(nilai: number): string {
+  if (nilai >= 90) return 'A'
+  if (nilai >= 80) return 'B'
+  if (nilai >= 70) return 'C'
+  if (nilai >= 60) return 'D'
+  return 'E'
+}
+
 export function generateKodeSesi(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
   let code = ''
