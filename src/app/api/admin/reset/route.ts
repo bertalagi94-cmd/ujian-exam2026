@@ -15,18 +15,29 @@ export type ResetCategory =
   | 'pengaturan'
   | 'semua'
 
-// Map kategori → tabel yang dihapus (urutan reverse FK)
+// BUG FIX (fitur Soal Essay tidak diakomodir reset): sama seperti bug
+// kisi_kisi/sekolah yang dijelaskan di bawah — tabel-tabel essay
+// (`paket_essay`, `soal_essay`, `jawaban_essay`, `jawaban_essay_foto`)
+// ditambahkan lewat migrasi terpisah (07_essay.sql, 08_paket_essay.sql)
+// setelah kategori reset ini pertama kali dibuat, dan belum pernah
+// dimasukkan ke kategori manapun. Akibatnya "Reset Jawaban & Nilai",
+// "Reset Sesi Ujian", "Reset Soal & Paket", dan bahkan "Reset Semua Data"
+// TIDAK PERNAH membersihkan bank soal essay maupun jawaban essay siswa —
+// admin yang reset ujian akan tetap menemukan soal essay & jawaban essay
+// lama menumpuk. Ditempatkan sejajar dengan tabel PG yang setara:
+//   paket_essay ~ setara paket_soal · soal_essay ~ setara soal ·
+//   jawaban_essay/jawaban_essay_foto ~ setara jawaban
 const CATEGORY_MAP: Record<ResetCategory, string[]> = {
-  jawaban_nilai: ['pelanggaran', 'log_reset', 'nilai', 'jawaban'],
-  sesi_ujian:   ['pelanggaran', 'log_reset', 'nilai', 'jawaban', 'siswa_ujian', 'sesi_ujian'],
-  soal_paket:   ['pelanggaran', 'log_reset', 'nilai', 'jawaban', 'siswa_ujian', 'sesi_ujian', 'soal', 'kisi_kisi', 'paket_soal'],
+  jawaban_nilai: ['pelanggaran', 'log_reset', 'nilai', 'jawaban', 'jawaban_essay', 'jawaban_essay_foto'],
+  sesi_ujian:   ['pelanggaran', 'log_reset', 'nilai', 'jawaban', 'jawaban_essay', 'jawaban_essay_foto', 'siswa_ujian', 'sesi_ujian'],
+  soal_paket:   ['pelanggaran', 'log_reset', 'nilai', 'jawaban', 'jawaban_essay', 'jawaban_essay_foto', 'siswa_ujian', 'sesi_ujian', 'soal', 'soal_essay', 'kisi_kisi', 'paket_soal', 'paket_essay'],
   // Sengaja HANYA menghapus tabel jadwal — nilai/jawaban adalah bukti
   // siswa sudah mengikuti ujian dan tidak boleh ikut terhapus di sini.
   // Kalau admin memang ingin reset nilai/jawaban juga, pakai kategori
   // 'jawaban_nilai' secara terpisah (bisa dipilih bersamaan dari UI).
   jadwal:       ['jadwal'],
-  siswa:        ['pelanggaran', 'log_reset', 'nilai', 'jawaban', 'siswa_ujian', 'siswa'],
-  kelas_mapel:  ['pelanggaran', 'log_reset', 'nilai', 'jawaban', 'siswa_ujian', 'sesi_ujian', 'soal', 'kisi_kisi', 'paket_soal', 'jadwal', 'siswa', 'kelas_mapel', 'mapel', 'kelas'],
+  siswa:        ['pelanggaran', 'log_reset', 'nilai', 'jawaban', 'jawaban_essay', 'jawaban_essay_foto', 'siswa_ujian', 'siswa'],
+  kelas_mapel:  ['pelanggaran', 'log_reset', 'nilai', 'jawaban', 'jawaban_essay', 'jawaban_essay_foto', 'siswa_ujian', 'sesi_ujian', 'soal', 'soal_essay', 'kisi_kisi', 'paket_soal', 'paket_essay', 'jadwal', 'siswa', 'kelas_mapel', 'mapel', 'kelas'],
   users:        ['log_aktivitas', 'log_reset', 'users'],
   log:          ['log_aktivitas', 'log_reset'],
   pengaturan:   ['pengaturan'],
@@ -43,11 +54,15 @@ const CATEGORY_MAP: Record<ResetCategory, string[]> = {
     'pelanggaran',
     'nilai',
     'jawaban',
+    'jawaban_essay',
+    'jawaban_essay_foto',
     'siswa_ujian',
     'sesi_ujian',
     'soal',
+    'soal_essay',
     'kisi_kisi',
     'paket_soal',
+    'paket_essay',
     'jadwal',
     'users',
     'siswa',
@@ -60,8 +75,10 @@ const CATEGORY_MAP: Record<ResetCategory, string[]> = {
 }
 
 // Tabel yang datanya bisa sangat besar → pakai TRUNCATE via RPC
-// agar tidak timeout di Vercel, eksekusi langsung di dalam database
-const TRUNCATE_TABLES = new Set(['jawaban', 'siswa_ujian', 'nilai', 'pelanggaran', 'log_reset', 'log_aktivitas'])
+// agar tidak timeout di Vercel, eksekusi langsung di dalam database.
+// `jawaban_essay` mengikuti pola jumlah baris yang sama dengan `jawaban`
+// (1 baris per siswa per soal per sesi), jadi ikut dimasukkan di sini.
+const TRUNCATE_TABLES = new Set(['jawaban', 'jawaban_essay', 'jawaban_essay_foto', 'siswa_ujian', 'nilai', 'pelanggaran', 'log_reset', 'log_aktivitas'])
 
 // BUG FIX (02 Jul 2026): `kisi_kisi` sebelumnya ada di SKIP_TABLES dengan
 // alasan "tidak ada di schema (legacy)" — padahal tabel ini aktif dipakai
@@ -83,7 +100,7 @@ const TABLE_FILTER: Record<string, { col: string; method: 'gt_epoch' | 'not_null
 }
 
 const HAS_CREATED_AT = new Set([
-  'sesi_ujian', 'soal', 'paket_soal', 'jadwal',
+  'sesi_ujian', 'soal', 'soal_essay', 'paket_soal', 'paket_essay', 'jadwal',
   'kelas_mapel', 'mapel', 'kelas', 'log_aktivitas',
 ])
 
