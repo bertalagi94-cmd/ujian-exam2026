@@ -10,6 +10,16 @@ import { requireRole } from '@/lib/auth'
 // TIDAK IKUT TER-BACKUP sama sekali. Sudah diverifikasi manual di Supabase
 // (02 Jul 2026): tidak ada FK/trigger/RPC yang bergantung padanya, jadi
 // aman diperlakukan sama seperti tabel lain di sini.
+// BUG FIX (fitur Soal Essay tidak ikut ter-backup): sama persis dengan bug
+// `kisi_kisi` yang sudah pernah diperbaiki di sini — tabel-tabel essay
+// (`paket_essay`, `soal_essay`, `jawaban_essay`, `jawaban_essay_foto`)
+// ditambahkan lewat migrasi terpisah (07_essay.sql, 08_paket_essay.sql,
+// setelah 01_schema.sql) dan TIDAK PERNAH dimasukkan ke daftar ini.
+// Akibatnya: bank soal essay & jawaban essay siswa TIDAK IKUT TER-BACKUP
+// sama sekali, padahal fitur Koreksi Essay sudah aktif dipakai. Kolom essay
+// yang ditambahkan ke tabel yang SUDAH ada di daftar ini (jadwal, siswa_ujian,
+// nilai) tetap ikut terbawa karena backup memakai select('*') — masalahnya
+// murni 4 tabel BARU yang belum pernah didaftarkan.
 const BACKUP_TABLES = [
   'pengaturan',
   'sekolah',
@@ -22,9 +32,13 @@ const BACKUP_TABLES = [
   'paket_soal',
   'soal',
   'kisi_kisi',
+  'paket_essay',
+  'soal_essay',
   'sesi_ujian',
   'siswa_ujian',
   'jawaban',
+  'jawaban_essay',
+  'jawaban_essay_foto',
   'nilai',
   'pelanggaran',
   'log_reset',
