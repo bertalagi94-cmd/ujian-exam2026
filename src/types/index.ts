@@ -220,6 +220,7 @@ export interface Nilai {
   nilai_essay?: number | null
   nilai_total?: number | null
   dirilis?: boolean
+  essay_aktif?: boolean
   essay_belum_dirilis?: boolean
   // joined
   nama_siswa?: string
