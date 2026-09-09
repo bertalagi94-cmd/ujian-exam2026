@@ -28,10 +28,22 @@ export async function GET(req: NextRequest) {
   const { data: mapelList } = await db.from('mapel').select('id, nama').in('id', mapelIds)
   const mapelMap = Object.fromEntries((mapelList ?? []).map(m => [m.id, m.nama]))
 
-  const enrichedNilai = recentNilai.map(r => ({
-    ...r,
-    nama_mapel: mapelMap[r.mapel_id] ?? r.mapel_id,
-  }))
+  // FIX (keamanan, sama seperti /api/siswa/nilai): endpoint ini juga
+  // mengirim seluruh kolom tabel `nilai` ke client SISWA tanpa mengecek
+  // `dirilis`, jadi nilai_essay/nilai_total bisa terlihat di dashboard
+  // sebelum guru menekan tombol rilis. Mask sama seperti di
+  // /api/siswa/nilai/route.ts.
+  const enrichedNilai = recentNilai.map(r => {
+    const essayDirilis = r.dirilis === true
+    return {
+      ...r,
+      nilai_essay: essayDirilis ? r.nilai_essay : null,
+      nilai_total: essayDirilis ? r.nilai_total : null,
+      dinilai_pada: essayDirilis ? r.dinilai_pada : null,
+      dinilai_oleh: essayDirilis ? r.dinilai_oleh : null,
+      nama_mapel: mapelMap[r.mapel_id] ?? r.mapel_id,
+    }
+  })
 
   // Enrich jadwal
   const jMapelIds = [...new Set((jadwal ?? []).map(j => j.mapel_id).filter(Boolean))]
