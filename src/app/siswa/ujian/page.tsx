@@ -1655,6 +1655,16 @@ export default function SiswaUjianPage() {
     const soalEssayList = essayList
     const soalEssayCurrent = soalEssayList[essayCurrentIdx]
     const modeJawaban = essayInfo?.modeJawaban ?? 'DIGITAL'
+    // FIX (UX kirim essay): nomor soal (1-based, sesuai urutan tampil) yang
+    // jawabannya masih kosong/hanya spasi — dipakai untuk peringatan sebelum
+    // kirim. Hanya relevan mode DIGITAL (mode KERTAS tidak punya jawaban per
+    // soal di sisi klien, cuma satu foto lembar jawaban).
+    const soalEssayBelumDijawab = modeJawaban === 'DIGITAL'
+      ? soalEssayList.reduce<number[]>((acc, s, i) => {
+          if (!jawabanEssay[s.id]?.trim()) acc.push(i + 1)
+          return acc
+        }, [])
+      : []
 
     return (
       <>
@@ -1850,14 +1860,24 @@ export default function SiswaUjianPage() {
           </button>
         </div>
 
+        {/* FIX (UX kirim essay): sebelumnya siswa bisa langsung kirim walau
+            sebagian soal essay (mode DIGITAL) belum dijawab sama sekali —
+            pesan konfirmasi generic "pastikan semua jawaban sudah benar"
+            tidak benar-benar memberi tahu ada soal yang KOSONG. Sekarang
+            dialognya dibuat dinamis: kalau ada soal kosong, judul & pesannya
+            berubah jadi peringatan tegas dan menyebutkan nomor soalnya. */}
         <Confirm
           open={confirmKirimEssay}
           onClose={() => setConfirmKirimEssay(false)}
           onConfirm={() => handleKirimEssay(false)}
-          title="Kirim Jawaban Essay?"
-          message="Setelah dikirim, jawaban essay tidak dapat diubah lagi. Pastikan semua jawaban sudah benar."
-          confirmLabel="Ya, Kirim"
-          variant="primary"
+          title={soalEssayBelumDijawab.length > 0 ? 'Masih Ada Soal Belum Dijawab!' : 'Kirim Jawaban Essay?'}
+          message={
+            soalEssayBelumDijawab.length > 0
+              ? `Soal nomor ${soalEssayBelumDijawab.join(', ')} belum dijawab. Setelah dikirim, jawaban TIDAK BISA diubah lagi. Yakin ingin tetap mengirim?`
+              : 'Setelah dikirim, jawaban essay tidak dapat diubah lagi. Pastikan semua jawaban sudah benar.'
+          }
+          confirmLabel={soalEssayBelumDijawab.length > 0 ? 'Ya, Tetap Kirim' : 'Ya, Kirim'}
+          variant={soalEssayBelumDijawab.length > 0 ? 'danger' : 'primary'}
           loading={submittingEssay}
         />
       </>
