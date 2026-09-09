@@ -20,12 +20,12 @@ type ResetCategory = {
 }
 
 const RESET_CATEGORIES: ResetCategory[] = [
-  { id: 'jawaban_nilai', label: 'Jawaban & Nilai', desc: 'Hapus semua jawaban siswa, nilai, pelanggaran, dan log reset', danger: 'medium' },
-  { id: 'sesi_ujian', label: 'Sesi Ujian', desc: 'Hapus sesi ujian, peserta sesi, jawaban, nilai, pelanggaran, dan log reset', danger: 'high' },
-  { id: 'soal_paket', label: 'Soal & Paket Soal', desc: 'Hapus semua soal, kisi-kisi, paket soal beserta sesi, jawaban, dan log reset', danger: 'high' },
+  { id: 'jawaban_nilai', label: 'Jawaban & Nilai', desc: 'Hapus semua jawaban siswa (PG & essay, termasuk foto jawaban essay), nilai, pelanggaran, dan log reset', danger: 'medium' },
+  { id: 'sesi_ujian', label: 'Sesi Ujian', desc: 'Hapus sesi ujian, peserta sesi, jawaban PG & essay, nilai, pelanggaran, dan log reset', danger: 'high' },
+  { id: 'soal_paket', label: 'Soal & Paket Soal', desc: 'Hapus semua soal PG & essay, kisi-kisi, paket soal & paket essay beserta sesi, jawaban, dan log reset', danger: 'high' },
   { id: 'jadwal', label: 'Jadwal Ujian', desc: 'Hapus semua jadwal ujian saja (tidak menghapus nilai, jawaban, atau soal — pilih kategori "Nilai & Jawaban" terpisah jika itu juga ingin dihapus)', danger: 'medium' },
-  { id: 'siswa', label: 'Data Siswa', desc: 'Hapus semua data siswa beserta jawaban, nilai, dan log reset terkait', danger: 'high' },
-  { id: 'kelas_mapel', label: 'Kelas & Mata Pelajaran', desc: 'Hapus kelas, mapel, siswa, jadwal, soal, dan semua data turunannya', danger: 'high' },
+  { id: 'siswa', label: 'Data Siswa', desc: 'Hapus semua data siswa beserta jawaban (PG & essay), nilai, dan log reset terkait', danger: 'high' },
+  { id: 'kelas_mapel', label: 'Kelas & Mata Pelajaran', desc: 'Hapus kelas, mapel, siswa, jadwal, soal PG & essay, dan semua data turunannya', danger: 'high' },
   { id: 'users', label: 'Data User', desc: 'Hapus akun guru, pengawas, kepala sekolah, dan log aktivitas/reset mereka', danger: 'medium' },
   { id: 'log', label: 'Log Aktivitas', desc: 'Hapus log aktivitas dan log reset', danger: 'medium' },
   { id: 'pengaturan', label: 'Pengaturan Sistem', desc: 'Reset konfigurasi sekolah ke kondisi awal', danger: 'medium' },
