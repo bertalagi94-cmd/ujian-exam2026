@@ -77,10 +77,22 @@ export default function AdminNilaiPage() {
   }
 
   function exportCSV() {
-    const header = ['Nama Siswa', 'Kelas', 'Mata Pelajaran', 'Nilai', 'Grade', 'Benar', 'Total', 'KKM', 'Status', 'Tanggal']
+    // BUG FIX (essay tidak ikut ter-export): kolom export sebelumnya hanya
+    // berisi nilai PG (`n.nilai`/`n.grade`/`n.lulus`) — untuk mapel yang
+    // punya essay aktif, nilai gabungan (PG+Essay) yang sebenarnya dirilis
+    // ke siswa tidak pernah ikut ter-export sama sekali. Ditambahkan 3
+    // kolom essay di akhir; kosong ('-') untuk mapel yang memang tidak
+    // pakai essay.
+    const header = [
+      'Nama Siswa', 'Kelas', 'Mata Pelajaran', 'Nilai PG', 'Grade', 'Benar', 'Total', 'KKM', 'Status', 'Tanggal',
+      'Nilai Essay', 'Nilai Akhir (PG+Essay)', 'Status Essay',
+    ]
     const rows = filtered.map(n => [
       n.nama_siswa, n.kelas, n.nama_mapel, n.nilai, n.grade,
-      n.benar, n.total, n.kkm, n.lulus ? 'Lulus' : 'Tidak Lulus', n.timestamp
+      n.benar, n.total, n.kkm, n.lulus ? 'Lulus' : 'Tidak Lulus', n.timestamp,
+      n.essay_aktif ? (n.nilai_essay ?? '-') : '-',
+      n.essay_aktif ? (n.nilai_total ?? '-') : '-',
+      !n.essay_aktif ? '-' : n.dirilis ? 'Dirilis' : (n.nilai_essay !== null && n.nilai_essay !== undefined) ? 'Sudah dinilai (belum dirilis)' : 'Belum dinilai',
     ])
     // FIX: tambahkan BOM (\uFEFF) di depan supaya Excel membuka file sebagai
     // UTF-8 dengan benar (tanpa ini, nama dengan karakter non-ASCII bisa
@@ -178,11 +190,18 @@ export default function AdminNilaiPage() {
                   <th>Nama Siswa</th>
                   <th>Kelas</th>
                   <th>Mata Pelajaran</th>
-                  <th>Nilai</th>
+                  <th>Nilai PG</th>
                   <th>Grade</th>
                   <th>Benar/Total</th>
                   <th>KKM</th>
                   <th>Status</th>
+                  {/* BUG FIX (Rekap Nilai admin tidak mengakomodir soal essay):
+                      kolom baru — sebelumnya admin hanya melihat "Nilai"/"Grade"
+                      yang murni PG (lihat catatan di api/admin/nilai/route.ts),
+                      padahal untuk mapel yang punya essay aktif, nilai akhir yang
+                      sebenarnya dirilis ke siswa adalah gabungan PG+Essay
+                      (nilai_total) — bisa jauh berbeda dari kolom "Nilai PG". */}
+                  <th>Nilai Akhir (+Essay)</th>
                   <th>Tanggal</th>
                   <th>Aksi</th>
                 </tr>
@@ -209,6 +228,17 @@ export default function AdminNilaiPage() {
                       <span className={`badge ${n.lulus ? 'badge-green' : 'badge-red'}`}>
                         {n.lulus ? '✓ Lulus' : '✗ Tidak Lulus'}
                       </span>
+                    </td>
+                    <td>
+                      {!n.essay_aktif ? (
+                        <span className="text-slate-300 text-xs">— PG saja —</span>
+                      ) : n.dirilis ? (
+                        <span className={`text-sm font-bold ${nilaiColor(n.nilai_total ?? 0)}`}>{n.nilai_total}</span>
+                      ) : n.nilai_essay !== null && n.nilai_essay !== undefined ? (
+                        <span className="badge-yellow text-xs" title={`Sudah dinilai (${n.nilai_total}) tapi belum dirilis ke siswa`}>Belum dirilis</span>
+                      ) : (
+                        <span className="badge-red text-xs">Essay belum dinilai</span>
+                      )}
                     </td>
                     <td className="text-xs text-slate-400">{formatDateTime(n.timestamp)}</td>
                     <td>
@@ -254,7 +284,7 @@ export default function AdminNilaiPage() {
             <p>
               Anda akan menghapus nilai <span className="font-semibold text-slate-800">{resetTarget.nama_siswa}</span> untuk
               mata pelajaran <span className="font-semibold text-slate-800">{resetTarget.nama_mapel}</span>, beserta seluruh
-              jawaban dan riwayat pelanggarannya di sesi tersebut.
+              jawaban (PG & essay, termasuk foto jawaban essay bila ada) dan riwayat pelanggarannya di sesi tersebut.
             </p>
             <p>
               Sesi ujian <span className="font-semibold">TIDAK</span> akan dibuka secara otomatis. Setelah direset,
