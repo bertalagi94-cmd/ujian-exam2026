@@ -6,6 +6,7 @@ import {
   CheckCircle2, XCircle, Save, Send, AlertTriangle, Clock,
 } from 'lucide-react'
 import { Confirm, EmptyState, Spinner, Toast, Badge } from '@/components/ui'
+import { EssayFlowGuide } from '@/components/shared/EssayFlowGuide'
 import { apiRequest, formatDate, formatDateTime } from '@/lib/utils'
 
 // ── Tipe ──────────────────────────────────────────────────────────
@@ -212,6 +213,8 @@ export default function GuruKoreksiEssayPage() {
         <p className="page-subtitle">Lihat jawaban/foto siswa, beri nilai essay, dan rilis nilai akhir ke siswa</p>
       </div>
 
+      <EssayFlowGuide current="koreksi" />
+
       {loading ? (
         <div className="flex justify-center py-20"><Spinner size="lg" /></div>
       ) : jadwalList.length === 0 ? (
@@ -286,6 +289,16 @@ export default function GuruKoreksiEssayPage() {
                       <AlertTriangle className="w-3.5 h-3.5" /> Rilis sekaligus hanya bisa dilakukan setelah semua siswa dinilai.
                     </p>
                   )}
+
+                  {/* FIX (kejelasan duplikasi): tombol rilis yang sama juga ada
+                      di menu "Kirim Nilai ke Wali Kelas" — sengaja disediakan
+                      di dua tempat (praktis langsung setelah koreksi di sini,
+                      atau sambil mengelola pengiriman nilai di sana), TAPI
+                      keduanya memanggil aksi rilis yang sama persis. Guru tidak
+                      perlu klik dua-duanya. */}
+                  <p className="text-[11px] text-slate-400 pt-1">
+                    Catatan: tombol ini sama dengan "Rilis Nilai Essay" di menu Kirim Nilai ke Wali Kelas — cukup lakukan dari salah satu.
+                  </p>
 
                   <div className="flex justify-end pt-2">
                     <button
