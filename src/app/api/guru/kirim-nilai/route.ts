@@ -387,7 +387,7 @@ function hitungGrade(nilai: number): string {
 // sesi_id null/kosong (mis. data lama sebelum fitur essay ada) TIDAK masuk
 // map, sehingga default-nya dianggap "tidak pakai essay" oleh pemanggil.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function petakanEssayAktifPerSesi(db: any, sesiIds: (string | null | undefined)[]): Promise<Map<string, boolean>> {
+export async function petakanEssayAktifPerSesi(db: any, sesiIds: (string | null | undefined)[]): Promise<Map<string, boolean>> {
   const idUnik = [...new Set(sesiIds.filter((id): id is string => !!id))]
   const map = new Map<string, boolean>()
   if (idUnik.length === 0) return map
