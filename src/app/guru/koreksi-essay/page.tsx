@@ -31,7 +31,12 @@ interface JawabanTeks { soal_essay_id: string; jawaban_teks: string }
 interface Peserta {
   nis: string
   nama: string
-  statusEssay: string
+  // FIX (siswa hilang dari antrean koreksi essay setelah sesi ditutup paksa):
+  // sebelumnya field ini SELALU 'SUDAH_KIRIM' atau 'TIDAK_MENGERJAKAN' karena
+  // itulah satu-satunya nilai yang diizinkan backend. Sekarang backend juga
+  // menyertakan siswa yang sesinya ditutup paksa sebelum essay selesai —
+  // status_essay mereka bisa null/'BELUM_MULAI'/'MENGERJAKAN'.
+  statusEssay: string | null
   waktuKirimEssay: string | null
   jawabanTeks?: JawabanTeks[]
   fotoUrl?: string | null
@@ -306,6 +311,13 @@ export default function GuruKoreksiEssayPage() {
                               <Badge variant="blue">PG: {p.nilaiPg.benar}/{p.nilaiPg.total}</Badge>
                             )}
                             {p.statusEssay === 'TIDAK_MENGERJAKAN' && <Badge variant="red">Tidak Mengerjakan</Badge>}
+                            {/* FIX (siswa hilang dari antrean setelah sesi ditutup paksa): tandai
+                                jelas peserta yang tidak sempat menekan "Kirim" sendiri karena sesi
+                                ditutup pengawas/admin di tengah jalan — supaya guru tidak bingung
+                                kenapa tidak ada waktu "Dikirim" untuk siswa ini. */}
+                            {p.statusEssay !== 'SUDAH_KIRIM' && p.statusEssay !== 'TIDAK_MENGERJAKAN' && (
+                              <Badge variant="yellow">Sesi Ditutup — Belum Kirim</Badge>
+                            )}
                             {p.sudahDinilai && <Badge variant="green">Sudah Dinilai</Badge>}
                             {p.dirilis && <Badge variant="purple">Dirilis</Badge>}
                           </div>
