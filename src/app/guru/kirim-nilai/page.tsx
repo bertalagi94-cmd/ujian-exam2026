@@ -8,6 +8,7 @@ import {
 } from 'lucide-react'
 import { apiRequest, nilaiColor, formatDateTime } from '@/lib/utils'
 import { PageLoader, Toast } from '@/components/ui'
+import { EssayFlowGuide } from '@/components/shared/EssayFlowGuide'
 
 interface NilaiRow {
   id: string
@@ -272,6 +273,36 @@ export default function KirimNilaiPage() {
         </p>
       </div>
 
+      {/* FIX (kejelasan istilah): halaman ini menggabungkan dua AKSI yang
+          beda tujuan (rilis ke SISWA vs kirim ke WALI KELAS) dan beberapa
+          ANGKA nilai (asli/edit/essay/total) di satu layar — sebelumnya
+          tidak ada penjelasan eksplisit, guru harus menyimpulkan sendiri
+          dari konteks. Kotak ini murni informasi (tidak mengubah alur atau
+          logika apa pun), tujuannya cuma jadi "peta" sebelum guru mulai
+          mengisi tabel di bawah. */}
+      <div className="card-sm bg-slate-50 border-slate-200">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs text-slate-600">
+          <div className="flex gap-2">
+            <Send className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <span className="font-semibold text-slate-800">Kirim ke Wali Kelas</span> — tombol hijau
+              di bagian bawah tiap mapel. Mengirim nilai <em>akhir</em> siswa (nilai edit kalau diisi,
+              kalau tidak pakai nilai asli) ke wali kelas untuk mapel &amp; kelas itu.
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <FileText className="w-4 h-4 text-indigo-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <span className="font-semibold text-slate-800">Rilis Nilai Essay</span> — panel ungu (kalau
+              ada soal Essay). Membuka nilai Essay &amp; nilai Total (PG+Essay) agar bisa dilihat
+              <em> siswa</em>. Harus dirilis dulu sebelum siswa itu ikut terkirim ke wali kelas.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <EssayFlowGuide current="rilis" />
+
       {/* Info deadline */}
       {deadlineInfo && (
         <div className={`flex items-start gap-3 p-4 rounded-xl border ${
@@ -528,6 +559,9 @@ export default function KirimNilaiPage() {
                               {semuaDirilis ? 'Semua Sudah Dirilis' : 'Rilis Semua ke Siswa'}
                             </button>
                           </div>
+                          <p className="text-[11px] text-indigo-400 mb-2">
+                            Sama dengan tombol rilis di menu Koreksi Essay — cukup dari salah satu.
+                          </p>
                           <div className="space-y-1.5">
                             {rowsSesi.map(r => (
                               <div key={r.id} className="flex items-center justify-between gap-2 text-sm bg-white rounded-lg px-3 py-2 border border-indigo-100">
