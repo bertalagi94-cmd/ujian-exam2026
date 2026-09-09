@@ -316,11 +316,34 @@ export default function GuruKoreksiEssayPage() {
                           <div className="space-y-2">
                             {data.soalEssay.map((soal, i) => {
                               const jawaban = p.jawabanTeks?.find(j => j.soal_essay_id === soal.id)
+                              // FIX (UX koreksi essay): tandai kotak jawaban dengan warna
+                              // supaya guru langsung lihat sekilas mana yang kosong tanpa
+                              // perlu baca teks satu-satu — merah = tidak dijawab (teks
+                              // kosong/hanya spasi), hijau = ada jawaban.
+                              const terjawab = !!jawaban?.jawaban_teks?.trim()
                               return (
-                                <div key={soal.id} className="bg-slate-50 rounded-lg p-3 text-sm">
-                                  <p className="text-xs text-slate-400 mb-1">Soal {i + 1} · Bobot maks {soal.bobot_maks}</p>
+                                <div
+                                  key={soal.id}
+                                  className={`rounded-lg p-3 text-sm border ${
+                                    terjawab
+                                      ? 'bg-emerald-50 border-emerald-200'
+                                      : 'bg-red-50 border-red-200'
+                                  }`}
+                                >
+                                  <div className="flex items-center justify-between gap-2 mb-1">
+                                    <p className="text-xs text-slate-400">Soal {i + 1} · Bobot maks {soal.bobot_maks}</p>
+                                    {terjawab ? (
+                                      <span className="text-[11px] font-medium text-emerald-700 flex items-center gap-1">
+                                        <CheckCircle2 className="w-3 h-3" /> Dijawab
+                                      </span>
+                                    ) : (
+                                      <span className="text-[11px] font-medium text-red-700 flex items-center gap-1">
+                                        <XCircle className="w-3 h-3" /> Tidak dijawab
+                                      </span>
+                                    )}
+                                  </div>
                                   <p className="text-slate-700 font-medium mb-1.5">{soal.teks}</p>
-                                  <p className="text-slate-600 whitespace-pre-wrap">{jawaban?.jawaban_teks || <span className="italic text-slate-400">Tidak dijawab</span>}</p>
+                                  <p className="text-slate-600 whitespace-pre-wrap">{jawaban?.jawaban_teks?.trim() || <span className="italic text-slate-400">Tidak dijawab</span>}</p>
                                 </div>
                               )
                             })}
