@@ -84,17 +84,26 @@ export default function GuruNilaiPage() {
         // (placeholder dari roster jadwal) tidak relevan untuk rekap nilai Excel.
         const nilaiMapel = semuaNilai.filter(n => n.mapel_id === mapel.id && !n.belum_ujian)
 
+        // BUG FIX (rekap nilai guru belum menyesuaikan fitur essay): kolom
+        // export sebelumnya hanya berisi nilai PG ('Nilai'/'Grade'/'Status')
+        // — untuk mapel yang punya essay aktif, nilai akhir gabungan
+        // (nilai_total) yang sebenarnya dirilis ke siswa tidak pernah ikut
+        // ter-export. Ditambahkan 3 kolom essay di akhir, sama seperti
+        // export admin, kosong ('-') untuk mapel yang memang PG-only.
         const rows = nilaiMapel.map((n, i) => ({
           'No': i + 1,
           'Nama Siswa': n.nama_siswa ?? n.nis,
           'Kelas': n.kelas,
-          'Nilai': n.nilai,
+          'Nilai PG': n.nilai,
           'Grade': n.grade,
           'Benar': n.benar,
           'Total Soal': n.total,
           'KKM': n.kkm,
           'Status': n.lulus ? 'Lulus' : 'Tidak Lulus',
           'Tanggal': formatDateTime(n.timestamp),
+          'Nilai Essay': n.essay_aktif ? (n.nilai_essay ?? '-') : '-',
+          'Nilai Akhir (PG+Essay)': n.essay_aktif ? (n.nilai_total ?? '-') : '-',
+          'Status Essay': !n.essay_aktif ? '-' : n.dirilis ? 'Dirilis' : (n.nilai_essay !== null && n.nilai_essay !== undefined) ? 'Sudah dinilai (belum dirilis)' : 'Belum dinilai',
         }))
 
         const ws = rows.length
@@ -104,7 +113,7 @@ export default function GuruNilaiPage() {
             ]])
 
         ws['!cols'] = rows.length
-          ? [{ wch: 5 }, { wch: 26 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 10 }, { wch: 8 }, { wch: 13 }, { wch: 20 }]
+          ? [{ wch: 5 }, { wch: 26 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 10 }, { wch: 8 }, { wch: 13 }, { wch: 20 }, { wch: 10 }, { wch: 20 }, { wch: 24 }]
           : [{ wch: 90 }]
 
         // Nama sheet Excel maksimal 31 karakter & tidak boleh berisi \ / ? * [ ] :
@@ -200,11 +209,16 @@ export default function GuruNilaiPage() {
                   <th>Nama Siswa</th>
                   <th>Kelas</th>
                   <th>Mata Pelajaran</th>
-                  <th>Nilai</th>
+                  <th>Nilai PG</th>
                   <th>Grade</th>
                   <th>Benar/Total</th>
                   <th>KKM</th>
                   <th>Status</th>
+                  {/* BUG FIX (rekap nilai guru belum menyesuaikan fitur essay):
+                      kolom baru, sama seperti rekap admin — "Nilai"/"Grade"/
+                      "Status" murni PG, jadi guru perlu lihat nilai akhir
+                      gabungan (PG+Essay) yang sebenarnya dirilis ke siswa. */}
+                  <th>Nilai Akhir (+Essay)</th>
                   <th>Tanggal</th>
                 </tr>
               </thead>
@@ -217,7 +231,7 @@ export default function GuruNilaiPage() {
                     <td className="text-sm text-slate-600">{n.nama_mapel}</td>
                     {n.belum_ujian ? (
                       <>
-                        <td className="text-slate-400 text-sm" colSpan={4}>—</td>
+                        <td className="text-slate-400 text-sm" colSpan={5}>—</td>
                         <td>
                           <span className="badge bg-slate-100 text-slate-500">Belum Ujian</span>
                         </td>
@@ -241,6 +255,17 @@ export default function GuruNilaiPage() {
                           <span className={`badge ${n.lulus ? 'badge-green' : 'badge-red'}`}>
                             {n.lulus ? '✓ Lulus' : '✗ Tidak Lulus'}
                           </span>
+                        </td>
+                        <td>
+                          {!n.essay_aktif ? (
+                            <span className="text-slate-300 text-xs">— PG saja —</span>
+                          ) : n.dirilis ? (
+                            <span className={`text-sm font-bold ${nilaiColor(n.nilai_total ?? 0)}`}>{n.nilai_total}</span>
+                          ) : n.nilai_essay !== null && n.nilai_essay !== undefined ? (
+                            <span className="badge-yellow text-xs" title={`Sudah dinilai (${n.nilai_total}) tapi belum dirilis ke siswa`}>Belum dirilis</span>
+                          ) : (
+                            <span className="badge-red text-xs">Essay belum dinilai</span>
+                          )}
                         </td>
                         <td className="text-xs text-slate-400">{formatDateTime(n.timestamp)}</td>
                       </>
