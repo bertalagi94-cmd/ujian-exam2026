@@ -107,7 +107,16 @@ export default function AdminNilaiPage() {
   }
 
   // Summary stats
-  const nums = filtered.map(n => n.nilai)
+  // BUG FIX (rekap nilai belum menyesuaikan fitur essay): sebelumnya ketiga
+  // kartu ringkasan ini memakai `n.nilai` mentah (selalu PG-only) walau
+  // kolom tabel di bawahnya sudah menampilkan "Nilai Akhir (+Essay)" —
+  // jadi rata-rata/persentase lulus di atas bisa tidak sinkron dengan apa
+  // yang terlihat di baris tabel untuk mapel yang punya essay aktif dan
+  // sudah dirilis. Dipakai nilai efektif (nilai_total kalau essay aktif &
+  // sudah dirilis, kalau belum tetap fallback ke nilai PG — konsisten
+  // dengan kolom "Nilai Akhir (+Essay)" di tabel).
+  const nilaiEfektif = (n: Nilai) => (n.essay_aktif && n.dirilis && n.nilai_total != null) ? n.nilai_total : n.nilai
+  const nums = filtered.map(nilaiEfektif)
   const rata = nums.length ? Math.round(nums.reduce((a, b) => a + b, 0) / nums.length) : 0
   const lulus = filtered.filter(n => n.lulus).length
   const persenLulus = filtered.length ? Math.round((lulus / filtered.length) * 100) : 0
