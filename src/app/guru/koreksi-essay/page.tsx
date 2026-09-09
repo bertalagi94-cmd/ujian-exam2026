@@ -35,7 +35,7 @@ interface Peserta {
   waktuKirimEssay: string | null
   jawabanTeks?: JawabanTeks[]
   fotoUrl?: string | null
-  nilaiPg: { benar: number; total: number; kkm: number } | null
+  nilaiPg: { benar: number; total: number; kkm: number; nilai: number } | null
   nilaiEssay: number | null
   nilaiTotal: number | null
   sudahDinilai: boolean
@@ -47,6 +47,8 @@ interface KoreksiData {
   totalBobotMaks: number
   peserta: Peserta[]
   modeJawaban: 'DIGITAL' | 'KERTAS'
+  bobotPg: number
+  bobotEssay: number
 }
 
 export default function GuruKoreksiEssayPage() {
@@ -253,7 +255,20 @@ export default function GuruKoreksiEssayPage() {
                         {data.soalEssay.length} Soal Essay · Mode {data.modeJawaban === 'DIGITAL' ? 'Digital' : 'Kertas'}
                       </h2>
                     </div>
-                    <span className="text-xs text-slate-400">Total bobot maks: {data.totalBobotMaks}</span>
+                  </div>
+
+                  {/* UX (menghindari kebingungan skala nilai essay): jelaskan
+                      di sini, sekali untuk seluruh sesi, bagaimana nilai yang
+                      diinput per siswa nanti dikonversi & digabung — supaya
+                      guru tidak perlu menebak kenapa "20" bisa jadi "67". */}
+                  <div className="bg-brand-50 border border-brand-100 rounded-lg px-3 py-2 text-xs text-slate-600 space-y-0.5">
+                    <p>
+                      Nilai essay diinput dalam skala <strong>0–{data.totalBobotMaks}</strong> (total bobot semua soal essay),
+                      lalu otomatis dikonversi ke skala 0–100 untuk digabung dengan nilai PG.
+                    </p>
+                    <p>
+                      Bobot nilai akhir: <strong>PG {data.bobotPg}%</strong> + <strong>Essay {data.bobotEssay}%</strong>.
+                    </p>
                   </div>
 
                   {!semuaSudahDinilai && (
@@ -324,29 +339,53 @@ export default function GuruKoreksiEssayPage() {
 
                         {/* Input nilai */}
                         {p.statusEssay !== 'TIDAK_MENGERJAKAN' && (
-                          <div className="flex items-end gap-2 flex-wrap pt-1 border-t border-slate-100">
-                            <div className="flex-1 min-w-[140px]">
-                              <label className="label">Nilai Essay (skala 0–{data.totalBobotMaks})</label>
-                              <input
-                                type="number" className="input" min={0} max={data.totalBobotMaks}
-                                value={nilaiSaatIni}
-                                onChange={e => setNilaiInput(prev => ({ ...prev, [p.nis]: e.target.value }))}
-                              />
+                          <div className="pt-1 border-t border-slate-100 space-y-2">
+                            <div className="flex items-end gap-2 flex-wrap">
+                              <div className="flex-1 min-w-[140px]">
+                                <label className="label">Nilai Essay (skala 0–{data.totalBobotMaks})</label>
+                                <input
+                                  type="number" className="input" min={0} max={data.totalBobotMaks}
+                                  placeholder={`0 – ${data.totalBobotMaks}`}
+                                  value={nilaiSaatIni}
+                                  onChange={e => setNilaiInput(prev => ({ ...prev, [p.nis]: e.target.value }))}
+                                />
+                              </div>
+                              <button className="btn-secondary btn-sm" onClick={() => handleSimpanNilai(p.nis)} disabled={savingNis === p.nis}>
+                                {savingNis === p.nis ? <Spinner size="sm" /> : <><Save className="w-3.5 h-3.5" /> Simpan</>}
+                              </button>
+                              <button className="btn-ghost btn-sm text-red-600" onClick={() => setConfirmTakMengerjakan(p.nis)} disabled={savingNis === p.nis}>
+                                <XCircle className="w-3.5 h-3.5" /> Tidak Mengerjakan
+                              </button>
                             </div>
-                            <button className="btn-secondary btn-sm" onClick={() => handleSimpanNilai(p.nis)} disabled={savingNis === p.nis}>
-                              {savingNis === p.nis ? <Spinner size="sm" /> : <><Save className="w-3.5 h-3.5" /> Simpan</>}
-                            </button>
-                            <button className="btn-ghost btn-sm text-red-600" onClick={() => setConfirmTakMengerjakan(p.nis)} disabled={savingNis === p.nis}>
-                              <XCircle className="w-3.5 h-3.5" /> Tidak Mengerjakan
-                            </button>
+
+                            {/* UX (menghindari kebingungan skala nilai essay): pratinjau
+                                konversi & nilai akhir dihitung LANGSUNG di client, mengikuti
+                                rumus persis yang dipakai backend (lihat PUT di
+                                api/guru/koreksi-essay/route.ts), supaya guru melihat hasil
+                                akhirnya SEBELUM menekan Simpan — bukan menebak-nebak lagi. */}
+                            {nilaiSaatIni !== '' && !isNaN(Number(nilaiSaatIni)) && (
+                              (() => {
+                                const angka = Math.max(0, Math.min(data.totalBobotMaks, Number(nilaiSaatIni)))
+                                const essayKonversi = data.totalBobotMaks > 0 ? Math.round((angka / data.totalBobotMaks) * 100) : 0
+                                const nilaiPgSiswa = p.nilaiPg?.nilai ?? 0
+                                const perkiraanTotal = Math.round(nilaiPgSiswa * (data.bobotPg / 100) + essayKonversi * (data.bobotEssay / 100))
+                                return (
+                                  <p className="text-xs text-slate-500 bg-slate-50 rounded-md px-2.5 py-1.5">
+                                    {angka}/{data.totalBobotMaks} → setara <strong>{essayKonversi}</strong>/100 ·
+                                    {' '}Perkiraan Nilai Total: <strong className="text-brand-700">{perkiraanTotal}</strong>
+                                    {' '}(PG {nilaiPgSiswa}×{data.bobotPg}% + Essay {essayKonversi}×{data.bobotEssay}%)
+                                  </p>
+                                )
+                              })()
+                            )}
                           </div>
                         )}
 
                         {p.nilaiTotal !== null && (
-                          <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-sm">
+                          <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-sm flex-wrap gap-2">
                             <span className="text-slate-500 flex items-center gap-1.5">
                               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-                              Nilai Essay: <strong>{p.nilaiEssay}</strong> · Nilai Total: <strong>{p.nilaiTotal}</strong>
+                              Tersimpan — Nilai Essay: <strong>{p.nilaiEssay}</strong>/100 · Nilai Total: <strong>{p.nilaiTotal}</strong>
                             </span>
                             {!p.dirilis && (
                               <button className="btn-ghost btn-sm text-brand-600" onClick={() => handleRilisIndividu(p.nis)} disabled={rilisingNis === p.nis}>
