@@ -122,8 +122,23 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
           timestamp: new Date().toISOString(),
         })
 
+        // FIX BUG (status TERKUNCI tertimpa jadi SELESAI): sebelumnya baris ini
+        // meng-update `status: 'SELESAI'`, menimpa `status: 'TERKUNCI'` yang
+        // baru saja di-set di Promise.all() di atas. Akibatnya:
+        //   - Polling client (cekStatusSesi di siswa/ujian/page.tsx) HANYA
+        //     bereaksi pada siswa_status === 'TERKUNCI' (untuk menampilkan
+        //     layar "Ujian Dihentikan") — status 'SELESAI' di level SISWA
+        //     tidak ditangani sama sekali (yang dicek untuk 'SELESAI' adalah
+        //     sesi_status, bukan siswa_status), jadi siswa yang seharusnya
+        //     dikeluarkan permanen tetap melihat halaman ujian seperti biasa.
+        //   - Guard di /api/siswa/ujian/sync ("TERKUNCI"/"RESET") ikut tidak
+        //     berlaku lagi karena status sudah bukan TERKUNCI, sehingga siswa
+        //     yang seharusnya terkunci masih bisa terus mengirim jawaban.
+        // Sama seperti endpoint ADMIN (/api/admin/pelanggaran, action
+        // kunci_permanen) yang sudah benar: JANGAN ubah status di sini,
+        // cukup catat waktu selesainya saja — status tetap 'TERKUNCI'.
         await db.from('siswa_ujian')
-          .update({ status: 'SELESAI', waktu_selesai: new Date().toISOString() })
+          .update({ waktu_selesai: new Date().toISOString() })
           .eq('sesi_id', sesiId)
           .eq('nis', nis)
       }
