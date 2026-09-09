@@ -1,8 +1,8 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, Fragment } from 'react'
 import {
-  CheckSquare, Calendar, Users, ChevronRight, FileText, Image as ImageIcon,
+  CheckSquare, Calendar, Users, ChevronRight, ChevronDown, FileText, Image as ImageIcon,
   CheckCircle2, XCircle, Save, Send, AlertTriangle, Clock,
 } from 'lucide-react'
 import { Confirm, EmptyState, Spinner, Toast, Badge } from '@/components/ui'
@@ -66,6 +66,11 @@ export default function GuruKoreksiEssayPage() {
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
 
   const [nilaiInput, setNilaiInput] = useState<Record<string, string>>({})
+  // UX (tabel koreksi essay): baris siswa dibuat ringkas & bisa di-expand —
+  // sebelumnya semua jawaban+form nilai semua siswa selalu tampil sekaligus,
+  // jadi terlalu penuh untuk sekadar melihat 1 mapel. Sekarang detail (jawaban
+  // per soal, input nilai) hanya muncul untuk baris yang diklik/dibuka.
+  const [expandedNis, setExpandedNis] = useState<string | null>(null)
   const [savingNis, setSavingNis] = useState<string | null>(null)
   const [confirmTakMengerjakan, setConfirmTakMengerjakan] = useState<string | null>(null)
   const [confirmRilisSemua, setConfirmRilisSemua] = useState(false)
@@ -220,7 +225,7 @@ export default function GuruKoreksiEssayPage() {
             {jadwalList.map(j => (
               <button
                 key={j.id}
-                onClick={() => selectSesi(j)}
+                onClick={() => { setExpandedNis(null); selectSesi(j) }}
                 className={`w-full text-left card p-3.5 transition-all ${selectedSesiId === j.sesi_ujian?.id ? 'ring-2 ring-brand-400 border-brand-300' : 'hover:border-slate-300'}`}
               >
                 <div className="flex items-center justify-between gap-2">
@@ -293,145 +298,184 @@ export default function GuruKoreksiEssayPage() {
                   </div>
                 </div>
 
-                {/* Daftar peserta */}
-                <div className="space-y-3">
-                  {data.peserta.map(p => {
-                    const nilaiSaatIni = nilaiInput[p.nis] ?? ''
-                    return (
-                      <div key={p.nis} className="card space-y-3">
-                        <div className="flex items-center justify-between flex-wrap gap-2">
-                          <div>
-                            <p className="font-semibold text-slate-900">{p.nama}</p>
-                            <p className="text-xs text-slate-400">
-                              NIS {p.nis} · Dikirim {p.waktuKirimEssay ? formatDateTime(p.waktuKirimEssay) : '-'}
-                            </p>
-                          </div>
-                          <div className="flex items-center gap-2 flex-wrap">
-                            {p.nilaiPg && (
-                              <Badge variant="blue">PG: {p.nilaiPg.benar}/{p.nilaiPg.total}</Badge>
-                            )}
-                            {p.statusEssay === 'TIDAK_MENGERJAKAN' && <Badge variant="red">Tidak Mengerjakan</Badge>}
-                            {/* FIX (siswa hilang dari antrean setelah sesi ditutup paksa): tandai
-                                jelas peserta yang tidak sempat menekan "Kirim" sendiri karena sesi
-                                ditutup pengawas/admin di tengah jalan — supaya guru tidak bingung
-                                kenapa tidak ada waktu "Dikirim" untuk siswa ini. */}
-                            {p.statusEssay !== 'SUDAH_KIRIM' && p.statusEssay !== 'TIDAK_MENGERJAKAN' && (
-                              <Badge variant="yellow">Sesi Ditutup — Belum Kirim</Badge>
-                            )}
-                            {p.sudahDinilai && <Badge variant="green">Sudah Dinilai</Badge>}
-                            {p.dirilis && <Badge variant="purple">Dirilis</Badge>}
-                          </div>
-                        </div>
+                {/* Daftar peserta — tabel ringkas, klik baris untuk buka detail.
+                    UX (sebelumnya semua jawaban+form nilai SEMUA siswa langsung
+                    tampil sekaligus dalam bentuk kartu panjang, sehingga terlalu
+                    penuh hanya untuk 1 mapel). Sekarang tabel menampilkan ringkasan
+                    per siswa; detail (jawaban per soal, input nilai, rilis individu)
+                    hanya terbuka untuk baris yang diklik. */}
+                <div className="table-wrapper">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>Siswa</th>
+                        <th>PG</th>
+                        <th>Essay</th>
+                        <th>Total</th>
+                        <th>Status</th>
+                        <th className="w-8" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.peserta.map(p => {
+                        const nilaiSaatIni = nilaiInput[p.nis] ?? ''
+                        const terbuka = expandedNis === p.nis
+                        return (
+                          <Fragment key={p.nis}>
+                            <tr
+                              className="cursor-pointer select-none"
+                              onClick={() => setExpandedNis(terbuka ? null : p.nis)}
+                            >
+                              <td>
+                                <p className="font-semibold text-slate-900">{p.nama}</p>
+                                <p className="text-xs text-slate-400">NIS {p.nis}</p>
+                              </td>
+                              <td>{p.nilaiPg ? `${p.nilaiPg.benar}/${p.nilaiPg.total}` : '-'}</td>
+                              <td>{p.nilaiEssay !== null ? p.nilaiEssay : '-'}</td>
+                              <td>{p.nilaiTotal !== null ? <strong>{p.nilaiTotal}</strong> : '-'}</td>
+                              <td>
+                                <div className="flex items-center gap-1 flex-wrap">
+                                  {p.statusEssay === 'TIDAK_MENGERJAKAN' && <Badge variant="red">Tidak Mengerjakan</Badge>}
+                                  {/* FIX (siswa hilang dari antrean setelah sesi ditutup paksa): tandai
+                                      jelas peserta yang tidak sempat menekan "Kirim" sendiri karena sesi
+                                      ditutup pengawas/admin di tengah jalan — supaya guru tidak bingung
+                                      kenapa tidak ada waktu "Dikirim" untuk siswa ini. */}
+                                  {p.statusEssay !== 'SUDAH_KIRIM' && p.statusEssay !== 'TIDAK_MENGERJAKAN' && (
+                                    <Badge variant="yellow">Belum Kirim</Badge>
+                                  )}
+                                  {p.sudahDinilai ? <Badge variant="green">Dinilai</Badge> : <Badge variant="slate">Belum Dinilai</Badge>}
+                                  {p.dirilis && <Badge variant="purple">Dirilis</Badge>}
+                                </div>
+                              </td>
+                              <td>
+                                <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${terbuka ? 'rotate-180' : ''}`} />
+                              </td>
+                            </tr>
 
-                        {/* Jawaban */}
-                        {data.modeJawaban === 'DIGITAL' ? (
-                          <div className="space-y-2">
-                            {data.soalEssay.map((soal, i) => {
-                              const jawaban = p.jawabanTeks?.find(j => j.soal_essay_id === soal.id)
-                              // FIX (UX koreksi essay): tandai kotak jawaban dengan warna
-                              // supaya guru langsung lihat sekilas mana yang kosong tanpa
-                              // perlu baca teks satu-satu — merah = tidak dijawab (teks
-                              // kosong/hanya spasi), hijau = ada jawaban.
-                              const terjawab = !!jawaban?.jawaban_teks?.trim()
-                              return (
-                                <div
-                                  key={soal.id}
-                                  className={`rounded-lg p-3 text-sm border ${
-                                    terjawab
-                                      ? 'bg-emerald-50 border-emerald-200'
-                                      : 'bg-red-50 border-red-200'
-                                  }`}
-                                >
-                                  <div className="flex items-center justify-between gap-2 mb-1">
-                                    <p className="text-xs text-slate-400">Soal {i + 1} · Bobot maks {soal.bobot_maks}</p>
-                                    {terjawab ? (
-                                      <span className="text-[11px] font-medium text-emerald-700 flex items-center gap-1">
-                                        <CheckCircle2 className="w-3 h-3" /> Dijawab
-                                      </span>
+                            {terbuka && (
+                              <tr>
+                                <td colSpan={6} className="bg-slate-50/60 p-0 border-b border-slate-100">
+                                  <div className="p-4 space-y-3">
+                                    <p className="text-xs text-slate-400 -mt-1">
+                                      Dikirim {p.waktuKirimEssay ? formatDateTime(p.waktuKirimEssay) : '-'}
+                                    </p>
+
+                                    {/* Jawaban */}
+                                    {data.modeJawaban === 'DIGITAL' ? (
+                                      <div className="space-y-2">
+                                        {data.soalEssay.map((soal, i) => {
+                                          const jawaban = p.jawabanTeks?.find(j => j.soal_essay_id === soal.id)
+                                          // FIX (UX koreksi essay): tandai kotak jawaban dengan warna
+                                          // supaya guru langsung lihat sekilas mana yang kosong tanpa
+                                          // perlu baca teks satu-satu — merah = tidak dijawab (teks
+                                          // kosong/hanya spasi), hijau = ada jawaban.
+                                          const terjawab = !!jawaban?.jawaban_teks?.trim()
+                                          return (
+                                            <div
+                                              key={soal.id}
+                                              className={`rounded-lg p-3 text-sm border bg-white ${
+                                                terjawab
+                                                  ? 'border-emerald-200'
+                                                  : 'border-red-200'
+                                              }`}
+                                            >
+                                              <div className="flex items-center justify-between gap-2 mb-1">
+                                                <p className="text-xs text-slate-400">Soal {i + 1} · Bobot maks {soal.bobot_maks}</p>
+                                                {terjawab ? (
+                                                  <span className="text-[11px] font-medium text-emerald-700 flex items-center gap-1">
+                                                    <CheckCircle2 className="w-3 h-3" /> Dijawab
+                                                  </span>
+                                                ) : (
+                                                  <span className="text-[11px] font-medium text-red-700 flex items-center gap-1">
+                                                    <XCircle className="w-3 h-3" /> Tidak dijawab
+                                                  </span>
+                                                )}
+                                              </div>
+                                              <p className="text-slate-700 font-medium mb-1.5">{soal.teks}</p>
+                                              <p className="text-slate-600 whitespace-pre-wrap">{jawaban?.jawaban_teks?.trim() || <span className="italic text-slate-400">Tidak dijawab</span>}</p>
+                                            </div>
+                                          )
+                                        })}
+                                      </div>
                                     ) : (
-                                      <span className="text-[11px] font-medium text-red-700 flex items-center gap-1">
-                                        <XCircle className="w-3 h-3" /> Tidak dijawab
-                                      </span>
+                                      <div>
+                                        {p.fotoUrl ? (
+                                          <a href={p.fotoUrl} target="_blank" rel="noopener noreferrer">
+                                            <img src={p.fotoUrl} alt={`Lembar jawaban ${p.nama}`} className="max-h-64 rounded-lg border border-slate-200" />
+                                          </a>
+                                        ) : (
+                                          <p className="text-xs text-slate-400 flex items-center gap-1"><ImageIcon className="w-3.5 h-3.5" /> Belum ada foto diunggah</p>
+                                        )}
+                                      </div>
+                                    )}
+
+                                    {/* Input nilai */}
+                                    {p.statusEssay !== 'TIDAK_MENGERJAKAN' && (
+                                      <div className="pt-1 border-t border-slate-200 space-y-2">
+                                        <div className="flex items-end gap-2 flex-wrap">
+                                          <div className="flex-1 min-w-[140px]">
+                                            <label className="label">Nilai Essay (skala 0–{data.totalBobotMaks})</label>
+                                            <input
+                                              type="number" className="input" min={0} max={data.totalBobotMaks}
+                                              placeholder={`0 – ${data.totalBobotMaks}`}
+                                              value={nilaiSaatIni}
+                                              onClick={e => e.stopPropagation()}
+                                              onChange={e => setNilaiInput(prev => ({ ...prev, [p.nis]: e.target.value }))}
+                                            />
+                                          </div>
+                                          <button className="btn-secondary btn-sm" onClick={() => handleSimpanNilai(p.nis)} disabled={savingNis === p.nis}>
+                                            {savingNis === p.nis ? <Spinner size="sm" /> : <><Save className="w-3.5 h-3.5" /> Simpan</>}
+                                          </button>
+                                          <button className="btn-ghost btn-sm text-red-600" onClick={() => setConfirmTakMengerjakan(p.nis)} disabled={savingNis === p.nis}>
+                                            <XCircle className="w-3.5 h-3.5" /> Tidak Mengerjakan
+                                          </button>
+                                        </div>
+
+                                        {/* UX (menghindari kebingungan skala nilai essay): pratinjau
+                                            konversi & nilai akhir dihitung LANGSUNG di client, mengikuti
+                                            rumus persis yang dipakai backend (lihat PUT di
+                                            api/guru/koreksi-essay/route.ts), supaya guru melihat hasil
+                                            akhirnya SEBELUM menekan Simpan — bukan menebak-nebak lagi. */}
+                                        {nilaiSaatIni !== '' && !isNaN(Number(nilaiSaatIni)) && (
+                                          (() => {
+                                            const angka = Math.max(0, Math.min(data.totalBobotMaks, Number(nilaiSaatIni)))
+                                            const essayKonversi = data.totalBobotMaks > 0 ? Math.round((angka / data.totalBobotMaks) * 100) : 0
+                                            const nilaiPgSiswa = p.nilaiPg?.nilai ?? 0
+                                            const perkiraanTotal = Math.round(nilaiPgSiswa * (data.bobotPg / 100) + essayKonversi * (data.bobotEssay / 100))
+                                            return (
+                                              <p className="text-xs text-slate-500 bg-white rounded-md px-2.5 py-1.5 border border-slate-100">
+                                                {angka}/{data.totalBobotMaks} → setara <strong>{essayKonversi}</strong>/100 ·
+                                                {' '}Perkiraan Nilai Total: <strong className="text-brand-700">{perkiraanTotal}</strong>
+                                                {' '}(PG {nilaiPgSiswa}×{data.bobotPg}% + Essay {essayKonversi}×{data.bobotEssay}%)
+                                              </p>
+                                            )
+                                          })()
+                                        )}
+                                      </div>
+                                    )}
+
+                                    {p.nilaiTotal !== null && (
+                                      <div className="flex items-center justify-between pt-2 border-t border-slate-200 text-sm flex-wrap gap-2">
+                                        <span className="text-slate-500 flex items-center gap-1.5">
+                                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                                          Tersimpan — Nilai Essay: <strong>{p.nilaiEssay}</strong>/100 · Nilai Total: <strong>{p.nilaiTotal}</strong>
+                                        </span>
+                                        {!p.dirilis && (
+                                          <button className="btn-ghost btn-sm text-brand-600" onClick={() => handleRilisIndividu(p.nis)} disabled={rilisingNis === p.nis}>
+                                            {rilisingNis === p.nis ? <Spinner size="sm" /> : <><Send className="w-3.5 h-3.5" /> Rilis ke Siswa Ini</>}
+                                          </button>
+                                        )}
+                                      </div>
                                     )}
                                   </div>
-                                  <p className="text-slate-700 font-medium mb-1.5">{soal.teks}</p>
-                                  <p className="text-slate-600 whitespace-pre-wrap">{jawaban?.jawaban_teks?.trim() || <span className="italic text-slate-400">Tidak dijawab</span>}</p>
-                                </div>
-                              )
-                            })}
-                          </div>
-                        ) : (
-                          <div>
-                            {p.fotoUrl ? (
-                              <a href={p.fotoUrl} target="_blank" rel="noopener noreferrer">
-                                <img src={p.fotoUrl} alt={`Lembar jawaban ${p.nama}`} className="max-h-64 rounded-lg border border-slate-200" />
-                              </a>
-                            ) : (
-                              <p className="text-xs text-slate-400 flex items-center gap-1"><ImageIcon className="w-3.5 h-3.5" /> Belum ada foto diunggah</p>
+                                </td>
+                              </tr>
                             )}
-                          </div>
-                        )}
-
-                        {/* Input nilai */}
-                        {p.statusEssay !== 'TIDAK_MENGERJAKAN' && (
-                          <div className="pt-1 border-t border-slate-100 space-y-2">
-                            <div className="flex items-end gap-2 flex-wrap">
-                              <div className="flex-1 min-w-[140px]">
-                                <label className="label">Nilai Essay (skala 0–{data.totalBobotMaks})</label>
-                                <input
-                                  type="number" className="input" min={0} max={data.totalBobotMaks}
-                                  placeholder={`0 – ${data.totalBobotMaks}`}
-                                  value={nilaiSaatIni}
-                                  onChange={e => setNilaiInput(prev => ({ ...prev, [p.nis]: e.target.value }))}
-                                />
-                              </div>
-                              <button className="btn-secondary btn-sm" onClick={() => handleSimpanNilai(p.nis)} disabled={savingNis === p.nis}>
-                                {savingNis === p.nis ? <Spinner size="sm" /> : <><Save className="w-3.5 h-3.5" /> Simpan</>}
-                              </button>
-                              <button className="btn-ghost btn-sm text-red-600" onClick={() => setConfirmTakMengerjakan(p.nis)} disabled={savingNis === p.nis}>
-                                <XCircle className="w-3.5 h-3.5" /> Tidak Mengerjakan
-                              </button>
-                            </div>
-
-                            {/* UX (menghindari kebingungan skala nilai essay): pratinjau
-                                konversi & nilai akhir dihitung LANGSUNG di client, mengikuti
-                                rumus persis yang dipakai backend (lihat PUT di
-                                api/guru/koreksi-essay/route.ts), supaya guru melihat hasil
-                                akhirnya SEBELUM menekan Simpan — bukan menebak-nebak lagi. */}
-                            {nilaiSaatIni !== '' && !isNaN(Number(nilaiSaatIni)) && (
-                              (() => {
-                                const angka = Math.max(0, Math.min(data.totalBobotMaks, Number(nilaiSaatIni)))
-                                const essayKonversi = data.totalBobotMaks > 0 ? Math.round((angka / data.totalBobotMaks) * 100) : 0
-                                const nilaiPgSiswa = p.nilaiPg?.nilai ?? 0
-                                const perkiraanTotal = Math.round(nilaiPgSiswa * (data.bobotPg / 100) + essayKonversi * (data.bobotEssay / 100))
-                                return (
-                                  <p className="text-xs text-slate-500 bg-slate-50 rounded-md px-2.5 py-1.5">
-                                    {angka}/{data.totalBobotMaks} → setara <strong>{essayKonversi}</strong>/100 ·
-                                    {' '}Perkiraan Nilai Total: <strong className="text-brand-700">{perkiraanTotal}</strong>
-                                    {' '}(PG {nilaiPgSiswa}×{data.bobotPg}% + Essay {essayKonversi}×{data.bobotEssay}%)
-                                  </p>
-                                )
-                              })()
-                            )}
-                          </div>
-                        )}
-
-                        {p.nilaiTotal !== null && (
-                          <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-sm flex-wrap gap-2">
-                            <span className="text-slate-500 flex items-center gap-1.5">
-                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-                              Tersimpan — Nilai Essay: <strong>{p.nilaiEssay}</strong>/100 · Nilai Total: <strong>{p.nilaiTotal}</strong>
-                            </span>
-                            {!p.dirilis && (
-                              <button className="btn-ghost btn-sm text-brand-600" onClick={() => handleRilisIndividu(p.nis)} disabled={rilisingNis === p.nis}>
-                                {rilisingNis === p.nis ? <Spinner size="sm" /> : <><Send className="w-3.5 h-3.5" /> Rilis ke Siswa Ini</>}
-                              </button>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    )
-                  })}
+                          </Fragment>
+                        )
+                      })}
+                    </tbody>
+                  </table>
                 </div>
               </>
             )}
