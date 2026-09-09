@@ -430,12 +430,10 @@ export function GuruSidebar() {
     { label: 'Dashboard', href: '/guru', icon: LayoutDashboard },
     { label: 'Kisi-kisi', href: '/guru/kisi-kisi', icon: FileText },
     {
-      label: 'Bank Soal',
-      href: '/guru/soal',
-      icon: BookOpen,
-      badge: counts.bankSoal || undefined,
-    },
-    {
+      // FIX (konsolidasi menu): menu "Bank Soal" (/guru/soal) digabung ke
+      // sini — satu tempat untuk PG & Essay: buat, edit, kirim, tarik,
+      // duplicate paket soal. Halaman /guru/soal masih ada sebagai redirect
+      // supaya link/bookmark lama tidak 404, tapi tidak lagi punya menu sendiri.
       label: 'Buat Soal',
       href: '/guru/paket',
       icon: ClipboardList,
