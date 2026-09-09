@@ -22,6 +22,13 @@ interface NilaiRow {
   lulus: boolean
   kkm: number
   rank: number
+  // BUG FIX (rekap nilai Kepsek belum menyesuaikan fitur essay): field
+  // baru dari /api/kepsek/nilai supaya tabel bisa menampilkan nilai akhir
+  // gabungan (PG+Essay), bukan cuma nilai PG di kolom "Nilai".
+  essay_aktif?: boolean
+  nilai_essay?: number | null
+  nilai_total?: number | null
+  dirilis?: boolean
 }
 
 interface NilaiResponse {
@@ -134,9 +141,14 @@ export default function KepsekNilaiPage() {
                           <th>Rank</th>
                           <th>Nama Siswa</th>
                           <th>Benar</th>
-                          <th>Nilai</th>
+                          <th>Nilai PG</th>
                           <th>Grade</th>
                           <th>Status</th>
+                          {/* BUG FIX (rekap nilai Kepsek belum menyesuaikan fitur essay):
+                              kolom baru, sama seperti rekap admin/guru — kolom "Nilai"
+                              di sini murni PG, kolom ini menampilkan nilai akhir
+                              gabungan (PG+Essay) yang sebenarnya dirilis ke siswa. */}
+                          <th>Nilai Akhir (+Essay)</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -155,6 +167,17 @@ export default function KepsekNilaiPage() {
                             <td><span className={`badge ${gradeColor(r.grade)}`}>{r.grade}</span></td>
                             <td>
                               <span className={`badge ${r.lulus ? 'badge-green' : 'badge-red'}`}>{r.lulus ? 'Lulus' : 'Tidak Lulus'}</span>
+                            </td>
+                            <td>
+                              {!r.essay_aktif ? (
+                                <span className="text-slate-300 text-xs">— PG saja —</span>
+                              ) : r.dirilis ? (
+                                <span className={`text-sm font-bold ${nilaiColor(r.nilai_total ?? 0)}`}>{r.nilai_total}</span>
+                              ) : r.nilai_essay !== null && r.nilai_essay !== undefined ? (
+                                <span className="badge-yellow text-xs" title={`Sudah dinilai (${r.nilai_total}) tapi belum dirilis ke siswa`}>Belum dirilis</span>
+                              ) : (
+                                <span className="badge-red text-xs">Essay belum dinilai</span>
+                              )}
                             </td>
                           </tr>
                         ))}
