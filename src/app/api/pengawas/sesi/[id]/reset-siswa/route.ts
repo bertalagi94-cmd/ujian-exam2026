@@ -60,8 +60,23 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     .eq('nis', nis)
     .like('alasan', `sesi:${sesiId}%`)
 
-  // Jika sudah >= batasPelanggaran reset → langsung kunci permanen / nilai 0
-  if ((resetCount ?? 0) >= batasPelanggaran) {
+  // Jika pelanggaran KE INI SEKARANG (reset yang sudah diberikan + 1) sudah
+  // mencapai batasPelanggaran → langsung kunci permanen / nilai 0.
+  //
+  // FIX BUG (off-by-one): sebelumnya kondisi ini membandingkan `resetCount`
+  // (jumlah reset yang SUDAH diberikan SEBELUM pelanggaran saat ini) apa
+  // adanya terhadap batasPelanggaran. Karena resetCount baru bertambah
+  // SETELAH endpoint ini memberi kode reset, siswa dengan batasPelanggaran=3
+  // baru benar-benar dikunci pada pelanggaran ke-4 (resetCount sempat 0,1,2
+  // — ketiganya < 3 — baru terkunci saat resetCount=3), padahal deskripsi
+  // pengaturan admin ("Batas Pelanggaran ... Sebelum siswa dikunci") dan
+  // pesan di halaman siswa menjanjikan siswa dikunci TEPAT pada pelanggaran
+  // ke-batasPelanggaran (mis. ke-3 kalau batasnya 3). Sekarang dihitung
+  // dengan menyertakan pelanggaran saat ini (`resetCount + 1`), sehingga
+  // reset ke-(batasPelanggaran-1) tetap diberi kode reset seperti biasa, dan
+  // pelanggaran ke-batasPelanggaran langsung mengunci permanen — konsisten
+  // dengan janji di UI.
+  if ((resetCount ?? 0) + 1 >= batasPelanggaran) {
     // Set status TERKUNCI permanen + tandai pelanggaran sudah ditindak (FIX BUG #1)
     await Promise.all([
       db.from('siswa_ujian')
