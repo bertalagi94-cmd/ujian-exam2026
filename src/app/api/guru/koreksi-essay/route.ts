@@ -187,7 +187,7 @@ export async function PUT(req: NextRequest) {
 
   const { data: nilaiRow } = await db
     .from('nilai')
-    .select('id, nilai')
+    .select('id, nilai, kkm')
     .eq('sesi_id', sesiId)
     .eq('nis', nis)
     .single()
@@ -233,11 +233,26 @@ export async function PUT(req: NextRequest) {
   const nilaiPg = nilaiRow.nilai ?? 0
   const nilaiTotal = Math.round(nilaiPg * (bobotPg / 100) + finalNilaiEssay * (bobotEssay / 100))
 
+  // BUG FIX (rekap nilai belum menyesuaikan fitur essay — akar masalah):
+  // kolom `nilai.lulus` sebelumnya HANYA dihitung sekali saat siswa submit
+  // PG (lihat hitungHasilPenilaian di penilaian-ujian.ts, yang murni
+  // membandingkan nilai PG vs kkm) dan TIDAK PERNAH dihitung ulang di sini
+  // setelah nilai_total (PG+Essay) terbentuk. Akibatnya status Lulus/Tidak
+  // Lulus yang ditampilkan di semua rekap (admin/guru/kepsek) tetap
+  // berdasarkan skor PG murni walau nilai akhir yang dirilis ke siswa
+  // (nilai_total) bisa membuat siswa yang tadinya tidak lulus jadi lulus,
+  // atau sebaliknya. Di sini `lulus` ikut di-update memakai nilai_total
+  // begitu essay dinilai, supaya kolom itu jadi satu-satunya sumber
+  // kebenaran status kelulusan tanpa perlu logika tambahan di tiap halaman
+  // rekap.
+  const lulusBaru = nilaiTotal >= (nilaiRow.kkm ?? 0)
+
   const { error: nilaiError } = await db
     .from('nilai')
     .update({
       nilai_essay: finalNilaiEssay,
       nilai_total: nilaiTotal,
+      lulus: lulusBaru,
       dinilai_pada: new Date().toISOString(),
       dinilai_oleh: user.username,
     })
