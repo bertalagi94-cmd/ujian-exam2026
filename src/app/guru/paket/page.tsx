@@ -67,6 +67,16 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
   const [deleteSoalPaketId, setDeleteSoalPaketId] = useState<string | null>(null)
   const [viewSoal, setViewSoal] = useState<SoalWithImg | null>(null)
 
+  // FIX (konsolidasi menu Bank Soal → Buat Soal): kirim/tarik/duplicate/hapus
+  // paket PG dulunya cuma ada di halaman Bank Soal (src/app/guru/soal/page.tsx).
+  // Sekarang dipindah ke sini supaya "Buat Soal" jadi satu-satunya tempat,
+  // sama seperti alur Soal Essay yang sudah lebih dulu lengkap sendiri.
+  const [kirimId, setKirimId] = useState<string | null>(null)
+  const [tarikId, setTarikId] = useState<string | null>(null)
+  const [dupId, setDupId] = useState<string | null>(null)
+  const [dupKelas, setDupKelas] = useState('')
+  const [hapusPaketId, setHapusPaketId] = useState<string | null>(null)
+
   // Setup state
   const [setupMapel, setSetupMapel] = useState('')
   const [setupKelas, setSetupKelas] = useState('')
@@ -100,7 +110,7 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
 
   useEffect(() => { load() }, [load])
 
-  // Sinkronisasi dengan menu Bank Soal
+  // Sinkronisasi antar-komponen di halaman ini (mis. setelah aksi di komponen lain)
   useEffect(() => {
     const handler = () => load()
     window.addEventListener(SYNC_EVENT, handler)
@@ -356,6 +366,82 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
     } catch (err: unknown) {
       showToast(err instanceof Error ? err.message : 'Gagal menghapus', 'error')
     } finally { setSaving(false) }
+  }
+
+  // ── Kirim paket ───────────────────────────────────────────────
+  async function handleKirim() {
+    if (!kirimId) return
+    setSaving(true)
+    try {
+      // Backend bisa ikut mengirim paket Essay pasangan (mapel+kelas sama)
+      // sekaligus — tampilkan pesannya apa adanya supaya guru tahu itu
+      // terjadi, bukan pesan generik.
+      const res = await apiRequest<{ message?: string }>(`/api/guru/paket/${kirimId}/kirim`, { method: 'POST' })
+      showToast(res?.message || 'Paket berhasil dikirim untuk validasi')
+      setKirimId(null)
+      if (expandedId === kirimId) await loadSoalPaket(kirimId)
+      await load()
+      window.dispatchEvent(new Event(SYNC_EVENT))
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Gagal mengirim', 'error')
+    } finally { setSaving(false) }
+  }
+
+  // ── Tarik paket ───────────────────────────────────────────────
+  async function handleTarik() {
+    if (!tarikId) return
+    setSaving(true)
+    try {
+      await apiRequest(`/api/guru/paket/${tarikId}/tarik`, { method: 'POST' })
+      showToast('Paket berhasil ditarik kembali ke DRAFT')
+      setTarikId(null)
+      if (expandedId === tarikId) await loadSoalPaket(tarikId)
+      await load()
+      window.dispatchEvent(new Event(SYNC_EVENT))
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Gagal menarik', 'error')
+    } finally { setSaving(false) }
+  }
+
+  // ── Duplicate paket ───────────────────────────────────────────
+  async function handleDuplicate() {
+    if (!dupId || !dupKelas) return
+    setSaving(true)
+    try {
+      await apiRequest(`/api/guru/paket/${dupId}/duplicate`, {
+        method: 'POST',
+        body: JSON.stringify({ kelas_id: dupKelas }),
+      })
+      showToast('Paket berhasil diduplikasi ke kelas lain')
+      setDupId(null)
+      setDupKelas('')
+      await load()
+      window.dispatchEvent(new Event(SYNC_EVENT))
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Gagal menduplikasi', 'error')
+    } finally { setSaving(false) }
+  }
+
+  // ── Hapus paket ───────────────────────────────────────────────
+  async function handleHapusPaket() {
+    if (!hapusPaketId) return
+    setSaving(true)
+    try {
+      await apiRequest(`/api/guru/paket/${hapusPaketId}`, { method: 'DELETE' })
+      showToast('Paket soal berhasil dihapus')
+      setHapusPaketId(null)
+      await load()
+      window.dispatchEvent(new Event(SYNC_EVENT))
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Gagal menghapus paket', 'error')
+    } finally { setSaving(false) }
+  }
+
+  // ── Kelas yang bisa dipilih untuk duplicate (bukan kelas sendiri) ──
+  function getKelasUntukDuplicate(paketId: string) {
+    const paket = pakets.find(p => p.id === paketId)
+    if (!paket) return allKelasList
+    return allKelasList.filter(k => k.id !== paket.kelas_id)
   }
 
   const getNamaMapel = (id: string) => guruMapelList.find(m => m.id === id)?.nama ?? allMapelList.find(m => m.id === id)?.nama ?? id
@@ -625,7 +711,7 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
             <ArrowLeft className="w-4 h-4" /> Ganti Jenis Soal
           </button>
           <h1 className="page-title">Buat Soal PG</h1>
-          <p className="page-subtitle">Kelola paket soal yang telah dibuat · Kirim ke admin melalui menu <strong>Bank Soal</strong></p>
+          <p className="page-subtitle">Kelola paket soal, tambah/edit soal, dan kirim ke admin</p>
         </div>
         <button onClick={() => setStep('setup')} className="btn-primary btn-sm">
           <Plus className="w-4 h-4" /> Buat Soal Baru
@@ -662,12 +748,44 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
                     <div className="mt-1 text-xs text-red-600">Soal ditolak — silakan edit soal lalu kirim ulang</div>
                   )}
                 </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
+                <div className="flex items-center gap-2 flex-shrink-0 flex-wrap justify-end">
                   {p.status === 'DRAFT' && (
                     <button onClick={() => lanjutkanPaket(p)} className="btn-secondary btn-sm">
                       <Plus className="w-3.5 h-3.5" /> Lanjutkan
                     </button>
                   )}
+
+                  {/* Duplicate — selalu tersedia */}
+                  <button onClick={() => { setDupId(p.id); setDupKelas('') }}
+                    className="btn-secondary btn-sm" title="Duplikasi ke kelas lain">
+                    <Copy className="w-3.5 h-3.5" /> Duplikasi
+                  </button>
+
+                  {/* Kirim */}
+                  {(p.status === 'DRAFT' || p.status === 'DITOLAK') && (
+                    <button onClick={() => setKirimId(p.id)} className="btn-primary btn-sm">
+                      <Send className="w-3.5 h-3.5" /> {p.status === 'DITOLAK' ? 'Kirim Ulang' : 'Kirim'}
+                    </button>
+                  )}
+
+                  {/* Hapus paket */}
+                  {(p.status === 'DRAFT' || p.status === 'DITOLAK') && (
+                    <button
+                      onClick={() => setHapusPaketId(p.id)}
+                      className="btn-ghost btn-icon btn-sm text-red-500 hover:bg-red-50"
+                      title="Hapus paket soal"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
+
+                  {/* Tarik */}
+                  {p.status === 'MENUNGGU' && (
+                    <button onClick={() => setTarikId(p.id)} className="btn-secondary btn-sm">
+                      <RotateCcw className="w-3.5 h-3.5" /> Tarik
+                    </button>
+                  )}
+
                   <button
                     onClick={async () => {
                       if (expandedId === p.id) {
@@ -683,6 +801,10 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
                   </button>
                 </div>
               </div>
+
+              {p.status === 'MENUNGGU' && p.catatan && (
+                <div className="px-4 pb-3 -mt-2 text-xs text-amber-600">Persetujuan dibatalkan admin — klik <strong>Tarik</strong> untuk mengedit soal lalu kirim ulang</div>
+              )}
 
               {expandedId === p.id && (
                 <div className="border-t border-slate-100 p-4 bg-slate-50 space-y-2">
@@ -753,6 +875,59 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
         onConfirm={handleDeleteSoal} title="Hapus Soal"
         message="Soal ini akan dihapus permanen. Lanjutkan?"
         confirmLabel="Ya, Hapus" loading={saving} />
+
+      {/* Modal Duplicate */}
+      <Modal
+        open={!!dupId}
+        onClose={() => { setDupId(null); setDupKelas('') }}
+        title="Duplikasi Paket ke Kelas Lain"
+        size="sm"
+        footer={
+          <>
+            <button onClick={() => { setDupId(null); setDupKelas('') }} className="btn-secondary" disabled={saving}>Batal</button>
+            <button onClick={handleDuplicate} className="btn-primary" disabled={saving || !dupKelas}>
+              {saving ? <Spinner size="sm" /> : <><Copy className="w-4 h-4" /> Duplikasi</>}
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-slate-600">
+            Semua soal dalam paket ini akan disalin ke paket baru dengan status <strong>DRAFT</strong> untuk kelas yang dipilih.
+          </p>
+          <div>
+            <label className="label">Pilih Kelas Tujuan *</label>
+            <select className="select" value={dupKelas} onChange={e => setDupKelas(e.target.value)}>
+              <option value="">— Pilih kelas —</option>
+              {dupId && getKelasUntukDuplicate(dupId).map(k => (
+                <option key={k.id} value={k.id}>{k.nama}</option>
+              ))}
+            </select>
+          </div>
+          <div className="alert-info text-xs flex items-start gap-2">
+            <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+            Paket yang sudah ada untuk kelas tujuan yang sama tidak bisa dipilih untuk mencegah duplikasi.
+          </div>
+        </div>
+      </Modal>
+
+      {/* Confirm Kirim */}
+      <Confirm open={!!kirimId} onClose={() => setKirimId(null)} onConfirm={handleKirim}
+        title="Kirim Paket Soal"
+        message="Semua soal dalam paket ini akan dikirim ke admin untuk divalidasi. Setelah dikirim, soal tidak bisa diedit atau dihapus sampai admin menentukan keputusan. Lanjutkan?"
+        confirmLabel="Ya, Kirim" variant="primary" loading={saving} />
+
+      {/* Confirm Tarik */}
+      <Confirm open={!!tarikId} onClose={() => setTarikId(null)} onConfirm={handleTarik}
+        title="Tarik Paket Soal"
+        message="Paket akan ditarik kembali ke status DRAFT dan soal-soal bisa diedit kembali. Lanjutkan?"
+        confirmLabel="Ya, Tarik" variant="primary" loading={saving} />
+
+      {/* Confirm Hapus Paket */}
+      <Confirm open={!!hapusPaketId} onClose={() => setHapusPaketId(null)} onConfirm={handleHapusPaket}
+        title="Hapus Paket Soal"
+        message="Seluruh soal dalam paket ini akan ikut terhapus secara permanen. Tindakan ini tidak bisa dibatalkan. Lanjutkan?"
+        confirmLabel="Ya, Hapus Paket" loading={saving} />
 
     </div>
   )
