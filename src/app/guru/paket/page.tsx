@@ -1624,6 +1624,16 @@ function EssaySoalFlow({ onBack, initialBobotPg, initialBobotEssay }: { onBack: 
                 <input type="number" min={0} max={100} className="input" value={setupBobotEssay} onChange={e => handleBobotEssayChange(e.target.value)} />
               </div>
             </div>
+            {/* FIX (kejelasan "global" vs "per mapel"): nilai di atas SUDAH
+                diisi otomatis dari kartu "Nilai Awal" di layar sebelumnya
+                (kalau ada), tapi begitu ditekan "Lanjut Buat Soal", nilai INI
+                yang benar-benar dikirim & tersimpan permanen untuk mapel+kelas
+                ini (lihat startBuatPaket → POST /api/guru/paket-essay) —
+                bukan nilai di layar sebelumnya. */}
+            <p className="text-xs text-slate-400 -mt-2">
+              Nilai ini yang benar-benar tersimpan untuk mata pelajaran &amp; kelas yang dipilih di atas — beda
+              dari kartu "Nilai Awal" di layar sebelumnya yang cuma pengisi otomatis.
+            </p>
             <div className="alert-info text-xs flex items-center gap-2">
               <Info className="w-3.5 h-3.5 flex-shrink-0" />
               Pengaturan ini hanya perlu diisi sekali. Setelah itu Anda bisa langsung membuat soal satu per satu.
@@ -1819,7 +1829,7 @@ export default function GuruBuatSoalPage() {
       return
     }
     setBobotTersimpan({ pg: Number(bobotPg), essay: Number(bobotEssay) })
-    showToast(`Bobot disimpan sebagai default: ${bobotPg}% PG : ${bobotEssay}% Essay`)
+    showToast(`Nilai awal diterapkan: ${bobotPg}% PG : ${bobotEssay}% Essay — akan otomatis mengisi form saat Anda mulai membuat paket Essay baru`)
   }
 
   if (kind === 'pg') return <PgSoalFlow onBack={() => setKind('choice')} />
@@ -1839,11 +1849,22 @@ export default function GuruBuatSoalPage() {
             disembunyikan di balik klik) supaya guru langsung tahu ini bisa
             diedit, tapi tetap ringkas: satu baris input + tombol Simpan,
             bukan kartu panjang seperti sebelumnya. */}
+        {/* FIX (kejelasan "global" vs "per mapel"): sebelumnya kartu ini
+            berlabel "Bobot Nilai PG : Essay" dan tombolnya "Simpan" dengan
+            toast "Bobot disimpan sebagai default" — kata "disimpan" itu
+            menyesatkan karena nilai di sini TIDAK PERNAH dikirim ke server
+            (lihat simpanBobot() di bawah: cuma setState lokal). Nilai yang
+            SUNGGUHAN tersimpan ke database ada di form "Buat Paket Soal
+            Essay" per mapel+kelas (kolom bobot_pg_persen/bobot_essay_persen
+            di tabel paket_essay). Kartu ini HANYA nilai awal yang otomatis
+            mengisi form tersebut supaya guru tidak perlu ketik ulang setiap
+            kali — tidak lebih. Perilakunya TIDAK diubah, hanya bahasanya
+            dijujurkan supaya tidak terbaca sebagai pengaturan permanen. */}
         <div className="card-sm">
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex items-center gap-2 text-sm font-medium text-slate-700 flex-shrink-0">
               <Info className="w-4 h-4 text-slate-400" />
-              Bobot Nilai PG : Essay
+              Nilai Awal Bobot PG : Essay
             </div>
             <div className="flex items-center gap-2">
               <input type="number" min={0} max={100} className="input w-20 text-center text-sm font-semibold py-1.5"
@@ -1861,15 +1882,18 @@ export default function GuruBuatSoalPage() {
               className="btn-primary btn-sm ml-auto"
             >
               <Save className="w-3.5 h-3.5" />
-              Simpan
+              Terapkan
             </button>
           </div>
           {bobotTidakSeimbang ? (
             <p className="text-xs text-red-600 mt-2">Bobot PG dan Essay harus berjumlah 100%.</p>
           ) : (
             <p className="text-xs text-slate-400 mt-2">
-              Berlaku saat membuat soal Essay untuk mapel & kelas yang sama (bisa diatur ulang per mapel/kelas). Kalau hanya membuat soal PG saja, nilai akhir otomatis 100% dari PG.
-              {bobotBelumDisimpan && <span className="text-amber-600 font-medium"> Ada perubahan belum disimpan.</span>}
+              Ini <strong>bukan</strong> pengaturan permanen — nilainya cuma otomatis mengisi form saat Anda mulai
+              membuat <em>paket Essay baru</em>, dan tidak berpengaruh ke paket yang sudah ada (bobot paket yang
+              sudah ada diubah lewat kartu paket masing-masing). Nilai di sini juga akan kembali ke 50:50 kalau
+              halaman ini dimuat ulang. Kalau hanya membuat soal PG saja, nilai akhir otomatis 100% dari PG.
+              {bobotBelumDisimpan && <span className="text-amber-600 font-medium"> Ada perubahan belum diterapkan.</span>}
             </p>
           )}
         </div>
