@@ -36,6 +36,10 @@ interface NilaiRow {
   nilai_total?: number | null
   dirilis?: boolean
   dirilis_pada?: string | null
+  // true kalau sesi ini pakai essay TAPI guru belum merilis nilai essay
+  // untuk siswa ini — dihitung server-side di GET /api/guru/kirim-nilai
+  // (lihat `essay_belum_dirilis` di route.ts), bukan kolom asli tabel `nilai`.
+  essay_belum_dirilis?: boolean
   // true kalau siswa ini belum sama sekali mengerjakan ujian mapel ini —
   // tidak ada nilai untuk diedit/dikirim, hanya ditampilkan sebagai info.
   belum_ujian?: boolean
