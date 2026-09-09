@@ -6,6 +6,7 @@ import {
   ListChecks, PenSquare, Send, RotateCcw, Copy, Info, ChevronRight, Save,
 } from 'lucide-react'
 import { Modal, Confirm, StatusBadge, EmptyState, Spinner, Toast } from '@/components/ui'
+import { EssayFlowGuide } from '@/components/shared/EssayFlowGuide'
 import { apiRequest, formatDateTime } from '@/lib/utils'
 import { PaketSoal, Mapel, Kelas, Soal, PaketEssay, SoalEssay } from '@/types'
 
@@ -1450,6 +1451,8 @@ function EssaySoalFlow({ onBack, initialBobotPg, initialBobotEssay }: { onBack: 
           </p>
         </div>
 
+        <EssayFlowGuide current="buat-soal" />
+
         {!editable && (
           <div className="alert-info text-sm flex items-center gap-2">
             <Lock className="w-4 h-4 flex-shrink-0" />
@@ -1766,6 +1769,24 @@ export default function GuruBuatSoalPage() {
   const [kind, setKind] = useState<Kind>('choice')
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => setToast({ msg, type })
+
+  // FIX (kehilangan progres tanpa peringatan): layar PG/Essay di halaman ini
+  // adalah "layar semu" lewat state lokal (`kind`), bukan route URL asli —
+  // artinya refresh atau menutup tab di tengah proses akan membuang isian
+  // form tanpa peringatan apa pun. Ini TIDAK mengubah alur/logika penyimpanan
+  // (soal yang sudah ditekan "Simpan" tetap tersimpan seperti biasa di
+  // database) — ini hanya menambah peringatan browser standar saat guru
+  // sedang di tengah layar PG/Essay dan mencoba menutup/refresh tab, supaya
+  // isian yang BELUM ditekan simpan tidak hilang tanpa sadar.
+  useEffect(() => {
+    if (kind === 'choice') return
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [kind])
 
   // FIX (bobot PG:Essay): guru mengatur bobot di layar pilihan ini SEBELUM
   // masuk ke alur PG/Essay — nilainya dibawa sebagai default awal ke
