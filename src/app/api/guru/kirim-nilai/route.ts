@@ -407,8 +407,10 @@ export async function petakanEssayAktifPerSesi(db: any, sesiIds: (string | null 
 // kandidat kirim-ke-wali, pisahkan mana yang SIAP dikirim (tidak pakai essay,
 // atau essay-nya sudah dirilis guru lewat rilis_essay_individu/sekaligus) dan
 // mana yang TERTUNDA (sesinya essay_aktif tapi kolom `dirilis` masih false).
+// Diekspor (bukan lagi lokal) supaya dipakai juga oleh cron/deadline-nilai —
+// lihat catatan di file itu kenapa ini penting untuk auto-kirim.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function pisahkanSiapKirim(db: any, kandidat: { id: string; nis: string; sesi_id: string | null; dirilis: boolean | null }[]) {
+export async function pisahkanSiapKirim(db: any, kandidat: { id: string; nis: string; sesi_id: string | null; dirilis: boolean | null }[]) {
   const essayAktifMap = await petakanEssayAktifPerSesi(db, kandidat.map(k => k.sesi_id))
 
   const siapIds: string[] = []
