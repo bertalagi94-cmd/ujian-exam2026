@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
 
   const { data: sesi } = await db
     .from('sesi_ujian')
-    .select('id, jadwal_id, mapel_id, kelas, info_json')
+    .select('id, jadwal_id, mapel_id, kelas, info_json, is_darurat, siswa_diizinkan')
     .eq('id', sesiId)
     .single()
   if (!sesi) return NextResponse.json({ error: 'Sesi tidak ditemukan' }, { status: 404 })
@@ -97,9 +97,32 @@ export async function GET(req: NextRequest) {
     .eq('sesi_id', sesiId)
     .or('status_essay.in.(SUDAH_KIRIM,TIDAK_MENGERJAKAN),status.eq.SELESAI')
 
+  // FIX BUG (badge "Belum Menjawab" selalu 0): sebelumnya frontend menghitung
+  // "belum menjawab" dari `peserta.length - sudahMenjawab`, padahal `peserta`
+  // di sini HANYA berisi siswa yang statusnya sudah final (SUDAH_KIRIM /
+  // TIDAK_MENGERJAKAN / status sesi SELESAI) — siswa yang belum login sama
+  // sekali atau masih mengerjakan tidak pernah masuk ke `peserta`. Akibatnya
+  // secara matematis "belum menjawab" versi frontend selalu 0. FIX: hitung
+  // di sini total siswa TARGET sesi ini (pola sama dengan
+  // /api/pengawas/sesi/[id]/siswa) — untuk sesi susulan pakai
+  // siswa_diizinkan, untuk sesi reguler pakai siswa AKTIF di kelas tsb —
+  // lalu kirim sebagai totalTargetSiswa supaya frontend bisa menghitung
+  // "belum menjawab" = totalTargetSiswa - sudahMenjawab dengan benar.
+  let totalTargetSiswa = 0
+  if (sesi.is_darurat && Array.isArray(sesi.siswa_diizinkan) && sesi.siswa_diizinkan.length > 0) {
+    totalTargetSiswa = sesi.siswa_diizinkan.length
+  } else if (sesi.kelas) {
+    const { count } = await db
+      .from('siswa')
+      .select('nis', { count: 'exact', head: true })
+      .eq('kelas', sesi.kelas)
+      .eq('status', 'AKTIF')
+    totalTargetSiswa = count ?? 0
+  }
+
   const nisList = (pesertaList ?? []).map(p => p.nis)
   if (nisList.length === 0) {
-    return NextResponse.json({ soalEssay: soalEssayList ?? [], totalBobotMaks, peserta: [], modeJawaban, bobotPg, bobotEssay })
+    return NextResponse.json({ soalEssay: soalEssayList ?? [], totalBobotMaks, peserta: [], modeJawaban, bobotPg, bobotEssay, totalTargetSiswa })
   }
 
   const [{ data: siswaList }, { data: nilaiList }] = await Promise.all([
@@ -145,7 +168,7 @@ export async function GET(req: NextRequest) {
     dirilis: nilaiMap[p.nis]?.dirilis ?? false,
   }))
 
-  return NextResponse.json({ soalEssay: soalEssayList ?? [], totalBobotMaks, peserta, modeJawaban, bobotPg, bobotEssay })
+  return NextResponse.json({ soalEssay: soalEssayList ?? [], totalBobotMaks, peserta, modeJawaban, bobotPg, bobotEssay, totalTargetSiswa })
 }
 
 // PUT { sesiId, nis, nilaiEssay } — input/ubah nilai essay 1 siswa & hitung nilai_total.
