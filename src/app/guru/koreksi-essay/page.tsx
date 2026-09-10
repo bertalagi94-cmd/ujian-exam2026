@@ -205,6 +205,9 @@ export default function GuruKoreksiEssayPage() {
 
   const semuaSudahDinilai = !!data && data.peserta.length > 0 && data.peserta.every(p => p.sudahDinilai)
   const semuaSudahDirilis = !!data && data.peserta.length > 0 && data.peserta.every(p => p.dirilis)
+  // Ringkasan jumlah siswa yang sudah/belum mengirim jawaban essay pada sesi terpilih
+  const jumlahSudahMenjawab = data ? data.peserta.filter(p => p.statusEssay === 'SUDAH_KIRIM').length : 0
+  const jumlahBelumMenjawab = data ? data.peserta.length - jumlahSudahMenjawab : 0
 
   // UX (redesain tampilan koreksi essay): sebelumnya status siswa ditampilkan
   // sebagai 3-4 badge berjejer sekaligus (Tidak Mengerjakan + Belum
@@ -287,12 +290,31 @@ export default function GuruKoreksiEssayPage() {
               <>
                 <div className="card space-y-1">
                   <div className="flex items-center justify-between flex-wrap gap-2">
-                    <div className="flex items-center gap-2">
-                      <FileText className="w-4 h-4 text-brand-600" />
-                      <h2 className="font-semibold text-slate-900">
-                        {data.soalEssay.length} Soal Essay · Mode {data.modeJawaban === 'DIGITAL' ? 'Digital' : 'Kertas'}
-                      </h2>
+                    <div>
+                      <h2 className="font-bold text-slate-900 text-lg">{selectedJadwal?.nama_mapel}</h2>
+                      <p className="text-xs text-slate-500 flex items-center gap-1 mt-0.5">
+                        <Users className="w-3 h-3" /> Kelas {selectedJadwal?.nama_kelas}
+                        <span className="text-slate-300">·</span>
+                        <Calendar className="w-3 h-3" /> {selectedJadwal ? formatDate(selectedJadwal.tanggal) : ''}
+                      </p>
                     </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 pt-1">
+                    <FileText className="w-4 h-4 text-brand-600" />
+                    <p className="text-sm text-slate-600">
+                      {data.soalEssay.length} Soal Essay · Mode {data.modeJawaban === 'DIGITAL' ? 'Digital' : 'Kertas'}
+                    </p>
+                  </div>
+
+                  {/* Ringkasan jumlah siswa yang sudah & belum menjawab essay */}
+                  <div className="flex items-center gap-2 flex-wrap pt-1">
+                    <Badge variant="green">
+                      <CheckCircle2 className="w-3.5 h-3.5" /> {jumlahSudahMenjawab} Sudah Menjawab
+                    </Badge>
+                    <Badge variant="yellow">
+                      <Clock className="w-3.5 h-3.5" /> {jumlahBelumMenjawab} Belum Menjawab
+                    </Badge>
                   </div>
 
                   {/* UX (menghindari kebingungan skala nilai essay): jelaskan
