@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 import { cachedFetch } from '@/lib/cache'
+import { hitungGrade } from '@/lib/utils'
+import { petakanEssayAktifPerSesi } from '@/app/api/guru/kirim-nilai/route'
 
 async function fetchDashboardData() {
   const db = createAdminClient()
@@ -27,7 +29,7 @@ async function fetchDashboardData() {
     db.from('paket_soal').select('*', { count: 'exact', head: true }).eq('status', 'MENUNGGU'),
     db.rpc('get_dashboard_stats'),          // AVG & GROUP BY jalan di PostgreSQL
     db.from('nilai')
-      .select('nis, nilai, grade, lulus, timestamp, mapel_id, kelas')
+      .select('nis, nilai, grade, lulus, timestamp, mapel_id, kelas, sesi_id, nilai_total, dirilis')
       .order('timestamp', { ascending: false })
       .limit(20),
   ])
@@ -37,7 +39,7 @@ async function fetchDashboardData() {
   const nilaiPerMapelRaw = stats?.nilai_per_mapel ?? []
 
   // Enrich recent nilai dengan nama siswa & mapel
-  type NilaiRow = { nis: string; nilai: number; grade: string; lulus: boolean; timestamp: string; mapel_id: string; kelas: string }
+  type NilaiRow = { nis: string; nilai: number; grade: string; lulus: boolean; timestamp: string; mapel_id: string; kelas: string; sesi_id: string | null; nilai_total: number | null; dirilis: boolean | null }
   const nilaiRows = (recentNilai ?? []) as NilaiRow[]
   const nisSet   = [...new Set(nilaiRows.map(r => r.nis))]
   const mapelSet = [...new Set(nilaiRows.map(r => r.mapel_id))]
@@ -52,11 +54,35 @@ async function fetchDashboardData() {
     ((mapelNames ?? []) as { id: string; nama: string }[]).map(m => [m.id, m.nama])
   )
 
-  const enrichedNilai = nilaiRows.map(r => ({
-    ...r,
-    nama_siswa: siswaMap[r.nis] ?? r.nis,
-    nama_mapel: mapelMap[r.mapel_id] ?? r.mapel_id,
-  }))
+  // BUG FIX (rekap nilai admin belum menyesuaikan fitur essay): kartu
+  // "Aktivitas Nilai Terbaru" di dashboard ini sebelumnya SELALU menampilkan
+  // nilai/grade PG-only berdampingan dengan badge Lulus/Tidak yang (sejak
+  // fix di koreksi-essay/route.ts) sudah final memakai nilai_total —
+  // membuat kartu bisa terlihat kontradiktif (mis. Grade "D" tapi berlabel
+  // "LULUS"). Sekarang nilai & grade yang ditampilkan ikut memakai nilai
+  // efektif (nilai_total kalau essay aktif & dirilis).
+  //
+  // CATATAN: `rataRataNilai` & `nilaiPerMapel` di atas dihitung lewat RPC
+  // `get_dashboard_stats` di PostgreSQL (bukan JS di sini) — fungsi SQL
+  // tsb tidak ada di repo ini (dibuat langsung di Supabase), jadi TIDAK
+  // ikut diperbaiki oleh perubahan ini. Perlu diedit terpisah lewat SQL
+  // editor Supabase kalau ingin ikut essay-aware.
+  const essayAktifMap = await petakanEssayAktifPerSesi(db, nilaiRows.map(r => r.sesi_id))
+  const nilaiEfektifAdmin = (n: NilaiRow) => {
+    const essayAktif = n.sesi_id ? (essayAktifMap.get(n.sesi_id) ?? false) : false
+    return (essayAktif && n.dirilis === true && n.nilai_total != null) ? n.nilai_total : (n.nilai || 0)
+  }
+
+  const enrichedNilai = nilaiRows.map(r => {
+    const efektif = nilaiEfektifAdmin(r)
+    return {
+      ...r,
+      nilai: efektif,
+      grade: efektif === r.nilai ? r.grade : hitungGrade(efektif),
+      nama_siswa: siswaMap[r.nis] ?? r.nis,
+      nama_mapel: mapelMap[r.mapel_id] ?? r.mapel_id,
+    }
+  })
 
   const nilaiPerMapel = nilaiPerMapelRaw.map(x => ({
     nama: mapelMap[x.mapel_id] ?? x.mapel_id,
