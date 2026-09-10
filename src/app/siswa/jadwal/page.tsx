@@ -27,9 +27,26 @@ function StatusJadwalSiswa({ j }: { j: Jadwal }) {
   // Sesi sedang berlangsung, siswa belum masuk
   if (j.status === 'BERJALAN') {
     return (
-      <span className="badge badge-blue flex items-center gap-1 whitespace-nowrap">
-        <BookOpen className="w-3.5 h-3.5 flex-shrink-0" /> Sedang Berlangsung
-      </span>
+      <div className="flex flex-row sm:flex-col items-center sm:items-end gap-2 sm:gap-1.5 flex-wrap">
+        <span className="badge badge-blue flex items-center gap-1 whitespace-nowrap">
+          <BookOpen className="w-3.5 h-3.5 flex-shrink-0" /> Sedang Berlangsung
+        </span>
+        {/* FIX (susulan tidak terdeteksi di "Mulai Ujian"): sebelumnya
+            satu-satunya jalan masuk ujian adalah lewat menu "Mulai Ujian" di
+            beranda, yang mendeteksi ujian "hari ini" dari `jadwal.tanggal` —
+            untuk sesi susulan yang dibuka admin/pengawas pada jadwal dengan
+            tanggal asli sudah lewat, deteksi itu gagal (lihat fix di
+            /siswa/ujian/page.tsx) sehingga siswa terjebak tanpa cara masuk
+            walau badge di sini sudah benar menunjukkan "Sedang Berlangsung".
+            Tombol ini memberi jalan masuk langsung dari halaman Jadwal
+            Ujian, tidak bergantung pada deteksi "hari ini" itu sama sekali. */}
+        <Link
+          href="/siswa/ujian"
+          className="btn-primary btn-sm whitespace-nowrap"
+        >
+          <BookOpen className="w-3.5 h-3.5" /> Masuk Ujian
+        </Link>
+      </div>
     )
   }
 
