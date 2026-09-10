@@ -340,7 +340,20 @@ export default function SiswaUjianPage() {
         const shifted = new Date(Date.now() + zona * 60 * 60 * 1000)
         const today = shifted.toISOString().slice(0, 10)
 
-        const semuaHariIni = (res.data ?? []).filter(j => j.tanggal?.slice(0, 10) === today)
+        // BUG FIX (ujian susulan dibuka admin/pengawas tidak muncul di "Mulai
+        // Ujian"): sebelumnya filter "hari ini" HANYA mengandalkan
+        // `j.tanggal` (tanggal jadwal ASLI). Saat admin membuka sesi susulan
+        // untuk jadwal yang tanggal aslinya sudah lewat (lihat
+        // /api/admin/susulan — hanya `jadwal.status` yang di-set 'BERJALAN',
+        // `jadwal.tanggal` SENGAJA tidak diubah supaya riwayat jadwal asli
+        // tetap utuh), jadwal itu tidak pernah lolos filter `tanggal ===
+        // today` walau sesinya benar-benar sedang berjalan sekarang — siswa
+        // melihat "Tidak Ada Ujian Hari Ini" padahal menu Jadwal Ujian
+        // menunjukkan status "Sedang Berlangsung". Sekarang jadwal dengan
+        // status BERJALAN ikut disertakan APAPUN tanggalnya, karena status
+        // itu sendiri sudah jadi sinyal real-time "ada sesi yang bisa
+        // diikuti sekarang" — sama seperti cara /siswa/jadwal menampilkannya.
+        const semuaHariIni = (res.data ?? []).filter(j => j.tanggal?.slice(0, 10) === today || j.status === 'BERJALAN')
         // Yang belum diikuti dan belum selesai — ini yang aktif ditangani
         const hariIni = semuaHariIni.filter(j => !j.sudah_ikut && j.status !== 'SELESAI')
         // Yang sudah ditutup tapi siswa belum sempat ikut
@@ -922,7 +935,11 @@ export default function SiswaUjianPage() {
       const zona = res.zonaWaktu?.utcOffsetJam ?? 7
       const shifted = new Date(Date.now() + zona * 60 * 60 * 1000)
       const today = shifted.toISOString().slice(0, 10)
-      const semuaHariIni2 = (res.data ?? []).filter(j => j.tanggal?.slice(0, 10) === today)
+      // BUG FIX (sama seperti di cekJadwal() di atas — lihat komentar di sana):
+      // ikutkan jadwal berstatus BERJALAN apapun tanggalnya, supaya sesi
+      // susulan yang dibuka admin/pengawas untuk jadwal lama tetap terdeteksi
+      // saat siswa menekan "Cek Ulang Sesi"/"Refresh".
+      const semuaHariIni2 = (res.data ?? []).filter(j => j.tanggal?.slice(0, 10) === today || j.status === 'BERJALAN')
       const hariIni = semuaHariIni2.filter(j => !j.sudah_ikut && j.status !== 'SELESAI')
       const sudahTutup2 = semuaHariIni2.filter(j => !j.sudah_ikut && j.status === 'SELESAI')
       setJadwalHariIni(hariIni)
