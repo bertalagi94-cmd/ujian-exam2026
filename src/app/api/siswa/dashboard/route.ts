@@ -15,7 +15,18 @@ export async function GET(req: NextRequest) {
     db.from('jadwal').select('*').eq('kelas', user.kelas!).eq('status', 'AKTIF').order('tanggal').limit(5),
   ])
 
-  const nums = (nilaiAll ?? []).map(n => n.nilai || 0)
+  // BUG FIX (rekap nilai siswa belum menyesuaikan fitur essay): sama seperti
+  // /api/siswa/nilai, kartu statistik dashboard sebelumnya dihitung murni
+  // dari `n.nilai` (PG-only). Peta essay-aktif dihitung untuk SELURUH
+  // `nilaiAll` (bukan cuma 6 nilai terbaru yang ditampilkan di kartu
+  // "Nilai Terbaru") supaya rata-rata/tertinggi/terendah ikut memakai nilai
+  // gabungan begitu dirilis.
+  const essayAktifMapAll = await petakanEssayAktifPerSesi(db, (nilaiAll ?? []).map(n => n.sesi_id))
+  const nilaiEfektif = (n: NonNullable<typeof nilaiAll>[number]) => {
+    const essayAktif = n.sesi_id ? (essayAktifMapAll.get(n.sesi_id) ?? false) : false
+    return (essayAktif && n.dirilis === true && n.nilai_total != null) ? n.nilai_total : (n.nilai || 0)
+  }
+  const nums = (nilaiAll ?? []).map(nilaiEfektif)
   const stats = {
     totalUjian: nums.length,
     rataRata: nums.length ? Math.round(nums.reduce((a, b) => a + b, 0) / nums.length) : 0,
@@ -34,11 +45,9 @@ export async function GET(req: NextRequest) {
   // `dirilis`, jadi nilai_essay/nilai_total bisa terlihat di dashboard
   // sebelum guru menekan tombol rilis. Mask sama seperti di
   // /api/siswa/nilai/route.ts.
-  const essayAktifMap = await petakanEssayAktifPerSesi(db, recentNilai.map(r => r.sesi_id))
-
   const enrichedNilai = recentNilai.map(r => {
     const essayDirilis = r.dirilis === true
-    const essayAktif = r.sesi_id ? (essayAktifMap.get(r.sesi_id) ?? false) : false
+    const essayAktif = r.sesi_id ? (essayAktifMapAll.get(r.sesi_id) ?? false) : false
     return {
       ...r,
       nilai_essay: essayDirilis ? r.nilai_essay : null,
