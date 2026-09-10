@@ -57,7 +57,17 @@ export async function GET(req: NextRequest) {
     }
   })
 
-  const nums = enriched.map(n => n.nilai || 0)
+  // BUG FIX (rekap nilai siswa belum menyesuaikan fitur essay): sebelumnya
+  // kartu statistik ("Rata-rata"/"Tertinggi"/"Terendah") di halaman Nilai
+  // Saya dihitung murni dari `n.nilai` (PG-only) — padahal baris tabelnya
+  // sendiri (lihat siswa/nilai/page.tsx) sudah menampilkan nilai_total
+  // begitu essay dirilis. Sekarang dipakai nilai efektif yang sama supaya
+  // konsisten dengan apa yang siswa lihat di baris tabel.
+  const nilaiEfektif = (n: (typeof enriched)[number]) => {
+    const essayAktif = n.sesi_id ? (essayAktifMap.get(n.sesi_id) ?? false) : false
+    return (essayAktif && n.dirilis === true && n.nilai_total != null) ? n.nilai_total : (n.nilai || 0)
+  }
+  const nums = enriched.map(nilaiEfektif)
   const stats = {
     totalUjian: nums.length,
     rataRata: nums.length ? Math.round(nums.reduce((a, b) => a + b, 0) / nums.length) : 0,
