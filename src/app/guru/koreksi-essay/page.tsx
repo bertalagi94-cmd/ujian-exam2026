@@ -206,6 +206,23 @@ export default function GuruKoreksiEssayPage() {
   const semuaSudahDinilai = !!data && data.peserta.length > 0 && data.peserta.every(p => p.sudahDinilai)
   const semuaSudahDirilis = !!data && data.peserta.length > 0 && data.peserta.every(p => p.dirilis)
 
+  // UX (redesain tampilan koreksi essay): sebelumnya status siswa ditampilkan
+  // sebagai 3-4 badge berjejer sekaligus (Tidak Mengerjakan + Belum
+  // Dinilai/Dinilai + Dirilis), yang terasa penuh & memusingkan. Sekarang
+  // satu siswa = satu badge, dipilih berdasarkan prioritas kondisi paling
+  // relevan untuk guru di tahap koreksi ini.
+  function statusBadge(p: Peserta): { variant: 'red' | 'yellow' | 'purple' | 'green' | 'slate'; label: string } {
+    if (p.statusEssay === 'TIDAK_MENGERJAKAN') return { variant: 'red', label: 'Tidak Mengerjakan' }
+    // FIX (siswa hilang dari antrean setelah sesi ditutup paksa): status
+    // 'Belum Kirim' di sini sengaja mencakup SEMUA nilai selain SUDAH_KIRIM
+    // (null/BELUM_MULAI/MENGERJAKAN) — termasuk peserta yang sesinya ditutup
+    // paksa oleh pengawas/admin sebelum sempat menekan "Kirim" sendiri.
+    if (p.statusEssay !== 'SUDAH_KIRIM') return { variant: 'yellow', label: 'Belum Kirim' }
+    if (p.dirilis) return { variant: 'purple', label: 'Dirilis' }
+    if (p.sudahDinilai) return { variant: 'green', label: 'Sudah Dinilai' }
+    return { variant: 'slate', label: 'Belum Dinilai' }
+  }
+
   return (
     <div className="space-y-6 animate-fade-in">
       {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
@@ -324,9 +341,9 @@ export default function GuruKoreksiEssayPage() {
                     <thead>
                       <tr>
                         <th>Siswa</th>
-                        <th>PG</th>
-                        <th>Essay</th>
-                        <th>Total</th>
+                        <th>Nilai PG</th>
+                        <th>Nilai Essay</th>
+                        <th>Nilai Akhir</th>
                         <th>Status</th>
                         <th className="w-8" />
                       </tr>
@@ -335,6 +352,8 @@ export default function GuruKoreksiEssayPage() {
                       {data.peserta.map(p => {
                         const nilaiSaatIni = nilaiInput[p.nis] ?? ''
                         const terbuka = expandedNis === p.nis
+                        const sb = statusBadge(p)
+                        const akhirLulus = p.nilaiTotal !== null && p.nilaiPg ? p.nilaiTotal >= p.nilaiPg.kkm : null
                         return (
                           <Fragment key={p.nis}>
                             <tr
@@ -345,22 +364,26 @@ export default function GuruKoreksiEssayPage() {
                                 <p className="font-semibold text-slate-900">{p.nama}</p>
                                 <p className="text-xs text-slate-400">NIS {p.nis}</p>
                               </td>
-                              <td>{p.nilaiPg ? `${p.nilaiPg.benar}/${p.nilaiPg.total}` : '-'}</td>
-                              <td>{p.nilaiEssay !== null ? p.nilaiEssay : '-'}</td>
-                              <td>{p.nilaiTotal !== null ? <strong>{p.nilaiTotal}</strong> : '-'}</td>
                               <td>
-                                <div className="flex items-center gap-1 flex-wrap">
-                                  {p.statusEssay === 'TIDAK_MENGERJAKAN' && <Badge variant="red">Tidak Mengerjakan</Badge>}
-                                  {/* FIX (siswa hilang dari antrean setelah sesi ditutup paksa): tandai
-                                      jelas peserta yang tidak sempat menekan "Kirim" sendiri karena sesi
-                                      ditutup pengawas/admin di tengah jalan — supaya guru tidak bingung
-                                      kenapa tidak ada waktu "Dikirim" untuk siswa ini. */}
-                                  {p.statusEssay !== 'SUDAH_KIRIM' && p.statusEssay !== 'TIDAK_MENGERJAKAN' && (
-                                    <Badge variant="yellow">Belum Kirim</Badge>
-                                  )}
-                                  {p.sudahDinilai ? <Badge variant="green">Dinilai</Badge> : <Badge variant="slate">Belum Dinilai</Badge>}
-                                  {p.dirilis && <Badge variant="purple">Dirilis</Badge>}
-                                </div>
+                                {p.nilaiPg ? (
+                                  <>
+                                    <span className="font-bold text-slate-800">{p.nilaiPg.nilai}</span>
+                                    <div className="text-[11px] text-slate-400">{p.nilaiPg.benar}/{p.nilaiPg.total} benar</div>
+                                  </>
+                                ) : <span className="text-slate-300">–</span>}
+                              </td>
+                              <td>
+                                {p.nilaiEssay !== null
+                                  ? <span className="font-bold text-slate-800">{p.nilaiEssay}</span>
+                                  : <span className="text-xs text-slate-400 italic">Belum dinilai</span>}
+                              </td>
+                              <td>
+                                {p.nilaiTotal !== null
+                                  ? <span className={`font-bold ${akhirLulus ? 'text-emerald-600' : 'text-red-600'}`}>{p.nilaiTotal}</span>
+                                  : <span className="text-slate-300">–</span>}
+                              </td>
+                              <td>
+                                <Badge variant={sb.variant}>{sb.label}</Badge>
                               </td>
                               <td>
                                 <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${terbuka ? 'rotate-180' : ''}`} />
@@ -370,13 +393,15 @@ export default function GuruKoreksiEssayPage() {
                             {terbuka && (
                               <tr>
                                 <td colSpan={6} className="bg-slate-50/60 p-0 border-b border-slate-100">
-                                  <div className="p-4 space-y-3">
+                                  <div className="p-4 space-y-4">
                                     <p className="text-xs text-slate-400 -mt-1">
                                       Dikirim {p.waktuKirimEssay ? formatDateTime(p.waktuKirimEssay) : '-'}
                                     </p>
 
                                     {/* Jawaban */}
-                                    {data.modeJawaban === 'DIGITAL' ? (
+                                    <div className="space-y-2">
+                                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Jawaban Siswa</p>
+                                      {data.modeJawaban === 'DIGITAL' ? (
                                       <div className="space-y-2">
                                         {data.soalEssay.map((soal, i) => {
                                           const jawaban = p.jawabanTeks?.find(j => j.soal_essay_id === soal.id)
@@ -423,10 +448,12 @@ export default function GuruKoreksiEssayPage() {
                                         )}
                                       </div>
                                     )}
+                                    </div>
 
                                     {/* Input nilai */}
                                     {p.statusEssay !== 'TIDAK_MENGERJAKAN' && (
-                                      <div className="pt-1 border-t border-slate-200 space-y-2">
+                                      <div className="bg-white rounded-lg border border-slate-200 p-3 space-y-2">
+                                        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Beri Nilai Essay</p>
                                         <div className="flex items-end gap-2 flex-wrap">
                                           <div className="flex-1 min-w-[140px]">
                                             <label className="label">Nilai Essay (skala 0–100)</label>
@@ -461,7 +488,7 @@ export default function GuruKoreksiEssayPage() {
                                             const kkmSiswa = p.nilaiPg?.kkm ?? 0
                                             const perkiraanLulus = perkiraanTotal >= kkmSiswa
                                             return (
-                                              <p className="text-xs text-slate-500 bg-white rounded-md px-2.5 py-1.5 border border-slate-100">
+                                              <p className="text-xs text-slate-500 bg-slate-50 rounded-md px-2.5 py-1.5 border border-slate-100">
                                                 Nilai Akhir = (PG {nilaiPgSiswa}×{data.bobotPg}%) + (Essay {essayFinal}×{data.bobotEssay}%)
                                                 {' '}= <strong className="text-brand-700">{perkiraanTotal}</strong>
                                                 {' '}· KKM {kkmSiswa} ·{' '}
@@ -475,17 +502,42 @@ export default function GuruKoreksiEssayPage() {
                                       </div>
                                     )}
 
-                                    {p.nilaiTotal !== null && (
-                                      <div className="flex items-center justify-between pt-2 border-t border-slate-200 text-sm flex-wrap gap-2">
-                                        <span className="text-slate-500 flex items-center gap-1.5">
-                                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-                                          Tersimpan — Nilai Essay: <strong>{p.nilaiEssay}</strong>/100 · Nilai Total: <strong>{p.nilaiTotal}</strong>
-                                        </span>
-                                        {!p.dirilis && (
-                                          <button className="btn-ghost btn-sm text-brand-600" onClick={() => handleRilisIndividu(p.nis)} disabled={rilisingNis === p.nis}>
-                                            {rilisingNis === p.nis ? <Spinner size="sm" /> : <><Send className="w-3.5 h-3.5" /> Rilis ke Siswa Ini</>}
-                                          </button>
-                                        )}
+                                    {/* UX (redesain ringkasan nilai): dulu satu baris teks padat
+                                        "Tersimpan — Nilai Essay: X/100 · Nilai Total: Y" digabung
+                                        tombol rilis di ujung kanan. Sekarang jadi kartu ringkasan 3
+                                        kolom (PG / Essay / Akhir) + status lulus yang jelas, terpisah
+                                        dari tombol aksi supaya lebih mudah dipindai mata. */}
+                                    {p.nilaiTotal !== null && p.nilaiPg && (
+                                      <div className="bg-white rounded-lg border border-slate-200 p-3">
+                                        <div className="flex items-center justify-between flex-wrap gap-3">
+                                          <div className="flex items-center gap-4">
+                                            <div>
+                                              <p className="text-[11px] text-slate-400">Nilai PG</p>
+                                              <p className="font-bold text-slate-800">{p.nilaiPg.nilai}</p>
+                                            </div>
+                                            <div className="text-slate-200">+</div>
+                                            <div>
+                                              <p className="text-[11px] text-slate-400">Nilai Essay</p>
+                                              <p className="font-bold text-slate-800">{p.nilaiEssay}</p>
+                                            </div>
+                                            <div className="text-slate-200">=</div>
+                                            <div>
+                                              <p className="text-[11px] text-slate-400">Nilai Akhir</p>
+                                              <p className={`font-bold text-lg ${p.nilaiTotal >= p.nilaiPg.kkm ? 'text-emerald-600' : 'text-red-600'}`}>{p.nilaiTotal}</p>
+                                            </div>
+                                            <Badge variant={p.nilaiTotal >= p.nilaiPg.kkm ? 'green' : 'red'}>
+                                              {p.nilaiTotal >= p.nilaiPg.kkm ? '✓ Lulus' : '✗ Tidak Lulus'}
+                                            </Badge>
+                                          </div>
+                                          {!p.dirilis && (
+                                            <button className="btn-ghost btn-sm text-brand-600" onClick={() => handleRilisIndividu(p.nis)} disabled={rilisingNis === p.nis}>
+                                              {rilisingNis === p.nis ? <Spinner size="sm" /> : <><Send className="w-3.5 h-3.5" /> Rilis ke Siswa Ini</>}
+                                            </button>
+                                          )}
+                                          {p.dirilis && (
+                                            <span className="text-xs text-purple-600 flex items-center gap-1"><CheckCircle2 className="w-3.5 h-3.5" /> Sudah dirilis ke siswa</span>
+                                          )}
+                                        </div>
                                       </div>
                                     )}
                                   </div>
