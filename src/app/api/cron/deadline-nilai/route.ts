@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { kirimWa } from '@/lib/wa'
+import { pisahkanSiapKirim } from '@/app/api/guru/kirim-nilai/route'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -49,26 +50,43 @@ export async function GET(req: NextRequest) {
   const log: string[] = []
 
   // ── 1. Auto-kirim jika deadline sudah lewat ──
+  // BUG FIX (deadline otomatis bisa kirim nilai essay yang belum dirilis):
+  // sebelumnya blok ini men-update SEMUA baris `dikirim_ke_wali = false`
+  // begitu deadline lewat, TANPA memeriksa apakah sesinya essay_aktif dan
+  // apakah essay-nya sudah dirilis guru — bertentangan langsung dengan gate
+  // yang sudah ditegakkan di aksi manual 'kirim_ke_wali'/'kirim_semua'
+  // (lihat pisahkanSiapKirim di /api/guru/kirim-nilai). Akibatnya wali kelas
+  // bisa menerima nilai yang nilai_total-nya masih kosong (essay belum
+  // dikoreksi/dirilis) begitu deadline sekolah lewat, walau guru sengaja
+  // belum merilisnya. Sekarang cron ini memakai helper yang sama supaya
+  // baris yang essay-nya masih tertunda TETAP tidak dikirim otomatis —
+  // hanya dicatat di log supaya admin tahu ada yang masih mengganjal.
   if (selisihJam <= 0) {
-    const { data: belumDikirim } = await db
+    const { data: kandidat } = await db
       .from('nilai')
-      .select('id, mapel_id')
+      .select('id, nis, sesi_id, dirilis')
       .eq('dikirim_ke_wali', false)
 
-    if ((belumDikirim ?? []).length > 0) {
+    const { siapIds, tertunda } = await pisahkanSiapKirim(db, kandidat ?? [])
+
+    if (siapIds.length > 0) {
       const now = sekarang.toISOString()
       const { error, count } = await db
         .from('nilai')
         .update({ dikirim_ke_wali: true, dikirim_at: now })
-        .eq('dikirim_ke_wali', false)
+        .in('id', siapIds)
 
       if (error) {
         log.push(`Error auto-kirim: ${error.message}`)
       } else {
-        log.push(`Auto-kirim ${count ?? 0} nilai ke wali kelas karena deadline sudah lewat`)
+        log.push(`Auto-kirim ${count ?? siapIds.length} nilai ke wali kelas karena deadline sudah lewat`)
       }
-    } else {
+    } else if (tertunda.length === 0) {
       log.push('Deadline sudah lewat tapi semua nilai sudah dikirim')
+    }
+
+    if (tertunda.length > 0) {
+      log.push(`${tertunda.length} nilai TIDAK ikut dikirim otomatis karena essay-nya belum dirilis guru — perlu ditindaklanjuti manual`)
     }
 
     return NextResponse.json({ message: log.join(' | '), log })
