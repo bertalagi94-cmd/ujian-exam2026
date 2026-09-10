@@ -55,6 +55,7 @@ interface KoreksiData {
   modeJawaban: 'DIGITAL' | 'KERTAS'
   bobotPg: number
   bobotEssay: number
+  totalTargetSiswa: number
 }
 
 export default function GuruKoreksiEssayPage() {
@@ -205,9 +206,16 @@ export default function GuruKoreksiEssayPage() {
 
   const semuaSudahDinilai = !!data && data.peserta.length > 0 && data.peserta.every(p => p.sudahDinilai)
   const semuaSudahDirilis = !!data && data.peserta.length > 0 && data.peserta.every(p => p.dirilis)
-  // Ringkasan jumlah siswa yang sudah/belum mengirim jawaban essay pada sesi terpilih
+  // Ringkasan jumlah siswa yang sudah/belum mengirim jawaban essay pada sesi terpilih.
+  // FIX BUG (badge "Belum Menjawab" selalu 0): sebelumnya dihitung dari
+  // `data.peserta.length - sudahMenjawab`, padahal `peserta` dari API hanya
+  // berisi siswa yang statusnya sudah final (lihat catatan FIX di
+  // route.ts) — siswa yang belum login/belum mulai sama sekali tidak pernah
+  // masuk `peserta`, sehingga selisihnya selalu 0. Sekarang pakai
+  // `totalTargetSiswa` (total siswa target sesi ini yang dihitung backend)
+  // sebagai penyebut, bukan panjang array yang memang tidak lengkap.
   const jumlahSudahMenjawab = data ? data.peserta.filter(p => p.statusEssay === 'SUDAH_KIRIM').length : 0
-  const jumlahBelumMenjawab = data ? data.peserta.length - jumlahSudahMenjawab : 0
+  const jumlahBelumMenjawab = data ? Math.max(0, data.totalTargetSiswa - jumlahSudahMenjawab) : 0
 
   // UX (redesain tampilan koreksi essay): sebelumnya status siswa ditampilkan
   // sebagai 3-4 badge berjejer sekaligus (Tidak Mengerjakan + Belum
