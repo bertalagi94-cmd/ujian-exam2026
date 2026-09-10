@@ -5,7 +5,7 @@ import {
   CheckSquare, Calendar, Users, ChevronRight, ChevronDown, FileText, Image as ImageIcon,
   CheckCircle2, XCircle, Save, Send, AlertTriangle, Clock,
 } from 'lucide-react'
-import { Confirm, EmptyState, Spinner, Toast, Badge } from '@/components/ui'
+import { Confirm, EmptyState, Spinner, Toast, Badge, Modal } from '@/components/ui'
 import { EssayFlowGuide } from '@/components/shared/EssayFlowGuide'
 import { apiRequest, formatDate, formatDateTime } from '@/lib/utils'
 
@@ -79,6 +79,14 @@ export default function GuruKoreksiEssayPage() {
   const [rilisingSemua, setRilisingSemua] = useState(false)
   const [rilisingNis, setRilisingNis] = useState<string | null>(null)
 
+  // Modal edit bobot PG:Essay — dua tahap: peringatan dulu (bobot baru
+  // berpengaruh ke nilai siswa yang sudah maupun belum dinilai essay-nya),
+  // baru kalau guru lanjut, tampilkan form input persentasenya.
+  const [editBobotStep, setEditBobotStep] = useState<'peringatan' | 'form' | null>(null)
+  const [bobotPgInput, setBobotPgInput] = useState('')
+  const [bobotEssayInput, setBobotEssayInput] = useState('')
+  const [savingBobot, setSavingBobot] = useState(false)
+
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => setToast({ msg, type })
 
   // ── Daftar jadwal essay yang sesinya sudah pernah dibuka ──────────
@@ -102,14 +110,11 @@ export default function GuruKoreksiEssayPage() {
 
   useEffect(() => { loadJadwal() }, [loadJadwal])
 
-  async function selectSesi(j: JadwalKoreksi) {
-    if (!j.sesi_ujian) return
-    setSelectedSesiId(j.sesi_ujian.id)
-    setSelectedJadwal(j)
+  async function loadKoreksiData(sesiId: string) {
     setLoadingData(true)
     setData(null)
     try {
-      const res = await apiRequest<KoreksiData>(`/api/guru/koreksi-essay?sesiId=${j.sesi_ujian.id}`)
+      const res = await apiRequest<KoreksiData>(`/api/guru/koreksi-essay?sesiId=${sesiId}`)
       setData(res)
       const init: Record<string, string> = {}
       for (const p of res.peserta) {
@@ -126,6 +131,13 @@ export default function GuruKoreksiEssayPage() {
     } finally {
       setLoadingData(false)
     }
+  }
+
+  async function selectSesi(j: JadwalKoreksi) {
+    if (!j.sesi_ujian) return
+    setSelectedSesiId(j.sesi_ujian.id)
+    setSelectedJadwal(j)
+    await loadKoreksiData(j.sesi_ujian.id)
   }
 
   async function handleSimpanNilai(nis: string) {
@@ -201,6 +213,37 @@ export default function GuruKoreksiEssayPage() {
       showToast(e instanceof Error ? e.message : 'Gagal merilis nilai', 'error')
     } finally {
       setRilisingSemua(false)
+    }
+  }
+
+  function bukaEditBobot() {
+    if (!data) return
+    setBobotPgInput(String(data.bobotPg))
+    setBobotEssayInput(String(data.bobotEssay))
+    setEditBobotStep('peringatan')
+  }
+
+  async function handleSimpanBobot() {
+    if (!selectedSesiId) return
+    const pg = Number(bobotPgInput)
+    const essay = Number(bobotEssayInput)
+    if (isNaN(pg) || isNaN(essay) || pg < 0 || pg > 100 || essay < 0 || essay > 100 || pg + essay !== 100) {
+      showToast('Bobot PG + Essay harus berjumlah tepat 100', 'error')
+      return
+    }
+    setSavingBobot(true)
+    try {
+      const res = await apiRequest<{ jumlahNilaiDiperbarui: number }>('/api/guru/koreksi-essay', {
+        method: 'PATCH',
+        body: JSON.stringify({ sesiId: selectedSesiId, bobotPg: pg, bobotEssay: essay }),
+      })
+      showToast(`Bobot nilai berhasil diperbarui (${res.jumlahNilaiDiperbarui} nilai siswa dihitung ulang)`)
+      setEditBobotStep(null)
+      await loadKoreksiData(selectedSesiId)
+    } catch (e: unknown) {
+      showToast(e instanceof Error ? e.message : 'Gagal menyimpan bobot', 'error')
+    } finally {
+      setSavingBobot(false)
     }
   }
 
@@ -331,12 +374,20 @@ export default function GuruKoreksiEssayPage() {
                       supaya guru tidak perlu menebak-nebak. */}
                   <div className="bg-brand-50 border border-brand-100 rounded-lg px-3 py-2 text-xs text-slate-600 space-y-0.5">
                     <p>
-                      Nilai essay diinput langsung dalam skala <strong>0–100</strong>, tidak dikonversi lagi.
+                      Input Nilai siswa dari <strong>0–100</strong>.
                     </p>
-                    <p>
-                      Bobot nilai akhir: <strong>PG {data.bobotPg}%</strong> + <strong>Essay {data.bobotEssay}%</strong> —
-                      {' '}Nilai Akhir = (PG × {data.bobotPg}%) + (Essay × {data.bobotEssay}%).
-                    </p>
+                    <div className="flex items-center justify-between gap-2">
+                      <p>
+                        Bobot nilai yang di tentukan di awal pembuatan soal : <strong>PG {data.bobotPg}%</strong> + <strong>Essay {data.bobotEssay}%</strong> —
+                        {' '}Nilai Akhir = (PG × {data.bobotPg}%) + (Essay × {data.bobotEssay}%).
+                      </p>
+                      <button
+                        onClick={bukaEditBobot}
+                        className="shrink-0 text-brand-700 font-medium underline underline-offset-2 hover:text-brand-800"
+                      >
+                        Edit Bobot
+                      </button>
+                    </div>
                   </div>
 
                   {!semuaSudahDinilai && (
@@ -612,6 +663,75 @@ export default function GuruKoreksiEssayPage() {
         variant="primary"
         loading={rilisingSemua}
       />
+
+      <Confirm
+        open={editBobotStep === 'peringatan'}
+        onClose={() => setEditBobotStep(null)}
+        onConfirm={() => setEditBobotStep('form')}
+        title="Ubah Bobot Nilai Akhir"
+        message="Hasil pengeditan bobot nilai akan berpengaruh juga terhadap nilai siswa, baik yang sudah diberi nilai essay maupun yang belum. Nilai akhir siswa yang sudah dinilai akan langsung dihitung ulang memakai bobot yang baru. Lanjutkan?"
+        confirmLabel="Ya, Lanjutkan"
+        variant="danger"
+      />
+
+      <Modal
+        open={editBobotStep === 'form'}
+        onClose={() => setEditBobotStep(null)}
+        title="Ubah Bobot Nilai Akhir"
+        size="sm"
+        footer={
+          <>
+            <button onClick={() => setEditBobotStep(null)} className="btn-ghost" disabled={savingBobot}>
+              Batal
+            </button>
+            <button onClick={handleSimpanBobot} className="btn-primary" disabled={savingBobot}>
+              {savingBobot ? 'Menyimpan...' : 'Simpan Bobot'}
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <p className="text-xs text-amber-600 flex items-start gap-1.5 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+            <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+            Bobot baru ini berpengaruh terhadap nilai siswa, baik yang sudah diberi nilai essay maupun yang belum.
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block">
+              <span className="text-xs font-medium text-slate-600">Bobot PG (%)</span>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                value={bobotPgInput}
+                onChange={e => {
+                  const v = e.target.value
+                  setBobotPgInput(v)
+                  const n = Number(v)
+                  if (!isNaN(n) && n >= 0 && n <= 100) setBobotEssayInput(String(100 - n))
+                }}
+                className="input mt-1 w-full"
+              />
+            </label>
+            <label className="block">
+              <span className="text-xs font-medium text-slate-600">Bobot Essay (%)</span>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                value={bobotEssayInput}
+                onChange={e => {
+                  const v = e.target.value
+                  setBobotEssayInput(v)
+                  const n = Number(v)
+                  if (!isNaN(n) && n >= 0 && n <= 100) setBobotPgInput(String(100 - n))
+                }}
+                className="input mt-1 w-full"
+              />
+            </label>
+          </div>
+          <p className="text-xs text-slate-500">Bobot PG + Essay harus berjumlah tepat 100%.</p>
+        </div>
+      </Modal>
     </div>
   )
 }
