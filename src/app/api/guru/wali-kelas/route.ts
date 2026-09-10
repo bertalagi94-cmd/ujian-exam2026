@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
+import { hitungGrade } from '@/lib/utils'
+import { petakanEssayAktifPerSesi } from '@/app/api/guru/kirim-nilai/route'
 
 // POST /api/guru/wali-kelas
 // Body: { aksi: 'kembalikan', nilai_id: string, catatan?: string }
@@ -121,9 +123,20 @@ export async function GET(req: NextRequest) {
 
   // Ambil nilai untuk semua siswa di kelas ini (sumber utama mapel yang sudah diujikan)
   // Ambil semua kolom yang dibutuhkan termasuk info pengiriman
+  //
+  // BUG FIX (rekap nilai wali kelas belum menyesuaikan fitur essay): kolom
+  // nilai_total/dirilis ditambahkan ke select — sebelumnya endpoint ini
+  // hanya mengambil `nilai`/`grade` (selalu PG-only, TIDAK PERNAH diubah
+  // oleh alur koreksi essay) sehingga wali kelas tidak pernah melihat nilai
+  // gabungan PG+Essay sama sekali, walau kolom `lulus` (lihat pemakaiannya
+  // di bawah) SUDAH benar sejak fix di koreksi-essay/route.ts. Akibatnya sel
+  // di tabel wali kelas bisa menampilkan angka/Grade dari PG saja
+  // berdampingan dengan status akhir yang sudah memperhitungkan essay —
+  // misalnya "65 / D / ✓ Lulus", yang terlihat kontradiktif padahal
+  // sebenarnya benar (nilai essay yang mengangkat status jadi Lulus).
   const { data: nilaiList } = await db
     .from('nilai')
-    .select('id, nis, mapel_id, nilai, grade, lulus, sesi_id, timestamp, nilai_edit, grade_edit, lulus_edit, dikirim_ke_wali, dikirim_at, dikembalikan, catatan_guru')
+    .select('id, nis, mapel_id, nilai, grade, lulus, kkm, sesi_id, timestamp, nilai_edit, grade_edit, lulus_edit, dikirim_ke_wali, dikirim_at, dikembalikan, catatan_guru, nilai_total, dirilis')
     .eq('kelas', kelasNama)
 
   // Ambil relasi kelas_mapel kalau ada (kompatibilitas dengan data hasil import lama)
@@ -139,6 +152,18 @@ export async function GET(req: NextRequest) {
   ;(kelasMapelList ?? []).forEach((km: { mapel_id: string }) => km.mapel_id && mapelIdSet.add(km.mapel_id))
 
   const mapelIds = Array.from(mapelIdSet)
+
+  // BUG FIX (lanjutan — rekap nilai wali kelas belum menyesuaikan fitur
+  // essay): peta essay-aktif per sesi, dipakai untuk menentukan kapan nilai
+  // efektif seorang siswa harus memakai nilai_total (PG+Essay) alih-alih
+  // nilai PG mentah. Sama persis dengan helper yang dipakai di
+  // /api/guru/kirim-nilai dan /api/guru/nilai supaya logikanya konsisten
+  // di semua sisi.
+  const essayAktifMap = await petakanEssayAktifPerSesi(db, (nilaiList ?? []).map((n: { sesi_id: string | null }) => n.sesi_id))
+  const nilaiEfektif = (n: { sesi_id: string | null; dirilis?: boolean | null; nilai_total?: number | null; nilai: number }) => {
+    const essayAktif = n.sesi_id ? (essayAktifMap.get(n.sesi_id) ?? false) : false
+    return (essayAktif && n.dirilis === true && n.nilai_total != null) ? n.nilai_total : (n.nilai || 0)
+  }
 
   // Belum ada mapel sama sekali (tidak ada jadwal, nilai, maupun kelas_mapel)
   if (mapelIds.length === 0) {
@@ -192,7 +217,7 @@ export async function GET(req: NextRequest) {
     const nilaiMapelDikirim = nilaiMapel.filter((n: { dikirim_ke_wali: boolean }) => n.dikirim_ke_wali)
 
     const rataRata = nilaiMapelDikirim.length
-      ? Math.round(nilaiMapelDikirim.reduce((s: number, r: { nilai: number }) => s + (r.nilai || 0), 0) / nilaiMapelDikirim.length)
+      ? Math.round(nilaiMapelDikirim.reduce((s: number, r: { nilai: number; sesi_id: string | null; dirilis?: boolean | null; nilai_total?: number | null }) => s + nilaiEfektif(r), 0) / nilaiMapelDikirim.length)
       : null
 
     // Status pengiriman: berapa sudah dikirim, berapa belum
@@ -228,9 +253,20 @@ export async function GET(req: NextRequest) {
       if (!n) {
         row[mapelId] = null
       } else {
-        // Jika ada nilai_edit, pakai itu. Jika tidak, pakai nilai asli
-        const nilaiTampil = n.nilai_edit != null ? n.nilai_edit : n.nilai
-        const gradeTampil = n.grade_edit != null ? n.grade_edit : n.grade
+        // Jika ada nilai_edit, pakai itu. Jika tidak, pakai nilai efektif.
+        //
+        // BUG FIX (rekap nilai wali kelas belum menyesuaikan fitur essay):
+        // sebelumnya baris ini SELALU pakai n.nilai/n.grade (PG-only, tidak
+        // pernah diubah oleh koreksi essay) walau n.lulus (di bawah) sudah
+        // benar memakai nilai_total sejak fix di koreksi-essay/route.ts —
+        // membuat sel di tabel bisa terlihat kontradiktif (mis. angka & Grade
+        // dari PG yang rendah, tapi status "Lulus" karena nilai total
+        // sebenarnya sudah lulus). Sekarang nilai & grade ikut memakai nilai
+        // efektif (nilai_total kalau essay aktif & dirilis) sebelum fallback
+        // ke nilai_edit/nilai PG, supaya seluruh sel konsisten satu sama lain.
+        const efektif = nilaiEfektif(n as unknown as { sesi_id: string | null; dirilis?: boolean | null; nilai_total?: number | null; nilai: number })
+        const nilaiTampil = n.nilai_edit != null ? n.nilai_edit : efektif
+        const gradeTampil = n.grade_edit != null ? n.grade_edit : hitungGrade(efektif)
         const lulusTampil = n.lulus_edit != null ? n.lulus_edit : n.lulus
         row[mapelId] = {
           nilai: nilaiTampil,
