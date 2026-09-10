@@ -63,11 +63,12 @@ export default function SiswaNilaiPage() {
                 <tr>
                   <th>#</th>
                   <th>Mata Pelajaran</th>
-                  <th>Nilai</th>
-                  <th>Grade</th>
+                  <th>Nilai PG Anda</th>
+                  <th>Kriteria</th>
+                  <th>Status nilai PG</th>
                   <th>Benar/Total</th>
                   <th>KKM</th>
-                  <th>Status</th>
+                  <th>Hasil akhir</th>
                   <th>Tanggal</th>
                   <th></th>
                 </tr>
@@ -105,14 +106,20 @@ export default function SiswaNilaiPage() {
                         'badge-red'
                       }`}>{gradeTampil}</span>
                     </td>
+                    <td>
+                      <span className={`badge ${n.lulus ? 'badge-green' : 'badge-red'}`}>
+                        {n.lulus ? '✓ Lulus' : '✗ Tidak Lulus'}
+                      </span>
+                    </td>
                     <td className="text-slate-600">{n.benar}/{n.total}</td>
                     <td className="text-slate-500">{n.kkm}</td>
                     <td>
-                      <span className={`badge ${lulusTampil ? 'badge-green' : 'badge-red'}`}>
-                        {lulusTampil ? '✓ Lulus' : '✗ Tidak Lulus'}
-                      </span>
-                      {essayTertunda && (
-                        <div className="text-[11px] text-amber-600 mt-0.5">Menunggu rilis nilai essay</div>
+                      {essayTertunda ? (
+                        <span className="text-[11px] text-amber-600">Menunggu rilis nilai essay dari guru</span>
+                      ) : (
+                        <span className={`badge ${lulusTampil ? 'badge-green' : 'badge-red'}`}>
+                          {lulusTampil ? '✓ Lulus' : '✗ Tidak Lulus'}
+                        </span>
                       )}
                     </td>
                     <td className="text-xs text-slate-400">{formatDateTime(n.timestamp)}</td>
