@@ -104,12 +104,74 @@ const HAS_CREATED_AT = new Set([
   'kelas_mapel', 'mapel', 'kelas', 'log_aktivitas',
 ])
 
+// BUG FIX (11 Sep 2026): reset kategori jawaban_nilai/sesi_ujian/soal_paket/
+// kelas_mapel/semua sudah menghapus BARIS tabel `jawaban_essay_foto` dengan
+// benar, tapi FILE FISIK-nya di Supabase Storage (bucket `assets`, folder
+// `jawaban-essay/`) tidak pernah ikut dihapus — lihat cara upload di
+// src/app/api/siswa/ujian/essay/upload-foto/route.ts yang menaruh file di
+// path itu lalu HANYA mencatat public URL-nya ke kolom `foto_url`. Akibatnya
+// admin yang reset akan tetap menemukan file-file foto lembar jawaban lama
+// menumpuk di Storage walau baris DB-nya sudah bersih (endpoint melaporkan
+// "Reset berhasil" karena dari sisi query DB memang tidak ada error).
+// Sekalian didaftarkan folder `soal/` (dipakai guru/soal/upload/route.ts
+// untuk gambar soal PG maupun essay) supaya reset kategori yang menghapus
+// bank soal (`soal_paket`, `kelas_mapel`, `semua`) juga membersihkan gambar
+// soal lama, bukan cuma baris `soal`/`soal_essay`.
+const STORAGE_BUCKET = 'assets'
+const STORAGE_FOLDERS_BY_TABLE: Record<string, string[]> = {
+  jawaban_essay_foto: ['jawaban-essay'],
+  soal: ['soal'],
+  soal_essay: ['soal'],
+}
+
+async function clearStorageFolder(
+  db: ReturnType<typeof import('@/lib/supabase').createAdminClient>,
+  folder: string
+): Promise<string | null> {
+  try {
+    // list() hanya mengembalikan maksimal 100 entri per panggilan (default),
+    // jadi diloop sampai folder benar-benar kosong agar folder besar (mis.
+    // ratusan foto jawaban essay) tetap tuntas terhapus, bukan cuma 100 awal.
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const { data: files, error: listError } = await db.storage
+        .from(STORAGE_BUCKET)
+        .list(folder, { limit: 100 })
+
+      if (listError) return `storage:${folder}: ${listError.message}`
+      if (!files || files.length === 0) break
+
+      const paths = files.map(f => `${folder}/${f.name}`)
+      const { error: removeError } = await db.storage.from(STORAGE_BUCKET).remove(paths)
+      if (removeError) return `storage:${folder}: ${removeError.message}`
+
+      // Kalau hasil list lebih kecil dari limit, berarti sudah halaman terakhir
+      if (files.length < 100) break
+    }
+    return null
+  } catch (e) {
+    return `storage:${folder}: ${e instanceof Error ? e.message : 'error'}`
+  }
+}
+
 async function clearTable(
   db: ReturnType<typeof import('@/lib/supabase').createAdminClient>,
   table: string
 ): Promise<string | null> {
   // Skip tabel yang tidak ada di schema
   if (SKIP_TABLES.has(table)) return null
+
+  // Bersihkan file fisik di Storage yang berasosiasi dengan tabel ini
+  // TERLEBIH DAHULU, sebelum baris DB-nya dihapus — supaya kalau reset
+  // gagal di tengah jalan, kita tidak kehilangan jejak `foto_url` yang
+  // masih menunjuk ke file yang belum sempat dihapus.
+  const folders = STORAGE_FOLDERS_BY_TABLE[table]
+  if (folders) {
+    for (const folder of folders) {
+      const err = await clearStorageFolder(db, folder)
+      if (err) return err
+    }
+  }
 
   try {
     // Tabel besar → pakai TRUNCATE via RPC (eksekusi di DB, tidak timeout)
