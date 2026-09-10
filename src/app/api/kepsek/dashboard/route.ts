@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 import { getKepsekScope } from '@/lib/kepsek-scope'
+import { petakanEssayAktifPerSesi } from '@/app/api/guru/kirim-nilai/route'
 
 export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['KEPSEK', 'ADMIN'])
@@ -99,8 +100,8 @@ export async function GET(req: NextRequest) {
       ? db.from('nilai').select('*', { count: 'exact', head: true }).in('kelas', kelasScope)
       : db.from('nilai').select('*', { count: 'exact', head: true }),
     kelasScope
-      ? db.from('nilai').select('nilai, kelas, mapel_id, lulus').in('kelas', kelasScope)
-      : db.from('nilai').select('nilai, kelas, mapel_id, lulus'),
+      ? db.from('nilai').select('nilai, kelas, mapel_id, lulus, sesi_id, nilai_total, dirilis').in('kelas', kelasScope)
+      : db.from('nilai').select('nilai, kelas, mapel_id, lulus, sesi_id, nilai_total, dirilis'),
     kelasScope
       ? db.from('jadwal').select('*').eq('tanggal', todayStr).in('kelas', kelasScope).order('sesi', { ascending: true })
       : db.from('jadwal').select('*').eq('tanggal', todayStr).order('sesi', { ascending: true }),
@@ -203,7 +204,19 @@ export async function GET(req: NextRequest) {
     siswaTidakHadir = siswaTidakHadir.map(s => ({ ...s, nama_mapel: extraMap[s.mapel_id] ?? s.nama_mapel }))
   }
 
-  const nums = (nilaiAll ?? []).map(n => n.nilai || 0)
+  // BUG FIX (rekap nilai Kepsek/Admin belum menyesuaikan fitur essay):
+  // sebelumnya rata-rata sekolah, per-kelas, dan per-mapel di dashboard ini
+  // semuanya dihitung murni dari `nilai` (PG-only) — `lulus` sudah benar
+  // (final, ikut essay) sejak fix di koreksi-essay/route.ts, tapi angka
+  // rata-ratanya tidak. Sekarang dipakai nilai efektif yang sama seperti di
+  // /api/kepsek/nilai.
+  const essayAktifMap = await petakanEssayAktifPerSesi(db, (nilaiAll ?? []).map(n => n.sesi_id))
+  const nilaiEfektif = (n: { sesi_id: string | null; dirilis?: boolean | null; nilai_total?: number | null; nilai: number }) => {
+    const essayAktif = n.sesi_id ? (essayAktifMap.get(n.sesi_id) ?? false) : false
+    return (essayAktif && n.dirilis === true && n.nilai_total != null) ? n.nilai_total : (n.nilai || 0)
+  }
+
+  const nums = (nilaiAll ?? []).map(nilaiEfektif)
   const rataRata = nums.length ? Math.round(nums.reduce((a, b) => a + b, 0) / nums.length) : 0
 
   // Per kelas
@@ -211,7 +224,7 @@ export async function GET(req: NextRequest) {
   for (const n of (nilaiAll ?? [])) {
     const k = String(n.kelas)
     if (!kelasAgg[k]) kelasAgg[k] = { sum: 0, total: 0, lulus: 0 }
-    kelasAgg[k].sum += n.nilai || 0
+    kelasAgg[k].sum += nilaiEfektif(n)
     kelasAgg[k].total++
     if (n.lulus) kelasAgg[k].lulus++
   }
@@ -229,7 +242,7 @@ export async function GET(req: NextRequest) {
   for (const n of (nilaiAll ?? [])) {
     if (!n.mapel_id) continue
     if (!mapelAgg[n.mapel_id]) mapelAgg[n.mapel_id] = { sum: 0, total: 0 }
-    mapelAgg[n.mapel_id].sum += n.nilai || 0
+    mapelAgg[n.mapel_id].sum += nilaiEfektif(n)
     mapelAgg[n.mapel_id].total++
   }
 
