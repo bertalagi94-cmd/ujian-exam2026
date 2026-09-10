@@ -1674,6 +1674,7 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
         </div>
       ) : (
         <div className="space-y-3">
+          <h2 className="font-bold text-slate-800">Daftar Paket Soal yang sudah Anda buat :</h2>
           {pakets.map(p => (
             <div key={p.id} className="card p-0 overflow-hidden">
               <div className="flex items-center gap-4 p-4 flex-wrap">
