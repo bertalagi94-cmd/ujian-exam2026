@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
+import { hitungGrade } from '@/lib/utils'
+import { petakanEssayAktifPerSesi } from '@/app/api/guru/kirim-nilai/route'
 
 export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['GURU'])
@@ -48,13 +50,24 @@ export async function GET(req: NextRequest) {
 
   const { data: nilaiAll } = await db
     .from('nilai')
-    .select('nilai, nis, mapel_id, grade, kelas, timestamp')
+    .select('nilai, nis, mapel_id, grade, kelas, timestamp, sesi_id, nilai_total, dirilis')
     .in('mapel_id', mapelGuruIds.length ? mapelGuruIds : ['__none__'])
     .order('timestamp', { ascending: false })
     .limit(50)
 
+  // BUG FIX (rekap nilai guru belum menyesuaikan fitur essay): sama seperti
+  // /api/guru/nilai, "Rata-rata Nilai" di dashboard ini sebelumnya dihitung
+  // murni dari `nilai` PG-only. Widget "Nilai Terbaru" di bawah juga
+  // sebelumnya selalu menampilkan grade/nilai PG walau essay-nya sudah
+  // dinilai & dirilis — sekarang keduanya memakai nilai efektif yang sama.
+  const essayAktifMap = await petakanEssayAktifPerSesi(db, (nilaiAll ?? []).map(n => n.sesi_id))
+  const nilaiEfektif = (n: { sesi_id: string | null; dirilis?: boolean | null; nilai_total?: number | null; nilai: number }) => {
+    const essayAktif = n.sesi_id ? (essayAktifMap.get(n.sesi_id) ?? false) : false
+    return (essayAktif && n.dirilis === true && n.nilai_total != null) ? n.nilai_total : (n.nilai || 0)
+  }
+
   const rataRataNilai = nilaiAll?.length
-    ? Math.round((nilaiAll as { nilai: number }[]).reduce((s, r) => s + (r.nilai || 0), 0) / nilaiAll.length)
+    ? Math.round((nilaiAll).reduce((s, r) => s + nilaiEfektif(r), 0) / nilaiAll.length)
     : 0
 
   // Enrich recent nilai
@@ -63,11 +76,16 @@ export async function GET(req: NextRequest) {
   const { data: siswaList } = await db.from('siswa').select('nis, nama').in('nis', nisSet)
   const siswaMap = Object.fromEntries((siswaList ?? []).map(s => [s.nis, s.nama]))
 
-  const nilaiTerbaru = recent.map(r => ({
-    ...r,
-    nama_siswa: siswaMap[r.nis] ?? r.nis,
-    nama_mapel: mapelMap[r.mapel_id] ?? r.mapel_id,
-  }))
+  const nilaiTerbaru = recent.map(r => {
+    const efektif = nilaiEfektif(r)
+    return {
+      ...r,
+      nilai: efektif,
+      grade: efektif === r.nilai ? r.grade : hitungGrade(efektif),
+      nama_siswa: siswaMap[r.nis] ?? r.nis,
+      nama_mapel: mapelMap[r.mapel_id] ?? r.mapel_id,
+    }
+  })
 
   return NextResponse.json({
     stats: {
