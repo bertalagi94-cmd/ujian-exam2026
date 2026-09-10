@@ -279,3 +279,74 @@ export async function PUT(req: NextRequest) {
 
   return NextResponse.json({ message: 'Nilai essay berhasil disimpan', nilaiEssay: finalNilaiEssay, nilaiTotal })
 }
+
+// PATCH { sesiId, bobotPg, bobotEssay } — ubah bobot PG:Essay untuk sesi ini
+// (disimpan di sesi_ujian.info_json, TIDAK mengubah paket_essay/jadwal —
+// jadi hanya berlaku untuk sesi ini). Semua baris `nilai` di sesi ini yang
+// SUDAH pernah dinilai essay-nya (dinilai_pada != null) langsung dihitung
+// ulang nilai_total & lulus-nya memakai bobot baru, supaya nilai yang
+// tampil ke guru/wali/siswa selalu konsisten dengan bobot yang berlaku
+// saat ini — bukan bobot lama yang "membeku" di data lama.
+export async function PATCH(req: NextRequest) {
+  const auth = requireRole(req, ['GURU'])
+  if ('error' in auth) return auth.error
+  const { user } = auth
+
+  const db = createAdminClient()
+  const { sesiId, bobotPg, bobotEssay } = await req.json()
+  if (!sesiId) return NextResponse.json({ error: 'sesiId diperlukan' }, { status: 400 })
+
+  const pgAngka = Number(bobotPg)
+  const essayAngka = Number(bobotEssay)
+  if (
+    isNaN(pgAngka) || isNaN(essayAngka) ||
+    pgAngka < 0 || pgAngka > 100 || essayAngka < 0 || essayAngka > 100 ||
+    pgAngka + essayAngka !== 100
+  ) {
+    return NextResponse.json({ error: 'Bobot PG + Essay harus berjumlah tepat 100' }, { status: 400 })
+  }
+
+  const { data: sesi } = await db
+    .from('sesi_ujian')
+    .select('id, jadwal_id, mapel_id, info_json')
+    .eq('id', sesiId)
+    .single()
+  if (!sesi) return NextResponse.json({ error: 'Sesi tidak ditemukan' }, { status: 404 })
+
+  const [{ data: jadwal }, { data: mapel }] = await Promise.all([
+    db.from('jadwal').select('id, pengawas').eq('id', sesi.jadwal_id).maybeSingle(),
+    db.from('mapel').select('id, guru_id').eq('id', sesi.mapel_id).maybeSingle(),
+  ])
+  const isPengawas = jadwal?.pengawas === user.username
+  const isGuruPengampu = mapel?.guru_id === user.username
+  if (!jadwal || (!isPengawas && !isGuruPengampu)) {
+    return NextResponse.json({ error: 'Anda bukan pengawas maupun guru pengampu sesi ini' }, { status: 403 })
+  }
+
+  const infoJsonBaru = { ...(sesi.info_json ?? {}), essay_bobot_pg_persen: pgAngka, essay_bobot_essay_persen: essayAngka }
+  const { error: sesiError } = await db
+    .from('sesi_ujian')
+    .update({ info_json: infoJsonBaru })
+    .eq('id', sesiId)
+  if (sesiError) return NextResponse.json({ error: sesiError.message }, { status: 500 })
+
+  // Hitung ulang nilai siswa yang essay-nya SUDAH dinilai (nilai_essay != null
+  // & dinilai_pada != null) supaya nilai_total langsung mengikuti bobot baru.
+  const { data: nilaiSudahDinilai } = await db
+    .from('nilai')
+    .select('id, nilai, nilai_essay, kkm')
+    .eq('sesi_id', sesiId)
+    .not('dinilai_pada', 'is', null)
+
+  let jumlahDiperbarui = 0
+  for (const n of nilaiSudahDinilai ?? []) {
+    const nilaiPg = n.nilai ?? 0
+    const nilaiEssay = n.nilai_essay ?? 0
+    const nilaiTotalBaru = Math.round(nilaiPg * (pgAngka / 100) + nilaiEssay * (essayAngka / 100))
+    const lulusBaru = nilaiTotalBaru >= (n.kkm ?? 0)
+    await db.from('nilai').update({ nilai_total: nilaiTotalBaru, lulus: lulusBaru }).eq('id', n.id)
+    jumlahDiperbarui++
+  }
+
+  return NextResponse.json({ message: 'Bobot berhasil diperbarui', bobotPg: pgAngka, bobotEssay: essayAngka, jumlahNilaiDiperbarui: jumlahDiperbarui })
+}
