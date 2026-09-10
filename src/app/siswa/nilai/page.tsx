@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { BarChart3, TrendingUp, Trophy, BookOpen, ChevronRight, RefreshCw, Sparkles, CheckCircle2, SearchX, AlertCircle } from 'lucide-react'
 import { PageLoader, EmptyState, Modal } from '@/components/ui'
-import { apiRequest, formatDateTime, nilaiColor, hitungGrade } from '@/lib/utils'
+import { apiRequest, formatDateTime, nilaiColor } from '@/lib/utils'
 import { Nilai } from '@/types'
 
 interface NilaiStats { totalUjian: number; rataRata: number; nilaiTertinggi: number; nilaiTerendah: number }
@@ -154,17 +154,20 @@ export default function SiswaNilaiPage() {
               </thead>
               <tbody>
                 {nilaiList.map((n, i) => {
-                  // FIX (bug nilai essay tidak tampil di siswa): sebelumnya
-                  // baris ini SELALU pakai n.nilai/n.lulus (nilai PG saja),
-                  // walau guru sudah merilis nilai_total gabungan PG+essay.
-                  // Sekarang: kalau sudah dirilis (nilai_total terisi),
-                  // tampilkan nilai_total sebagai "Nilai" & hitung ulang
-                  // grade/status lulus dari situ; kalau belum, tetap
-                  // tampilkan nilai PG apa adanya plus penanda "menunggu".
+                  // FIX (kolom "Nilai PG Anda" & "Status nilai PG" ikut
+                  // berubah saat essay dirilis): sebelumnya kolom ini
+                  // memakai n.nilai_total begitu essay dirilis — padahal
+                  // kolomnya khusus untuk skor PG saja, bukan gabungan.
+                  // PENTING: n.lulus JUGA tidak bisa dipakai untuk status PG
+                  // murni, karena begitu guru menilai essay, backend
+                  // (koreksi-essay/route.ts) MENIMPA kolom `lulus` di
+                  // database dengan status kelulusan GABUNGAN (PG+Essay vs
+                  // KKM) — bukan status PG saja lagi. Makanya status PG
+                  // murni harus dihitung ulang di sini dari n.nilai vs
+                  // n.kkm, tidak boleh mengandalkan n.lulus.
                   const essayDirilis = n.dirilis === true && n.nilai_total != null
-                  const nilaiTampil = essayDirilis ? n.nilai_total! : n.nilai
-                  const gradeTampil = essayDirilis ? hitungGrade(n.nilai_total!) : n.grade
-                  const lulusTampil = essayDirilis ? n.nilai_total! >= n.kkm : n.lulus
+                  const pgLulus = n.nilai >= n.kkm
+                  const hasilAkhirLulus = essayDirilis ? n.nilai_total! >= n.kkm : n.lulus
                   const essayTertunda = n.essay_belum_dirilis === true
 
                   return (
@@ -172,22 +175,19 @@ export default function SiswaNilaiPage() {
                     <td className="text-slate-400 text-xs">{i + 1}</td>
                     <td className="font-medium text-slate-800">{n.nama_mapel}</td>
                     <td>
-                      <span className={`text-lg font-bold ${nilaiColor(nilaiTampil)}`}>{nilaiTampil}</span>
-                      {essayDirilis && (
-                        <div className="text-[11px] text-slate-400">PG {n.nilai} + Essay {n.nilai_essay}</div>
-                      )}
+                      <span className={`text-lg font-bold ${nilaiColor(n.nilai)}`}>{n.nilai}</span>
                     </td>
                     <td>
                       <span className={`badge font-bold ${
-                        gradeTampil === 'A' ? 'badge-green' :
-                        gradeTampil === 'B' ? 'badge-blue' :
-                        gradeTampil === 'C' ? 'badge-yellow' :
+                        n.grade === 'A' ? 'badge-green' :
+                        n.grade === 'B' ? 'badge-blue' :
+                        n.grade === 'C' ? 'badge-yellow' :
                         'badge-red'
-                      }`}>{gradeTampil}</span>
+                      }`}>{n.grade}</span>
                     </td>
                     <td>
-                      <span className={`badge ${n.lulus ? 'badge-green' : 'badge-red'}`}>
-                        {n.lulus ? '✓ Lulus' : '✗ Tidak Lulus'}
+                      <span className={`badge ${pgLulus ? 'badge-green' : 'badge-red'}`}>
+                        {pgLulus ? '✓ Lulus' : '✗ Tidak Lulus'}
                       </span>
                     </td>
                     <td className="text-slate-600">{n.benar}/{n.total}</td>
@@ -196,9 +196,16 @@ export default function SiswaNilaiPage() {
                       {essayTertunda ? (
                         <span className="text-[11px] text-amber-600">Menunggu rilis nilai essay dari guru</span>
                       ) : (
-                        <span className={`badge ${lulusTampil ? 'badge-green' : 'badge-red'}`}>
-                          {lulusTampil ? '✓ Lulus' : '✗ Tidak Lulus'}
-                        </span>
+                        <>
+                          <span className={`badge ${hasilAkhirLulus ? 'badge-green' : 'badge-red'}`}>
+                            {hasilAkhirLulus ? '✓ Lulus' : '✗ Tidak Lulus'}
+                          </span>
+                          {essayDirilis && (
+                            <div className="text-[11px] text-slate-400 mt-0.5">
+                              PG {n.nilai} + Essay {n.nilai_essay} = {n.nilai_total}
+                            </div>
+                          )}
+                        </>
                       )}
                     </td>
                     <td className="text-xs text-slate-400">{formatDateTime(n.timestamp)}</td>
