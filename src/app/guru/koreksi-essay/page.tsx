@@ -112,9 +112,11 @@ export default function GuruKoreksiEssayPage() {
       setData(res)
       const init: Record<string, string> = {}
       for (const p of res.peserta) {
-        if (p.nilaiEssay !== null && p.nilaiEssay !== undefined && res.totalBobotMaks > 0) {
-          // Nilai tersimpan dalam skala 0-100 — tampilkan kembali dalam skala bobot maks asli
-          init[p.nis] = String(Math.round((p.nilaiEssay / 100) * res.totalBobotMaks))
+        // UX (skala nilai essay 0-100 langsung): nilai yang tersimpan di
+        // database memang sudah dalam skala 0-100, jadi tidak perlu
+        // dikonversi balik ke skala lain lagi seperti sebelumnya.
+        if (p.nilaiEssay !== null && p.nilaiEssay !== undefined) {
+          init[p.nis] = String(p.nilaiEssay)
         }
       }
       setNilaiInput(init)
@@ -271,16 +273,16 @@ export default function GuruKoreksiEssayPage() {
                   </div>
 
                   {/* UX (menghindari kebingungan skala nilai essay): jelaskan
-                      di sini, sekali untuk seluruh sesi, bagaimana nilai yang
-                      diinput per siswa nanti dikonversi & digabung — supaya
-                      guru tidak perlu menebak kenapa "20" bisa jadi "67". */}
+                      di sini, sekali untuk seluruh sesi, bagaimana nilai
+                      essay digabung dengan nilai PG jadi nilai akhir —
+                      supaya guru tidak perlu menebak-nebak. */}
                   <div className="bg-brand-50 border border-brand-100 rounded-lg px-3 py-2 text-xs text-slate-600 space-y-0.5">
                     <p>
-                      Nilai essay diinput dalam skala <strong>0–{data.totalBobotMaks}</strong> (total bobot semua soal essay),
-                      lalu otomatis dikonversi ke skala 0–100 untuk digabung dengan nilai PG.
+                      Nilai essay diinput langsung dalam skala <strong>0–100</strong>, tidak dikonversi lagi.
                     </p>
                     <p>
-                      Bobot nilai akhir: <strong>PG {data.bobotPg}%</strong> + <strong>Essay {data.bobotEssay}%</strong>.
+                      Bobot nilai akhir: <strong>PG {data.bobotPg}%</strong> + <strong>Essay {data.bobotEssay}%</strong> —
+                      {' '}Nilai Akhir = (PG × {data.bobotPg}%) + (Essay × {data.bobotEssay}%).
                     </p>
                   </div>
 
@@ -393,7 +395,7 @@ export default function GuruKoreksiEssayPage() {
                                               }`}
                                             >
                                               <div className="flex items-center justify-between gap-2 mb-1">
-                                                <p className="text-xs text-slate-400">Soal {i + 1} · Bobot maks {soal.bobot_maks}</p>
+                                                <p className="text-xs text-slate-400">Soal {i + 1} · Bobot rubrik: {soal.bobot_maks} <span className="text-slate-300">(panduan, bukan skala nilai)</span></p>
                                                 {terjawab ? (
                                                   <span className="text-[11px] font-medium text-emerald-700 flex items-center gap-1">
                                                     <CheckCircle2 className="w-3 h-3" /> Dijawab
@@ -427,10 +429,10 @@ export default function GuruKoreksiEssayPage() {
                                       <div className="pt-1 border-t border-slate-200 space-y-2">
                                         <div className="flex items-end gap-2 flex-wrap">
                                           <div className="flex-1 min-w-[140px]">
-                                            <label className="label">Nilai Essay (skala 0–{data.totalBobotMaks})</label>
+                                            <label className="label">Nilai Essay (skala 0–100)</label>
                                             <input
-                                              type="number" className="input" min={0} max={data.totalBobotMaks}
-                                              placeholder={`0 – ${data.totalBobotMaks}`}
+                                              type="number" className="input" min={0} max={100}
+                                              placeholder="0 – 100"
                                               value={nilaiSaatIni}
                                               onClick={e => e.stopPropagation()}
                                               onChange={e => setNilaiInput(prev => ({ ...prev, [p.nis]: e.target.value }))}
@@ -445,21 +447,27 @@ export default function GuruKoreksiEssayPage() {
                                         </div>
 
                                         {/* UX (menghindari kebingungan skala nilai essay): pratinjau
-                                            konversi & nilai akhir dihitung LANGSUNG di client, mengikuti
-                                            rumus persis yang dipakai backend (lihat PUT di
+                                            nilai akhir dihitung LANGSUNG di client, mengikuti rumus
+                                            persis yang dipakai backend (lihat PUT di
                                             api/guru/koreksi-essay/route.ts), supaya guru melihat hasil
-                                            akhirnya SEBELUM menekan Simpan — bukan menebak-nebak lagi. */}
+                                            akhirnya SEBELUM menekan Simpan. Sejak skala essay jadi 0-100
+                                            langsung, tidak ada lagi langkah "konversi poin → skala 100"
+                                            di sini — nilai yang diketik guru = nilai essay itu sendiri. */}
                                         {nilaiSaatIni !== '' && !isNaN(Number(nilaiSaatIni)) && (
                                           (() => {
-                                            const angka = Math.max(0, Math.min(data.totalBobotMaks, Number(nilaiSaatIni)))
-                                            const essayKonversi = data.totalBobotMaks > 0 ? Math.round((angka / data.totalBobotMaks) * 100) : 0
+                                            const essayFinal = Math.max(0, Math.min(100, Number(nilaiSaatIni)))
                                             const nilaiPgSiswa = p.nilaiPg?.nilai ?? 0
-                                            const perkiraanTotal = Math.round(nilaiPgSiswa * (data.bobotPg / 100) + essayKonversi * (data.bobotEssay / 100))
+                                            const perkiraanTotal = Math.round(nilaiPgSiswa * (data.bobotPg / 100) + essayFinal * (data.bobotEssay / 100))
+                                            const kkmSiswa = p.nilaiPg?.kkm ?? 0
+                                            const perkiraanLulus = perkiraanTotal >= kkmSiswa
                                             return (
                                               <p className="text-xs text-slate-500 bg-white rounded-md px-2.5 py-1.5 border border-slate-100">
-                                                {angka}/{data.totalBobotMaks} → setara <strong>{essayKonversi}</strong>/100 ·
-                                                {' '}Perkiraan Nilai Total: <strong className="text-brand-700">{perkiraanTotal}</strong>
-                                                {' '}(PG {nilaiPgSiswa}×{data.bobotPg}% + Essay {essayKonversi}×{data.bobotEssay}%)
+                                                Nilai Akhir = (PG {nilaiPgSiswa}×{data.bobotPg}%) + (Essay {essayFinal}×{data.bobotEssay}%)
+                                                {' '}= <strong className="text-brand-700">{perkiraanTotal}</strong>
+                                                {' '}· KKM {kkmSiswa} ·{' '}
+                                                <strong className={perkiraanLulus ? 'text-emerald-600' : 'text-red-600'}>
+                                                  {perkiraanLulus ? 'Lulus' : 'Tidak Lulus'}
+                                                </strong>
                                               </p>
                                             )
                                           })()
