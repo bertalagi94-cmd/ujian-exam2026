@@ -240,15 +240,16 @@ export default function GuruKoreksiEssayPage() {
         <div className="card">
           <EmptyState icon={CheckSquare} title="Belum ada sesi essay" description="Sesi ujian dengan essay yang sudah pernah dibuka akan muncul di sini." />
         </div>
-      ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-          {/* Daftar sesi */}
-          <div className="lg:col-span-2 space-y-2">
+      ) : !selectedSesiId ? (
+        /* Daftar mata pelajaran — tampil langsung, klik untuk lihat hasil */
+        <div className="space-y-3">
+          <h2 className="font-bold text-slate-900 text-lg">Daftar Jawaban Essay</h2>
+          <div className="space-y-2">
             {jadwalList.map(j => (
               <button
                 key={j.id}
                 onClick={() => { setExpandedNis(null); selectSesi(j) }}
-                className={`w-full text-left card p-3.5 transition-all ${selectedSesiId === j.sesi_ujian?.id ? 'ring-2 ring-brand-400 border-brand-300' : 'hover:border-slate-300'}`}
+                className="w-full text-left card p-3.5 transition-all hover:border-slate-300"
               >
                 <div className="flex items-center justify-between gap-2">
                   <div className="min-w-0">
@@ -264,14 +265,19 @@ export default function GuruKoreksiEssayPage() {
               </button>
             ))}
           </div>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {/* Tombol kembali ke daftar mata pelajaran */}
+          <button
+            onClick={() => { setSelectedSesiId(null); setSelectedJadwal(null); setData(null); setExpandedNis(null) }}
+            className="flex items-center gap-1 text-sm font-medium text-brand-600 hover:text-brand-700"
+          >
+            <ChevronRight className="w-4 h-4 rotate-180" /> Kembali ke Daftar Jawaban Essay
+          </button>
 
-          {/* Detail koreksi */}
-          <div className="lg:col-span-3 space-y-4">
-            {!selectedSesiId ? (
-              <div className="card">
-                <EmptyState icon={CheckSquare} title="Pilih sesi" description="Pilih sesi di sebelah kiri untuk mulai mengoreksi essay." />
-              </div>
-            ) : loadingData ? (
+          <div className="space-y-4">
+            {loadingData ? (
               <div className="flex justify-center py-16"><Spinner size="lg" /></div>
             ) : !data || data.peserta.length === 0 ? (
               <div className="card">
