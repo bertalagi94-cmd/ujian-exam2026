@@ -39,9 +39,7 @@ export async function GET(req: NextRequest) {
 
   // UX (menghindari kebingungan skala nilai essay): sertakan bobot PG:Essay
   // yang berlaku untuk sesi ini di response, supaya UI koreksi bisa
-  // menampilkan pratinjau konversi nilai essay & rumus nilai total dengan
-  // jelas — sebelumnya guru tidak melihat info ini sama sekali di halaman
-  // koreksi, jadi tidak tahu kenapa "20" yang diinput bisa jadi "67".
+  // menampilkan pratinjau nilai total dengan jelas.
   const bobotPg = sesi.info_json?.essay_bobot_pg_persen ?? jadwal?.essay_bobot_pg_persen ?? 50
   const bobotEssay = sesi.info_json?.essay_bobot_essay_persen ?? jadwal?.essay_bobot_essay_persen ?? 50
 
@@ -58,9 +56,11 @@ export async function GET(req: NextRequest) {
 
   // FIX BUG (fitur essay): filter status = 'DISETUJUI' — sebelumnya soal
   // DRAFT ikut dihitung di totalBobotMaks, padahal soal DRAFT itu TIDAK
-  // pernah benar-benar dikerjakan siswa (lihat FIX di essay/soal/route.ts),
-  // sehingga skala nilai essay (0-100) yang dihitung guru bisa salah kalau
-  // masih ada draft soal essay yang belum dihapus/difinalisasi.
+  // pernah benar-benar dikerjakan siswa (lihat FIX di essay/soal/route.ts).
+  // CATATAN: sejak skala nilai essay diubah jadi 0-100 bebas (lihat PUT di
+  // bawah), totalBobotMaks di sini TIDAK lagi dipakai untuk mengonversi
+  // nilai — nilai_maks per soal cuma ditampilkan di UI sebagai panduan
+  // bobot/rubrik untuk membantu guru menimbang skor holistiknya.
   const { data: soalEssayList } = await db
     .from('soal_essay')
     .select('id, teks, bobot_maks, urutan')
@@ -203,31 +203,21 @@ export async function PUT(req: NextRequest) {
     finalNilaiEssay = 0
     statusEssayUpdate = 'TIDAK_MENGERJAKAN'
   } else {
-    // Soal essay sekarang berupa bank per mapel+kelas (paket_essay), sama
-    // seperti soal PG — bukan lagi melekat ke jadwal_id. Lihat 08_paket_essay.sql.
-    const { data: kelasRow } = await db
-      .from('kelas')
-      .select('id')
-      .eq('nama', String(sesi.kelas))
-      .maybeSingle()
-    const kelasId = kelasRow?.id ?? String(sesi.kelas)
-
-    // FIX BUG (fitur essay): sama seperti di GET — filter status = 'DISETUJUI'
-    // supaya totalBobotMaks yang dipakai untuk konversi nilai essay ke skala
-    // 0-100 SELALU konsisten dengan soal yang benar-benar dikerjakan siswa.
-    const { data: soalEssayList } = await db
-      .from('soal_essay')
-      .select('bobot_maks')
-      .eq('mapel_id', sesi.mapel_id)
-      .eq('kelas_id', kelasId)
-      .eq('status', 'DISETUJUI')
-    const totalBobotMaks = (soalEssayList ?? []).reduce((sum, s) => sum + Number(s.bobot_maks), 0) || 100
-
+    // UX (skala nilai essay bebas 0-100, bukan lagi 0-totalBobotMaks):
+    // sebelumnya guru harus input "poin dari X maksimal" (mis. 0-30) yang
+    // lalu dikonversi proporsional ke skala 100 — ini sumber kebingungan
+    // utama karena angka yang diinput guru ≠ angka yang muncul di rekap
+    // (mis. input 30 bisa jadi tampil 100 setelah dikonversi). Sekarang
+    // guru langsung menilai dalam skala 0-100 (standar, sama seperti nilai
+    // PG), tidak ada konversi tersembunyi lagi. `bobot_maks` per soal tetap
+    // disimpan & ditampilkan di UI sebagai PANDUAN bobot/rubrik per soal
+    // untuk membantu guru menimbang skor holistiknya — tapi TIDAK lagi
+    // dipakai dalam rumus penghitungan nilai_total.
     const nilaiEssayAngka = Number(nilaiEssay)
-    if (isNaN(nilaiEssayAngka) || nilaiEssayAngka < 0 || nilaiEssayAngka > totalBobotMaks) {
-      return NextResponse.json({ error: `Nilai essay harus antara 0 dan ${totalBobotMaks}` }, { status: 400 })
+    if (isNaN(nilaiEssayAngka) || nilaiEssayAngka < 0 || nilaiEssayAngka > 100) {
+      return NextResponse.json({ error: 'Nilai essay harus antara 0 dan 100' }, { status: 400 })
     }
-    finalNilaiEssay = Math.round((nilaiEssayAngka / totalBobotMaks) * 100) // simpan dalam skala 0-100
+    finalNilaiEssay = Math.round(nilaiEssayAngka)
   }
 
   const nilaiPg = nilaiRow.nilai ?? 0
