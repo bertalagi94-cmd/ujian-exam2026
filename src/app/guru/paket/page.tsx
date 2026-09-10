@@ -1814,45 +1814,54 @@ export default function GuruBuatSoalPage() {
       </div>
 
       <div className="max-w-4xl mx-auto space-y-4">
-        {/* Dua pilihan jenis soal — elemen utama halaman ini, masing-masing
-            dengan warna & nuansa sendiri supaya langsung terasa beda
-            karakter (PG = otomatis/sistem, Essay = manual/guru). */}
+        {/* UX FIX (guru tidak sadar kartu ini bisa diklik): sebelumnya kartu
+            ini gradient penuh dengan CTA berupa teks+panah tipis di bagian
+            bawah — dari jauh terlihat seperti banner informasi, bukan tombol.
+            Sekarang badan kartu dibuat netral (putih) dan hanya elemen di
+            bagian bawah yang berwarna solid, berbentuk pil, dengan ikon —
+            supaya bentuknya langsung terbaca sebagai TOMBOL yang bisa
+            ditekan, bukan dekorasi. Teks penjelas juga dipangkas jadi satu
+            kalimat pendek per kartu. */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
           <button
             onClick={() => setKind('pg')}
-            className="group relative text-left rounded-3xl p-8 min-h-[260px] flex flex-col
-                       bg-gradient-to-br from-brand-500 to-brand-700 text-white
-                       shadow-card hover:shadow-card-md hover:-translate-y-0.5 transition-all duration-200"
+            className="group relative text-left rounded-3xl p-7 min-h-[220px] flex flex-col
+                       bg-white border-2 border-slate-200 hover:border-brand-400
+                       shadow-card hover:shadow-card-md hover:-translate-y-0.5 active:translate-y-0 transition-all duration-150"
           >
-            <div className="w-16 h-16 rounded-2xl bg-white/15 flex items-center justify-center mb-6">
-              <ListChecks className="w-8 h-8" />
+            <div className="w-14 h-14 rounded-2xl bg-brand-50 text-brand-600 flex items-center justify-center mb-5">
+              <ListChecks className="w-7 h-7" />
             </div>
-            <h2 className="text-2xl font-bold mb-2">Soal PG</h2>
-            <p className="text-brand-50/90 leading-relaxed">
-              Buat soal pilihan ganda dengan kunci jawaban. Sistem menilai otomatis begitu siswa mengumpulkan.
+            <h2 className="text-xl font-bold text-slate-900 mb-1.5">Soal PG</h2>
+            <p className="text-slate-500 text-sm leading-relaxed">
+              Sistem menilai otomatis begitu siswa selesai mengerjakan.
             </p>
-            <div className="mt-auto pt-6 flex items-center gap-1.5 text-sm font-semibold text-white">
-              Mulai buat soal PG
-              <ChevronRight className="w-4 h-4 transition-transform group-hover:translate-x-0.5" />
+            <div className="mt-auto pt-6">
+              <span className="inline-flex items-center gap-2 rounded-full bg-brand-600 group-hover:bg-brand-700
+                               text-white text-sm font-semibold px-5 py-2.5 transition-colors">
+                <Plus className="w-4 h-4" /> Buat Soal PG
+              </span>
             </div>
           </button>
 
           <button
             onClick={() => setKind('essay')}
-            className="group relative text-left rounded-3xl p-8 min-h-[260px] flex flex-col
-                       bg-gradient-to-br from-emerald-500 to-emerald-700 text-white
-                       shadow-card hover:shadow-card-md hover:-translate-y-0.5 transition-all duration-200"
+            className="group relative text-left rounded-3xl p-7 min-h-[220px] flex flex-col
+                       bg-white border-2 border-slate-200 hover:border-emerald-400
+                       shadow-card hover:shadow-card-md hover:-translate-y-0.5 active:translate-y-0 transition-all duration-150"
           >
-            <div className="w-16 h-16 rounded-2xl bg-white/15 flex items-center justify-center mb-6">
-              <PenSquare className="w-8 h-8" />
+            <div className="w-14 h-14 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center mb-5">
+              <PenSquare className="w-7 h-7" />
             </div>
-            <h2 className="text-2xl font-bold mb-2">Soal Essay</h2>
-            <p className="text-emerald-50/90 leading-relaxed">
-              Buat soal essay untuk dinilai manual oleh guru setelah siswa mengumpulkan jawaban.
+            <h2 className="text-xl font-bold text-slate-900 mb-1.5">Soal Essay</h2>
+            <p className="text-slate-500 text-sm leading-relaxed">
+              Dinilai manual oleh Anda setelah siswa mengumpulkan jawaban.
             </p>
-            <div className="mt-auto pt-6 flex items-center gap-1.5 text-sm font-semibold text-white">
-              Mulai buat soal Essay
-              <ChevronRight className="w-4 h-4 transition-transform group-hover:translate-x-0.5" />
+            <div className="mt-auto pt-6">
+              <span className="inline-flex items-center gap-2 rounded-full bg-emerald-600 group-hover:bg-emerald-700
+                               text-white text-sm font-semibold px-5 py-2.5 transition-colors">
+                <Plus className="w-4 h-4" /> Buat Soal Essay
+              </span>
             </div>
           </button>
         </div>
