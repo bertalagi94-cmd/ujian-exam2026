@@ -1792,10 +1792,98 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
   )
 }
 
+// ── Ringkasan jumlah mapel & soal yang sudah dibuat guru, ditampilkan di
+// ruang kosong kartu pilihan jenis soal (lihat GuruBuatSoalPage). Diagregasi
+// per mapel dari daftar paket (satu mapel bisa punya beberapa paket kalau
+// diajar di beberapa kelas — jumlah soalnya dijumlahkan semua kelas).
+interface RingkasanMapel { nama: string; jumlahSoal: number }
+interface RingkasanSoal { totalMapel: number; totalSoal: number; perMapel: RingkasanMapel[] }
+
+function agregasiRingkasan(pakets: { mapel_id: string; nama_mapel?: string; jumlah_soal: number }[]): RingkasanSoal {
+  const perMapelMap: Record<string, RingkasanMapel> = {}
+  for (const p of pakets) {
+    const key = p.mapel_id
+    if (!perMapelMap[key]) perMapelMap[key] = { nama: p.nama_mapel ?? p.mapel_id, jumlahSoal: 0 }
+    perMapelMap[key].jumlahSoal += p.jumlah_soal ?? 0
+  }
+  const perMapel = Object.values(perMapelMap).sort((a, b) => b.jumlahSoal - a.jumlahSoal)
+  return {
+    totalMapel: perMapel.length,
+    totalSoal: perMapel.reduce((sum, m) => sum + m.jumlahSoal, 0),
+    perMapel,
+  }
+}
+
+// Jumlah baris mapel yang ditampilkan langsung di kartu sebelum dipangkas
+// jadi "+N mapel lainnya" — dijaga kecil supaya kartu tetap proporsional
+// baik di layar HP (sempit, kartu ditumpuk vertikal) maupun laptop/komputer
+// (kartu berdampingan, lebih lega).
+const MAX_MAPEL_TAMPIL = 4
+
+function RingkasanSoalCard({ ringkasan, loading }: { ringkasan: RingkasanSoal | null; loading: boolean }) {
+  if (loading) {
+    return (
+      <div className="mt-4 pt-4 border-t border-slate-100 flex items-center gap-2 text-xs text-slate-400">
+        <Spinner size="sm" /> Memuat ringkasan...
+      </div>
+    )
+  }
+  if (!ringkasan || ringkasan.totalMapel === 0) {
+    return (
+      <p className="mt-4 pt-4 border-t border-slate-100 text-xs text-slate-400">
+        Belum ada soal dibuat.
+      </p>
+    )
+  }
+  const tampil = ringkasan.perMapel.slice(0, MAX_MAPEL_TAMPIL)
+  const sisa = ringkasan.perMapel.length - tampil.length
+  return (
+    <div className="mt-4 pt-4 border-t border-slate-100 text-xs">
+      <p className="font-semibold text-slate-600 mb-1.5">
+        {ringkasan.totalMapel} mapel · {ringkasan.totalSoal} soal dibuat
+      </p>
+      <ul className="space-y-0.5">
+        {tampil.map(m => (
+          <li key={m.nama} className="flex items-center justify-between gap-3 text-slate-500">
+            <span className="truncate">{m.nama}</span>
+            <span className="flex-shrink-0 tabular-nums">{m.jumlahSoal} soal</span>
+          </li>
+        ))}
+      </ul>
+      {sisa > 0 && (
+        <p className="text-slate-400 mt-1">+{sisa} mapel lainnya</p>
+      )}
+    </div>
+  )
+}
+
 export default function GuruBuatSoalPage() {
   const [kind, setKind] = useState<Kind>('choice')
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => setToast({ msg, type })
+
+  // ── Ringkasan jumlah mapel & soal (PG dan Essay) untuk kartu pilihan ──────
+  const [ringkasanPg, setRingkasanPg] = useState<RingkasanSoal | null>(null)
+  const [ringkasanEssay, setRingkasanEssay] = useState<RingkasanSoal | null>(null)
+  const [loadingRingkasan, setLoadingRingkasan] = useState(true)
+
+  useEffect(() => {
+    if (kind !== 'choice') return
+    let batal = false
+    setLoadingRingkasan(true)
+    Promise.all([
+      apiRequest<{ data: PaketSoal[] }>('/api/guru/paket'),
+      apiRequest<{ data: PaketEssay[] }>('/api/guru/paket-essay'),
+    ])
+      .then(([pg, essay]) => {
+        if (batal) return
+        setRingkasanPg(agregasiRingkasan(pg.data ?? []))
+        setRingkasanEssay(agregasiRingkasan(essay.data ?? []))
+      })
+      .catch(() => { /* ringkasan bersifat pelengkap — gagal diam-diam, kartu tetap bisa dipakai seperti biasa */ })
+      .finally(() => { if (!batal) setLoadingRingkasan(false) })
+    return () => { batal = true }
+  }, [kind])
 
   // FIX (kehilangan progres tanpa peringatan): layar PG/Essay di halaman ini
   // adalah "layar semu" lewat state lokal (`kind`), bukan route URL asli —
@@ -1860,6 +1948,7 @@ export default function GuruBuatSoalPage() {
             <p className="text-slate-500 text-sm leading-relaxed">
               Sistem menilai otomatis begitu siswa selesai mengerjakan.
             </p>
+            <RingkasanSoalCard ringkasan={ringkasanPg} loading={loadingRingkasan} />
             <div className="mt-auto pt-6">
               <span className="inline-flex items-center gap-2 rounded-full bg-brand-600 group-hover:bg-brand-700
                                text-white text-sm font-semibold px-5 py-2.5 transition-colors">
@@ -1881,6 +1970,7 @@ export default function GuruBuatSoalPage() {
             <p className="text-slate-500 text-sm leading-relaxed">
               Dinilai manual oleh Anda setelah siswa mengumpulkan jawaban.
             </p>
+            <RingkasanSoalCard ringkasan={ringkasanEssay} loading={loadingRingkasan} />
             <div className="mt-auto pt-6">
               <span className="inline-flex items-center gap-2 rounded-full bg-emerald-600 group-hover:bg-emerald-700
                                text-white text-sm font-semibold px-5 py-2.5 transition-colors">
