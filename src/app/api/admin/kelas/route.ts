@@ -12,12 +12,15 @@ export async function GET(req: NextRequest) {
   if ('error' in auth) return auth.error
 
   const db = createAdminClient()
+  const { searchParams } = new URL(req.url)
+  const tester = searchParams.get('tester') === 'true'
 
-  // 1. Hitung jumlah siswa aktif per kelas
-  const { data: siswaData, error: siswaError } = await db
-    .from('siswa')
-    .select('kelas')
-    .neq('is_tester', 'YES')
+  // 1. Hitung jumlah siswa per kelas. ?tester=true -> hitung dari siswa
+  // tester saja (dipakai kartu kelas di tab "Akun Tester"); default -> siswa
+  // reguler saja, seperti sebelumnya.
+  let siswaQuery = db.from('siswa').select('kelas')
+  siswaQuery = tester ? siswaQuery.eq('is_tester', 'YES') : siswaQuery.neq('is_tester', 'YES')
+  const { data: siswaData, error: siswaError } = await siswaQuery
 
   if (siswaError) return NextResponse.json({ error: siswaError.message }, { status: 500 })
 
