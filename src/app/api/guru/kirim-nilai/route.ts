@@ -4,7 +4,7 @@ import { requireRole } from '@/lib/auth'
 
 // GET /api/guru/kirim-nilai
 // Mengembalikan semua nilai (per mapel yang diajar guru ini) lengkap dengan
-// status pengiriman, nilai edit, dan info deadline dari pengaturan admin.
+// status pengiriman dan nilai edit.
 export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['GURU'])
   if ('error' in auth) return auth.error
@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
 
   const mapelIds = (guruMapel ?? []).map((m: { id: string }) => m.id)
   if (!mapelIds.length) {
-    return NextResponse.json({ data: [], mapelList: [], deadline: null, reminderJam: 24 })
+    return NextResponse.json({ data: [], mapelList: [] })
   }
 
   // Ambil nilai
@@ -120,21 +120,9 @@ export async function GET(req: NextRequest) {
   }
 
 
-  // Ambil deadline & reminder dari pengaturan
-  const { data: pengaturanData } = await db
-    .from('pengaturan')
-    .select('key, value')
-    .in('key', ['deadline_kirim_nilai', 'reminder_nilai_jam'])
-
-  const pengaturanMap = Object.fromEntries((pengaturanData ?? []).map((p: { key: string; value: string }) => [p.key, p.value]))
-  const deadline = pengaturanMap['deadline_kirim_nilai'] || null
-  const reminderJam = parseInt(pengaturanMap['reminder_nilai_jam'] ?? '24', 10)
-
   return NextResponse.json({
     data: [...enriched, ...belumUjianRows],
     mapelList: guruMapel ?? [],
-    deadline,
-    reminderJam,
   })
 }
 
@@ -407,8 +395,6 @@ export async function petakanEssayAktifPerSesi(db: any, sesiIds: (string | null 
 // kandidat kirim-ke-wali, pisahkan mana yang SIAP dikirim (tidak pakai essay,
 // atau essay-nya sudah dirilis guru lewat rilis_essay_individu/sekaligus) dan
 // mana yang TERTUNDA (sesinya essay_aktif tapi kolom `dirilis` masih false).
-// Diekspor (bukan lagi lokal) supaya dipakai juga oleh cron/deadline-nilai —
-// lihat catatan di file itu kenapa ini penting untuk auto-kirim.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function pisahkanSiapKirim(db: any, kandidat: { id: string; nis: string; sesi_id: string | null; dirilis: boolean | null }[]) {
   const essayAktifMap = await petakanEssayAktifPerSesi(db, kandidat.map(k => k.sesi_id))
