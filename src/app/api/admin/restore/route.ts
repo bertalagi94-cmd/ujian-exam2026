@@ -91,6 +91,94 @@ const INSERT_ORDER = [
 // Tabel yang diketahui ada di schema (untuk validasi backup)
 const SCHEMA_TABLES = new Set(DELETE_ORDER)
 
+// ── Restore file di Supabase Storage (bucket "assets") ──────────────────────
+// Pasangan dari backupStorageAssets() di admin/backup/route.ts — lihat
+// catatan di sana untuk kenapa ini perlu ada (logo & gambar soal disimpan
+// sebagai file biner, bukan baris database, jadi tidak ikut ter-restore kalau
+// cuma tabel yang dipulihkan).
+const STORAGE_BUCKET = 'assets'
+
+interface StorageAsset {
+  path: string
+  contentType?: string
+  base64: string
+}
+
+async function listAllStorageFiles(
+  db: ReturnType<typeof createAdminClient>,
+  bucket: string,
+  prefix = ''
+): Promise<string[]> {
+  const LIMIT = 1000
+  const paths: string[] = []
+  let offset = 0
+
+  while (true) {
+    const { data, error } = await db.storage
+      .from(bucket)
+      .list(prefix, { limit: LIMIT, offset, sortBy: { column: 'name', order: 'asc' } })
+
+    if (error || !data) break
+
+    for (const entry of data) {
+      const fullPath = prefix ? `${prefix}/${entry.name}` : entry.name
+      if (entry.id === null) {
+        const nested = await listAllStorageFiles(db, bucket, fullPath)
+        paths.push(...nested)
+      } else {
+        paths.push(fullPath)
+      }
+    }
+
+    if (data.length < LIMIT) break
+    offset += LIMIT
+  }
+
+  return paths
+}
+
+async function restoreStorageAssets(
+  db: ReturnType<typeof createAdminClient>,
+  assets: StorageAsset[]
+): Promise<{ restored: number; errors: string[] }> {
+  const errors: string[] = []
+  let restored = 0
+
+  // Bersihkan dulu isi bucket saat ini — sama seperti tabel database, restore
+  // berarti MENGGANTIKAN, bukan menumpuk. Tanpa ini, file yang sudah dihapus
+  // sejak backup dibuat (misalnya logo lama) akan tetap tertinggal di bucket.
+  try {
+    const existing = await listAllStorageFiles(db, STORAGE_BUCKET)
+    if (existing.length > 0) {
+      const { error } = await db.storage.from(STORAGE_BUCKET).remove(existing)
+      if (error) errors.push(`Gagal membersihkan storage lama: ${error.message}`)
+    }
+  } catch (e) {
+    errors.push(`Gagal membersihkan storage lama: ${e instanceof Error ? e.message : 'error'}`)
+  }
+
+  for (const asset of assets) {
+    try {
+      const buffer = Buffer.from(asset.base64, 'base64')
+      const { error } = await db.storage
+        .from(STORAGE_BUCKET)
+        .upload(asset.path, buffer, {
+          contentType: asset.contentType || 'application/octet-stream',
+          upsert: true,
+        })
+      if (error) {
+        errors.push(`${asset.path}: ${error.message}`)
+        continue
+      }
+      restored++
+    } catch (e) {
+      errors.push(`${asset.path}: ${e instanceof Error ? e.message : 'error'}`)
+    }
+  }
+
+  return { restored, errors }
+}
+
 async function clearTable(
   db: ReturnType<typeof import('@/lib/supabase').createAdminClient>,
   table: string
@@ -146,6 +234,10 @@ export async function POST(req: NextRequest) {
     version?: string
     app?: string
     tables: Record<string, unknown[]>
+    // Opsional — hanya ada di backup versi 1.1+ (lihat admin/backup/route.ts).
+    // Backup versi lama tanpa field ini tetap valid untuk direstore; storage
+    // bucket-nya cuma tidak ikut disentuh (aman, tidak menghapus apa pun).
+    storage?: { assets?: StorageAsset[] }
   }
 
   // Terima file sebagai FormData (multipart/form-data) agar file backup bisa
@@ -304,6 +396,21 @@ export async function POST(req: NextRequest) {
     }
     stats[table] = inserted
   }
+
+  // 3. Restore file storage (logo & gambar soal) — hanya jika backup punya
+  // field `storage.assets` (backup versi 1.1+, lihat admin/backup/route.ts).
+  // Backup versi lama tanpa field ini: bucket storage TIDAK disentuh sama
+  // sekali, supaya restore backup lama tidak diam-diam menghapus file yang
+  // sedang dipakai sekarang.
+  let storageRestored = 0
+  if (payload.storage?.assets && Array.isArray(payload.storage.assets)) {
+    const storageResult = await restoreStorageAssets(db, payload.storage.assets)
+    storageRestored = storageResult.restored
+    if (storageResult.errors.length > 0) {
+      errors.push(...storageResult.errors.map(e => `storage/${STORAGE_BUCKET}/${e}`))
+    }
+  }
+  stats._storage_assets = storageRestored
 
   const peringatanAktivitas = restoreDipaksaSaatAktivitas
     ? ' PERINGATAN: restore ini dipaksa berjalan saat masih ada sesi ujian/siswa aktif — jawaban siswa yang sedang mengerjakan saat itu ikut terhapus.'
