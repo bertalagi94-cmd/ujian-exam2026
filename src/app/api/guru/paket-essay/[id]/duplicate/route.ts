@@ -27,6 +27,28 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: 'Paket tidak ditemukan atau bukan milik Anda' }, { status: 404 })
   }
 
+  // FIX BUG: sama seperti /api/guru/paket/[id]/duplicate — sebelumnya
+  // kelas_id dari body diterima tanpa verifikasi apakah guru pemilik paket
+  // ini benar-benar mengampu mapel tsb di kelas tujuan. Validasi terhadap
+  // kelas_list milik baris `mapel` paket sumber.
+  const { data: mapelSumber } = await db
+    .from('mapel')
+    .select('kelas_list')
+    .eq('id', paketSumber.mapel_id)
+    .single()
+  const { data: kelasTujuanRow } = await db
+    .from('kelas')
+    .select('nama')
+    .eq('id', kelasTarget)
+    .single()
+  const kelasDiMapel = (mapelSumber?.kelas_list ?? '').split(',').map((s: string) => s.trim()).filter(Boolean)
+  if (!kelasTujuanRow || !kelasDiMapel.includes(kelasTujuanRow.nama)) {
+    return NextResponse.json(
+      { error: 'Anda tidak mengampu mata pelajaran ini di kelas tujuan tersebut.' },
+      { status: 403 }
+    )
+  }
+
   const { data: existing } = await db
     .from('paket_essay')
     .select('id')
