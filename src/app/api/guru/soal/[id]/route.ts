@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 import { stripHtmlTags } from '@/lib/utils'
+import { cekSesiMapelKelasSudahMulai, pesanBankSoalTerkunci } from '@/lib/sesi-kelas'
 
 interface Ctx { params: { id: string } }
 
@@ -13,12 +14,19 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
   const db = createAdminClient()
   const body = await req.json()
 
-  const { data: existing } = await db.from('soal').select('guru_id, status').eq('id', params.id).single()
+  const { data: existing } = await db.from('soal').select('guru_id, status, mapel_id, kelas_id').eq('id', params.id).single()
   if (!existing || existing.guru_id !== user.username) {
     return NextResponse.json({ error: 'Tidak memiliki izin' }, { status: 403 })
   }
   if (['DISETUJUI', 'MENUNGGU'].includes(existing.status)) {
     return NextResponse.json({ error: 'Soal yang sudah dikirim/disetujui tidak bisa diedit' }, { status: 400 })
+  }
+
+  // Cegah mengedit soal PG untuk mapel+kelas yang sesi ujiannya sudah
+  // pernah dibuka (sedang berjalan atau sudah selesai) — lihat sesi-kelas.ts
+  const sesiSudahMulai = await cekSesiMapelKelasSudahMulai(db, existing.mapel_id, existing.kelas_id)
+  if (sesiSudahMulai) {
+    return NextResponse.json({ error: pesanBankSoalTerkunci('PG', sesiSudahMulai, 'mengubah') }, { status: 409 })
   }
 
   // Validasi: teks opsi wajib diisi KECUALI kalau gambar opsi sudah ada.
@@ -69,13 +77,20 @@ export async function DELETE(req: NextRequest, { params }: Ctx) {
   const { user } = auth
 
   const db = createAdminClient()
-  const { data: existing } = await db.from('soal').select('guru_id, status').eq('id', params.id).single()
+  const { data: existing } = await db.from('soal').select('guru_id, status, mapel_id, kelas_id').eq('id', params.id).single()
 
   if (!existing || existing.guru_id !== user.username) {
     return NextResponse.json({ error: 'Tidak memiliki izin' }, { status: 403 })
   }
   if (!['DRAFT', 'DITOLAK'].includes(existing.status)) {
     return NextResponse.json({ error: 'Soal yang sudah dikirim atau disetujui tidak bisa dihapus' }, { status: 400 })
+  }
+
+  // Cegah menghapus soal PG untuk mapel+kelas yang sesi ujiannya sudah
+  // pernah dibuka (sedang berjalan atau sudah selesai) — lihat sesi-kelas.ts
+  const sesiSudahMulai = await cekSesiMapelKelasSudahMulai(db, existing.mapel_id, existing.kelas_id)
+  if (sesiSudahMulai) {
+    return NextResponse.json({ error: pesanBankSoalTerkunci('PG', sesiSudahMulai, 'menghapus') }, { status: 409 })
   }
 
   const { error } = await db.from('soal').delete().eq('id', params.id)
