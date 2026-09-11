@@ -77,3 +77,81 @@ export function pesanBentrokKelas(kelasNama: string, bentrok: SesiBentrokKelas):
     `Tutup sesi tersebut terlebih dahulu sebelum membuka sesi baru untuk kelas ini, ` +
     `agar tidak ada 2 ujian aktif bersamaan di kelas yang sama.`
 }
+
+// ── KUNCI BANK SOAL SETELAH SESI DIMULAI (PG & ESSAY) ───────────────────────
+//
+// Masalah yang diperbaiki: soal PG dan soal essay masing-masing punya bank
+// sendiri per mapel+kelas (paket_soal / paket_essay), dan keduanya BOLEH
+// diajukan/divalidasi terpisah (lihat gabungKirim.ts). Sebelum ini, tidak
+// ada satupun titik yang mengecek apakah sesi ujian untuk mapel+kelas
+// tersebut SUDAH PERNAH DIBUKA (sedang berjalan atau sudah selesai) sebelum
+// guru menambah/mengubah/menghapus paket maupun soal di dalamnya.
+//
+// Akibatnya guru bisa, misalnya, hanya membuat paket PG (tanpa essay),
+// menjalankan ujian sampai selesai dengan hanya PG itu, lalu BARU SETELAH
+// itu menambahkan soal essay (atau membuat paket essay baru) untuk
+// mapel+kelas yang sama — padahal siswa sudah mengerjakan ujian tanpa
+// essay tersebut, sehingga soal yang ditambah belakangan tidak pernah
+// relevan/terpakai dan datanya jadi tidak konsisten dengan apa yang
+// sebenarnya diujikan.
+//
+// Fungsi di bawah ini dipakai oleh SEMUA endpoint yang membuat/mengubah/
+// menghapus paket_soal, paket_essay, soal, dan soal_essay untuk menolak
+// aksi tersebut begitu sesi_ujian untuk kombinasi mapel_id+kelas_id itu
+// berstatus BERJALAN (sedang berlangsung) atau SELESAI (sudah pernah
+// berlangsung).
+
+export interface SesiMapelKelasInfo {
+  sesiId: string
+  kodeSesi: string | null
+  status: string
+}
+
+/**
+ * Cek apakah sesi ujian untuk kombinasi `mapelId` + `kelasId` SUDAH PERNAH
+ * dibuka (status BERJALAN atau SELESAI). Kembalikan info sesi paling baru
+ * kalau ada, atau `null` kalau belum pernah ada sesi ujian sama sekali
+ * (aman untuk menambah/mengubah/menghapus soal atau paket).
+ */
+export async function cekSesiMapelKelasSudahMulai(
+  db: DbClient,
+  mapelId: string | null | undefined,
+  kelasId: string | null | undefined
+): Promise<SesiMapelKelasInfo | null> {
+  if (!mapelId || !kelasId) return null
+
+  const { data: kelasRow } = await db
+    .from('kelas')
+    .select('nama')
+    .eq('id', kelasId)
+    .maybeSingle()
+
+  const kelasNama = kelasRow?.nama ? String(kelasRow.nama) : null
+  if (!kelasNama) return null
+
+  const { data: sesi } = await db
+    .from('sesi_ujian')
+    .select('id, kode_sesi, status')
+    .eq('mapel_id', mapelId)
+    .eq('kelas', kelasNama)
+    .in('status', ['BERJALAN', 'SELESAI'])
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (!sesi) return null
+
+  return { sesiId: sesi.id, kodeSesi: sesi.kode_sesi ?? null, status: sesi.status }
+}
+
+/** Pesan error standar untuk response 409 saat bank soal terkunci karena sesi sudah mulai. */
+export function pesanBankSoalTerkunci(
+  jenis: 'PG' | 'Essay',
+  sesi: SesiMapelKelasInfo,
+  aksi: 'menambah' | 'mengubah' | 'menghapus' | 'mengajukan' = 'menambah'
+): string {
+  const kondisi = sesi.status === 'BERJALAN' ? 'sedang berlangsung' : 'sudah pernah berlangsung'
+  return `Sesi ujian untuk mata pelajaran dan kelas ini ${kondisi}, jadi soal ${jenis} tidak bisa ` +
+    `${aksi} lagi. Ini untuk menjaga soal yang sudah/sedang dipakai siswa tetap konsisten dengan ` +
+    `apa yang diujikan.`
+}
