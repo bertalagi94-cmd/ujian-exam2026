@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 import { generateId } from '@/lib/utils'
+import { cekSesiMapelKelasSudahMulai, pesanBankSoalTerkunci } from '@/lib/sesi-kelas'
 
 export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['GURU'])
@@ -76,6 +77,13 @@ export async function POST(req: NextRequest) {
       { error: 'Paket soal untuk mapel dan kelas ini sudah ada. Silakan lanjutkan mengisi soal pada paket yang sudah dibuat.' },
       { status: 409 }
     )
+  }
+
+  // Cegah membuat paket PG baru untuk mapel+kelas yang sesi ujiannya sudah
+  // pernah dibuka (sedang berjalan atau sudah selesai) — lihat sesi-kelas.ts
+  const sesiSudahMulai = await cekSesiMapelKelasSudahMulai(db, body.mapel_id, body.kelas_id)
+  if (sesiSudahMulai) {
+    return NextResponse.json({ error: pesanBankSoalTerkunci('PG', sesiSudahMulai, 'menambah') }, { status: 409 })
   }
 
   const { error } = await db.from('paket_soal').insert({
