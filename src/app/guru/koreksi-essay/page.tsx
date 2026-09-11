@@ -447,7 +447,7 @@ export default function GuruKoreksiEssayPage() {
                               className="cursor-pointer select-none"
                               onClick={() => setExpandedNis(terbuka ? null : p.nis)}
                             >
-                              <td>
+                              <td className="bg-brand-50 border-l-4 border-brand-400">
                                 <p className="font-semibold text-slate-900">{p.nama}</p>
                                 <p className="text-xs text-slate-400">NIS {p.nis}</p>
                               </td>
