@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { ClipboardList, Bell, CheckSquare, Send, ChevronRight, Check } from 'lucide-react'
+import { ClipboardList, CheckSquare, Send, ChevronRight, Check } from 'lucide-react'
 
 // FIX (kejelasan alur Essay): proses nilai Essay melewati 4 menu terpisah
 // (Buat Soal → Mode Pengawas untuk mode KERTAS → Koreksi Essay → Kirim
@@ -12,7 +12,7 @@ import { ClipboardList, Bell, CheckSquare, Send, ChevronRight, Check } from 'luc
 //
 // `current` menyorot langkah yang sedang dilihat guru supaya dia tahu
 // "saya di tahap mana" dan "apa selanjutnya" tanpa perlu bertanya.
-export type EssayFlowStep = 'buat-soal' | 'buka-akses' | 'koreksi' | 'rilis'
+export type EssayFlowStep = 'buat-soal' | 'koreksi' | 'rilis'
 
 const STEPS: {
   key: EssayFlowStep
@@ -20,8 +20,6 @@ const STEPS: {
   desc: string
   href: string
   icon: React.ElementType
-  /** Langkah ini hanya relevan untuk mode jawaban KERTAS (upload foto), bukan DIGITAL. */
-  optional?: string
 }[] = [
   {
     key: 'buat-soal',
@@ -31,17 +29,9 @@ const STEPS: {
     icon: ClipboardList,
   },
   {
-    key: 'buka-akses',
-    label: 'Buka Akses Kirim',
-    desc: 'Khusus mode KERTAS: izinkan siswa upload foto jawaban',
-    href: '/guru/mode-pengawas',
-    icon: Bell,
-    optional: 'Hanya untuk mode Kertas',
-  },
-  {
     key: 'koreksi',
     label: 'Koreksi Essay',
-    desc: 'Baca jawaban/foto siswa, input nilai per soal',
+    desc: 'Baca jawaban siswa (diketik, atau langsung dari kertas fisik untuk mode Kertas), input nilai per soal',
     href: '/guru/koreksi-essay',
     icon: CheckSquare,
   },
@@ -94,9 +84,6 @@ export function EssayFlowGuide({ current }: { current: EssayFlowStep }) {
                   {step.label}
                 </div>
                 <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">{step.desc}</p>
-                {step.optional && (
-                  <span className="inline-block mt-1 text-[10px] text-amber-600 font-medium">{step.optional}</span>
-                )}
               </div>
             </div>
           )
