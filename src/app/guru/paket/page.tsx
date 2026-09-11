@@ -2132,9 +2132,16 @@ export default function GuruBuatSoalPage() {
               <RingkasanSoalCard ringkasan={ringkasanPg} loading={loadingRingkasan} />
             </div>
             <div className="mt-auto pt-6">
-              <span className="inline-flex items-center gap-2 rounded-full bg-brand-600 group-hover:bg-brand-700
-                               text-white text-sm font-semibold px-5 py-2.5 transition-colors">
-                <Plus className="w-4 h-4" /> Buat Soal PG
+              <span className={`inline-flex items-center rounded-full bg-brand-600 group-hover:bg-brand-700
+                               text-white text-sm font-semibold
+                               transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]
+                               ${isShrunk('pg') ? 'sm:gap-0 sm:px-3 sm:py-3' : 'gap-2 px-5 py-2.5'}`}>
+                <Plus className="w-4 h-4 flex-shrink-0" />
+                <span className={`overflow-hidden whitespace-nowrap
+                                  transition-all duration-300 ease-out
+                                  ${isShrunk('pg') ? 'sm:max-w-0 sm:opacity-0' : 'max-w-[180px] opacity-100'}`}>
+                  Buat Soal PG
+                </span>
               </span>
             </div>
           </button>
@@ -2167,9 +2174,16 @@ export default function GuruBuatSoalPage() {
               <RingkasanSoalCard ringkasan={ringkasanEssay} loading={loadingRingkasan} />
             </div>
             <div className="mt-auto pt-6">
-              <span className="inline-flex items-center gap-2 rounded-full bg-emerald-600 group-hover:bg-emerald-700
-                               text-white text-sm font-semibold px-5 py-2.5 transition-colors">
-                <Plus className="w-4 h-4" /> Buat Soal Essay
+              <span className={`inline-flex items-center rounded-full bg-emerald-600 group-hover:bg-emerald-700
+                               text-white text-sm font-semibold
+                               transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]
+                               ${isShrunk('essay') ? 'sm:gap-0 sm:px-3 sm:py-3' : 'gap-2 px-5 py-2.5'}`}>
+                <Plus className="w-4 h-4 flex-shrink-0" />
+                <span className={`overflow-hidden whitespace-nowrap
+                                  transition-all duration-300 ease-out
+                                  ${isShrunk('essay') ? 'sm:max-w-0 sm:opacity-0' : 'max-w-[180px] opacity-100'}`}>
+                  Buat Soal Essay
+                </span>
               </span>
             </div>
           </button>
@@ -2205,9 +2219,16 @@ export default function GuruBuatSoalPage() {
               </p>
             </div>
             <div className="mt-auto pt-6">
-              <span className="inline-flex items-center gap-2 rounded-full bg-indigo-600 group-hover:bg-indigo-700
-                               text-white text-sm font-semibold px-5 py-2.5 transition-colors">
-                <ChevronRight className="w-4 h-4" /> Lihat Informasi
+              <span className={`inline-flex items-center rounded-full bg-indigo-600 group-hover:bg-indigo-700
+                               text-white text-sm font-semibold
+                               transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]
+                               ${isShrunk('info') ? 'sm:gap-0 sm:px-3 sm:py-3' : 'gap-2 px-5 py-2.5'}`}>
+                <ChevronRight className="w-4 h-4 flex-shrink-0" />
+                <span className={`overflow-hidden whitespace-nowrap
+                                  transition-all duration-300 ease-out
+                                  ${isShrunk('info') ? 'sm:max-w-0 sm:opacity-0' : 'max-w-[180px] opacity-100'}`}>
+                  Lihat Informasi
+                </span>
               </span>
             </div>
           </button>
