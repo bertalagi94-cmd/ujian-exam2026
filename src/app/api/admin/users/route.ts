@@ -10,16 +10,24 @@ export async function GET(req: NextRequest) {
   const db = createAdminClient()
   const { searchParams } = new URL(req.url)
   const tester = searchParams.get('tester') === 'true'
+  const semua = searchParams.get('all') === 'true'
 
   let query = db
     .from('users')
     .select('username, nama, role, last_login, status, is_tester, no_hp, nip, sekolah_id, sekolah:sekolah_id(id, label, nama_sekolah)')
     .order('nama')
 
+  // ?all=true -> tampilkan SEMUA akun (reguler + tester), tanpa difilter.
+  // Dipakai oleh dropdown pemilihan guru/kepsek (mis. Guru Pengampu di
+  // halaman Mapel, Wali Kelas, Pengawas Jadwal, Kepala Sekolah) supaya guru
+  // yang berstatus tester tetap bisa ditugaskan mengampu mapel/kelas/sekolah
+  // saat disimulasikan, walau tetap disembunyikan dari daftar utama.
   // ?tester=true -> tampilkan HANYA akun tester (untuk tab "Akun Tester" di
   // admin). Default (tanpa parameter) -> tampilkan akun reguler seperti
   // sebelumnya, akun tester tetap disembunyikan dari daftar utama.
-  query = tester ? query.eq('is_tester', 'YES') : query.neq('is_tester', 'YES')
+  if (!semua) {
+    query = tester ? query.eq('is_tester', 'YES') : query.neq('is_tester', 'YES')
+  }
 
   const { data, error } = await query
 
