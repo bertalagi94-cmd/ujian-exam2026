@@ -6,6 +6,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 import { stripHtmlTags } from '@/lib/utils'
+import { cekSesiMapelKelasSudahMulai, pesanBankSoalTerkunci } from '@/lib/sesi-kelas'
 
 interface Ctx { params: { id: string } }
 
@@ -19,7 +20,7 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
 
   const { data: existing } = await db
     .from('soal_essay')
-    .select('id, guru_id, status, paket_essay_id')
+    .select('id, guru_id, status, paket_essay_id, mapel_id, kelas_id')
     .eq('id', params.id)
     .single()
 
@@ -29,6 +30,13 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
 
   if (['MENUNGGU', 'DISETUJUI'].includes(existing.status)) {
     return NextResponse.json({ error: 'Soal yang sudah dikirim/disetujui tidak bisa diedit' }, { status: 400 })
+  }
+
+  // Cegah mengedit soal essay untuk mapel+kelas yang sesi ujiannya sudah
+  // pernah dibuka (sedang berjalan atau sudah selesai) — lihat sesi-kelas.ts
+  const sesiSudahMulai = await cekSesiMapelKelasSudahMulai(db, existing.mapel_id, existing.kelas_id)
+  if (sesiSudahMulai) {
+    return NextResponse.json({ error: pesanBankSoalTerkunci('Essay', sesiSudahMulai, 'mengubah') }, { status: 409 })
   }
 
   const update: Record<string, unknown> = {}
@@ -69,7 +77,7 @@ export async function DELETE(req: NextRequest, { params }: Ctx) {
 
   const { data: existing } = await db
     .from('soal_essay')
-    .select('id, guru_id, status, paket_essay_id')
+    .select('id, guru_id, status, paket_essay_id, mapel_id, kelas_id')
     .eq('id', params.id)
     .single()
 
@@ -79,6 +87,13 @@ export async function DELETE(req: NextRequest, { params }: Ctx) {
 
   if (!['DRAFT', 'DITOLAK'].includes(existing.status)) {
     return NextResponse.json({ error: 'Soal yang sudah dikirim atau disetujui tidak bisa dihapus' }, { status: 400 })
+  }
+
+  // Cegah menghapus soal essay untuk mapel+kelas yang sesi ujiannya sudah
+  // pernah dibuka (sedang berjalan atau sudah selesai) — lihat sesi-kelas.ts
+  const sesiSudahMulai = await cekSesiMapelKelasSudahMulai(db, existing.mapel_id, existing.kelas_id)
+  if (sesiSudahMulai) {
+    return NextResponse.json({ error: pesanBankSoalTerkunci('Essay', sesiSudahMulai, 'menghapus') }, { status: 409 })
   }
 
   const { error } = await db.from('soal_essay').delete().eq('id', params.id)
