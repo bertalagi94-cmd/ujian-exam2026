@@ -138,6 +138,43 @@ export async function GET(req: NextRequest) {
     jadwalList.map(j => ({ mapel_id: j.mapel_id, kelas: String(j.kelas) }))
   )
 
+  // ── 5c2. Enrich jumlah soal essay (DISETUJUI) per mapel+kelas — dipakai UI
+  // untuk menonaktifkan toggle "Akses Soal Essay" kalau bank soal essay-nya
+  // masih kosong. Ini tabel terpisah dari paket_soal (PG) di atas, jadi
+  // dihitung sendiri di sini, bukan lewat computeStatusSoalDetailMap.
+  const jadwalEssayAktif = jadwalList.filter(j => {
+    const sesiTerkait = (sesiByJadwal[j.id] ?? []).find(s => s.status === 'BERJALAN') ?? (sesiByJadwal[j.id] ?? [])[0]
+    return !!sesiTerkait?.info_json?.essay_aktif
+  })
+  const essayJumlahSoalMap: Record<string, number> = {}
+  if (jadwalEssayAktif.length > 0) {
+    // sesi.kelas / jadwal.kelas menyimpan NAMA kelas (mis. "10"), sedangkan
+    // soal_essay.kelas_id menyimpan ID kelas (mis. "KLS_xxx") — perlu
+    // resolve nama -> id dulu, sama seperti di essay/info/route.ts.
+    const { data: semuaKelas } = await db.from('kelas').select('id, nama')
+    const namaKelasToId = Object.fromEntries(
+      (semuaKelas ?? []).map(k => [String(k.nama).trim().toUpperCase(), k.id])
+    )
+    const kelasIdToNama = Object.fromEntries((semuaKelas ?? []).map(k => [k.id, k.nama]))
+    const mapelIdsEssay = [...new Set(jadwalEssayAktif.map(j => j.mapel_id))]
+    const kelasIdsEssay = [...new Set(
+      jadwalEssayAktif.map(j => namaKelasToId[String(j.kelas).trim().toUpperCase()] ?? String(j.kelas))
+    )]
+
+    const { data: soalEssayList } = await db
+      .from('soal_essay')
+      .select('mapel_id, kelas_id')
+      .in('mapel_id', mapelIdsEssay)
+      .in('kelas_id', kelasIdsEssay)
+      .eq('status', 'DISETUJUI')
+
+    for (const s of soalEssayList ?? []) {
+      const namaKelas = kelasIdToNama[s.kelas_id] ?? s.kelas_id
+      const key = buildStatusSoalKey(s.mapel_id, namaKelas)
+      essayJumlahSoalMap[key] = (essayJumlahSoalMap[key] ?? 0) + 1
+    }
+  }
+
   // ── 5d. Nama admin yang menutup paksa sesi (lihat
   // /api/admin/sesi/[id]/tutup-paksa) — supaya guru melihat pesan yang jelas
   // "siapa" yang menutup sesinya secara paksa, bukan hanya username mentah.
@@ -189,6 +226,10 @@ export async function GET(req: NextRequest) {
         ...sesiTerkait,
         jumlah_peserta: siswaUjianMap[sesiTerkait.id]?.total ?? sesiTerkait.jumlah_peserta ?? 0,
         jumlah_selesai: siswaUjianMap[sesiTerkait.id]?.selesai ?? 0,
+        // Jumlah soal essay DISETUJUI untuk mapel+kelas jadwal ini — dipakai
+        // UI menonaktifkan toggle "Akses Soal Essay" + tampilkan pesan kalau
+        // bank soalnya masih kosong (lihat 5c2 di atas).
+        essay_jumlah_soal: essayJumlahSoalMap[buildStatusSoalKey(j.mapel_id, String(j.kelas))] ?? 0,
         // Info penutupan paksa oleh admin (jika ada) — dipakai frontend untuk
         // menampilkan pesan yang jelas ke guru bahwa sesinya ditutup paksa,
         // bukan ditutup sendiri. Lihat SesiUjianInfo di halaman Mode Pengawas.
