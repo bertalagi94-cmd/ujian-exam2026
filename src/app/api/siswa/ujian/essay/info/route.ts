@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
 
   const { data: sesi } = await db
     .from('sesi_ujian')
-    .select('id, jadwal_id, mapel_id, kelas, status, info_json')
+    .select('id, jadwal_id, mapel_id, kelas, status, info_json, akses_mulai_essay_dibuka')
     .eq('id', sesiId)
     .single()
 
@@ -86,5 +86,10 @@ export async function GET(req: NextRequest) {
     modeJawaban: sesi.info_json.essay_mode_jawaban, // 'DIGITAL' | 'KERTAS'
     instruksi: sesi.info_json.essay_instruksi ?? null,
     statusEssay: siswaUjian.status_essay, // kalau sudah 'MENGERJAKAN', frontend lanjut ke halaman soal, bukan info lagi
+    // Toggle global per sesi (lihat 11_akses_mulai_essay.sql) — selama false,
+    // tombol "Mulai" di halaman essay siswa harus nonaktif menunggu
+    // pengawas membuka akses. Kalau siswa sudah MENGERJAKAN (sudah lolos
+    // gerbang ini sebelumnya), field ini tidak lagi relevan buat frontend.
+    aksesMulaiDibuka: !!sesi.akses_mulai_essay_dibuka,
   })
 }
