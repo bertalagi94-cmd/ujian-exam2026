@@ -878,7 +878,7 @@ export default function ModePengawasPage() {
                                            ${aksesOn ? 'bg-indigo-600' : 'bg-slate-300'}`}
                               >
                                 <span
-                                  className={`inline-block h-4.5 w-4.5 transform rounded-full bg-white shadow transition-transform
+                                  className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform
                                              ${aksesOn ? 'translate-x-6' : 'translate-x-1'}`}
                                 />
                                 {toggleAksesMulaiLoading === sesiId && (
