@@ -39,7 +39,7 @@ export default function AdminSekolahPage() {
     try {
       const [sekolahRes, usersRes, pengaturanRes] = await Promise.all([
         apiRequest<{ data: Sekolah[] }>('/api/admin/sekolah'),
-        apiRequest<{ data: User[] }>('/api/admin/users'),
+        apiRequest<{ data: User[] }>('/api/admin/users?all=true'),
         apiRequest<{ data: { key: string; value: string }[] }>('/api/admin/pengaturan'),
       ])
       setList(sekolahRes.data)
