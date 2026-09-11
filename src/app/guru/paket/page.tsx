@@ -2027,6 +2027,15 @@ export default function GuruBuatSoalPage() {
   function isShrunk(mine: 'pg' | 'essay' | 'info') {
     return hoverKind !== null && hoverKind !== mine
   }
+  // Satu durasi & kurva easing yang dipakai bareng-bareng di semua elemen
+  // yang ikut berubah ukuran (kartu, ikon, judul, tombol) supaya semuanya
+  // selesai berpindah di waktu yang SAMA PERSIS — sebelumnya ada yang pakai
+  // 300ms dan ada yang 500ms, jadi kelihatan "dua gerakan" yang gak singkron
+  // dan berasa patah. transition-[...] (bukan transition-all) juga dipakai
+  // supaya browser cuma menghitung properti yang benar-benar berubah, bukan
+  // semua properti CSS di elemen itu — lebih ringan & lebih mulus di layar
+  // yang kurang bertenaga.
+  const EASE = 'duration-[450ms] ease-[cubic-bezier(0.65,0,0.35,1)]'
 
   useEffect(() => {
     if (kind !== 'choice') return
@@ -2110,21 +2119,22 @@ export default function GuruBuatSoalPage() {
             onMouseLeave={() => setHoverKind(null)}
             onFocus={() => setHoverKind('pg')}
             onBlur={() => setHoverKind(null)}
-            className={`group relative text-left rounded-3xl sm:min-w-0 flex flex-col
+            className={`group relative text-left rounded-3xl sm:min-w-0 flex flex-col overflow-hidden
                        bg-white border-2 border-slate-200 hover:border-brand-400
                        shadow-card hover:-translate-y-0.5 active:translate-y-0
-                       transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] p-7 min-h-[220px]
+                       transition-[flex-grow,flex-shrink,padding,min-height,transform,box-shadow,border-color] ${EASE}
+                       p-7 min-h-[220px]
                        ${isShrunk('pg') ? 'sm:p-4 sm:min-h-[120px] sm:items-center sm:text-center' : ''}
                        ${kartuFlexClass('pg')}`}
           >
-            <div className={`w-14 h-14 rounded-2xl bg-brand-50 text-brand-600 flex items-center justify-center
-                             transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]
+            <div className={`w-14 h-14 rounded-2xl bg-brand-50 text-brand-600 flex items-center justify-center flex-shrink-0
+                             transition-[margin] ${EASE}
                              ${isShrunk('pg') ? 'sm:mb-0' : 'mb-5'}`}>
               <ListChecks className="w-7 h-7" />
             </div>
-            <h2 className={`text-xl font-bold text-slate-900 transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]
+            <h2 className={`text-xl font-bold text-slate-900 transition-[margin] ${EASE}
                             ${isShrunk('pg') ? 'sm:mb-0 sm:mt-2' : 'mb-1.5'}`}>Soal PG</h2>
-            <div className={`overflow-hidden transition-all duration-300 ease-out
+            <div className={`overflow-hidden transition-[max-height,opacity] ${EASE}
                              ${isShrunk('pg') ? 'sm:max-h-0 sm:opacity-0' : 'max-h-[400px] opacity-100'}`}>
               <p className="text-slate-500 text-sm leading-relaxed">
                 Sistem menilai otomatis begitu siswa selesai mengerjakan.
@@ -2134,11 +2144,11 @@ export default function GuruBuatSoalPage() {
             <div className="mt-auto pt-6">
               <span className={`inline-flex items-center rounded-full bg-brand-600 group-hover:bg-brand-700
                                text-white text-sm font-semibold
-                               transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]
+                               transition-[padding,gap,background-color] ${EASE}
                                ${isShrunk('pg') ? 'sm:gap-0 sm:px-3 sm:py-3' : 'gap-2 px-5 py-2.5'}`}>
                 <Plus className="w-4 h-4 flex-shrink-0" />
                 <span className={`overflow-hidden whitespace-nowrap
-                                  transition-all duration-300 ease-out
+                                  transition-[max-width,opacity] ${EASE}
                                   ${isShrunk('pg') ? 'sm:max-w-0 sm:opacity-0' : 'max-w-[180px] opacity-100'}`}>
                   Buat Soal PG
                 </span>
@@ -2152,21 +2162,22 @@ export default function GuruBuatSoalPage() {
             onMouseLeave={() => setHoverKind(null)}
             onFocus={() => setHoverKind('essay')}
             onBlur={() => setHoverKind(null)}
-            className={`group relative text-left rounded-3xl sm:min-w-0 flex flex-col
+            className={`group relative text-left rounded-3xl sm:min-w-0 flex flex-col overflow-hidden
                        bg-white border-2 border-slate-200 hover:border-emerald-400
                        shadow-card hover:-translate-y-0.5 active:translate-y-0
-                       transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] p-7 min-h-[220px]
+                       transition-[flex-grow,flex-shrink,padding,min-height,transform,box-shadow,border-color] ${EASE}
+                       p-7 min-h-[220px]
                        ${isShrunk('essay') ? 'sm:p-4 sm:min-h-[120px] sm:items-center sm:text-center' : ''}
                        ${kartuFlexClass('essay')}`}
           >
-            <div className={`w-14 h-14 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center
-                             transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]
+            <div className={`w-14 h-14 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center flex-shrink-0
+                             transition-[margin] ${EASE}
                              ${isShrunk('essay') ? 'sm:mb-0' : 'mb-5'}`}>
               <PenSquare className="w-7 h-7" />
             </div>
-            <h2 className={`text-xl font-bold text-slate-900 transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]
+            <h2 className={`text-xl font-bold text-slate-900 transition-[margin] ${EASE}
                             ${isShrunk('essay') ? 'sm:mb-0 sm:mt-2' : 'mb-1.5'}`}>Soal Essay</h2>
-            <div className={`overflow-hidden transition-all duration-300 ease-out
+            <div className={`overflow-hidden transition-[max-height,opacity] ${EASE}
                              ${isShrunk('essay') ? 'sm:max-h-0 sm:opacity-0' : 'max-h-[400px] opacity-100'}`}>
               <p className="text-slate-500 text-sm leading-relaxed">
                 Dinilai manual oleh Anda setelah siswa mengumpulkan jawaban.
@@ -2176,11 +2187,11 @@ export default function GuruBuatSoalPage() {
             <div className="mt-auto pt-6">
               <span className={`inline-flex items-center rounded-full bg-emerald-600 group-hover:bg-emerald-700
                                text-white text-sm font-semibold
-                               transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]
+                               transition-[padding,gap,background-color] ${EASE}
                                ${isShrunk('essay') ? 'sm:gap-0 sm:px-3 sm:py-3' : 'gap-2 px-5 py-2.5'}`}>
                 <Plus className="w-4 h-4 flex-shrink-0" />
                 <span className={`overflow-hidden whitespace-nowrap
-                                  transition-all duration-300 ease-out
+                                  transition-[max-width,opacity] ${EASE}
                                   ${isShrunk('essay') ? 'sm:max-w-0 sm:opacity-0' : 'max-w-[180px] opacity-100'}`}>
                   Buat Soal Essay
                 </span>
@@ -2198,21 +2209,22 @@ export default function GuruBuatSoalPage() {
             onMouseLeave={() => setHoverKind(null)}
             onFocus={() => setHoverKind('info')}
             onBlur={() => setHoverKind(null)}
-            className={`group relative text-left rounded-3xl sm:min-w-0 flex flex-col
+            className={`group relative text-left rounded-3xl sm:min-w-0 flex flex-col overflow-hidden
                        bg-white border-2 border-slate-200 hover:border-indigo-400
                        shadow-card hover:-translate-y-0.5 active:translate-y-0
-                       transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] p-7 min-h-[220px]
+                       transition-[flex-grow,flex-shrink,padding,min-height,transform,box-shadow,border-color] ${EASE}
+                       p-7 min-h-[220px]
                        ${isShrunk('info') ? 'sm:p-4 sm:min-h-[120px] sm:items-center sm:text-center' : ''}
                        ${kartuFlexClass('info')}`}
           >
-            <div className={`w-14 h-14 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center
-                             transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]
+            <div className={`w-14 h-14 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center flex-shrink-0
+                             transition-[margin] ${EASE}
                              ${isShrunk('info') ? 'sm:mb-0' : 'mb-5'}`}>
               <Info className="w-7 h-7" />
             </div>
-            <h2 className={`text-xl font-bold text-slate-900 transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]
+            <h2 className={`text-xl font-bold text-slate-900 transition-[margin] ${EASE}
                             ${isShrunk('info') ? 'sm:mb-0 sm:mt-2' : 'mb-1.5'}`}>Informasi Paket Soal</h2>
-            <div className={`overflow-hidden transition-all duration-300 ease-out
+            <div className={`overflow-hidden transition-[max-height,opacity] ${EASE}
                              ${isShrunk('info') ? 'sm:max-h-0 sm:opacity-0' : 'max-h-[400px] opacity-100'}`}>
               <p className="text-slate-500 text-sm leading-relaxed">
                 Nama mapel & kelas, status soal, serta kelengkapan PG dan Essay dalam satu tabel.
@@ -2221,11 +2233,11 @@ export default function GuruBuatSoalPage() {
             <div className="mt-auto pt-6">
               <span className={`inline-flex items-center rounded-full bg-indigo-600 group-hover:bg-indigo-700
                                text-white text-sm font-semibold
-                               transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]
+                               transition-[padding,gap,background-color] ${EASE}
                                ${isShrunk('info') ? 'sm:gap-0 sm:px-3 sm:py-3' : 'gap-2 px-5 py-2.5'}`}>
                 <ChevronRight className="w-4 h-4 flex-shrink-0" />
                 <span className={`overflow-hidden whitespace-nowrap
-                                  transition-all duration-300 ease-out
+                                  transition-[max-width,opacity] ${EASE}
                                   ${isShrunk('info') ? 'sm:max-w-0 sm:opacity-0' : 'max-w-[180px] opacity-100'}`}>
                   Lihat Informasi
                 </span>
