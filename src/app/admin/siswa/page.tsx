@@ -63,12 +63,16 @@ export default function AdminSiswaPage() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [filterKelas, setFilterKelas] = useState('')
+  // Tab "Akun Reguler" / "Akun Tester". Akun tester ditandai is_tester = 'YES'
+  // dan dikecualikan dari maintenance mode (lihat api/auth/login/route.ts).
+  const [accountTab, setAccountTab] = useState<'reguler' | 'tester'>('reguler')
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
   const [modalOpen, setModalOpen] = useState(false)
   const [editData, setEditData] = useState<Partial<Siswa> | null>(null)
   const [kelasMode, setKelasMode] = useState<'pilih' | 'baru'>('pilih')
   const [kelasBaruInput, setKelasBaruInput] = useState('')
+  const [formIsTester, setFormIsTester] = useState(false)
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [resetId, setResetId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -102,6 +106,7 @@ export default function AdminSiswaPage() {
         per_page: String(PER_PAGE),
         ...(search && { search }),
         ...(filterKelas && { kelas: filterKelas }),
+        ...(accountTab === 'tester' && { tester: 'true' }),
       })
       const res = await apiRequest<{ data: Siswa[]; total: number }>(`/api/admin/siswa?${params}`)
       setSiswa(res.data)
@@ -112,20 +117,25 @@ export default function AdminSiswaPage() {
     } finally {
       setLoading(false)
     }
-  }, [page, search, filterKelas])
+  }, [page, search, filterKelas, accountTab])
 
   useEffect(() => { load() }, [load])
   useEffect(() => {
     apiRequest<{ data: Kelas[] }>('/api/admin/kelas').then(r => setKelas(r.data))
   }, [])
 
-  function openAdd() { setEditData({}); setKelasMode('pilih'); setKelasBaruInput(''); setModalOpen(true) }
-  function openEdit(s: Siswa) { setEditData(s); setKelasMode('pilih'); setKelasBaruInput(''); setModalOpen(true) }
+  function openAdd() { setEditData({}); setKelasMode('pilih'); setKelasBaruInput(''); setFormIsTester(false); setModalOpen(true) }
+  function openEdit(s: Siswa) { setEditData(s); setKelasMode('pilih'); setKelasBaruInput(''); setFormIsTester(s.is_tester === 'YES'); setModalOpen(true) }
 
   async function handleSave(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     const form = new FormData(e.currentTarget)
-    const payload = Object.fromEntries(form.entries())
+    const payload = {
+      ...Object.fromEntries(form.entries()),
+      // Hanya kirim saat edit (bukan tambah baru) — kolom checkbox cuma
+      // muncul di form edit.
+      ...(editData?.nis ? { is_tester: formIsTester ? 'YES' : 'NO' } : {}),
+    }
     setSaving(true)
     try {
       if (editData?.nis) {
@@ -440,6 +450,31 @@ export default function AdminSiswaPage() {
         </div>
       </div>
 
+      {/* Tab Akun Reguler / Akun Tester */}
+      <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-fit">
+        <button
+          onClick={() => { setAccountTab('reguler'); setPage(1) }}
+          className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+            accountTab === 'reguler' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          Akun Reguler
+        </button>
+        <button
+          onClick={() => { setAccountTab('tester'); setPage(1) }}
+          className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+            accountTab === 'tester' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          🧪 Akun Tester
+        </button>
+      </div>
+      {accountTab === 'tester' && (
+        <div className="alert-info text-xs">
+          Akun tester tetap bisa login walau maintenance mode aktif. Gunakan untuk keperluan pengujian/QA, bukan siswa aktif sehari-hari.
+        </div>
+      )}
+
       {/* Filters */}
       <div className="card py-4 flex gap-3 flex-wrap">
         <SearchInput
@@ -521,7 +556,12 @@ export default function AdminSiswaPage() {
                     <td className="text-slate-400 text-xs">{(page - 1) * PER_PAGE + i + 1}</td>
                     <td className="font-mono text-xs text-slate-600">{s.nis}</td>
                     <td>
-                      <div className="font-medium text-slate-800">{s.nama}</div>
+                      <div className="font-medium text-slate-800 flex items-center gap-1.5">
+                        {s.nama}
+                        {s.is_tester === 'YES' && (
+                          <span className="badge text-xs bg-purple-100 text-purple-700">🧪 TESTER</span>
+                        )}
+                      </div>
                       {s.tempat_lahir && (
                         <div className="text-xs text-slate-400">{s.tempat_lahir}</div>
                       )}
@@ -667,6 +707,26 @@ export default function AdminSiswaPage() {
           {!editData?.nis && (
             <div className="alert-info text-xs">
               Password default: NIS siswa. Siswa dapat menggantinya setelah login pertama.
+            </div>
+          )}
+
+          {/* Status tester — hanya bisa diubah lewat edit, bukan saat tambah baru */}
+          {editData?.nis && (
+            <div className="rounded-lg border border-purple-200 bg-purple-50/50 px-3 py-2.5">
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={formIsTester}
+                  onChange={e => setFormIsTester(e.target.checked)}
+                />
+                <span>
+                  <span className="text-sm font-medium text-purple-800">🧪 Jadikan Akun Tester</span>
+                  <p className="text-xs text-purple-600 mt-0.5">
+                    Siswa tester tetap bisa login walau maintenance mode aktif, dan disembunyikan dari daftar &amp; statistik siswa reguler.
+                  </p>
+                </span>
+              </label>
             </div>
           )}
         </form>
