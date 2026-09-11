@@ -52,7 +52,6 @@ interface EssayInfo {
   modeJawaban: 'DIGITAL' | 'KERTAS'
   instruksi: string | null
   statusEssay: string
-  akses_kirim_essay_dibuka?: boolean
   // Toggle global per sesi (lihat 11_akses_mulai_essay.sql) — selama false,
   // tombol "Mulai" di halaman ini harus nonaktif menunggu pengawas.
   aksesMulaiDibuka?: boolean
@@ -183,10 +182,6 @@ export default function SiswaUjianPage() {
   const [sisaWaktuEssay, setSisaWaktuEssay] = useState(0)
   const [essaySyncStatus, setEssaySyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error'>('idle')
   // Mode KERTAS
-  const [fotoUrl, setFotoUrl] = useState<string | null>(null)
-  const [uploadingFoto, setUploadingFoto] = useState(false)
-  const [uploadFotoError, setUploadFotoError] = useState('')
-  const [aksesKirimDibuka, setAksesKirimDibuka] = useState(false)
   const [essayWaktuHabisPopup, setEssayWaktuHabisPopup] = useState(false) // mode KERTAS: waktu habis, TIDAK auto-lock, hanya beri tahu + bunyi
   // Kirim essay
   const [confirmKirimEssay, setConfirmKirimEssay] = useState(false)
@@ -257,7 +252,6 @@ export default function SiswaUjianPage() {
   const jawabanEssayRef = useRef<JawabanEssayMap>({})
   const essayTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const essaySyncRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const essayAksesPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const essayAksesMulaiPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => { jawabanRef.current = jawaban }, [jawaban])
@@ -630,7 +624,6 @@ export default function SiswaUjianPage() {
         clearInterval(sesiPollRef.current!)
         clearInterval(essayTimerRef.current!)
         clearInterval(essaySyncRef.current!)
-        clearInterval(essayAksesPollRef.current!)
         clearInterval(essayAksesMulaiPollRef.current!)
         setDiambilAlihDevice(true)
         return
@@ -646,7 +639,6 @@ export default function SiswaUjianPage() {
         clearInterval(sesiPollRef.current!)
         clearInterval(essayTimerRef.current!)
         clearInterval(essaySyncRef.current!)
-        clearInterval(essayAksesPollRef.current!)
         clearInterval(essayAksesMulaiPollRef.current!)
         setDikeluarkan(true)
         return
@@ -671,7 +663,6 @@ export default function SiswaUjianPage() {
         clearInterval(sesiPollRef.current!)
         clearInterval(essayTimerRef.current!)
         clearInterval(essaySyncRef.current!)
-        clearInterval(essayAksesPollRef.current!)
         clearInterval(essayAksesMulaiPollRef.current!)
         setSesiDitutupPaksa(true)
         // FIX (fitur essay): kalau pengawas menutup sesi SAAT siswa sudah
@@ -1266,7 +1257,6 @@ export default function SiswaUjianPage() {
       const res = await apiRequest<EssayInfo>(`/api/siswa/ujian/essay/info?sesiId=${currentSesiId}`)
       setEssayInfo(res)
       essayInfoRef.current = res
-      setAksesKirimDibuka(!!res.akses_kirim_essay_dibuka)
       // Idempotent: kalau siswa sudah pernah menekan "Mulai" sebelumnya (mis.
       // refresh halaman di tengah mengerjakan essay), langsung lanjut ke
       // halaman soal — jangan tampilkan lagi halaman info + tombol "Mulai".
@@ -1430,24 +1420,6 @@ export default function SiswaUjianPage() {
     return () => clearInterval(essaySyncRef.current!)
   }, [phase, essayInfo, syncJawabanEssay])
 
-  // ── Poll akses kirim essay (mode KERTAS saja) — supaya tombol "Kirim"
-  // otomatis aktif begitu pengawas menekan "Buka Akses Kirim", tanpa siswa
-  // perlu refresh manual. ────────────────────────────────────────────────
-  useEffect(() => {
-    if (phase !== 'ESSAY_KERJAKAN' || essayInfo?.modeJawaban !== 'KERTAS') return
-    const currentSesi = sesiInfoRef.current
-    if (!currentSesi) return
-    const cek = async () => {
-      try {
-        const res = await apiRequest<EssayInfo>(`/api/siswa/ujian/essay/info?sesiId=${currentSesi.sesiId}`)
-        setAksesKirimDibuka(!!res.akses_kirim_essay_dibuka)
-      } catch { /* silent, dicoba lagi di interval berikutnya */ }
-    }
-    cek()
-    essayAksesPollRef.current = setInterval(cek, 8000)
-    return () => clearInterval(essayAksesPollRef.current!)
-  }, [phase, essayInfo])
-
   // ── Poll akses "Mulai Essay" (toggle global per sesi, lihat
   // 11_akses_mulai_essay.sql) — selama siswa di halaman info essay (belum
   // menekan "Mulai"), tombolnya harus otomatis aktif begitu pengawas
@@ -1473,32 +1445,6 @@ export default function SiswaUjianPage() {
     return () => clearInterval(essayAksesMulaiPollRef.current!)
   }, [phase])
 
-  // ── Upload foto lembar jawaban (mode KERTAS) ─────────────────────────────
-  async function handleUploadFoto(file: File) {
-    const currentSesi = sesiInfoRef.current
-    if (!currentSesi) return
-    setUploadingFoto(true)
-    setUploadFotoError('')
-    try {
-      const formData = new FormData()
-      formData.append('file', file)
-      formData.append('sesiId', currentSesi.sesiId)
-      const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
-      const res = await fetch('/api/siswa/ujian/essay/upload-foto', {
-        method: 'POST',
-        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-        body: formData,
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data?.error ?? 'Upload gagal')
-      setFotoUrl(data.url)
-    } catch (err: unknown) {
-      setUploadFotoError(err instanceof Error ? err.message : 'Upload foto gagal')
-    } finally {
-      setUploadingFoto(false)
-    }
-  }
-
   // ── Kirim essay (titik akhir alur) — membuka nilai PG & melepas fullscreen ─
   async function handleKirimEssay(isTimeout = false) {
     if (submittingEssay) return
@@ -1518,7 +1464,6 @@ export default function SiswaUjianPage() {
 
     clearInterval(essayTimerRef.current!)
     clearInterval(essaySyncRef.current!)
-    clearInterval(essayAksesPollRef.current!)
 
     try {
       const res = await apiRequest<{ sudahDikirim: boolean; nilaiPg: { id?: string; benar: number; total: number; kkm: number } | null }>(
@@ -1791,8 +1736,9 @@ export default function SiswaUjianPage() {
                 {essayInfo.modeJawaban === 'KERTAS' && (
                   <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-4 text-left">
                     <p className="text-xs text-amber-700">
-                      Anda akan menuliskan jawaban di kertas. Setelah waktu habis, tunggu pengawas membuka akses kirim,
-                      lalu foto dan unggah lembar jawaban Anda dari halaman ini.
+                      Anda akan menuliskan jawaban di kertas. Halaman ini hanya menampilkan soal — tidak perlu
+                      mengetik atau mengunggah apa pun. Setelah selesai menulis semua jawaban, tekan tombol
+                      &quot;Selesai&quot; untuk mengakhiri ujian (halaman soal tidak bisa dibuka kembali setelah itu).
                     </p>
                   </div>
                 )}
@@ -1857,8 +1803,8 @@ export default function SiswaUjianPage() {
               </div>
               <h3 className="text-lg font-bold text-slate-900 mb-2">Waktu Essay Habis</h3>
               <p className="text-sm text-slate-500 mb-4">
-                Waktu mengerjakan sudah habis. Tetap tenang di tempat duduk Anda dan tunggu pengawas
-                membuka akses kirim, lalu foto dan unggah lembar jawaban Anda.
+                Waktu mengerjakan sudah habis. Segera selesaikan tulisan Anda di kertas, lalu tekan
+                tombol &quot;Selesai&quot; di halaman ini untuk mengakhiri ujian.
               </p>
               <button onClick={() => setEssayWaktuHabisPopup(false)} className="btn-secondary w-full justify-center">
                 Mengerti
@@ -1988,52 +1934,32 @@ export default function SiswaUjianPage() {
             </div>
           )}
 
-          {/* Mode KERTAS: upload foto + tombol kirim (disabled sampai akses dibuka) */}
-          {modeJawaban === 'KERTAS' && (
-            <div className="card space-y-3">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Unggah Lembar Jawaban</p>
-              {fotoUrl ? (
-                <div className="space-y-2">
-                  <img src={fotoUrl} alt="Foto lembar jawaban" className="w-full max-w-xs mx-auto rounded-lg border border-slate-200 object-contain" style={{ maxHeight: '240px' }} />
-                  <label className="btn-secondary w-full justify-center cursor-pointer">
-                    Ganti Foto
-                    <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
-                      onChange={e => e.target.files?.[0] && handleUploadFoto(e.target.files[0])} />
-                  </label>
-                </div>
-              ) : (
-                <label className="btn-primary w-full justify-center cursor-pointer">
-                  {uploadingFoto ? <Spinner size="sm" /> : 'Pilih & Unggah Foto'}
-                  <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" disabled={uploadingFoto}
-                    onChange={e => e.target.files?.[0] && handleUploadFoto(e.target.files[0])} />
-                </label>
-              )}
-              {uploadFotoError && (
-                <div className="alert-error text-xs">
-                  <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-                  <span>{uploadFotoError}</span>
-                </div>
-              )}
-              <p className={`text-xs ${aksesKirimDibuka ? 'text-emerald-600' : 'text-amber-600'}`}>
-                {aksesKirimDibuka
-                  ? '✓ Pengawas sudah membuka akses kirim.'
-                  : 'Menunggu pengawas membuka akses kirim...'}
-              </p>
-            </div>
+          {/* Tombol aksi bawah — mode DIGITAL: kirim jawaban yang diketik.
+              Mode KERTAS: TIDAK ada tombol kirim/unggah foto sama sekali —
+              siswa hanya membaca soal & menulis di kertas. Kalau sudah
+              selesai menjawab semua soal di kertas, siswa menekan "Selesai"
+              untuk menutup halaman soal (irreversible, lihat dialog konfirmasi
+              di bawah — TIDAK ada proses kirim/unggah data apapun ke server
+              selain menandai status ujian selesai). */}
+          {modeJawaban === 'DIGITAL' ? (
+            <button
+              onClick={() => setConfirmKirimEssay(true)}
+              disabled={submittingEssay}
+              className="btn-success w-full justify-center py-3 text-base disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <Send className="w-4 h-4" />
+              {submittingEssay ? 'Mengirim...' : 'Kirim Jawaban Essay'}
+            </button>
+          ) : (
+            <button
+              onClick={() => setConfirmKirimEssay(true)}
+              disabled={submittingEssay}
+              className="btn-success w-full justify-center py-3 text-base disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <LogOut className="w-4 h-4" />
+              {submittingEssay ? 'Memproses...' : 'Selesai'}
+            </button>
           )}
-
-          {/* Tombol kirim */}
-          <button
-            onClick={() => setConfirmKirimEssay(true)}
-            disabled={
-              submittingEssay ||
-              (modeJawaban === 'KERTAS' && (!aksesKirimDibuka || !fotoUrl))
-            }
-            className="btn-success w-full justify-center py-3 text-base disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            <Send className="w-4 h-4" />
-            {submittingEssay ? 'Mengirim...' : 'Kirim Jawaban Essay'}
-          </button>
         </div>
 
         {/* FIX (UX kirim essay): sebelumnya siswa bisa langsung kirim walau
@@ -2041,19 +1967,28 @@ export default function SiswaUjianPage() {
             pesan konfirmasi generic "pastikan semua jawaban sudah benar"
             tidak benar-benar memberi tahu ada soal yang KOSONG. Sekarang
             dialognya dibuat dinamis: kalau ada soal kosong, judul & pesannya
-            berubah jadi peringatan tegas dan menyebutkan nomor soalnya. */}
+            berubah jadi peringatan tegas dan menyebutkan nomor soalnya.
+            Mode KERTAS memakai pesan yang berbeda sama sekali (bukan soal
+            "kirim jawaban", tapi "tutup halaman soal", karena tidak ada
+            data jawaban yang dikirim di mode ini). */}
         <Confirm
           open={confirmKirimEssay}
           onClose={() => setConfirmKirimEssay(false)}
           onConfirm={() => handleKirimEssay(false)}
-          title={soalEssayBelumDijawab.length > 0 ? 'Masih Ada Soal Belum Dijawab!' : 'Kirim Jawaban Essay?'}
+          title={
+            modeJawaban === 'KERTAS'
+              ? 'Akhiri Ujian Essay?'
+              : soalEssayBelumDijawab.length > 0 ? 'Masih Ada Soal Belum Dijawab!' : 'Kirim Jawaban Essay?'
+          }
           message={
-            soalEssayBelumDijawab.length > 0
+            modeJawaban === 'KERTAS'
+              ? 'Halaman soal akan ditutup dan Anda TIDAK BISA membukanya kembali. Pastikan Anda sudah selesai menuliskan semua jawaban di kertas sebelum melanjutkan.'
+              : soalEssayBelumDijawab.length > 0
               ? `Soal nomor ${soalEssayBelumDijawab.join(', ')} belum dijawab. Setelah dikirim, jawaban TIDAK BISA diubah lagi. Yakin ingin tetap mengirim?`
               : 'Setelah dikirim, jawaban essay tidak dapat diubah lagi. Pastikan semua jawaban sudah benar.'
           }
-          confirmLabel={soalEssayBelumDijawab.length > 0 ? 'Ya, Tetap Kirim' : 'Ya, Kirim'}
-          variant={soalEssayBelumDijawab.length > 0 ? 'danger' : 'primary'}
+          confirmLabel={modeJawaban === 'KERTAS' ? 'Ya, Selesai' : soalEssayBelumDijawab.length > 0 ? 'Ya, Tetap Kirim' : 'Ya, Kirim'}
+          variant={modeJawaban === 'KERTAS' || soalEssayBelumDijawab.length > 0 ? 'danger' : 'primary'}
           loading={submittingEssay}
         />
       </>
