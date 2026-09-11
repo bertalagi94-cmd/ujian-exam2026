@@ -45,7 +45,7 @@ export default function AdminMapelPage() {
     apiRequest<{ data: User[] }>('/api/admin/users?all=true')
       .then(r => setUsers(r.data.filter(u => u.role === 'GURU')))
       .catch(() => {})
-    apiRequest<{ data: import('@/types').Kelas[] }>('/api/admin/kelas')
+    apiRequest<{ data: import('@/types').Kelas[] }>('/api/admin/kelas?all=true')
       .then(r => {
         setKelas(r.data)
         const map: Record<string, string> = {}
