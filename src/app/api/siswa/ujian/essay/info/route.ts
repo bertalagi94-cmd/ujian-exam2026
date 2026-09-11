@@ -34,6 +34,19 @@ export async function GET(req: NextRequest) {
 
   if (!siswaUjian) return NextResponse.json({ error: 'Data ujian Anda tidak ditemukan' }, { status: 404 })
 
+  // FIX: samakan dengan guard di essay/mulai, essay/soal, essay/jawab, dan
+  // essay/upload-foto — sebelumnya endpoint ini TIDAK memeriksa status
+  // TERKUNCI/RESET sama sekali, jadi siswa yang sudah dikunci permanen atau
+  // sedang menunggu kode reset pengawas tetap bisa mengambil info essay
+  // (nama mapel, jumlah soal, durasi, instruksi guru) padahal seharusnya
+  // sudah diblokir total, sama seperti endpoint essay lainnya.
+  if (siswaUjian.status === 'TERKUNCI' || siswaUjian.status === 'RESET') {
+    return NextResponse.json(
+      { error: 'Akses ujian Anda sedang dikunci/menunggu reset.' },
+      { status: 403 }
+    )
+  }
+
   // Siswa harus sudah submit PG (ditandai status_essay sudah di-set jadi
   // BELUM_MULAI oleh selesai/route.ts) sebelum boleh melihat halaman info essay.
   if (!siswaUjian.status_essay || siswaUjian.status_essay === null) {
