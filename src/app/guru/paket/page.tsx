@@ -439,10 +439,22 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
   }
 
   // ── Kelas yang bisa dipilih untuk duplicate (bukan kelas sendiri) ──
+  // FIX BUG: sebelumnya fungsi ini mengembalikan SEMUA kelas di sekolah
+  // (allKelasList) yang bukan kelas paket sumber — tidak peduli apakah
+  // guru ini benar-benar mengampu mapel tsb di kelas lain itu atau tidak.
+  // Akibatnya guru yang cuma mengajar mapel X di kelas 7 tetap melihat
+  // kelas 8/9/10/... di dropdown duplikasi, padahal ia tidak berwenang
+  // membuat/memiliki paket soal mapel itu di kelas-kelas tersebut.
+  // Sekarang dibatasi ke kelas yang ada di `kelas_list` milik mapel ini
+  // pada `guruMapelList` — persis logika yang sudah dipakai untuk mengisi
+  // dropdown kelas di step "setup" (lihat `kelasUntukMapel` di atas).
   function getKelasUntukDuplicate(paketId: string) {
     const paket = pakets.find(p => p.id === paketId)
-    if (!paket) return allKelasList
-    return allKelasList.filter(k => k.id !== paket.kelas_id)
+    if (!paket) return []
+    const mapel = guruMapelList.find(m => m.id === paket.mapel_id)
+    if (!mapel?.kelas_list) return []
+    const kelasDiMapel = mapel.kelas_list.split(',').map(s => s.trim()).filter(Boolean)
+    return allKelasList.filter(k => kelasDiMapel.includes(k.nama) && k.id !== paket.kelas_id)
   }
 
   const getNamaMapel = (id: string) => guruMapelList.find(m => m.id === id)?.nama ?? allMapelList.find(m => m.id === id)?.nama ?? id
@@ -1389,11 +1401,21 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
     } finally { setSaving(false) }
   }
 
-  // Kelas tujuan untuk duplikasi: exclude kelas milik paket sumber sendiri
+  // Kelas tujuan untuk duplikasi: hanya kelas yang benar-benar diampu guru
+  // untuk mapel paket sumber ini, exclude kelas milik paket sumber sendiri.
+  // FIX BUG: sebelumnya (allKelasList.filter(k => k.id !== kelas_id)) semua
+  // kelas di sekolah ikut muncul, termasuk kelas yang tidak diampu guru ini
+  // sama sekali untuk mapel tsb — sama seperti bug di getKelasUntukDuplicate
+  // pada PgSoalFlow di atas, diperbaiki dengan pola yang sama: cocokkan ke
+  // `kelas_list` milik mapel ini di guruMapelList.
   const dupPaketSumber = pakets.find(p => p.id === dupId) ?? null
-  const kelasTujuanDuplikasi = dupPaketSumber
-    ? allKelasList.filter(k => k.id !== dupPaketSumber.kelas_id)
-    : []
+  const kelasTujuanDuplikasi = (() => {
+    if (!dupPaketSumber) return []
+    const mapel = guruMapelList.find(m => m.id === dupPaketSumber.mapel_id)
+    if (!mapel?.kelas_list) return []
+    const kelasDiMapel = mapel.kelas_list.split(',').map(s => s.trim()).filter(Boolean)
+    return allKelasList.filter(k => kelasDiMapel.includes(k.nama) && k.id !== dupPaketSumber.kelas_id)
+  })()
 
   // ── Render daftar soal (dipakai di step detail) ──
   function renderSoalList() {
