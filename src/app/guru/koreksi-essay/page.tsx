@@ -480,6 +480,19 @@ export default function GuruKoreksiEssayPage() {
                             {terbuka && (
                               <tr>
                                 <td colSpan={6} className="bg-slate-50/60 p-0 border-b border-slate-100">
+                                  {/* UX (kekhawatiran guru "ini nilai punya siswa yang mana?"):
+                                      panel expand sebelumnya tidak menyebut nama siswa sama sekali,
+                                      jadi begitu guru scroll menjauh dari baris tabel, tidak ada lagi
+                                      penanda siapa yang sedang dikoreksi. Header sticky ini mengulang
+                                      nama+NIS dengan warna yang sama seperti aksen baris di tabel,
+                                      dan tetap menempel di atas saat panel discroll. */}
+                                  <div className="sticky top-0 z-10 flex items-center gap-2.5 bg-brand-100 border-b-2 border-brand-400 px-4 py-2.5">
+                                    <div className="w-2 h-8 rounded-full bg-brand-600 shrink-0" />
+                                    <div>
+                                      <p className="text-[11px] font-semibold text-brand-700 uppercase tracking-wide">Sedang mengoreksi</p>
+                                      <p className="font-bold text-slate-900 leading-tight">{p.nama} <span className="font-normal text-slate-500">· NIS {p.nis}</span></p>
+                                    </div>
+                                  </div>
                                   <div className="p-4 space-y-4">
                                     <p className="text-xs text-slate-400 -mt-1">
                                       Dikirim {p.waktuKirimEssay ? formatDateTime(p.waktuKirimEssay) : '-'}
@@ -540,7 +553,9 @@ export default function GuruKoreksiEssayPage() {
                                     {/* Input nilai */}
                                     {p.statusEssay !== 'TIDAK_MENGERJAKAN' && (
                                       <div className="bg-white rounded-lg border border-slate-200 p-3 space-y-2">
-                                        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Beri Nilai Essay</p>
+                                        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                                          Beri Nilai Essay — <span className="text-brand-700">{p.nama}</span>
+                                        </p>
                                         <div className="flex items-end gap-2 flex-wrap">
                                           <div className="flex-1 min-w-[140px]">
                                             <label className="label">Nilai Essay (skala 0–100)</label>
