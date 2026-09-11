@@ -124,7 +124,7 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
     Promise.all([
       apiRequest<{ data: Mapel[] }>(`/api/admin/mapel?guru_id=${guruId}`),
       apiRequest<{ data: Mapel[] }>('/api/admin/mapel'),
-      apiRequest<{ data: Kelas[] }>('/api/admin/kelas'),
+      apiRequest<{ data: Kelas[] }>('/api/admin/kelas?all=true'),
     ]).then(([m, allM, k]) => {
       setGuruMapelList(m.data ?? [])
       setAllMapelList(allM.data ?? [])
@@ -1141,7 +1141,7 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
     Promise.all([
       apiRequest<{ data: Mapel[] }>(`/api/admin/mapel?guru_id=${guruId}`),
       apiRequest<{ data: Mapel[] }>('/api/admin/mapel'),
-      apiRequest<{ data: Kelas[] }>('/api/admin/kelas'),
+      apiRequest<{ data: Kelas[] }>('/api/admin/kelas?all=true'),
     ]).then(([m, allM, k]) => {
       setGuruMapelList(m.data ?? [])
       setAllMapelList(allM.data ?? [])
