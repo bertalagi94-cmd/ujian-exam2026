@@ -30,11 +30,15 @@ export default function AdminUsersPage() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [filterRole, setFilterRole] = useState('')
+  // Tab "Akun Reguler" / "Akun Tester". Akun tester ditandai is_tester = 'YES'
+  // dan dikecualikan dari maintenance mode (lihat api/auth/login/route.ts).
+  const [accountTab, setAccountTab] = useState<'reguler' | 'tester'>('reguler')
   const [modalOpen, setModalOpen] = useState(false)
   const [editData, setEditData] = useState<Partial<User> | null>(null)
   const [formRole, setFormRole] = useState<string>('GURU')
   const [formNip, setFormNip] = useState('')
   const [formSekolahId, setFormSekolahId] = useState('')
+  const [formIsTester, setFormIsTester] = useState(false)
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [resetId, setResetId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -46,13 +50,13 @@ export default function AdminUsersPage() {
     setLoading(true)
     try {
       const [usersRes, sekolahRes] = await Promise.all([
-        apiRequest<{ data: User[] }>('/api/admin/users'),
+        apiRequest<{ data: User[] }>(`/api/admin/users${accountTab === 'tester' ? '?tester=true' : ''}`),
         apiRequest<{ data: Sekolah[] }>('/api/admin/sekolah'),
       ])
       setUsers(usersRes.data)
       setSekolahList(sekolahRes.data)
     } finally { setLoading(false) }
-  }, [])
+  }, [accountTab])
 
   useEffect(() => { load() }, [load])
   useEffect(() => {
@@ -72,6 +76,7 @@ export default function AdminUsersPage() {
     setFormRole('GURU')
     setFormNip('')
     setFormSekolahId('')
+    setFormIsTester(false)
     setModalOpen(true)
   }
 
@@ -80,6 +85,7 @@ export default function AdminUsersPage() {
     setFormRole(u.role)
     setFormNip(u.nip ?? '')
     setFormSekolahId(u.sekolah_id ?? '')
+    setFormIsTester(u.is_tester === 'YES')
     setModalOpen(true)
   }
 
@@ -90,6 +96,9 @@ export default function AdminUsersPage() {
       ...Object.fromEntries(fd.entries()),
       nip: formNip,
       sekolah_id: formRole === 'KEPSEK' ? (formSekolahId || null) : null,
+      // Hanya kirim saat edit (bukan tambah baru) — kolom checkbox cuma
+      // muncul di form edit.
+      ...(editData?.username ? { is_tester: formIsTester ? 'YES' : 'NO' } : {}),
     }
     setSaving(true)
     try {
@@ -146,6 +155,31 @@ export default function AdminUsersPage() {
         </button>
       </div>
 
+      {/* Tab Akun Reguler / Akun Tester */}
+      <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-fit">
+        <button
+          onClick={() => setAccountTab('reguler')}
+          className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+            accountTab === 'reguler' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          Akun Reguler
+        </button>
+        <button
+          onClick={() => setAccountTab('tester')}
+          className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+            accountTab === 'tester' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          🧪 Akun Tester
+        </button>
+      </div>
+      {accountTab === 'tester' && (
+        <div className="alert-info text-xs">
+          Akun tester tetap bisa login walau maintenance mode aktif. Gunakan untuk keperluan pengujian/QA, bukan akun guru/kepsek aktif sehari-hari.
+        </div>
+      )}
+
       {/* Filter */}
       <div className="card py-3 flex gap-3 flex-wrap items-center">
         <SearchInput value={search} onChange={setSearch} placeholder="Cari nama atau username..." className="flex-1 min-w-[200px]" />
@@ -196,7 +230,12 @@ export default function AdminUsersPage() {
                     <td className="text-slate-400 text-xs">{i + 1}</td>
                     <td className="font-mono text-xs text-slate-600">{u.username}</td>
                     <td>
-                      <div className="font-medium text-slate-800">{u.nama}</div>
+                      <div className="font-medium text-slate-800 flex items-center gap-1.5">
+                        {u.nama}
+                        {u.is_tester === 'YES' && (
+                          <span className="badge text-xs bg-purple-100 text-purple-700">🧪 TESTER</span>
+                        )}
+                      </div>
                       {u.nip && <div className="text-xs text-slate-400">NIP: {u.nip}</div>}
                     </td>
                     <td>
@@ -365,6 +404,26 @@ export default function AdminUsersPage() {
             <div>
               <label className="label">Password *</label>
               <input name="password" type="password" className="input" required placeholder="Password awal" />
+            </div>
+          )}
+
+          {/* Status tester — hanya bisa diubah lewat edit, bukan saat tambah baru */}
+          {editData?.username && (
+            <div className="rounded-lg border border-purple-200 bg-purple-50/50 px-3 py-2.5">
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={formIsTester}
+                  onChange={e => setFormIsTester(e.target.checked)}
+                />
+                <span>
+                  <span className="text-sm font-medium text-purple-800">🧪 Jadikan Akun Tester</span>
+                  <p className="text-xs text-purple-600 mt-0.5">
+                    Akun tester tetap bisa login walau maintenance mode aktif, dan disembunyikan dari daftar &amp; statistik pengguna reguler.
+                  </p>
+                </span>
+              </label>
             </div>
           )}
         </form>
