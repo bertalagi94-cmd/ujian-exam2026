@@ -76,14 +76,21 @@ export async function POST(req: NextRequest) {
 
     if (pengaturan['maintenanceAktif'] === 'true') {
       const db = createAdminClient()
-      const { data: adminCheck } = await db
-        .from('users')
-        .select('role')
-        .eq('username', username.trim())
-        .eq('role', 'ADMIN')
-        .single()
+      const usernameTrim = username.trim()
 
-      if (!adminCheck) {
+      // Diizinkan login saat maintenance: role ADMIN, ATAU akun (guru/kepsek
+      // di tabel users, maupun siswa di tabel siswa) yang ditandai
+      // is_tester = 'YES'. Sebelumnya hanya role ADMIN yang dicek di sini,
+      // padahal teks di halaman admin/pengaturan sudah menjanjikan bahwa
+      // akun IS_TESTER juga bisa login — jadi ini menyamakan kode dengan
+      // janji tersebut.
+      const [{ data: adminCheck }, { data: testerUserCheck }, { data: testerSiswaCheck }] = await Promise.all([
+        db.from('users').select('role').eq('username', usernameTrim).eq('role', 'ADMIN').maybeSingle(),
+        db.from('users').select('username').eq('username', usernameTrim).eq('is_tester', 'YES').maybeSingle(),
+        db.from('siswa').select('nis').eq('nis', usernameTrim).eq('is_tester', 'YES').maybeSingle(),
+      ])
+
+      if (!adminCheck && !testerUserCheck && !testerSiswaCheck) {
         return NextResponse.json({
           error: pengaturan['maintenancePesan'] || 'Sistem sedang dalam perbaikan. Silakan coba beberapa saat lagi.',
         }, { status: 503 })
