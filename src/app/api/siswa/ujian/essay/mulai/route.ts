@@ -40,6 +40,23 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ waktuMulaiEssay: siswaUjian.waktu_mulai_essay })
   }
 
+  // Gerbang toggle "Akses Soal Essay" (lihat 11_akses_mulai_essay.sql) —
+  // dicek ULANG di server (bukan cuma disabled di tombol UI) supaya tidak
+  // bisa di-bypass dengan memanggil endpoint ini langsung sebelum pengawas
+  // menyalakan aksesnya.
+  const { data: sesi } = await db
+    .from('sesi_ujian')
+    .select('akses_mulai_essay_dibuka')
+    .eq('id', sesiId)
+    .single()
+
+  if (!sesi?.akses_mulai_essay_dibuka) {
+    return NextResponse.json(
+      { error: 'Menunggu pengawas membuka akses mulai essay.' },
+      { status: 403 }
+    )
+  }
+
   const waktuMulaiEssay = new Date().toISOString()
   const { error } = await db
     .from('siswa_ujian')
