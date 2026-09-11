@@ -40,6 +40,42 @@ function cekRateLimit(ip: string, username: string): { allowed: boolean; sisaDet
   return { allowed: true }
 }
 
+// Format nilai <input type="datetime-local"> ("YYYY-MM-DDTHH:mm") menjadi
+// teks berbahasa Indonesia, mis. "12 September 2026, 08.00". Sengaja di-parse
+// langsung dari string (bukan lewat `new Date(...)`) supaya angka jam/menit
+// yang tampil PERSIS sama dengan yang diketik admin di form pengaturan —
+// datetime-local tidak menyimpan info zona waktu, jadi konversi lewat Date()
+// berisiko bergeser kalau timezone server berbeda dari WITA.
+function formatJadwalMaintenance(raw?: string): string | null {
+  if (!raw) return null
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(raw)
+  if (!match) return null
+  const [, tahun, bulan, tanggal, jam, menit] = match
+  const NAMA_BULAN = [
+    'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+    'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember',
+  ]
+  const namaBulan = NAMA_BULAN[parseInt(bulan, 10) - 1] ?? bulan
+  return `${parseInt(tanggal, 10)} ${namaBulan} ${tahun}, ${jam}.${menit}`
+}
+
+// Susun pesan maintenance lengkap dengan rentang waktu (jika diisi admin di
+// Pengaturan → Maintenance). Sebelumnya rentang waktu ini disimpan
+// (maintenanceMulai/maintenanceSelesai) tapi tidak pernah ikut ditampilkan
+// ke pengguna — pesan error hanya berisi maintenancePesan.
+function buildPesanMaintenance(pengaturan: Record<string, string>): string {
+  const pesanDasar = pengaturan['maintenancePesan'] || 'Sistem sedang dalam perbaikan. Silakan coba beberapa saat lagi.'
+  const mulai = formatJadwalMaintenance(pengaturan['maintenanceMulai'])
+  const selesai = formatJadwalMaintenance(pengaturan['maintenanceSelesai'])
+
+  let rentang = ''
+  if (mulai && selesai) rentang = ` Jadwal: ${mulai} s.d. ${selesai} WITA.`
+  else if (mulai) rentang = ` Mulai: ${mulai} WITA.`
+  else if (selesai) rentang = ` Perkiraan selesai: ${selesai} WITA.`
+
+  return `${pesanDasar}${rentang}`
+}
+
 // Ambil semua pengaturan sekaligus, cache 60 detik.
 // Sebelumnya: 2–3 query serial ke tabel pengaturan per login.
 // Sekarang: 0ms jika cache hit, 1 query jika cache miss.
@@ -92,7 +128,7 @@ export async function POST(req: NextRequest) {
 
       if (!adminCheck && !testerUserCheck && !testerSiswaCheck) {
         return NextResponse.json({
-          error: pengaturan['maintenancePesan'] || 'Sistem sedang dalam perbaikan. Silakan coba beberapa saat lagi.',
+          error: buildPesanMaintenance(pengaturan),
         }, { status: 503 })
       }
     }
