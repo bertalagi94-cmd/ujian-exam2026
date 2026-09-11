@@ -442,7 +442,7 @@ export default function AdminJadwalPage() {
   useEffect(() => {
     Promise.all([
       apiRequest<{ data: Mapel[] }>('/api/admin/mapel'),
-      apiRequest<{ data: Kelas[] }>('/api/admin/kelas'),
+      apiRequest<{ data: Kelas[] }>('/api/admin/kelas?all=true'),
       apiRequest<{ data: User[] }>('/api/admin/users?all=true'),
     ]).then(([m, k, u]) => {
       setMapelList(m.data)
