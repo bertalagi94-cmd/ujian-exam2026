@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 import { kirimPasanganPaket } from '@/lib/gabungKirim'
+import { cekSesiMapelKelasSudahMulai, pesanBankSoalTerkunci } from '@/lib/sesi-kelas'
 
 export async function POST(
   req: NextRequest,
@@ -28,6 +29,14 @@ export async function POST(
     if (!['DRAFT', 'DITOLAK'].includes(paket.status)) {
       return NextResponse.json({ error: 'Paket tidak bisa dikirim' }, { status: 400 })
     }
+
+    // Cegah mengajukan paket PG untuk mapel+kelas yang sesi ujiannya sudah
+    // pernah dibuka (sedang berjalan atau sudah selesai) — lihat sesi-kelas.ts
+    const sesiSudahMulai = await cekSesiMapelKelasSudahMulai(db, paket.mapel_id, paket.kelas_id)
+    if (sesiSudahMulai) {
+      return NextResponse.json({ error: pesanBankSoalTerkunci('PG', sesiSudahMulai, 'mengajukan') }, { status: 409 })
+    }
+
     const { count } = await db
       .from('soal')
       .select('*', { count: 'exact', head: true })
