@@ -1993,49 +1993,22 @@ export default function GuruBuatSoalPage() {
   const [ringkasanEssay, setRingkasanEssay] = useState<RingkasanSoal | null>(null)
   const [loadingRingkasan, setLoadingRingkasan] = useState(true)
 
-  // ── Efek "kartu membesar & menggeser kartu lain saat di-hover" (hanya
-  // berlaku di layar sm ke atas yang punya kursor mouse — di HP/touchscreen
-  // kartu tetap statis berdampingan seperti biasa, tap langsung memicu
-  // onClick). Dipakai flex-grow/shrink (bukan transform:scale) supaya kartu
-  // yang di-hover benar-benar MELEBAR dan "mendorong" kartu di sebelahnya
-  // sampai mengecil — bukan cuma membesar di tempat:
-  //   - Kartu pinggir (PG atau Informasi) di-hover → kartu itu melebar ke
-  //     arah dua kartu lainnya, dan keduanya mengecil.
-  //   - Kartu tengah (Essay) di-hover → melebar simetris ke kiri & kanan,
-  //     mendorong kartu kiri DAN kartu kanan supaya sama-sama mengecil.
-  // Efek "mendorong" ini didapat gratis dari flexbox: karena ketiga kartu
-  // berada dalam satu baris flex dengan lebar total tetap, menambah
-  // flex-grow salah satu otomatis mengambil ruang dari kartu lain di kiri
-  // maupun kanannya — sama sekali beda dari transform:scale yang cuma
-  // membesar di tempat tanpa memengaruhi lebar kartu tetangga.
-  //
-  // Supaya kartu yang menyempit terasa benar-benar "mengecil" (bukan cuma
-  // isinya keremuk/wrap di ruang sempit), kartu yang bukan sedang di-hover
-  // juga diberi padding & tinggi minimum yang lebih kecil (lewat isShrunk
-  // di bawah). Konten sekundernya (deskripsi + ringkasan jumlah soal) tetap
-  // di-render (bukan unmount) tapi dianimasikan halus lewat max-height +
-  // opacity 0 (lihat pembungkus overflow-hidden di setiap kartu) supaya
-  // transisinya luwes, bukan hilang/muncul mendadak. Konten lengkap itu
-  // muncul lagi begitu kartunya membesar (di-hover atau saat tidak ada
-  // kartu manapun yang di-hover).
+  // ── Efek "kartu membesar saat di-hover" (hanya berlaku di layar sm ke
+  // atas yang punya kursor mouse — di HP/touchscreen kartu tetap statis
+  // berdampingan seperti biasa, tap langsung memicu onClick).
+  // Simpel: kartu yang kursornya di atas → zoom in (scale up sedikit).
+  // Kartu lain yang tidak di-hover → zoom out (scale down sedikit) supaya
+  // kontras dengan kartu yang aktif. Cukup transform:scale + opacity, tanpa
+  // mengubah lebar/flex-grow atau meremukkan kontennya.
   const [hoverKind, setHoverKind] = useState<'pg' | 'essay' | 'info' | null>(null)
-  function kartuFlexClass(mine: 'pg' | 'essay' | 'info') {
-    if (hoverKind === mine) return 'sm:flex-[2.2] sm:z-10 sm:shadow-card-lg'
-    if (hoverKind !== null) return 'sm:flex-[0.55] sm:opacity-80'
-    return 'sm:flex-1'
+  function kartuScaleClass(mine: 'pg' | 'essay' | 'info') {
+    if (hoverKind === mine) return 'sm:scale-105 sm:z-10 sm:shadow-card-lg'
+    if (hoverKind !== null) return 'sm:scale-95 sm:opacity-70'
+    return 'sm:scale-100'
   }
-  function isShrunk(mine: 'pg' | 'essay' | 'info') {
-    return hoverKind !== null && hoverKind !== mine
-  }
-  // Satu durasi & kurva easing yang dipakai bareng-bareng di semua elemen
-  // yang ikut berubah ukuran (kartu, ikon, judul, tombol) supaya semuanya
-  // selesai berpindah di waktu yang SAMA PERSIS — sebelumnya ada yang pakai
-  // 300ms dan ada yang 500ms, jadi kelihatan "dua gerakan" yang gak singkron
-  // dan berasa patah. transition-[...] (bukan transition-all) juga dipakai
-  // supaya browser cuma menghitung properti yang benar-benar berubah, bukan
-  // semua properti CSS di elemen itu — lebih ringan & lebih mulus di layar
-  // yang kurang bertenaga.
-  const EASE = 'duration-[450ms] ease-[cubic-bezier(0.65,0,0.35,1)]'
+  // Satu durasi & kurva easing yang dipakai bareng di semua kartu supaya
+  // gerakannya singkron.
+  const EASE = 'duration-300 ease-out'
 
   useEffect(() => {
     if (kind !== 'choice') return
@@ -2105,13 +2078,13 @@ export default function GuruBuatSoalPage() {
             supaya bentuknya langsung terbaca sebagai TOMBOL yang bisa
             ditekan, bukan dekorasi. Teks penjelas juga dipangkas jadi satu
             kalimat pendek per kartu. */}
-        {/* Kartu berdampingan pakai flex (bukan grid) supaya lebar tiap
-            kartu bisa "ditarik-ulur" secara dinamis lewat kartuFlexClass()
-            saat di-hover — grid-template-columns tidak bisa dianimasikan
-            semulus flex-grow, dan efek "mendorong kartu tetangga" (lihat
-            komentar di kartuFlexClass) cuma bisa didapat dari flexbox.
-            items-stretch supaya tinggi kartu tetap sama walau salah satu
-            kontennya (ringkasan mapel) lebih pendek dari yang lain. */}
+        {/* Kartu berdampingan dengan lebar sama rata (flex-1). Saat salah
+            satu di-hover, ia zoom in (scale-105) lewat kartuScaleClass(),
+            dan dua kartu lainnya zoom out (scale-95 + sedikit redup) —
+            transisi sederhana, cukup transform & opacity, tanpa mengubah
+            lebar/flex-grow atau meremukkan konten kartu. items-stretch
+            supaya tinggi kartu tetap sama walau salah satu kontennya
+            (ringkasan mapel) lebih pendek dari yang lain. */}
         <div className="flex flex-col sm:flex-row gap-5 items-stretch">
           <button
             onClick={() => setKind('pg')}
@@ -2119,39 +2092,28 @@ export default function GuruBuatSoalPage() {
             onMouseLeave={() => setHoverKind(null)}
             onFocus={() => setHoverKind('pg')}
             onBlur={() => setHoverKind(null)}
-            className={`group relative text-left rounded-3xl sm:min-w-0 flex flex-col overflow-hidden
+            className={`group relative text-left rounded-3xl sm:min-w-0 flex-1 flex flex-col overflow-hidden
                        bg-white border-2 border-slate-200 hover:border-brand-400
                        shadow-card hover:-translate-y-0.5 active:translate-y-0
-                       transition-[flex-grow,flex-shrink,padding,min-height,transform,box-shadow,border-color] ${EASE}
+                       transition-[transform,box-shadow,border-color,opacity] ${EASE}
                        p-7 min-h-[220px]
-                       ${isShrunk('pg') ? 'sm:p-4 sm:min-h-[120px] sm:items-center sm:text-center' : ''}
-                       ${kartuFlexClass('pg')}`}
+                       ${kartuScaleClass('pg')}`}
           >
-            <div className={`w-14 h-14 rounded-2xl bg-brand-50 text-brand-600 flex items-center justify-center flex-shrink-0
-                             transition-[margin] ${EASE}
-                             ${isShrunk('pg') ? 'sm:mb-0' : 'mb-5'}`}>
+            <div className="w-14 h-14 rounded-2xl bg-brand-50 text-brand-600 flex items-center justify-center flex-shrink-0 mb-5">
               <ListChecks className="w-7 h-7" />
             </div>
-            <h2 className={`text-xl font-bold text-slate-900 transition-[margin] ${EASE}
-                            ${isShrunk('pg') ? 'sm:mb-0 sm:mt-2' : 'mb-1.5'}`}>Soal PG</h2>
-            <div className={`overflow-hidden transition-[max-height,opacity] ${EASE}
-                             ${isShrunk('pg') ? 'sm:max-h-0 sm:opacity-0' : 'max-h-[400px] opacity-100'}`}>
+            <h2 className="text-xl font-bold text-slate-900 mb-1.5">Soal PG</h2>
+            <div>
               <p className="text-slate-500 text-sm leading-relaxed">
                 Sistem menilai otomatis begitu siswa selesai mengerjakan.
               </p>
               <RingkasanSoalCard ringkasan={ringkasanPg} loading={loadingRingkasan} />
             </div>
             <div className="mt-auto pt-6">
-              <span className={`inline-flex items-center rounded-full bg-brand-600 group-hover:bg-brand-700
-                               text-white text-sm font-semibold
-                               transition-[padding,gap,background-color] ${EASE}
-                               ${isShrunk('pg') ? 'sm:gap-0 sm:px-3 sm:py-3' : 'gap-2 px-5 py-2.5'}`}>
+              <span className="inline-flex items-center gap-2 rounded-full bg-brand-600 group-hover:bg-brand-700
+                               text-white text-sm font-semibold px-5 py-2.5">
                 <Plus className="w-4 h-4 flex-shrink-0" />
-                <span className={`overflow-hidden whitespace-nowrap
-                                  transition-[max-width,opacity] ${EASE}
-                                  ${isShrunk('pg') ? 'sm:max-w-0 sm:opacity-0' : 'max-w-[180px] opacity-100'}`}>
-                  Buat Soal PG
-                </span>
+                <span className="whitespace-nowrap">Buat Soal PG</span>
               </span>
             </div>
           </button>
@@ -2162,39 +2124,28 @@ export default function GuruBuatSoalPage() {
             onMouseLeave={() => setHoverKind(null)}
             onFocus={() => setHoverKind('essay')}
             onBlur={() => setHoverKind(null)}
-            className={`group relative text-left rounded-3xl sm:min-w-0 flex flex-col overflow-hidden
+            className={`group relative text-left rounded-3xl sm:min-w-0 flex-1 flex flex-col overflow-hidden
                        bg-white border-2 border-slate-200 hover:border-emerald-400
                        shadow-card hover:-translate-y-0.5 active:translate-y-0
-                       transition-[flex-grow,flex-shrink,padding,min-height,transform,box-shadow,border-color] ${EASE}
+                       transition-[transform,box-shadow,border-color,opacity] ${EASE}
                        p-7 min-h-[220px]
-                       ${isShrunk('essay') ? 'sm:p-4 sm:min-h-[120px] sm:items-center sm:text-center' : ''}
-                       ${kartuFlexClass('essay')}`}
+                       ${kartuScaleClass('essay')}`}
           >
-            <div className={`w-14 h-14 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center flex-shrink-0
-                             transition-[margin] ${EASE}
-                             ${isShrunk('essay') ? 'sm:mb-0' : 'mb-5'}`}>
+            <div className="w-14 h-14 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center flex-shrink-0 mb-5">
               <PenSquare className="w-7 h-7" />
             </div>
-            <h2 className={`text-xl font-bold text-slate-900 transition-[margin] ${EASE}
-                            ${isShrunk('essay') ? 'sm:mb-0 sm:mt-2' : 'mb-1.5'}`}>Soal Essay</h2>
-            <div className={`overflow-hidden transition-[max-height,opacity] ${EASE}
-                             ${isShrunk('essay') ? 'sm:max-h-0 sm:opacity-0' : 'max-h-[400px] opacity-100'}`}>
+            <h2 className="text-xl font-bold text-slate-900 mb-1.5">Soal Essay</h2>
+            <div>
               <p className="text-slate-500 text-sm leading-relaxed">
                 Dinilai manual oleh Anda setelah siswa mengumpulkan jawaban.
               </p>
               <RingkasanSoalCard ringkasan={ringkasanEssay} loading={loadingRingkasan} />
             </div>
             <div className="mt-auto pt-6">
-              <span className={`inline-flex items-center rounded-full bg-emerald-600 group-hover:bg-emerald-700
-                               text-white text-sm font-semibold
-                               transition-[padding,gap,background-color] ${EASE}
-                               ${isShrunk('essay') ? 'sm:gap-0 sm:px-3 sm:py-3' : 'gap-2 px-5 py-2.5'}`}>
+              <span className="inline-flex items-center gap-2 rounded-full bg-emerald-600 group-hover:bg-emerald-700
+                               text-white text-sm font-semibold px-5 py-2.5">
                 <Plus className="w-4 h-4 flex-shrink-0" />
-                <span className={`overflow-hidden whitespace-nowrap
-                                  transition-[max-width,opacity] ${EASE}
-                                  ${isShrunk('essay') ? 'sm:max-w-0 sm:opacity-0' : 'max-w-[180px] opacity-100'}`}>
-                  Buat Soal Essay
-                </span>
+                <span className="whitespace-nowrap">Buat Soal Essay</span>
               </span>
             </div>
           </button>
@@ -2209,38 +2160,27 @@ export default function GuruBuatSoalPage() {
             onMouseLeave={() => setHoverKind(null)}
             onFocus={() => setHoverKind('info')}
             onBlur={() => setHoverKind(null)}
-            className={`group relative text-left rounded-3xl sm:min-w-0 flex flex-col overflow-hidden
+            className={`group relative text-left rounded-3xl sm:min-w-0 flex-1 flex flex-col overflow-hidden
                        bg-white border-2 border-slate-200 hover:border-indigo-400
                        shadow-card hover:-translate-y-0.5 active:translate-y-0
-                       transition-[flex-grow,flex-shrink,padding,min-height,transform,box-shadow,border-color] ${EASE}
+                       transition-[transform,box-shadow,border-color,opacity] ${EASE}
                        p-7 min-h-[220px]
-                       ${isShrunk('info') ? 'sm:p-4 sm:min-h-[120px] sm:items-center sm:text-center' : ''}
-                       ${kartuFlexClass('info')}`}
+                       ${kartuScaleClass('info')}`}
           >
-            <div className={`w-14 h-14 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center flex-shrink-0
-                             transition-[margin] ${EASE}
-                             ${isShrunk('info') ? 'sm:mb-0' : 'mb-5'}`}>
+            <div className="w-14 h-14 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center flex-shrink-0 mb-5">
               <Info className="w-7 h-7" />
             </div>
-            <h2 className={`text-xl font-bold text-slate-900 transition-[margin] ${EASE}
-                            ${isShrunk('info') ? 'sm:mb-0 sm:mt-2' : 'mb-1.5'}`}>Informasi Paket Soal</h2>
-            <div className={`overflow-hidden transition-[max-height,opacity] ${EASE}
-                             ${isShrunk('info') ? 'sm:max-h-0 sm:opacity-0' : 'max-h-[400px] opacity-100'}`}>
+            <h2 className="text-xl font-bold text-slate-900 mb-1.5">Informasi Paket Soal</h2>
+            <div>
               <p className="text-slate-500 text-sm leading-relaxed">
                 Nama mapel & kelas, status soal, serta kelengkapan PG dan Essay dalam satu tabel.
               </p>
             </div>
             <div className="mt-auto pt-6">
-              <span className={`inline-flex items-center rounded-full bg-indigo-600 group-hover:bg-indigo-700
-                               text-white text-sm font-semibold
-                               transition-[padding,gap,background-color] ${EASE}
-                               ${isShrunk('info') ? 'sm:gap-0 sm:px-3 sm:py-3' : 'gap-2 px-5 py-2.5'}`}>
+              <span className="inline-flex items-center gap-2 rounded-full bg-indigo-600 group-hover:bg-indigo-700
+                               text-white text-sm font-semibold px-5 py-2.5">
                 <ChevronRight className="w-4 h-4 flex-shrink-0" />
-                <span className={`overflow-hidden whitespace-nowrap
-                                  transition-[max-width,opacity] ${EASE}
-                                  ${isShrunk('info') ? 'sm:max-w-0 sm:opacity-0' : 'max-w-[180px] opacity-100'}`}>
-                  Lihat Informasi
-                </span>
+                <span className="whitespace-nowrap">Lihat Informasi</span>
               </span>
             </div>
           </button>
