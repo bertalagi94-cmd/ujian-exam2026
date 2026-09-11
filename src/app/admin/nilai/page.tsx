@@ -42,7 +42,7 @@ export default function AdminNilaiPage() {
   useEffect(() => {
     Promise.all([
       apiRequest<{ data: Mapel[] }>('/api/admin/mapel'),
-      apiRequest<{ data: Kelas[] }>('/api/admin/kelas'),
+      apiRequest<{ data: Kelas[] }>('/api/admin/kelas?all=true'),
     ]).then(([m, k]) => { setMapelList(m.data); setKelasList(k.data) })
   }, [])
 
