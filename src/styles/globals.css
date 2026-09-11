@@ -387,48 +387,74 @@
 
 /* ── Sinar berjalan mengelilingi header (Mode Pengawas) ──────────────────
    Dipakai di header hitam halaman Mode Pengawas guru ketika ada ujian yang
-   SEDANG BERLANGSUNG hari ini. Efeknya: satu titik cahaya (comet) yang
-   BENAR-BENAR BERGERAK menyusuri tepi kotak — termasuk mengikuti sudut
-   membulatnya — lewat `offset-path: border-box`. Triknya: pseudo-element
-   dibuat SEUKURAN PENUH header (inset: 0), lalu titik cahaya digambar
-   tepat di TITIK JANGKAR (anchor, default = tengah kotak) lewat
-   radial-gradient berukuran kecil & tetap (bukan relatif) — sisanya
-   transparan. Karena seluruh kotak itu yang digeser mengikuti tepi
-   header, titik cahaya di tengahnya ikut terlihat berjalan menyusuri
-   tepi kotak. ::before = titik utama (terang & jelas), ::after = aura
-   lembut yang sedikit tertinggal di belakangnya. */
-@keyframes cometTravel {
-  to { offset-distance: 100%; }
+   SEDANG BERLANGSUNG hari ini. Efeknya kali ini: SAPUAN CAHAYA yang
+   benar-benar berjalan MENGITARI TEPI KOTAK secara terus-menerus (bukan
+   titik yang meloncat, bukan juga gradient yang cuma berputar diam di
+   tempat). Triknya: pseudo-element dibuat sedikit lebih besar dari kotak
+   (inset negatif = ketebalan "cincin" cahaya), diisi conic-gradient, lalu
+   di-mask supaya HANYA cincin tepinya yang tampil (bagian dalam kotak
+   dipotong lewat mask-composite: exclude). Conic-gradient itu lalu diputar
+   lewat custom property bersudut (`@property --sinar-sudut`) yang di-
+   animasikan 0deg → 360deg, sehingga sapuan cahayanya benar-benar
+   berjalan mengelilingi tepi kotak, ikut membelok rapi di sudut yang
+   membulat. ::before = sapuan cahaya utama (tipis & jelas), ::after =
+   versi diperbesar & di-blur di belakangnya untuk glow yang lembut. */
+@property --sinar-sudut {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+@keyframes sinarBerjalan {
+  to { --sinar-sudut: 360deg; }
 }
 .header-ujian-berjalan {
   position: relative;
+  isolation: isolate;
 }
-/* Titik cahaya utama — jelas & terang, menyusuri tepi kotak */
+/* Sapuan cahaya utama — tipis & jelas, berjalan mengitari tepi kotak */
 .header-ujian-berjalan::before {
   content: '';
   position: absolute;
-  inset: 0;
+  inset: -2px;
   border-radius: inherit;
-  offset-path: border-box;
-  offset-rotate: 0deg;
-  animation: cometTravel 3.6s linear infinite;
-  background: radial-gradient(circle 5px at center, #fff 0%, #fde047 55%, transparent 100%);
-  box-shadow: 0 0 12px 4px rgba(251, 191, 36, 0.55);
+  padding: 2px;
+  background: conic-gradient(
+    from var(--sinar-sudut),
+    transparent 0deg,
+    transparent 270deg,
+    rgba(253, 224, 71, 0.35) 316deg,
+    #fff 335deg,
+    #fde047 345deg,
+    transparent 360deg
+  );
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: sinarBerjalan 3.4s linear infinite;
   pointer-events: none;
   z-index: 2;
 }
-/* Aura lembut yang mengekor sedikit di belakang titik utama */
+/* Glow lembut di belakang sapuan utama, sedikit lebih tebal & di-blur */
 .header-ujian-berjalan::after {
   content: '';
   position: absolute;
-  inset: 0;
+  inset: -6px;
   border-radius: inherit;
-  offset-path: border-box;
-  offset-rotate: 0deg;
-  animation: cometTravel 3.6s linear infinite;
-  animation-delay: -0.15s;
-  background: radial-gradient(circle 10px at center, rgba(251, 191, 36, 0.6) 0%, transparent 100%);
-  filter: blur(4px);
+  padding: 6px;
+  background: conic-gradient(
+    from var(--sinar-sudut),
+    transparent 0deg,
+    transparent 270deg,
+    rgba(253, 224, 71, 0.25) 316deg,
+    rgba(255, 255, 255, 0.45) 335deg,
+    rgba(253, 224, 71, 0.25) 345deg,
+    transparent 360deg
+  );
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  filter: blur(6px);
+  animation: sinarBerjalan 3.4s linear infinite;
   pointer-events: none;
   z-index: 1;
 }
