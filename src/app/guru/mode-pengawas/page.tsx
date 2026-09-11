@@ -589,7 +589,12 @@ export default function ModePengawasPage() {
   return (
     <div className="space-y-6 animate-fade-in pb-10 max-w-3xl mx-auto">
       {/* Header */}
-      <div className="rounded-2xl bg-gradient-to-br from-slate-900 to-slate-800 px-5 py-5 sm:px-6 sm:py-6 shadow-sm">
+      {/* FIX (efek visual): tambah class 'header-ujian-berjalan' saat ada ujian
+          yang sedang berlangsung hari ini — memunculkan sinar tipis yang
+          berputar mengelilingi tepi header (lihat globals.css), supaya
+          pengawas langsung sadar sedang ada ujian aktif tanpa perlu membaca
+          detail kartu satu per satu. */}
+      <div className={`rounded-2xl bg-gradient-to-br from-slate-900 to-slate-800 px-5 py-5 sm:px-6 sm:py-6 shadow-sm ${jumlahBerjalan > 0 ? 'header-ujian-berjalan' : ''}`}>
         <div className="flex items-start justify-between flex-wrap gap-4">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-orange-500 flex items-center justify-center flex-shrink-0">
