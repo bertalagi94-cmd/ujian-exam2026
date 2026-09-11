@@ -2008,11 +2008,23 @@ export default function GuruBuatSoalPage() {
   // flex-grow salah satu otomatis mengambil ruang dari kartu lain di kiri
   // maupun kanannya — sama sekali beda dari transform:scale yang cuma
   // membesar di tempat tanpa memengaruhi lebar kartu tetangga.
+  //
+  // Supaya kartu yang menyempit terasa benar-benar "mengecil" (bukan cuma
+  // isinya keremuk/wrap di ruang sempit), kartu yang bukan sedang di-hover
+  // juga diberi padding & tinggi minimum yang lebih kecil (lewat isShrunk
+  // di bawah) dan konten sekundernya (deskripsi + ringkasan jumlah soal)
+  // langsung disembunyikan — cuma ikon, judul, dan tombol CTA yang tetap
+  // tampil supaya kartu tetap terbaca & tetap bisa diklik. Konten lengkap
+  // itu hanya muncul lagi begitu kartunya membesar (di-hover atau saat
+  // tidak ada kartu manapun yang di-hover).
   const [hoverKind, setHoverKind] = useState<'pg' | 'essay' | 'info' | null>(null)
   function kartuFlexClass(mine: 'pg' | 'essay' | 'info') {
     if (hoverKind === mine) return 'sm:flex-[2.2] sm:z-10 sm:shadow-card-lg'
     if (hoverKind !== null) return 'sm:flex-[0.55] sm:opacity-80'
     return 'sm:flex-1'
+  }
+  function isShrunk(mine: 'pg' | 'essay' | 'info') {
+    return hoverKind !== null && hoverKind !== mine
   }
 
   useEffect(() => {
@@ -2097,19 +2109,26 @@ export default function GuruBuatSoalPage() {
             onMouseLeave={() => setHoverKind(null)}
             onFocus={() => setHoverKind('pg')}
             onBlur={() => setHoverKind(null)}
-            className={`group relative text-left rounded-3xl p-7 min-h-[220px] sm:min-w-0 flex flex-col
+            className={`group relative text-left rounded-3xl sm:min-w-0 flex flex-col
                        bg-white border-2 border-slate-200 hover:border-brand-400
                        shadow-card hover:-translate-y-0.5 active:translate-y-0
-                       transition-all duration-300 ease-out ${kartuFlexClass('pg')}`}
+                       transition-all duration-300 ease-out p-7 min-h-[220px]
+                       ${isShrunk('pg') ? 'sm:p-4 sm:min-h-[120px] sm:items-center sm:text-center' : ''}
+                       ${kartuFlexClass('pg')}`}
           >
-            <div className="w-14 h-14 rounded-2xl bg-brand-50 text-brand-600 flex items-center justify-center mb-5">
+            <div className={`w-14 h-14 rounded-2xl bg-brand-50 text-brand-600 flex items-center justify-center
+                             ${isShrunk('pg') ? 'sm:mb-0' : 'mb-5'}`}>
               <ListChecks className="w-7 h-7" />
             </div>
-            <h2 className="text-xl font-bold text-slate-900 mb-1.5">Soal PG</h2>
-            <p className="text-slate-500 text-sm leading-relaxed">
-              Sistem menilai otomatis begitu siswa selesai mengerjakan.
-            </p>
-            <RingkasanSoalCard ringkasan={ringkasanPg} loading={loadingRingkasan} />
+            <h2 className={`text-xl font-bold text-slate-900 ${isShrunk('pg') ? 'sm:mb-0 sm:mt-2' : 'mb-1.5'}`}>Soal PG</h2>
+            {!isShrunk('pg') && (
+              <>
+                <p className="text-slate-500 text-sm leading-relaxed">
+                  Sistem menilai otomatis begitu siswa selesai mengerjakan.
+                </p>
+                <RingkasanSoalCard ringkasan={ringkasanPg} loading={loadingRingkasan} />
+              </>
+            )}
             <div className="mt-auto pt-6">
               <span className="inline-flex items-center gap-2 rounded-full bg-brand-600 group-hover:bg-brand-700
                                text-white text-sm font-semibold px-5 py-2.5 transition-colors">
@@ -2124,19 +2143,26 @@ export default function GuruBuatSoalPage() {
             onMouseLeave={() => setHoverKind(null)}
             onFocus={() => setHoverKind('essay')}
             onBlur={() => setHoverKind(null)}
-            className={`group relative text-left rounded-3xl p-7 min-h-[220px] sm:min-w-0 flex flex-col
+            className={`group relative text-left rounded-3xl sm:min-w-0 flex flex-col
                        bg-white border-2 border-slate-200 hover:border-emerald-400
                        shadow-card hover:-translate-y-0.5 active:translate-y-0
-                       transition-all duration-300 ease-out ${kartuFlexClass('essay')}`}
+                       transition-all duration-300 ease-out p-7 min-h-[220px]
+                       ${isShrunk('essay') ? 'sm:p-4 sm:min-h-[120px] sm:items-center sm:text-center' : ''}
+                       ${kartuFlexClass('essay')}`}
           >
-            <div className="w-14 h-14 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center mb-5">
+            <div className={`w-14 h-14 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center
+                             ${isShrunk('essay') ? 'sm:mb-0' : 'mb-5'}`}>
               <PenSquare className="w-7 h-7" />
             </div>
-            <h2 className="text-xl font-bold text-slate-900 mb-1.5">Soal Essay</h2>
-            <p className="text-slate-500 text-sm leading-relaxed">
-              Dinilai manual oleh Anda setelah siswa mengumpulkan jawaban.
-            </p>
-            <RingkasanSoalCard ringkasan={ringkasanEssay} loading={loadingRingkasan} />
+            <h2 className={`text-xl font-bold text-slate-900 ${isShrunk('essay') ? 'sm:mb-0 sm:mt-2' : 'mb-1.5'}`}>Soal Essay</h2>
+            {!isShrunk('essay') && (
+              <>
+                <p className="text-slate-500 text-sm leading-relaxed">
+                  Dinilai manual oleh Anda setelah siswa mengumpulkan jawaban.
+                </p>
+                <RingkasanSoalCard ringkasan={ringkasanEssay} loading={loadingRingkasan} />
+              </>
+            )}
             <div className="mt-auto pt-6">
               <span className="inline-flex items-center gap-2 rounded-full bg-emerald-600 group-hover:bg-emerald-700
                                text-white text-sm font-semibold px-5 py-2.5 transition-colors">
@@ -2155,18 +2181,23 @@ export default function GuruBuatSoalPage() {
             onMouseLeave={() => setHoverKind(null)}
             onFocus={() => setHoverKind('info')}
             onBlur={() => setHoverKind(null)}
-            className={`group relative text-left rounded-3xl p-7 min-h-[220px] sm:min-w-0 flex flex-col
+            className={`group relative text-left rounded-3xl sm:min-w-0 flex flex-col
                        bg-white border-2 border-slate-200 hover:border-indigo-400
                        shadow-card hover:-translate-y-0.5 active:translate-y-0
-                       transition-all duration-300 ease-out ${kartuFlexClass('info')}`}
+                       transition-all duration-300 ease-out p-7 min-h-[220px]
+                       ${isShrunk('info') ? 'sm:p-4 sm:min-h-[120px] sm:items-center sm:text-center' : ''}
+                       ${kartuFlexClass('info')}`}
           >
-            <div className="w-14 h-14 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center mb-5">
+            <div className={`w-14 h-14 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center
+                             ${isShrunk('info') ? 'sm:mb-0' : 'mb-5'}`}>
               <Info className="w-7 h-7" />
             </div>
-            <h2 className="text-xl font-bold text-slate-900 mb-1.5">Informasi Paket Soal</h2>
-            <p className="text-slate-500 text-sm leading-relaxed">
-              Nama mapel & kelas, status soal, serta kelengkapan PG dan Essay dalam satu tabel.
-            </p>
+            <h2 className={`text-xl font-bold text-slate-900 ${isShrunk('info') ? 'sm:mb-0 sm:mt-2' : 'mb-1.5'}`}>Informasi Paket Soal</h2>
+            {!isShrunk('info') && (
+              <p className="text-slate-500 text-sm leading-relaxed">
+                Nama mapel & kelas, status soal, serta kelengkapan PG dan Essay dalam satu tabel.
+              </p>
+            )}
             <div className="mt-auto pt-6">
               <span className="inline-flex items-center gap-2 rounded-full bg-indigo-600 group-hover:bg-indigo-700
                                text-white text-sm font-semibold px-5 py-2.5 transition-colors">
