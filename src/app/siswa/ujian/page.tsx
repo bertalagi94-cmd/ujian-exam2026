@@ -579,16 +579,31 @@ export default function SiswaUjianPage() {
 
   // ── Keluar fullscreen saat ujian selesai ──────────────────────────────────
   useEffect(() => {
-    if ((phase === 'SELESAI' || phase === 'RESET_KODE' || phase === 'CEK_JADWAL' || phase === 'PERSIAPAN') && isFullscreen()) {
+    // BUG FIX: sebelumnya kondisi ini HANYA memeriksa `phase`. Saat siswa
+    // dikunci permanen (TERKUNCI) atau sesinya diambil alih device lain
+    // SAAT SEDANG MENGERJAKAN (phase 'UJIAN'/'ESSAY_INFO'/'ESSAY_KERJAKAN')
+    // atau sedang di layar tunggu kode reset (phase 'RESET_KODE'), yang
+    // berubah cuma flag `dikeluarkan`/`diambilAlihDevice` — `phase` itu
+    // sendiri TIDAK PERNAH di-set balik, jadi baris ini tidak pernah jalan
+    // dan siswa tetap terjebak di fullscreen web + screen pinning APK
+    // Android tanpa henti (layar kosong/terkunci walau kartu "Ujian
+    // Dihentikan" sudah semestinya tampil di baliknya). Sekarang flag itu
+    // ikut memicu pelepasan lock, disamping daftar phase yang sudah ada.
+    const harusLepasLock =
+      dikeluarkan || diambilAlihDevice ||
+      phase === 'SELESAI' || phase === 'RESET_KODE' || phase === 'CEK_JADWAL' || phase === 'PERSIAPAN'
+
+    if (harusLepasLock && isFullscreen()) {
       exitFullscreen().catch(() => {})
     }
     // FIX (APK Android): lepas screen pinning + immersive mode begitu ujian
-    // benar-benar selesai/keluar dari fase mengerjakan soal. Sama seperti
-    // startExamLock(), ini no-op aman kalau bukan APK Android.
-    if (phase === 'SELESAI' || phase === 'RESET_KODE' || phase === 'CEK_JADWAL' || phase === 'PERSIAPAN') {
+    // benar-benar selesai/keluar dari fase mengerjakan soal, ATAU begitu
+    // siswa dipaksa keluar (dikunci permanen / device takeover). Sama
+    // seperti startExamLock(), ini no-op aman kalau bukan APK Android.
+    if (harusLepasLock) {
       endExamLock()
     }
-  }, [phase])
+  }, [phase, dikeluarkan, diambilAlihDevice])
 
   // ── Polling status sesi setiap 10 detik — jika SELESAI, paksa submit ─────
   const cekStatusSesi = useCallback(async () => {
@@ -1574,6 +1589,73 @@ export default function SiswaUjianPage() {
     </div>
   )
 
+  // ── BUG FIX: diambilAlihDevice/dikeluarkan HARUS dicek SEBELUM phase apa
+  // pun (termasuk RESET_KODE). Sebelumnya dua blok ini ditaruh di bagian
+  // BAWAH rantai `if (phase === ...)`, jadi kalau siswa sedang di phase
+  // RESET_KODE ("masukkan kode 7 digit") saat polling mendeteksi ia baru
+  // saja dikunci permanen (TERKUNCI), `dikeluarkan` jadi true tapi `phase`
+  // tidak pernah berubah dari 'RESET_KODE' — render jatuh ke blok
+  // `if (phase === 'RESET_KODE')` yang datang duluan, dan layar "masukkan
+  // kode reset" itu MENANG dan terus tampil selamanya, padahal siswa
+  // sebenarnya sudah dikunci permanen dan tidak akan pernah dapat kode.
+  // Efek pelepasan fullscreen/screen-pinning native (lihat useEffect
+  // "Keluar fullscreen saat ujian selesai" di atas) juga cuma dipicu oleh
+  // perubahan `phase` — karena phase tidak berubah, layar tetap terkunci
+  // penuh (fullscreen web + screen pinning APK Android) sehingga yang
+  // terlihat cuma layar kosong/terkunci tanpa pesan apa pun, sampai
+  // pengawas memaksa keluar lewat tombol Home (yang mematahkan screen
+  // pinning tapi TIDAK me-reset state React) — begitu itu terjadi, DOM yang
+  // sempat "membeku" akhirnya sempat repaint dan yang kelihatan adalah
+  // sisa layar RESET_KODE yang salah itu. Memindahkan kedua pengecekan ini
+  // ke paling atas memastikan siswa yang sudah di-takeover perangkat lain
+  // atau dikunci permanen SELALU melihat pesan yang benar, dari phase
+  // manapun mereka berada.
+  if (diambilAlihDevice) {
+    return (
+      <div className="max-w-md mx-auto animate-fade-in">
+        <div className="card text-center">
+          <div className="w-20 h-20 bg-amber-100 rounded-3xl flex items-center justify-center mx-auto mb-4">
+            <AlertTriangle className="w-10 h-10 text-amber-600" />
+          </div>
+          <h2 className="text-xl font-bold text-slate-900 mb-2">Sesi Diambil Alih Perangkat Lain</h2>
+          <p className="text-sm text-slate-500 mb-4">
+            Akun Anda login dari perangkat lain. Browser ini tidak lagi bisa menyimpan jawaban.
+          </p>
+          <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-6">
+            <p className="text-xs text-amber-700">Jika ini kesalahan, tutup browser di perangkat lain dan masuk kembali dari sini. Hubungi pengawas jika butuh bantuan.</p>
+          </div>
+          <button onClick={() => window.location.reload()} className="btn-secondary w-full justify-center">
+            Coba Masuk Lagi
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  // ── Phase: DIKELUARKAN (3x pelanggaran → nilai 0) ─────────────────────────
+  if (dikeluarkan) {
+    return (
+      <div className="max-w-md mx-auto animate-fade-in">
+        <div className="card text-center">
+          <div className="w-20 h-20 bg-red-100 rounded-3xl flex items-center justify-center mx-auto mb-4">
+            <LogOut className="w-10 h-10 text-red-600" />
+          </div>
+          <h2 className="text-xl font-bold text-slate-900 mb-2">Ujian Dihentikan</h2>
+          <p className="text-sm text-slate-500 mb-4">
+            Anda telah melanggar aturan ujian sebanyak {batasPelanggaran} kali. Sistem secara otomatis menghentikan ujian Anda.
+          </p>
+          <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 mb-6">
+            <p className="text-sm font-semibold text-red-700">Nilai Anda: 0</p>
+            <p className="text-xs text-red-500 mt-1">Hubungi pengawas atau guru untuk informasi lebih lanjut.</p>
+          </div>
+          <button onClick={() => window.location.href = '/siswa'} className="btn-secondary w-full justify-center">
+            Kembali ke Beranda
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   // ── Phase: ESSAY_INFO — halaman info sebelum tombol "Mulai" ──────────────
   if (phase === 'ESSAY_INFO') {
     return (
@@ -2242,53 +2324,6 @@ export default function SiswaUjianPage() {
           <p className="mt-4 text-xs text-slate-400">
             Hubungi pengawas di ruangan untuk mendapatkan kode reset.
           </p>
-        </div>
-      </div>
-    )
-  }
-
-  // ── Phase: DIAMBIL ALIH DEVICE LAIN ──────────────────────────────────────
-  if (diambilAlihDevice) {
-    return (
-      <div className="max-w-md mx-auto animate-fade-in">
-        <div className="card text-center">
-          <div className="w-20 h-20 bg-amber-100 rounded-3xl flex items-center justify-center mx-auto mb-4">
-            <AlertTriangle className="w-10 h-10 text-amber-600" />
-          </div>
-          <h2 className="text-xl font-bold text-slate-900 mb-2">Sesi Diambil Alih Perangkat Lain</h2>
-          <p className="text-sm text-slate-500 mb-4">
-            Akun Anda login dari perangkat lain. Browser ini tidak lagi bisa menyimpan jawaban.
-          </p>
-          <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-6">
-            <p className="text-xs text-amber-700">Jika ini kesalahan, tutup browser di perangkat lain dan masuk kembali dari sini. Hubungi pengawas jika butuh bantuan.</p>
-          </div>
-          <button onClick={() => window.location.reload()} className="btn-secondary w-full justify-center">
-            Coba Masuk Lagi
-          </button>
-        </div>
-      </div>
-    )
-  }
-
-  // ── Phase: DIKELUARKAN (3x pelanggaran → nilai 0) ─────────────────────────
-  if (dikeluarkan) {
-    return (
-      <div className="max-w-md mx-auto animate-fade-in">
-        <div className="card text-center">
-          <div className="w-20 h-20 bg-red-100 rounded-3xl flex items-center justify-center mx-auto mb-4">
-            <LogOut className="w-10 h-10 text-red-600" />
-          </div>
-          <h2 className="text-xl font-bold text-slate-900 mb-2">Ujian Dihentikan</h2>
-          <p className="text-sm text-slate-500 mb-4">
-            Anda telah melanggar aturan ujian sebanyak {batasPelanggaran} kali. Sistem secara otomatis menghentikan ujian Anda.
-          </p>
-          <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 mb-6">
-            <p className="text-sm font-semibold text-red-700">Nilai Anda: 0</p>
-            <p className="text-xs text-red-500 mt-1">Hubungi pengawas atau guru untuk informasi lebih lanjut.</p>
-          </div>
-          <button onClick={() => window.location.href = '/siswa'} className="btn-secondary w-full justify-center">
-            Kembali ke Beranda
-          </button>
         </div>
       </div>
     )
