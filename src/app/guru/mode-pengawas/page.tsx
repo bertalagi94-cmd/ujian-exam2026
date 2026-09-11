@@ -190,12 +190,7 @@ export default function ModePengawasPage() {
   const [confirmTutup, setConfirmTutup] = useState<JadwalHariIni | null>(null)
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
 
-  // FIX (fitur essay): "Buka Akses Kirim" untuk sesi essay mode KERTAS
-  const [bukaAksesLoading, setBukaAksesLoading] = useState<string | null>(null)
   // FIX (akses mulai essay): loading state khusus toggle "Akses Soal Essay"
-  // — terpisah dari bukaAksesLoading (itu punya "Buka Akses Kirim Semua"
-  // yang hanya untuk mode KERTAS) supaya kedua tombol tidak saling
-  // mengunci saat salah satunya diproses.
   const [toggleAksesMulaiLoading, setToggleAksesMulaiLoading] = useState<string | null>(null)
 
   // Monitor: siswa aktif & pelanggaran per sesi
@@ -554,23 +549,6 @@ export default function ModePengawasPage() {
     } finally { setStopping(null); setConfirmTutup(null) }
   }
 
-  // FIX (fitur essay): buka akses tombol "Kirim" untuk siswa mode KERTAS
-  // yang sedang mengerjakan essay di sesi ini.
-  async function handleBukaAksesEssay(sesiId: string) {
-    setBukaAksesLoading(sesiId)
-    try {
-      const res = await apiRequest<{ message: string }>('/api/guru/mode-pengawas/buka-akses-essay', {
-        method: 'POST',
-        body: JSON.stringify({ sesiId }),
-      })
-      showToast(res.message ?? 'Akses kirim essay berhasil dibuka')
-    } catch (err: unknown) {
-      showToast(err instanceof Error ? err.message : 'Gagal membuka akses kirim', 'error')
-    } finally {
-      setBukaAksesLoading(null)
-    }
-  }
-
   // FIX (akses mulai essay): nyalakan/matikan toggle global "Akses Soal
   // Essay" untuk sesi ini — lihat 11_akses_mulai_essay.sql. Setelah sukses,
   // reload daftar sesi (load(true)) supaya state toggle di UI langsung
@@ -889,27 +867,6 @@ export default function ModePengawasPage() {
                           </div>
                         )
                       })()}
-
-                      {/* FIX (fitur essay): tombol "Buka Akses Kirim" — hanya
-                          untuk sesi dengan essay mode KERTAS. Siswa mode
-                          KERTAS tidak bisa menekan tombol "Kirim" sampai
-                          pengawas menekan tombol ini. */}
-                      {j.sesi_ujian?.info_json?.essay_aktif && j.sesi_ujian?.info_json?.essay_mode_jawaban === 'KERTAS' && (
-                        <div className="border-t border-slate-100 px-4 py-3.5 flex items-center justify-between gap-3 flex-wrap bg-amber-50/40">
-                          <div className="flex items-center gap-2 text-xs text-amber-700">
-                            <FileQuestion className="w-3.5 h-3.5 flex-shrink-0" />
-                            Mode Kertas: siswa yang sudah selesai menulis harus difoto lembar jawabannya, lalu tombol "Kirim" mereka baru aktif setelah Anda membuka akses di sini.
-                          </div>
-                          <button
-                            onClick={() => sesiId && handleBukaAksesEssay(sesiId)}
-                            disabled={bukaAksesLoading === sesiId}
-                            className="flex-shrink-0 flex items-center gap-1.5 text-xs px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-semibold transition-all"
-                          >
-                            {bukaAksesLoading === sesiId ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <KeyRound className="w-3.5 h-3.5" />}
-                            Buka Akses Kirim Semua
-                          </button>
-                        </div>
-                      )}
 
                       {/* Daftar siswa (expandable) */}
                       {isExpanded && sesiId && (
