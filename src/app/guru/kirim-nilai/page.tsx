@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   Send, Save, RotateCcw, ChevronDown, ChevronUp,
-  AlertTriangle, CheckCircle, Clock, BarChart3, MessageSquare,
+  AlertTriangle, CheckCircle, BarChart3, MessageSquare,
   FileText, CheckCircle2,
 } from 'lucide-react'
 import { apiRequest, nilaiColor, formatDateTime } from '@/lib/utils'
@@ -51,8 +51,6 @@ interface MapelInfo { id: string; nama: string; kkm: number }
 interface ApiData {
   data: NilaiRow[]
   mapelList: MapelInfo[]
-  deadline: string | null
-  reminderJam: number
 }
 
 // Kelompokkan per mapel+kelas
@@ -243,21 +241,6 @@ export default function KirimNilaiPage() {
 
   const kelompokList = buatKelompok(apiData.data)
 
-  // Hitung info deadline
-  let deadlineInfo: { label: string; sisa: string; lewat: boolean; dekat: boolean } | null = null
-  if (apiData.deadline) {
-    const dl = new Date(apiData.deadline)
-    const now = new Date()
-    const selisihMs = dl.getTime() - now.getTime()
-    const selisihJam = selisihMs / (1000 * 60 * 60)
-    deadlineInfo = {
-      label: dl.toLocaleString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
-      sisa: selisihJam > 0 ? `${Math.round(selisihJam)} jam lagi` : 'Sudah lewat',
-      lewat: selisihJam <= 0,
-      dekat: selisihJam > 0 && selisihJam <= (apiData.reminderJam ?? 24),
-    }
-  }
-
   return (
     <div className="space-y-6 animate-fade-in">
       {toast && (
@@ -302,27 +285,6 @@ export default function KirimNilaiPage() {
       </div>
 
       <EssayFlowGuide current="rilis" />
-
-      {/* Info deadline */}
-      {deadlineInfo && (
-        <div className={`flex items-start gap-3 p-4 rounded-xl border ${
-          deadlineInfo.lewat
-            ? 'bg-red-50 border-red-200 text-red-800'
-            : deadlineInfo.dekat
-              ? 'bg-amber-50 border-amber-200 text-amber-800'
-              : 'bg-blue-50 border-blue-200 text-blue-800'
-        }`}>
-          <Clock className="w-5 h-5 mt-0.5 flex-shrink-0" />
-          <div>
-            <div className="font-semibold text-sm">
-              {deadlineInfo.lewat ? '⚠ Deadline sudah lewat — nilai sudah otomatis terkirim' : `Deadline: ${deadlineInfo.label}`}
-            </div>
-            {!deadlineInfo.lewat && (
-              <div className="text-xs mt-0.5">{deadlineInfo.sisa} · Jika belum kirim manual, nilai akan otomatis terkirim saat deadline</div>
-            )}
-          </div>
-        </div>
-      )}
 
       {kelompokList.length === 0 && (
         <div className="card text-center py-16 text-slate-400">
