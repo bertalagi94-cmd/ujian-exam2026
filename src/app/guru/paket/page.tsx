@@ -1996,14 +1996,16 @@ export default function GuruBuatSoalPage() {
   // ── Efek "kartu membesar saat di-hover" (hanya berlaku di layar sm ke atas
   // yang punya kursor mouse — di HP/touchscreen tidak ada konsep hover, jadi
   // di sana kartu tetap statis berdampingan penuh seperti biasa, tap
-  // langsung memicu onClick). Kartu yang di-hover melebar (flex-[1.5]),
-  // kartu satunya menyempit (flex-[0.7]); saat tidak ada yang di-hover
-  // keduanya kembali sama besar (flex-1).
+  // langsung memicu onClick). Dipakai transform:scale (bukan flex-grow lagi)
+  // supaya lebar kolom grid tetap tetap/stabil — kartu yang di-hover membesar
+  // (scale-105) sedikit menimpa kartu sebelahnya (makanya diberi z-10 +
+  // shadow lebih tebal), sementara kartu lain mengecil (scale-95) dan sedikit
+  // memudar; saat tidak ada yang di-hover semua kembali ke ukuran normal.
   const [hoverKind, setHoverKind] = useState<'pg' | 'essay' | 'info' | null>(null)
-  function kartuFlexClass(mine: 'pg' | 'essay' | 'info') {
-    if (hoverKind === mine) return 'sm:flex-[1.5]'
-    if (hoverKind !== null) return 'sm:flex-[0.7]'
-    return 'sm:flex-1'
+  function kartuScaleClass(mine: 'pg' | 'essay' | 'info') {
+    if (hoverKind === mine) return 'sm:scale-105 sm:z-10 sm:shadow-card-lg'
+    if (hoverKind !== null) return 'sm:scale-95 sm:opacity-80'
+    return 'sm:scale-100'
   }
 
   useEffect(() => {
@@ -2074,22 +2076,23 @@ export default function GuruBuatSoalPage() {
             supaya bentuknya langsung terbaca sebagai TOMBOL yang bisa
             ditekan, bukan dekorasi. Teks penjelas juga dipangkas jadi satu
             kalimat pendek per kartu. */}
-        {/* Kartu berdampingan pakai flex (bukan grid) supaya lebar tiap
-            kartu bisa diatur dinamis lewat kartuFlexClass() saat di-hover —
-            grid-template-columns tidak bisa dianimasikan semulus flex-grow.
-            items-stretch supaya tinggi kartu tetap sama walau salah satu
-            kontennya (ringkasan mapel) lebih pendek dari yang lain. */}
-        <div className="flex flex-col sm:flex-row gap-5 items-stretch flex-wrap">
+        {/* Kartu berdampingan pakai grid 3 kolom tetap (lebar kolom tidak
+            ikut berubah saat hover) — efek "membesar/mengecil" dikerjakan
+            lewat transform:scale per kartu via kartuScaleClass(), bukan
+            lewat resize kolom, supaya layout tetap stabil dan animasinya
+            mulus. items-stretch supaya tinggi kartu tetap sama walau salah
+            satu kontennya (ringkasan mapel) lebih pendek dari yang lain. */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 items-stretch">
           <button
             onClick={() => setKind('pg')}
             onMouseEnter={() => setHoverKind('pg')}
             onMouseLeave={() => setHoverKind(null)}
             onFocus={() => setHoverKind('pg')}
             onBlur={() => setHoverKind(null)}
-            className={`group relative text-left rounded-3xl p-7 min-h-[220px] sm:min-w-0 flex flex-col
+            className={`group relative text-left rounded-3xl p-7 min-h-[220px] flex flex-col
                        bg-white border-2 border-slate-200 hover:border-brand-400
-                       shadow-card hover:shadow-card-md hover:-translate-y-0.5 active:translate-y-0
-                       transition-all duration-300 ease-out ${kartuFlexClass('pg')}`}
+                       shadow-card hover:-translate-y-0.5 active:translate-y-0
+                       transition-all duration-300 ease-out ${kartuScaleClass('pg')}`}
           >
             <div className="w-14 h-14 rounded-2xl bg-brand-50 text-brand-600 flex items-center justify-center mb-5">
               <ListChecks className="w-7 h-7" />
@@ -2113,10 +2116,10 @@ export default function GuruBuatSoalPage() {
             onMouseLeave={() => setHoverKind(null)}
             onFocus={() => setHoverKind('essay')}
             onBlur={() => setHoverKind(null)}
-            className={`group relative text-left rounded-3xl p-7 min-h-[220px] sm:min-w-0 flex flex-col
+            className={`group relative text-left rounded-3xl p-7 min-h-[220px] flex flex-col
                        bg-white border-2 border-slate-200 hover:border-emerald-400
-                       shadow-card hover:shadow-card-md hover:-translate-y-0.5 active:translate-y-0
-                       transition-all duration-300 ease-out ${kartuFlexClass('essay')}`}
+                       shadow-card hover:-translate-y-0.5 active:translate-y-0
+                       transition-all duration-300 ease-out ${kartuScaleClass('essay')}`}
           >
             <div className="w-14 h-14 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center mb-5">
               <PenSquare className="w-7 h-7" />
@@ -2144,10 +2147,10 @@ export default function GuruBuatSoalPage() {
             onMouseLeave={() => setHoverKind(null)}
             onFocus={() => setHoverKind('info')}
             onBlur={() => setHoverKind(null)}
-            className={`group relative text-left rounded-3xl p-7 min-h-[220px] sm:min-w-0 flex flex-col
+            className={`group relative text-left rounded-3xl p-7 min-h-[220px] flex flex-col
                        bg-white border-2 border-slate-200 hover:border-indigo-400
-                       shadow-card hover:shadow-card-md hover:-translate-y-0.5 active:translate-y-0
-                       transition-all duration-300 ease-out ${kartuFlexClass('info')}`}
+                       shadow-card hover:-translate-y-0.5 active:translate-y-0
+                       transition-all duration-300 ease-out ${kartuScaleClass('info')}`}
           >
             <div className="w-14 h-14 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center mb-5">
               <Info className="w-7 h-7" />
