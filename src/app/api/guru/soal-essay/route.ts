@@ -44,7 +44,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ data: data ?? [] })
 }
 
-// body: { paket_id, teks, gambar_url?, bobot_maks, urutan? }
+// body: { paket_id, teks, gambar_url?, urutan? }
 export async function POST(req: NextRequest) {
   const auth = requireRole(req, ['GURU'])
   if ('error' in auth) return auth.error
@@ -62,10 +62,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Teks soal wajib diisi' }, { status: 400 })
   }
 
-  const bobotMaks = Number(body.bobot_maks)
-  if (!bobotMaks || bobotMaks <= 0) {
-    return NextResponse.json({ error: 'Bobot maksimal soal harus lebih dari 0' }, { status: 400 })
-  }
+  // FIX (hapus bobot per-soal dari alur pembuatan): bobot_maks per soal
+  // TIDAK dipakai dalam rumus nilai_total (lihat catatan di
+  // koreksi-essay/route.ts) — hanya kolom legacy dengan DEFAULT 100 di DB
+  // (lihat 07_essay.sql). Guru tidak perlu mengisinya lagi saat membuat soal.
 
   const { data: paket } = await db
     .from('paket_essay')
@@ -112,7 +112,6 @@ export async function POST(req: NextRequest) {
     guru_id: user.username,
     teks,
     gambar_url: body.gambar_url || null,
-    bobot_maks: bobotMaks,
     urutan,
     status: 'DRAFT',
   })
