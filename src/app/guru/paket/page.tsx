@@ -5,7 +5,7 @@ import {
   Plus, ChevronDown, ChevronUp, Trash2, ImagePlus, X, ArrowLeft, CheckCircle2, Pencil, Eye, Lock,
   ListChecks, PenSquare, Send, RotateCcw, Copy, Info, ChevronRight,
 } from 'lucide-react'
-import { Modal, Confirm, StatusBadge, EmptyState, Spinner, Toast } from '@/components/ui'
+import { Modal, Confirm, StatusBadge, EmptyState, Spinner, Toast, Badge } from '@/components/ui'
 import { EssayFlowGuide } from '@/components/shared/EssayFlowGuide'
 import { apiRequest, formatDateTime } from '@/lib/utils'
 import { PaketSoal, Mapel, Kelas, Soal, PaketEssay, SoalEssay } from '@/types'
@@ -21,7 +21,7 @@ interface SoalWithImg extends Soal {
 
 type Step = 'list' | 'setup' | 'buat'
 type EssayStep = 'list' | 'setup' | 'detail'
-type Kind = 'choice' | 'pg' | 'essay'
+type Kind = 'choice' | 'pg' | 'essay' | 'info'
 
 const opsiLabels = ['A', 'B', 'C', 'D', 'E']
 
@@ -1857,6 +1857,132 @@ function RingkasanSoalCard({ ringkasan, loading }: { ringkasan: RingkasanSoal | 
   )
 }
 
+// ── Kartu "Informasi Paket Soal" ──────────────────────────────────────────
+// Menggabungkan daftar paket PG dan paket Essay per mapel+kelas jadi satu
+// tabel ringkasan: nama mapel & kelas, status masing-masing jenis soal, dan
+// kelengkapannya (apakah mapel+kelas itu sudah punya PG, Essay, atau dua-duanya).
+// Murni informatif (tidak ada aksi buat/edit) — guru dari sini bisa lihat
+// sekilas mapel+kelas mana yang belum lengkap soalnya.
+interface InfoPaketRow {
+  key: string
+  namaMapel: string
+  namaKelas: string
+  pg: PaketSoal | null
+  essay: PaketEssay | null
+}
+
+function gabungkanInfoPaket(pgList: PaketSoal[], essayList: PaketEssay[]): InfoPaketRow[] {
+  const rows: Record<string, InfoPaketRow> = {}
+  for (const p of pgList) {
+    const key = `${p.mapel_id}_${p.kelas_id}`
+    if (!rows[key]) {
+      rows[key] = { key, namaMapel: p.nama_mapel ?? p.mapel_id, namaKelas: p.nama_kelas ?? p.kelas_id, pg: null, essay: null }
+    }
+    rows[key].pg = p
+  }
+  for (const e of essayList) {
+    const key = `${e.mapel_id}_${e.kelas_id}`
+    if (!rows[key]) {
+      rows[key] = { key, namaMapel: e.nama_mapel ?? e.mapel_id, namaKelas: e.nama_kelas ?? e.kelas_id, pg: null, essay: null }
+    }
+    rows[key].essay = e
+  }
+  return Object.values(rows).sort((a, b) =>
+    a.namaMapel.localeCompare(b.namaMapel) || a.namaKelas.localeCompare(b.namaKelas)
+  )
+}
+
+function InfoPaketSoalFlow({ onBack }: { onBack: () => void }) {
+  const [loading, setLoading] = useState(true)
+  const [rows, setRows] = useState<InfoPaketRow[]>([])
+
+  useEffect(() => {
+    let batal = false
+    setLoading(true)
+    Promise.all([
+      apiRequest<{ data: PaketSoal[] }>('/api/guru/paket'),
+      apiRequest<{ data: PaketEssay[] }>('/api/guru/paket-essay'),
+    ])
+      .then(([pg, essay]) => {
+        if (batal) return
+        setRows(gabungkanInfoPaket(pg.data ?? [], essay.data ?? []))
+      })
+      .catch(() => { if (!batal) setRows([]) })
+      .finally(() => { if (!batal) setLoading(false) })
+    return () => { batal = true }
+  }, [])
+
+  return (
+    <div className="space-y-6 animate-fade-in">
+      <div>
+        <button onClick={onBack} className="btn-ghost btn-sm text-slate-500 mb-1">
+          <ArrowLeft className="w-4 h-4" /> Ganti Jenis Soal
+        </button>
+        <h1 className="page-title">Informasi Paket Soal</h1>
+        <p className="page-subtitle">Ringkasan mapel & kelas, status soal, dan kelengkapan PG/Essay</p>
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center py-20"><Spinner size="lg" /></div>
+      ) : rows.length === 0 ? (
+        <div className="card">
+          <EmptyState icon={Info} title="Belum ada paket soal"
+            description="Buat Soal PG atau Soal Essay terlebih dahulu supaya muncul di ringkasan ini." />
+        </div>
+      ) : (
+        <div className="card p-0 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-slate-500 border-b border-slate-100 bg-slate-50">
+                  <th className="py-3 px-4 font-semibold">Mapel & Kelas</th>
+                  <th className="py-3 px-4 font-semibold">Status Soal</th>
+                  <th className="py-3 px-4 font-semibold">Kelengkapan</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map(r => (
+                  <tr key={r.key} className="border-b border-slate-50 last:border-0">
+                    <td className="py-3 px-4 align-top">
+                      <p className="font-semibold text-slate-900">{r.namaMapel}</p>
+                      <p className="text-slate-400 text-xs mt-0.5">Kelas {r.namaKelas}</p>
+                    </td>
+                    <td className="py-3 px-4 align-top">
+                      <div className="flex flex-col gap-1.5">
+                        {r.pg && (
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-slate-400 w-10 flex-shrink-0">PG</span>
+                            <StatusBadge status={r.pg.status} />
+                          </div>
+                        )}
+                        {r.essay && (
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-slate-400 w-10 flex-shrink-0">Essay</span>
+                            <StatusBadge status={r.essay.status} />
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                    <td className="py-3 px-4 align-top">
+                      {r.pg && r.essay ? (
+                        <Badge variant="green" dot>PG &amp; Essay lengkap</Badge>
+                      ) : r.pg ? (
+                        <Badge variant="yellow" dot>Hanya PG</Badge>
+                      ) : (
+                        <Badge variant="yellow" dot>Hanya Essay</Badge>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function GuruBuatSoalPage() {
   const [kind, setKind] = useState<Kind>('choice')
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
@@ -1873,8 +1999,8 @@ export default function GuruBuatSoalPage() {
   // langsung memicu onClick). Kartu yang di-hover melebar (flex-[1.5]),
   // kartu satunya menyempit (flex-[0.7]); saat tidak ada yang di-hover
   // keduanya kembali sama besar (flex-1).
-  const [hoverKind, setHoverKind] = useState<'pg' | 'essay' | null>(null)
-  function kartuFlexClass(mine: 'pg' | 'essay') {
+  const [hoverKind, setHoverKind] = useState<'pg' | 'essay' | 'info' | null>(null)
+  function kartuFlexClass(mine: 'pg' | 'essay' | 'info') {
     if (hoverKind === mine) return 'sm:flex-[1.5]'
     if (hoverKind !== null) return 'sm:flex-[0.7]'
     return 'sm:flex-1'
@@ -1928,6 +2054,7 @@ export default function GuruBuatSoalPage() {
   // EssaySoalFlow), sama seperti sebelum kartu ini pernah ada.
   if (kind === 'pg') return <PgSoalFlow onBack={() => setKind('choice')} />
   if (kind === 'essay') return <EssaySoalFlow onBack={() => setKind('choice')} />
+  if (kind === 'info') return <InfoPaketSoalFlow onBack={() => setKind('choice')} />
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -1952,7 +2079,7 @@ export default function GuruBuatSoalPage() {
             grid-template-columns tidak bisa dianimasikan semulus flex-grow.
             items-stretch supaya tinggi kartu tetap sama walau salah satu
             kontennya (ringkasan mapel) lebih pendek dari yang lain. */}
-        <div className="flex flex-col sm:flex-row gap-5 items-stretch">
+        <div className="flex flex-col sm:flex-row gap-5 items-stretch flex-wrap">
           <button
             onClick={() => setKind('pg')}
             onMouseEnter={() => setHoverKind('pg')}
@@ -2003,6 +2130,36 @@ export default function GuruBuatSoalPage() {
               <span className="inline-flex items-center gap-2 rounded-full bg-emerald-600 group-hover:bg-emerald-700
                                text-white text-sm font-semibold px-5 py-2.5 transition-colors">
                 <Plus className="w-4 h-4" /> Buat Soal Essay
+              </span>
+            </div>
+          </button>
+
+          {/* Kartu ke-3: bukan alur "buat" — murni ringkasan informasi supaya
+              guru bisa cek sekilas mapel+kelas mana yang statusnya masih
+              Draft/Menunggu dan mana yang belum lengkap (baru ada PG saja
+              atau Essay saja) tanpa harus buka dua kartu di atas satu-satu. */}
+          <button
+            onClick={() => setKind('info')}
+            onMouseEnter={() => setHoverKind('info')}
+            onMouseLeave={() => setHoverKind(null)}
+            onFocus={() => setHoverKind('info')}
+            onBlur={() => setHoverKind(null)}
+            className={`group relative text-left rounded-3xl p-7 min-h-[220px] sm:min-w-0 flex flex-col
+                       bg-white border-2 border-slate-200 hover:border-indigo-400
+                       shadow-card hover:shadow-card-md hover:-translate-y-0.5 active:translate-y-0
+                       transition-all duration-300 ease-out ${kartuFlexClass('info')}`}
+          >
+            <div className="w-14 h-14 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center mb-5">
+              <Info className="w-7 h-7" />
+            </div>
+            <h2 className="text-xl font-bold text-slate-900 mb-1.5">Informasi Paket Soal</h2>
+            <p className="text-slate-500 text-sm leading-relaxed">
+              Nama mapel & kelas, status soal, serta kelengkapan PG dan Essay dalam satu tabel.
+            </p>
+            <div className="mt-auto pt-6">
+              <span className="inline-flex items-center gap-2 rounded-full bg-indigo-600 group-hover:bg-indigo-700
+                               text-white text-sm font-semibold px-5 py-2.5 transition-colors">
+                <ChevronRight className="w-4 h-4" /> Lihat Informasi
               </span>
             </div>
           </button>
