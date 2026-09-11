@@ -42,7 +42,7 @@ export default function AdminMapelPage() {
   useEffect(() => { load() }, [load])
 
   useEffect(() => {
-    apiRequest<{ data: User[] }>('/api/admin/users')
+    apiRequest<{ data: User[] }>('/api/admin/users?all=true')
       .then(r => setUsers(r.data.filter(u => u.role === 'GURU')))
       .catch(() => {})
     apiRequest<{ data: import('@/types').Kelas[] }>('/api/admin/kelas')
