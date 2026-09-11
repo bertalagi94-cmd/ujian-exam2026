@@ -8,11 +8,20 @@ export async function GET(req: NextRequest) {
   if ('error' in auth) return auth.error
 
   const db = createAdminClient()
-  const { data, error } = await db
+  const { searchParams } = new URL(req.url)
+  const tester = searchParams.get('tester') === 'true'
+
+  let query = db
     .from('users')
     .select('username, nama, role, last_login, status, is_tester, no_hp, nip, sekolah_id, sekolah:sekolah_id(id, label, nama_sekolah)')
-    .neq('is_tester', 'YES')
     .order('nama')
+
+  // ?tester=true -> tampilkan HANYA akun tester (untuk tab "Akun Tester" di
+  // admin). Default (tanpa parameter) -> tampilkan akun reguler seperti
+  // sebelumnya, akun tester tetap disembunyikan dari daftar utama.
+  query = tester ? query.eq('is_tester', 'YES') : query.neq('is_tester', 'YES')
+
+  const { data, error } = await query
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ data: data ?? [] })
