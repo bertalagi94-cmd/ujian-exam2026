@@ -26,8 +26,7 @@ export async function POST(req: NextRequest) {
 
   if (!sesi) return NextResponse.json({ error: 'Sesi tidak ditemukan' }, { status: 404 })
 
-  // Verifikasi guru ini adalah pengawas jadwal terkait sesi tsb — pola sama
-  // seperti buka-akses-essay/route.ts (akses kirim mode KERTAS).
+  // Verifikasi guru ini adalah pengawas jadwal terkait sesi tsb.
   const { data: jadwal } = await db
     .from('jadwal')
     .select('id, pengawas')
