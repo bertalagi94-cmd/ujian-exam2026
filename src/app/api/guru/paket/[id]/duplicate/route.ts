@@ -28,6 +28,33 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: 'Paket tidak ditemukan atau bukan milik Anda' }, { status: 404 })
   }
 
+  // FIX BUG: sebelumnya endpoint ini menerima kelas_id APAPUN dari body
+  // tanpa verifikasi apakah guru pemilik paket ini benar-benar mengampu
+  // mapel tsb di kelas tujuan tersebut. Frontend sudah membatasi pilihan
+  // dropdown ke kelas yang diampu guru (lihat getKelasUntukDuplicate di
+  // src/app/guru/paket/page.tsx), tapi itu saja tidak cukup — guru yang
+  // mengirim request langsung (curl/devtools) tetap bisa menembak kelas_id
+  // di luar kelas_list mapel-nya. Di sinilah validasi yang sebenarnya harus
+  // ditegakkan: ambil kelas_list dari baris `mapel` milik paket sumber,
+  // cocokkan nama kelas tujuan terhadap daftar itu.
+  const { data: mapelSumber } = await db
+    .from('mapel')
+    .select('kelas_list')
+    .eq('id', paketSumber.mapel_id)
+    .single()
+  const { data: kelasTujuanRow } = await db
+    .from('kelas')
+    .select('nama')
+    .eq('id', kelasTarget)
+    .single()
+  const kelasDiMapel = (mapelSumber?.kelas_list ?? '').split(',').map((s: string) => s.trim()).filter(Boolean)
+  if (!kelasTujuanRow || !kelasDiMapel.includes(kelasTujuanRow.nama)) {
+    return NextResponse.json(
+      { error: 'Anda tidak mengampu mata pelajaran ini di kelas tujuan tersebut.' },
+      { status: 403 }
+    )
+  }
+
   // Cek apakah sudah ada paket dengan mapel+kelas yang sama milik guru ini
   const { data: existing } = await db
     .from('paket_soal')
