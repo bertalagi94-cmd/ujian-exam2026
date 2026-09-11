@@ -29,7 +29,7 @@ export default function AdminKelasPage() {
     try {
       const [kelasRes, usersRes, sekolahRes] = await Promise.all([
         apiRequest<{ data: Kelas[] }>('/api/admin/kelas'),
-        apiRequest<{ data: User[] }>('/api/admin/users'),
+        apiRequest<{ data: User[] }>('/api/admin/users?all=true'),
         apiRequest<{ data: Sekolah[] }>('/api/admin/sekolah'),
       ])
       setKelas(kelasRes.data)
