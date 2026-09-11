@@ -14,12 +14,20 @@ export async function GET(req: NextRequest) {
   const db = createAdminClient()
   const { searchParams } = new URL(req.url)
   const tester = searchParams.get('tester') === 'true'
+  const semua = searchParams.get('all') === 'true'
 
-  // 1. Hitung jumlah siswa per kelas. ?tester=true -> hitung dari siswa
-  // tester saja (dipakai kartu kelas di tab "Akun Tester"); default -> siswa
-  // reguler saja, seperti sebelumnya.
+  // 1. Hitung jumlah siswa per kelas. ?all=true -> hitung dari SEMUA siswa
+  // (reguler + tester), dipakai oleh halaman yang butuh daftar kelas lengkap
+  // untuk keperluan penugasan/simulasi (mis. dropdown kelas di Mapel, Jadwal,
+  // Nilai, Paket Soal Guru) — supaya kelas yang seluruh siswanya berstatus
+  // tester tetap muncul dan tidak "hilang" begitu saja.
+  // ?tester=true -> hitung dari siswa tester saja (dipakai kartu kelas di tab
+  // "Akun Tester"). Default (tanpa parameter) -> siswa reguler saja, seperti
+  // sebelumnya.
   let siswaQuery = db.from('siswa').select('kelas')
-  siswaQuery = tester ? siswaQuery.eq('is_tester', 'YES') : siswaQuery.neq('is_tester', 'YES')
+  if (!semua) {
+    siswaQuery = tester ? siswaQuery.eq('is_tester', 'YES') : siswaQuery.neq('is_tester', 'YES')
+  }
   const { data: siswaData, error: siswaError } = await siswaQuery
 
   if (siswaError) return NextResponse.json({ error: siswaError.message }, { status: 500 })
