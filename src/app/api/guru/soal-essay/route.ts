@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 import { generateId, stripHtmlTags } from '@/lib/utils'
+import { cekSesiMapelKelasSudahMulai, pesanBankSoalTerkunci } from '@/lib/sesi-kelas'
 
 export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['GURU'])
@@ -79,6 +80,15 @@ export async function POST(req: NextRequest) {
 
   if (!['DRAFT', 'DITOLAK'].includes(paket.status)) {
     return NextResponse.json({ error: 'Paket sedang menunggu/sudah divalidasi — tidak bisa menambah soal' }, { status: 400 })
+  }
+
+  // Cegah menambah soal essay kalau sesi ujian untuk mapel+kelas paket ini
+  // sudah pernah dibuka (sedang berjalan atau sudah selesai) — mis. guru
+  // hanya membuat paket PG, ujian sudah/sedang berjalan tanpa essay, lalu
+  // tiba-tiba mencoba menambah soal essay untuk mapel+kelas yang sama.
+  const sesiSudahMulai = await cekSesiMapelKelasSudahMulai(db, paket.mapel_id, paket.kelas_id)
+  if (sesiSudahMulai) {
+    return NextResponse.json({ error: pesanBankSoalTerkunci('Essay', sesiSudahMulai, 'menambah') }, { status: 409 })
   }
 
   let urutan = Number(body.urutan)
