@@ -332,7 +332,10 @@ export default function SiswaUjianPage() {
           })
           setPhase('ESSAY_INFO')
           setLoadingJadwal(false)
-          fetchEssayInfo()
+          // FIX BUG (halaman putih kosong): oper sesiId secara eksplisit —
+          // lihat catatan panjang di definisi fetchEssayInfo() untuk alasan
+          // kenapa mengandalkan sesiInfoRef.current di titik ini tidak aman.
+          fetchEssayInfo(essayPendingEntry.sesiIdEssayPending)
           return
         }
 
@@ -943,7 +946,10 @@ export default function SiswaUjianPage() {
         })
         setPhase('ESSAY_INFO')
         setLoadingJadwal(false)
-        fetchEssayInfo()
+        // FIX BUG (halaman putih kosong): sama seperti di cekJadwal() di
+        // atas — oper sesiId secara eksplisit, jangan andalkan
+        // sesiInfoRef.current yang belum tentu tersinkron di titik ini.
+        fetchEssayInfo(essayPendingEntry.sesiIdEssayPending)
         return
       }
 
@@ -1227,13 +1233,30 @@ export default function SiswaUjianPage() {
   // ═══════════════════════════════════════════════════════════════════════
 
   // ── Ambil info essay (halaman sebelum tombol "Mulai") ─────────────────────
-  async function fetchEssayInfo() {
-    const currentSesi = sesiInfoRef.current
-    if (!currentSesi) return
+  // FIX BUG (halaman putih kosong): parameter `sesiIdOverride` opsional
+  // ditambahkan karena fungsi ini kadang dipanggil TEPAT SETELAH
+  // `setSesiInfo(...)` di pemanggilnya, dalam sinkronisasi JS yang sama
+  // (lihat cekJadwal() dan handleRefreshJadwal()). `sesiInfoRef.current`
+  // baru di-update oleh useEffect terpisah SETELAH React commit render
+  // berikutnya — jadi kalau fungsi ini langsung membaca `sesiInfoRef.current`
+  // di titik itu, yang terbaca masih nilai LAMA (null, pada mount pertama),
+  // bukan sesiId yang baru saja di-set. Akibatnya `if (!currentSesi) return`
+  // langsung memutus eksekusi tanpa mengisi `essayInfo`/`errorEssay` sama
+  // sekali, sementara `phase` sudah terlanjur 'ESSAY_INFO' — hasilnya kartu
+  // ESSAY_INFO jatuh ke cabang `: null` di JSX (loadingEssayInfo=false,
+  // errorEssay='', essayInfo=null) dan tampil kosong/putih tanpa tombol
+  // apa pun untuk keluar, PERSIS skenario siswa yang dikunci pengawas di
+  // tengah fase essay lalu membuka ulang aplikasi. Sekarang pemanggil yang
+  // baru saja punya sesiId segar (belum tentu tersinkron ke ref) WAJIB
+  // mengoper sesiId itu secara eksplisit lewat parameter ini, alih-alih
+  // mengandalkan ref yang bisa basi.
+  async function fetchEssayInfo(sesiIdOverride?: string) {
+    const currentSesiId = sesiIdOverride ?? sesiInfoRef.current?.sesiId
+    if (!currentSesiId) return
     setLoadingEssayInfo(true)
     setErrorEssay('')
     try {
-      const res = await apiRequest<EssayInfo>(`/api/siswa/ujian/essay/info?sesiId=${currentSesi.sesiId}`)
+      const res = await apiRequest<EssayInfo>(`/api/siswa/ujian/essay/info?sesiId=${currentSesiId}`)
       setEssayInfo(res)
       essayInfoRef.current = res
       setAksesKirimDibuka(!!res.akses_kirim_essay_dibuka)
@@ -1241,9 +1264,17 @@ export default function SiswaUjianPage() {
       // refresh halaman di tengah mengerjakan essay), langsung lanjut ke
       // halaman soal — jangan tampilkan lagi halaman info + tombol "Mulai".
       if (res.statusEssay === 'MENGERJAKAN') {
-        await masukKeHalamanEssay(currentSesi.sesiId)
+        await masukKeHalamanEssay(currentSesiId)
       }
     } catch (err: unknown) {
+      // Catatan: kalau siswa TERKUNCI/RESET (lihat guard baru di
+      // essay/info/route.ts), error ini tampil sebagai kartu "Coba Lagi" —
+      // sama seperti perlakuan error dari essay/mulai & essay/soal yang
+      // sudah lebih dulu memakai guard yang sama (lihat masukKeHalamanEssay
+      // di bawah). Ini memang tidak sebagus layar "Ujian Dihentikan" yang
+      // dipakai phase UJIAN, tapi setidaknya siswa melihat PESAN yang jelas
+      // alih-alih halaman kosong — perbaikan intinya ada di parameter
+      // sesiIdOverride di atas, bukan di sini.
       setErrorEssay(err instanceof Error ? err.message : 'Gagal memuat info essay')
     } finally {
       setLoadingEssayInfo(false)
@@ -1680,7 +1711,7 @@ export default function SiswaUjianPage() {
                   <AlertTriangle className="w-4 h-4 flex-shrink-0" />
                   <span>{errorEssay}</span>
                 </div>
-                <button onClick={fetchEssayInfo} className="btn-primary w-full justify-center py-3">
+                <button onClick={() => fetchEssayInfo()} className="btn-primary w-full justify-center py-3">
                   <RefreshCw className="w-4 h-4" /> Coba Lagi
                 </button>
               </>
