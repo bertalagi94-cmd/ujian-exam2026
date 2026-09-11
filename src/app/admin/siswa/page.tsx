@@ -124,6 +124,18 @@ export default function AdminSiswaPage() {
     apiRequest<{ data: Kelas[] }>('/api/admin/kelas').then(r => setKelas(r.data))
   }, [])
 
+  // Kartu "Jumlah Siswa per Kelas" harus mengikuti tab yang aktif — dulu
+  // kartunya selalu dihitung dari siswa reguler saja (lihat
+  // /api/admin/kelas), jadi saat tab "Akun Tester" aktif dan diklik, filter
+  // kelas dicocokkan ke siswa reguler yang tidak relevan → hasil kosong.
+  // Sekarang kartu di-refetch dengan ?tester=true saat tab tester aktif.
+  const [kelasCards, setKelasCards] = useState<Kelas[]>([])
+  useEffect(() => {
+    apiRequest<{ data: Kelas[] }>(`/api/admin/kelas${accountTab === 'tester' ? '?tester=true' : ''}`)
+      .then(r => setKelasCards(r.data))
+      .catch(() => setKelasCards([]))
+  }, [accountTab])
+
   function openAdd() { setEditData({}); setKelasMode('pilih'); setKelasBaruInput(''); setFormIsTester(false); setModalOpen(true) }
   function openEdit(s: Siswa) { setEditData(s); setKelasMode('pilih'); setKelasBaruInput(''); setFormIsTester(s.is_tester === 'YES'); setModalOpen(true) }
 
@@ -453,7 +465,7 @@ export default function AdminSiswaPage() {
       {/* Tab Akun Reguler / Akun Tester */}
       <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-fit">
         <button
-          onClick={() => { setAccountTab('reguler'); setPage(1) }}
+          onClick={() => { setAccountTab('reguler'); setPage(1); setFilterKelas('') }}
           className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
             accountTab === 'reguler' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
           }`}
@@ -461,7 +473,7 @@ export default function AdminSiswaPage() {
           Akun Reguler
         </button>
         <button
-          onClick={() => { setAccountTab('tester'); setPage(1) }}
+          onClick={() => { setAccountTab('tester'); setPage(1); setFilterKelas('') }}
           className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
             accountTab === 'tester' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
           }`}
@@ -495,10 +507,10 @@ export default function AdminSiswaPage() {
         </select>
       </div>
 
-      {/* Kartu Jumlah Siswa per Kelas */}
-      {kelas.length > 0 && (
+      {/* Kartu Jumlah Siswa per Kelas — mengikuti tab aktif (reguler/tester) */}
+      {kelasCards.length > 0 ? (
         <div className="flex gap-3 flex-wrap">
-          {kelas.map(k => {
+          {kelasCards.map(k => {
             const active = filterKelas === k.nama
             return (
               <button
@@ -525,7 +537,9 @@ export default function AdminSiswaPage() {
             )
           })}
         </div>
-      )}
+      ) : accountTab === 'tester' ? (
+        <p className="text-xs text-slate-400">Belum ada siswa tester di kelas manapun.</p>
+      ) : null}
 
       {/* Table */}
       <div className="card p-0 overflow-hidden">
