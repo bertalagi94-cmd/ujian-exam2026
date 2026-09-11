@@ -27,6 +27,13 @@ interface SesiUjianInfo {
   // disalin & dibekukan saat sesi dibuka (lihat 07_essay.sql) — dipakai
   // untuk menampilkan tombol "Buka Akses Kirim" khusus mode KERTAS.
   info_json?: { essay_aktif?: boolean; essay_mode_jawaban?: 'DIGITAL' | 'KERTAS' } | null
+  // FIX (akses mulai essay): toggle global per sesi (lihat
+  // 11_akses_mulai_essay.sql) — kolom asli di sesi_ujian, bukan info_json,
+  // supaya bisa diupdate langsung tanpa menimpa info_json lain.
+  akses_mulai_essay_dibuka?: boolean
+  // Jumlah soal essay (status DISETUJUI) untuk mapel+kelas jadwal ini —
+  // dipakai menonaktifkan toggle di atas kalau bank soalnya masih kosong.
+  essay_jumlah_soal?: number
 }
 
 interface JadwalHariIni {
@@ -185,6 +192,11 @@ export default function ModePengawasPage() {
 
   // FIX (fitur essay): "Buka Akses Kirim" untuk sesi essay mode KERTAS
   const [bukaAksesLoading, setBukaAksesLoading] = useState<string | null>(null)
+  // FIX (akses mulai essay): loading state khusus toggle "Akses Soal Essay"
+  // — terpisah dari bukaAksesLoading (itu punya "Buka Akses Kirim Semua"
+  // yang hanya untuk mode KERTAS) supaya kedua tombol tidak saling
+  // mengunci saat salah satunya diproses.
+  const [toggleAksesMulaiLoading, setToggleAksesMulaiLoading] = useState<string | null>(null)
 
   // Monitor: siswa aktif & pelanggaran per sesi
   const [siswaMap, setSiswaMap] = useState<Record<string, SiswaAktif[]>>({})
@@ -559,6 +571,26 @@ export default function ModePengawasPage() {
     }
   }
 
+  // FIX (akses mulai essay): nyalakan/matikan toggle global "Akses Soal
+  // Essay" untuk sesi ini — lihat 11_akses_mulai_essay.sql. Setelah sukses,
+  // reload daftar sesi (load(true)) supaya state toggle di UI langsung
+  // sinkron dengan server, bukan cuma optimistic update lokal.
+  async function handleToggleAksesMulaiEssay(sesiId: string, buka: boolean) {
+    setToggleAksesMulaiLoading(sesiId)
+    try {
+      const res = await apiRequest<{ message: string }>('/api/guru/mode-pengawas/toggle-akses-mulai-essay', {
+        method: 'POST',
+        body: JSON.stringify({ sesiId, buka }),
+      })
+      showToast(res.message ?? (buka ? 'Akses soal essay dibuka' : 'Akses soal essay ditutup'))
+      await load(true)
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Gagal mengubah akses soal essay', 'error')
+    } finally {
+      setToggleAksesMulaiLoading(null)
+    }
+  }
+
   async function handleReset() {
     if (!resetTarget) return
     setResetting(true)
@@ -811,6 +843,52 @@ export default function ModePengawasPage() {
                           </div>
                         </div>
                       </div>
+
+                      {/* FIX (akses mulai essay): switch ON/OFF global per
+                          sesi — SEBELUM siswa bisa menekan "Mulai" di
+                          halaman essay-nya, switch ini harus ON. Berlaku
+                          untuk KEDUA mode jawaban (beda dari "Buka Akses
+                          Kirim" di bawah yang KERTAS-only), makanya section
+                          ini ditaruh di atas & warna beda (indigo, bukan
+                          amber) supaya pengawas tidak tertukar antara
+                          "izin MULAI" dengan "izin KIRIM". */}
+                      {j.sesi_ujian?.info_json?.essay_aktif && (() => {
+                        const jumlahSoalEssay = j.sesi_ujian?.essay_jumlah_soal ?? 0
+                        const aksesOn = !!j.sesi_ujian?.akses_mulai_essay_dibuka
+                        const soalKosong = jumlahSoalEssay === 0
+                        return (
+                          <div className={`border-t border-slate-100 px-4 py-3.5 flex items-center justify-between gap-3 flex-wrap ${soalKosong ? 'bg-slate-50' : 'bg-indigo-50/40'}`}>
+                            <div className={`flex items-center gap-2 text-xs ${soalKosong ? 'text-slate-500' : 'text-indigo-700'}`}>
+                              <FileQuestion className="w-3.5 h-3.5 flex-shrink-0" />
+                              {soalKosong
+                                ? 'Tidak ada soal essay untuk mapel ini.'
+                                : `Akses Soal Essay: ${aksesOn ? 'siswa yang sudah selesai PG boleh langsung mulai essay.' : 'siswa yang sudah selesai PG masih menunggu (belum boleh mulai essay).'}`}
+                            </div>
+                            <div className="flex-shrink-0 flex items-center gap-2">
+                              <span className={`text-xs font-semibold ${aksesOn ? 'text-indigo-600' : 'text-slate-400'}`}>
+                                Akses Soal Essay
+                              </span>
+                              <button
+                                type="button"
+                                role="switch"
+                                aria-checked={aksesOn}
+                                disabled={soalKosong || toggleAksesMulaiLoading === sesiId}
+                                onClick={() => sesiId && handleToggleAksesMulaiEssay(sesiId, !aksesOn)}
+                                className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed
+                                           ${aksesOn ? 'bg-indigo-600' : 'bg-slate-300'}`}
+                              >
+                                <span
+                                  className={`inline-block h-4.5 w-4.5 transform rounded-full bg-white shadow transition-transform
+                                             ${aksesOn ? 'translate-x-6' : 'translate-x-1'}`}
+                                />
+                                {toggleAksesMulaiLoading === sesiId && (
+                                  <RefreshCw className="w-3 h-3 animate-spin text-white absolute left-1/2 -translate-x-1/2" />
+                                )}
+                              </button>
+                            </div>
+                          </div>
+                        )
+                      })()}
 
                       {/* FIX (fitur essay): tombol "Buka Akses Kirim" — hanya
                           untuk sesi dengan essay mode KERTAS. Siswa mode
