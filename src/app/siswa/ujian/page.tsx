@@ -53,6 +53,9 @@ interface EssayInfo {
   instruksi: string | null
   statusEssay: string
   akses_kirim_essay_dibuka?: boolean
+  // Toggle global per sesi (lihat 11_akses_mulai_essay.sql) — selama false,
+  // tombol "Mulai" di halaman ini harus nonaktif menunggu pengawas.
+  aksesMulaiDibuka?: boolean
 }
 
 interface SoalEssay {
@@ -255,6 +258,7 @@ export default function SiswaUjianPage() {
   const essayTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const essaySyncRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const essayAksesPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const essayAksesMulaiPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => { jawabanRef.current = jawaban }, [jawaban])
   useEffect(() => { sesiInfoRef.current = sesiInfo }, [sesiInfo])
@@ -627,6 +631,7 @@ export default function SiswaUjianPage() {
         clearInterval(essayTimerRef.current!)
         clearInterval(essaySyncRef.current!)
         clearInterval(essayAksesPollRef.current!)
+        clearInterval(essayAksesMulaiPollRef.current!)
         setDiambilAlihDevice(true)
         return
       }
@@ -642,6 +647,7 @@ export default function SiswaUjianPage() {
         clearInterval(essayTimerRef.current!)
         clearInterval(essaySyncRef.current!)
         clearInterval(essayAksesPollRef.current!)
+        clearInterval(essayAksesMulaiPollRef.current!)
         setDikeluarkan(true)
         return
       }
@@ -666,6 +672,7 @@ export default function SiswaUjianPage() {
         clearInterval(essayTimerRef.current!)
         clearInterval(essaySyncRef.current!)
         clearInterval(essayAksesPollRef.current!)
+        clearInterval(essayAksesMulaiPollRef.current!)
         setSesiDitutupPaksa(true)
         // FIX (fitur essay): kalau pengawas menutup sesi SAAT siswa sudah
         // mulai mengerjakan essay, jalur penutupannya adalah endpoint
@@ -1441,6 +1448,31 @@ export default function SiswaUjianPage() {
     return () => clearInterval(essayAksesPollRef.current!)
   }, [phase, essayInfo])
 
+  // ── Poll akses "Mulai Essay" (toggle global per sesi, lihat
+  // 11_akses_mulai_essay.sql) — selama siswa di halaman info essay (belum
+  // menekan "Mulai"), tombolnya harus otomatis aktif begitu pengawas
+  // menyalakan toggle, tanpa siswa perlu refresh manual. Berlaku untuk
+  // KEDUA mode jawaban (beda dari poll akses kirim di atas yang KERTAS-only).
+  useEffect(() => {
+    if (phase !== 'ESSAY_INFO') return
+    const currentSesi = sesiInfoRef.current
+    if (!currentSesi) return
+    const cek = async () => {
+      try {
+        const res = await apiRequest<EssayInfo>(`/api/siswa/ujian/essay/info?sesiId=${currentSesi.sesiId}`)
+        // Idempotent-guard sama seperti fetchEssayInfo: kalau ternyata sudah
+        // MENGERJAKAN (mis. tab lain sudah menekan "Mulai" duluan), jangan
+        // timpa info dengan data stale — cukup diamkan, biar fetchEssayInfo
+        // yang sudah dipanggil sebelumnya yang menangani transisi phase.
+        if (res.statusEssay === 'MENGERJAKAN') return
+        setEssayInfo(res)
+        essayInfoRef.current = res
+      } catch { /* silent, dicoba lagi di interval berikutnya */ }
+    }
+    essayAksesMulaiPollRef.current = setInterval(cek, 8000)
+    return () => clearInterval(essayAksesMulaiPollRef.current!)
+  }, [phase])
+
   // ── Upload foto lembar jawaban (mode KERTAS) ─────────────────────────────
   async function handleUploadFoto(file: File) {
     const currentSesi = sesiInfoRef.current
@@ -1765,12 +1797,26 @@ export default function SiswaUjianPage() {
                   </div>
                 )}
 
+                {/* Gerbang akses "Mulai Essay" (toggle global per sesi) —
+                    selama pengawas belum menyalakannya, tombol nonaktif dan
+                    siswa cukup menunggu (halaman ini otomatis polling tiap
+                    8 detik, lihat efek di atas, jadi tidak perlu refresh
+                    manual). */}
+                {!essayInfo.aksesMulaiDibuka && (
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 mb-4 text-left flex items-start gap-2">
+                    <Spinner size="sm" />
+                    <p className="text-xs text-slate-500">
+                      Menunggu pengawas membuka akses mulai essay. Halaman ini akan aktif otomatis begitu akses dibuka.
+                    </p>
+                  </div>
+                )}
+
                 <button
                   onClick={handleMulaiEssay}
-                  disabled={loadingEssaySoal}
+                  disabled={loadingEssaySoal || !essayInfo.aksesMulaiDibuka}
                   className="btn-primary w-full justify-center py-3 text-base"
                 >
-                  {loadingEssaySoal ? <Spinner size="sm" /> : 'Mulai Jawab Essay'}
+                  {loadingEssaySoal ? <Spinner size="sm" /> : !essayInfo.aksesMulaiDibuka ? 'Menunggu Akses Pengawas' : 'Mulai Jawab Essay'}
                 </button>
               </>
             ) : null}
