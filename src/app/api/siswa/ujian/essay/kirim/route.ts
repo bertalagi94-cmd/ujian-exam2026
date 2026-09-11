@@ -23,11 +23,10 @@ export async function POST(req: NextRequest) {
 
   const { data: sesi } = await db.from('sesi_ujian').select('info_json').eq('id', sesiId).single()
   if (!sesi) return NextResponse.json({ error: 'Sesi tidak ditemukan' }, { status: 404 })
-  const modeJawaban = sesi.info_json?.essay_mode_jawaban
 
   const { data: siswaUjian } = await db
     .from('siswa_ujian')
-    .select('status, status_essay, akses_kirim_essay_dibuka')
+    .select('status, status_essay')
     .eq('sesi_id', sesiId)
     .eq('nis', nis)
     .single()
@@ -56,26 +55,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Essay belum dimulai, tidak bisa dikirim.' }, { status: 409 })
   }
 
-  // MODE KERTAS: wajib menunggu pengawas membuka akses kirim terlebih dahulu.
-  if (modeJawaban === 'KERTAS' && !siswaUjian.akses_kirim_essay_dibuka) {
-    return NextResponse.json(
-      { error: 'Menunggu pengawas membuka akses kirim jawaban essay.' },
-      { status: 403 }
-    )
-  }
-
-  // MODE KERTAS: pastikan foto sudah diupload sebelum boleh kirim.
-  if (modeJawaban === 'KERTAS') {
-    const { data: foto } = await db
-      .from('jawaban_essay_foto')
-      .select('id')
-      .eq('sesi_id', sesiId)
-      .eq('nis', nis)
-      .maybeSingle()
-    if (!foto) {
-      return NextResponse.json({ error: 'Upload foto lembar jawaban terlebih dahulu.' }, { status: 400 })
-    }
-  }
+  // MODE KERTAS: siswa menulis jawaban di kertas fisik (dinilai guru
+  // langsung dari kertas, bukan dari foto/unggahan) — tidak ada lagi syarat
+  // "akses kirim dibuka" atau "foto sudah diupload" di sini. Siswa cukup
+  // menekan tombol "Selesai" kapan pun mereka sudah selesai menulis; endpoint
+  // ini hanya menandai status ujian selesai, tidak menyimpan jawaban apapun
+  // untuk mode ini.
 
   const waktuKirim = new Date().toISOString()
 
