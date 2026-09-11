@@ -10,7 +10,7 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
   if ('error' in auth) return auth.error
 
   const db = createAdminClient()
-  const { nama, role, status, no_hp, nip, sekolah_id } = await req.json()
+  const { nama, role, status, no_hp, nip, sekolah_id, is_tester } = await req.json()
 
   // Role akun yang sah hanya 4 ini — lihat catatan di POST /api/admin/users
   // dan src/lib/auth.ts. "Pengawas" tidak boleh diset lewat edit juga.
@@ -21,6 +21,13 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
     }
   }
 
+  // is_tester dipakai untuk menandai akun yang boleh login walau maintenance
+  // mode aktif (lihat src/app/api/auth/login/route.ts). Divalidasi di server
+  // supaya tidak bisa diisi nilai sembarangan lewat panggilan API langsung.
+  if (is_tester !== undefined && !['YES', 'NO'].includes(is_tester)) {
+    return NextResponse.json({ error: "is_tester harus 'YES' atau 'NO'" }, { status: 400 })
+  }
+
   const { error } = await db.from('users').update({
     nama: nama ? String(nama).toUpperCase() : undefined,
     role: role || undefined,
@@ -28,6 +35,7 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
     no_hp: no_hp !== undefined ? (no_hp ? String(no_hp).trim() : null) : undefined,
     nip: nip !== undefined ? String(nip ?? '').trim() : undefined,
     sekolah_id: role === 'KEPSEK' ? (sekolah_id || null) : null,
+    is_tester: is_tester || undefined,
   }).eq('username', params.username)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
