@@ -13,7 +13,14 @@ export async function PUT(req: NextRequest, { params }: RouteContext) {
 
   const db = createAdminClient()
   const body = await req.json()
-  const { nama, kelas, jenis_kelamin, tempat_lahir, tanggal_lahir, status } = body
+  const { nama, kelas, jenis_kelamin, tempat_lahir, tanggal_lahir, status, is_tester } = body
+
+  // is_tester dipakai untuk menandai siswa yang boleh login walau maintenance
+  // mode aktif (lihat src/app/api/auth/login/route.ts). Divalidasi di server
+  // supaya tidak bisa diisi nilai sembarangan lewat panggilan API langsung.
+  if (is_tester !== undefined && !['YES', 'NO'].includes(is_tester)) {
+    return NextResponse.json({ error: "is_tester harus 'YES' atau 'NO'" }, { status: 400 })
+  }
 
   const { error } = await db
     .from('siswa')
@@ -24,6 +31,7 @@ export async function PUT(req: NextRequest, { params }: RouteContext) {
       tempat_lahir: tempat_lahir || null,
       tanggal_lahir: tanggal_lahir || null,
       status: status || undefined,
+      is_tester: is_tester || undefined,
     })
     .eq('nis', params.nis)
 
