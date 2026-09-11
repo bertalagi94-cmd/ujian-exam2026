@@ -1261,11 +1261,6 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
     if (!activePaket) return
     const fd = new FormData(e.currentTarget)
     const teks = String(fd.get('teks') ?? '')
-    const bobotMaks = Number(fd.get('bobot_maks'))
-    if (!bobotMaks || bobotMaks <= 0) {
-      showToast('Bobot maksimal soal harus lebih dari 0', 'error')
-      return
-    }
     setSaving(true)
     try {
       await apiRequest('/api/guru/soal-essay', {
@@ -1274,7 +1269,6 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
           paket_id: activePaket.id,
           teks,
           gambar_url: gambarUrl || null,
-          bobot_maks: bobotMaks,
         }),
       })
       showToast('Soal berhasil ditambahkan')
@@ -1303,16 +1297,11 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
     if (!editSoal?.id) return
     const fd = new FormData(e.currentTarget)
     const teks = String(fd.get('teks') ?? '')
-    const bobotMaks = Number(fd.get('bobot_maks'))
-    if (!bobotMaks || bobotMaks <= 0) {
-      showToast('Bobot maksimal soal harus lebih dari 0', 'error')
-      return
-    }
     setSaving(true)
     try {
       await apiRequest(`/api/guru/soal-essay/${editSoal.id}`, {
         method: 'PUT',
-        body: JSON.stringify({ teks, gambar_url: editGambarUrl || null, bobot_maks: bobotMaks }),
+        body: JSON.stringify({ teks, gambar_url: editGambarUrl || null }),
       })
       showToast('Soal berhasil diperbarui')
       setEditSoal(null)
@@ -1429,7 +1418,6 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
           <p className="line-clamp-2">{s.teks}</p>
           <div className="flex items-center gap-2 mt-0.5">
             {s.gambar_url && <span className="text-xs text-brand-500">📷 Ada gambar</span>}
-            <span className="text-xs text-slate-400">Bobot: {s.bobot_maks}</span>
           </div>
         </div>
         <div className="flex items-center gap-1 flex-shrink-0">
@@ -1503,10 +1491,6 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
                     onUrl={setGambarUrl} uploadKey="tambah" uploading={uploadingImg} onTrigger={triggerUpload} />
                 </div>
               </div>
-              <div>
-                <label className="label">Bobot Maksimal *</label>
-                <input name="bobot_maks" type="number" min={1} className="input" required placeholder="Contoh: 20" />
-              </div>
               <div className="flex gap-3 pt-2 flex-wrap">
                 <button type="submit" className="btn-primary" disabled={saving || !!uploadingImg}>
                   {saving ? <Spinner size="sm" /> : <><Plus className="w-4 h-4" /> Tambah & Lanjut ke Soal Berikutnya</>}
@@ -1551,10 +1535,6 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
                     onUrl={setEditGambarUrl} uploadKey="edit" uploading={uploadingImg} onTrigger={triggerUpload} />
                 </div>
               </div>
-              <div>
-                <label className="label">Bobot Maksimal *</label>
-                <input name="bobot_maks" type="number" min={1} className="input" required defaultValue={editSoal.bobot_maks} />
-              </div>
             </form>
           )}
         </Modal>
@@ -1577,10 +1557,6 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
                   <img src={viewSoal.gambar_url} alt="Gambar soal" className="max-h-48 rounded-lg border border-slate-200" />
                 </div>
               )}
-              <div>
-                <p className="label mb-1">Bobot Maksimal</p>
-                <p className="text-sm text-slate-700">{viewSoal.bobot_maks}</p>
-              </div>
             </div>
           )}
         </Modal>
