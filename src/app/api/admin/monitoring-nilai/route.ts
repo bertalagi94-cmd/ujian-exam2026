@@ -26,15 +26,6 @@ export async function GET(req: NextRequest) {
   const { data: guruList } = await db.from('users').select('username, nama').in('username', guruIds)
   const guruMap = Object.fromEntries((guruList ?? []).map((g: { username: string; nama: string }) => [g.username, g.nama]))
 
-  // Ambil deadline dari pengaturan
-  const { data: pengaturanData } = await db
-    .from('pengaturan')
-    .select('key, value')
-    .in('key', ['deadline_kirim_nilai', 'reminder_nilai_jam'])
-
-  const pengaturanMap = Object.fromEntries((pengaturanData ?? []).map((p: { key: string; value: string }) => [p.key, p.value]))
-  const deadline = pengaturanMap['deadline_kirim_nilai'] || null
-
   // Kelompokkan per guru+mapel+kelas
   const kelompok: Record<string, {
     guru_id: string
@@ -81,5 +72,5 @@ export async function GET(req: NextRequest) {
     a.nama_guru.localeCompare(b.nama_guru) || a.nama_mapel.localeCompare(b.nama_mapel)
   )
 
-  return NextResponse.json({ data: hasil, deadline })
+  return NextResponse.json({ data: hasil })
 }
