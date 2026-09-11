@@ -14,12 +14,16 @@ export async function GET(req: NextRequest) {
   const perPage = parseInt(searchParams.get('per_page') ?? '20')
   const search = searchParams.get('search') ?? ''
   const kelas = searchParams.get('kelas') ?? ''
+  const tester = searchParams.get('tester') === 'true'
 
   let query = db
     .from('siswa')
     .select('*', { count: 'exact' })
-    .neq('is_tester', 'YES')
     .order('nama')
+
+  // ?tester=true -> tampilkan HANYA akun tester (tab "Akun Tester" di admin).
+  // Default -> tampilkan siswa reguler seperti sebelumnya.
+  query = tester ? query.eq('is_tester', 'YES') : query.neq('is_tester', 'YES')
 
   if (search) {
     query = query.or(`nama.ilike.%${search}%,nis.ilike.%${search}%`)
