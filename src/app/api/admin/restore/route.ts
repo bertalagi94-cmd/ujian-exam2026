@@ -38,6 +38,14 @@ import { cacheDel, cacheDelPrefix } from '@/lib/cache'
 // sini murni demi konsistensi, bukan syarat FK):
 //   paket_essay ~ setara paket_soal · soal_essay ~ setara soal ·
 //   jawaban_essay/jawaban_essay_foto ~ setara jawaban
+// BUG FIX (skor per-soal essay tidak diakomodir backup/restore): tabel
+// `skor_essay_siswa` (lihat supabase/12_skor_per_soal_essay.sql, jejak audit
+// skor per butir soal essay yang diisi guru) juga ditambahkan lewat migrasi
+// terpisah dan sebelumnya tidak terdaftar di sini — sama seperti bug essay
+// di atas, kalaupun backup-nya sudah menyertakan tabelnya (lihat fix di
+// admin/backup/route.ts), restore tetap SKIP DIAM-DIAM tanpa tabel ini
+// terdaftar. Ditaruh setelah jawaban_essay_foto (setara posisinya: sama-sama
+// data turunan per sesi+nis yang dibuat SETELAH siswa_ujian & soal_essay ada).
 const DELETE_ORDER = [
   'log_aktivitas',
   'log_reset',
@@ -46,6 +54,7 @@ const DELETE_ORDER = [
   'jawaban',
   'jawaban_essay',
   'jawaban_essay_foto',
+  'skor_essay_siswa',
   'siswa_ujian',
   'sesi_ujian',
   'soal',
@@ -82,6 +91,7 @@ const INSERT_ORDER = [
   'jawaban',
   'jawaban_essay',
   'jawaban_essay_foto',
+  'skor_essay_siswa',
   'nilai',
   'pelanggaran',
   'log_reset',
