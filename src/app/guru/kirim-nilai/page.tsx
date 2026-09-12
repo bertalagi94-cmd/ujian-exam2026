@@ -147,6 +147,52 @@ export default function KirimNilaiPage() {
     })
   }
 
+  // FITUR BARU (status kirim per mapel): guru sebelumnya harus membuka &
+  // menghitung sendiri baris mana yang belum terkirim untuk tahu apakah
+  // sebuah mapel+kelas masih perlu ditindaklanjuti. Fungsi ini menyimpulkan
+  // satu status ringkas yang ditampilkan langsung di sebelah nama mapel:
+  //  - "Belum terkirim"                              → belum pernah dikirim sama sekali
+  //  - "Sudah terkirim"                               → semua baris nilai sudah terkirim
+  //  - "Ada nilai siswa baru masuk..."                → sudah pernah dikirim, TAPI ada
+  //    siswa yang baru selesai ujian (timestamp-nya) SETELAH pengiriman terakhir —
+  //    ini beda dari sekadar "belum semua terkirim", karena tertunda essay sudah
+  //    punya indikatornya sendiri (lihat badge "menunggu essay").
+  function statusKirimKelompok(grup: Kelompok): { label: string; className: string } | null {
+    if (grup.total === 0) return null
+
+    const dikirimRows = grup.rows.filter(r => r.dikirim_ke_wali)
+    if (dikirimRows.length === 0) {
+      return { label: 'Belum terkirim', className: 'text-slate-500 font-medium' }
+    }
+    if (grup.sudahDikirim === grup.total) {
+      return { label: 'Sudah terkirim', className: 'text-emerald-600 font-semibold' }
+    }
+
+    // Sudah pernah kirim, tapi belum semua — bedakan siswa yang memang baru
+    // selesai ujian SETELAH pengiriman terakhir vs sekadar masih menunggu
+    // rilis essay (kasus itu sudah tertangani badge lain, jangan dobel-labeli
+    // sebagai "siswa baru").
+    const waktuKirimTerakhir = dikirimRows
+      .map(r => r.dikirim_at)
+      .filter((t): t is string => !!t)
+      .sort()
+      .pop()
+
+    const siswaBaru = grup.rows.filter(r =>
+      !r.dikirim_ke_wali && !r.essay_belum_dirilis && r.timestamp &&
+      (!waktuKirimTerakhir || r.timestamp > waktuKirimTerakhir)
+    )
+
+    if (siswaBaru.length > 0) {
+      return {
+        label: 'Ada nilai siswa baru masuk. Cek dan Kirim lagi ke wali kelas.',
+        className: 'text-red-600 font-bold',
+      }
+    }
+
+    return { label: 'Belum terkirim', className: 'text-slate-500 font-medium' }
+  }
+
   async function simpanEdit(nilaiId: string) {
     setSaving(nilaiId)
     try {
@@ -310,6 +356,7 @@ export default function KirimNilaiPage() {
         }
         const sesiEssayIds = Object.keys(esaiPerSesi)
         const jumlahTertunda = grup.rows.filter(r => r.essay_belum_dirilis).length
+        const statusKirim = statusKirimKelompok(grup)
 
         return (
           <div
@@ -332,17 +379,17 @@ export default function KirimNilaiPage() {
                   adaDikembalikan ? 'bg-orange-500' : semuaDikirim ? 'bg-emerald-500' : 'bg-amber-400'
                 }`} />
                 <div>
-                  <div className="font-semibold text-slate-900">{grup.nama_mapel}</div>
+                  <div className="font-semibold text-slate-900">
+                    {grup.nama_mapel}
+                    {!adaDikembalikan && statusKirim && (
+                      <span className={`ml-1 ${statusKirim.className}`}> - {statusKirim.label}</span>
+                    )}
+                  </div>
                   <div className="text-xs text-slate-400">Kelas {grup.kelas}</div>
                 </div>
                 {adaDikembalikan && (
                   <span className="ml-2 flex items-center gap-1 text-xs bg-orange-100 text-orange-700 border border-orange-200 px-2 py-0.5 rounded-full font-medium">
                     <AlertTriangle className="w-3 h-3" /> Dikembalikan wali kelas
-                  </span>
-                )}
-                {semuaDikirim && !adaDikembalikan && (
-                  <span className="ml-2 flex items-center gap-1 text-xs bg-emerald-100 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-full font-medium">
-                    <CheckCircle className="w-3 h-3" /> Sudah terkirim semua
                   </span>
                 )}
               </div>
