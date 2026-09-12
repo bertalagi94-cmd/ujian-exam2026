@@ -52,14 +52,47 @@ export async function GET(req: NextRequest) {
   // & `essay_belum_dirilis` per baris pakai helper yang sama.
   const essayAktifMap = await petakanEssayAktifPerSesi(db, nilaiData.map(r => r.sesi_id))
 
+  // FITUR BARU (riwayat pelanggaran untuk guru pengampu): guru sebelumnya
+  // hanya bisa melihat pelanggaran siswa lewat "Mode Pengawas" SELAMA sesi
+  // masih berjalan — begitu siswa selesai ujian, riwayat itu tidak terlihat
+  // lagi di mana pun untuk guru (hanya admin yang punya /admin/pelanggaran).
+  // Sekarang ambil riwayat pelanggaran per sesi+nis untuk semua baris nilai
+  // di atas, supaya guru bisa tahu kondisi siswa selama ujian meski ujiannya
+  // sudah selesai. Dibatasi ke sesi_id yang muncul di nilaiData, yang sudah
+  // ter-scope ke mapel milik guru ini (query di atas), jadi tidak bocor ke
+  // mapel guru lain.
+  type PelanggaranRow = {
+    id: string; sesi_id: string; nis: string; jenis: string
+    level: number; detail: string | null; status: string; created_at: string
+  }
+  const sesiIdsNilai = [...new Set(nilaiData.map(r => r.sesi_id).filter(Boolean))]
+  const { data: pelanggaranListRaw } = sesiIdsNilai.length
+    ? await db
+        .from('pelanggaran')
+        .select('id, sesi_id, nis, jenis, level, detail, status, created_at')
+        .in('sesi_id', sesiIdsNilai)
+        .order('created_at', { ascending: true })
+    : { data: [] as PelanggaranRow[] }
+  const pelanggaranList = (pelanggaranListRaw ?? []) as PelanggaranRow[]
+
+  const pelanggaranMap = new Map<string, PelanggaranRow[]>()
+  for (const p of pelanggaranList) {
+    const kunci = `${p.sesi_id}__${p.nis}`
+    if (!pelanggaranMap.has(kunci)) pelanggaranMap.set(kunci, [])
+    pelanggaranMap.get(kunci)!.push(p)
+  }
+
   const enriched = nilaiData.map(r => {
     const essayAktif = r.sesi_id ? (essayAktifMap.get(r.sesi_id) ?? false) : false
+    const pelanggaranSiswa = pelanggaranMap.get(`${r.sesi_id}__${r.nis}`) ?? []
     return {
       ...r,
       nama_siswa: siswaMap[r.nis] ?? r.nis,
       nama_mapel: mapelMap[r.mapel_id] ?? r.mapel_id,
       essay_aktif: essayAktif,
       essay_belum_dirilis: essayAktif && r.dirilis !== true,
+      pelanggaran: pelanggaranSiswa,
+      jumlah_pelanggaran: pelanggaranSiswa.length,
     }
   })
 
