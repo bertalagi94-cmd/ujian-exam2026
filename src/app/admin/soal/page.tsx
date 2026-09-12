@@ -149,6 +149,7 @@ export default function AdminSoalPage() {
                   <div className="text-sm text-slate-500">
                     Guru: <span className="font-medium text-slate-700">{p.nama_guru}</span>
                     &nbsp;· {p.jumlah_soal} soal
+                    &nbsp;· Mode {p.mode_jawaban === 'KERTAS' ? 'Kertas' : 'Digital'}
                     &nbsp;· Dikirim {formatDateTime(p.tanggal)}
                   </div>
                   {p.catatan && (
