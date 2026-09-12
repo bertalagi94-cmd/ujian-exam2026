@@ -446,10 +446,17 @@ export default function KirimNilaiPage() {
                   {/* Catatan singkat dipindah ke sini (satu tempat saja),
                       menggantikan sub-teks kecil yang sebelumnya menumpuk
                       di header kolom "Nilai Edit" — supaya header tabel
-                      tetap ringkas dan gampang dipindai sekilas. */}
+                      tetap ringkas dan gampang dipindai sekilas.
+                      FIX (teks menyesatkan): sebelumnya tertulis "Nilai
+                      Asli yang dipakai saat dikirim" — padahal untuk mapel
+                      yang punya essay, yang benar-benar dipakai (lihat
+                      nilaiEfektif di api/guru/wali-kelas/route.ts) adalah
+                      NILAI AKHIR (PG+Essay gabungan), bukan Nilai Asli/PG
+                      saja. Teks diperbaiki supaya sesuai kode yang berjalan. */}
                   <p className="text-xs text-slate-400 px-5 pt-1 pb-2">
                     Kolom <strong className="text-slate-500">Nilai Edit</strong> boleh dikosongkan —
-                    kalau kosong, Nilai Asli yang dipakai saat dikirim.
+                    kalau kosong, <strong className="text-slate-500">Nilai Akhir</strong> siswa
+                    (Nilai Asli, atau PG+Essay gabungan kalau mapel ini punya essay) yang dipakai saat dikirim.
                   </p>
                 <div className="overflow-x-auto">
                   <table className="table text-sm w-full">
@@ -494,6 +501,14 @@ export default function KirimNilaiPage() {
                             </td>
                             <td className="text-center">
                               <span className={`text-base font-bold ${nilaiColor(n.nilai)}`}>{n.nilai}</span>
+                              {/* FIX (kejelasan Nilai Asli vs Status): kalau mapel ini punya
+                                  essay, angka di kolom ini HANYA nilai PG — bukan nilai akhir
+                                  yang menentukan badge Status di kolom sebelah kanan. Label
+                                  kecil ini menandai itu supaya guru tidak salah kira "Nilai
+                                  Asli" = "Nilai Akhir". */}
+                              {n.nilai_essay != null && (
+                                <div className="text-[10px] text-slate-400 mt-0.5">PG saja</div>
+                              )}
                             </td>
                             <td className="text-center">
                               <span className={`badge font-bold ${
@@ -506,6 +521,18 @@ export default function KirimNilaiPage() {
                               <span className={`badge ${n.lulus ? 'badge-green' : 'badge-red'}`}>
                                 {n.lulus ? '✓ Lulus' : '✗ Tidak'}
                               </span>
+                              {/* FIX (kejelasan sumber Status): begitu essay-nya dinilai,
+                                  badge Lulus/Tidak di atas dihitung dari Nilai Akhir gabungan
+                                  (PG+Essay), BUKAN dari "Nilai Asli" di kolom sebelah kiri —
+                                  sebelumnya ini tidak terlihat sama sekali di tabel ini (cuma
+                                  ada di panel Essay terpisah), jadi guru bisa salah kira badge
+                                  ini dihitung dari angka Nilai Asli semata. */}
+                              {n.nilai_essay != null && n.nilai_total != null && (
+                                <div className="text-[10px] text-slate-400 mt-1 leading-snug max-w-[140px] mx-auto">
+                                  dari Nilai Akhir <strong className="text-slate-500">{n.nilai_total}</strong>
+                                  {' '}(PG {n.nilai} + Essay {n.nilai_essay})
+                                </div>
+                              )}
                             </td>
                             <td className="text-center">
                               <input
@@ -676,7 +703,7 @@ export default function KirimNilaiPage() {
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-5 py-4 bg-slate-50 border-t border-slate-100">
                   <p className="text-xs text-slate-500 flex items-center gap-1.5">
                     <span className="w-5 h-5 rounded-full bg-emerald-600 text-white flex items-center justify-center flex-shrink-0 text-[11px] font-bold">2</span>
-                    Nilai edit yang kosong akan otomatis pakai nilai asli.
+                    Nilai edit yang kosong akan otomatis pakai Nilai Akhir siswa.
                   </p>
                   <button
                     onClick={() => kirimKelompok(grup.mapel_id, grup.kelas, grup.kunciMapel)}
