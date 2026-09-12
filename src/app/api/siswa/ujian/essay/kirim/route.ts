@@ -62,7 +62,22 @@ export async function POST(req: NextRequest) {
   // jauh melewati durasi essay yang ditentukan guru, tanpa ditolak sistem.
   // Jawaban yang sudah ter-autosave sebelum batas waktu tetap tersimpan dan
   // bisa dinilai guru lewat halaman koreksi essay.
-  if (sudahLewatBatasWaktuEssay(siswaUjian.waktu_mulai_essay, sesi.info_json?.essay_durasi_menit)) {
+  //
+  // FIX BUG (mode KERTAS bisa terjebak tidak bisa "Selesai"): pengecekan ini
+  // sebelumnya berlaku untuk SEMUA mode, padahal mode KERTAS sengaja didesain
+  // TANPA gerbang waktu di endpoint ini — lihat komentar di bawah ("siswa
+  // cukup menekan 'Selesai' KAPAN PUN") dan popup waktu-habis di frontend
+  // (siswa/ujian/page.tsx) yang justru menyuruh siswa TERUS menulis dulu di
+  // kertas sebelum menekan "Selesai". Kalau guard ini tetap dipaksakan untuk
+  // KERTAS, siswa yang mengikuti instruksi popup itu (menulis dulu, baru
+  // klik Selesai) hampir pasti sudah lewat toleransi 60 detik dan ditolak
+  // sistem — padahal UI sendiri yang menyuruhnya menunggu. Mode DIGITAL tetap
+  // divalidasi karena auto-submit di client bergantung pada batas ini persis
+  // saat sisaWaktuEssay mencapai 0.
+  if (
+    sesi.info_json?.essay_mode_jawaban === 'DIGITAL' &&
+    sudahLewatBatasWaktuEssay(siswaUjian.waktu_mulai_essay, sesi.info_json?.essay_durasi_menit)
+  ) {
     return NextResponse.json(
       { error: 'Waktu pengerjaan essay Anda sudah habis. Jawaban yang sudah tersimpan akan dinilai oleh guru.' },
       { status: 409 }
