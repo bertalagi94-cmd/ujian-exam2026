@@ -79,6 +79,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     status: 'DRAFT',
     jumlah_soal: 0,
     acak: paketSumber.acak,
+    mode_jawaban: paketSumber.mode_jawaban ?? 'DIGITAL',
   })
 
   if (paketErr) return NextResponse.json({ error: paketErr.message }, { status: 500 })
