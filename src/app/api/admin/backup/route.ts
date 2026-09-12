@@ -20,6 +20,18 @@ import { requireRole } from '@/lib/auth'
 // yang ditambahkan ke tabel yang SUDAH ada di daftar ini (jadwal, siswa_ujian,
 // nilai) tetap ikut terbawa karena backup memakai select('*') — masalahnya
 // murni 4 tabel BARU yang belum pernah didaftarkan.
+// BUG FIX (skor per-soal essay tidak ikut ter-backup): sama persis lagi —
+// tabel `skor_essay_siswa` (lihat supabase/12_skor_per_soal_essay.sql) yang
+// menyimpan skor PER BUTIR soal essay sebagai jejak audit penilaian guru
+// (lihat komentar di guru/koreksi-essay/route.ts) juga ditambahkan lewat
+// migrasi terpisah SETELAH 01_schema.sql dan tidak pernah dimasukkan ke
+// sini. Akibatnya: kalau backup ini dipakai untuk disaster-recovery/restore
+// ke environment lain, `nilai.nilai_essay` (angka gabungan) tetap terbawa
+// lewat tabel `nilai`, tapi rincian skor per soal yang mendasarinya hilang
+// total — guru tidak bisa lagi menelusuri/mengaudit dari mana angka
+// nilai_essay itu berasal per butir soal, dan form koreksi essay yang
+// dibuka ulang setelah restore akan tampil kosong (skorPerSoal={}) padahal
+// nilai_total siswa sudah terisi — status yang tidak konsisten.
 const BACKUP_TABLES = [
   'pengaturan',
   'sekolah',
@@ -39,6 +51,7 @@ const BACKUP_TABLES = [
   'jawaban',
   'jawaban_essay',
   'jawaban_essay_foto',
+  'skor_essay_siswa',
   'nilai',
   'pelanggaran',
   'log_reset',
