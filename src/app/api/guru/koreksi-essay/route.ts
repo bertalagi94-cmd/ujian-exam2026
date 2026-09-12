@@ -57,10 +57,10 @@ export async function GET(req: NextRequest) {
   // FIX BUG (fitur essay): filter status = 'DISETUJUI' — sebelumnya soal
   // DRAFT ikut dihitung di totalBobotMaks, padahal soal DRAFT itu TIDAK
   // pernah benar-benar dikerjakan siswa (lihat FIX di essay/soal/route.ts).
-  // CATATAN: sejak skala nilai essay diubah jadi 0-100 bebas (lihat PUT di
-  // bawah), totalBobotMaks di sini TIDAK lagi dipakai untuk mengonversi
-  // nilai — nilai_maks per soal cuma ditampilkan di UI sebagai panduan
-  // bobot/rubrik untuk membantu guru menimbang skor holistiknya.
+  // CATATAN (diperbarui): `bobot_maks` per soal SEKARANG dipakai lagi untuk
+  // menghitung nilai_essay (lihat PUT di bawah & 12_skor_per_soal_essay.sql)
+  // — bukan cuma panduan visual. totalBobotMaks di sini tetap dikirim untuk
+  // ditampilkan sebagai konteks di UI.
   const { data: soalEssayList } = await db
     .from('soal_essay')
     .select('id, teks, bobot_maks, urutan')
@@ -154,6 +154,21 @@ export async function GET(req: NextRequest) {
     fotoMap = Object.fromEntries((fotoList ?? []).map(f => [f.nis, f.foto_url]))
   }
 
+  // FIX (penilaian berbasis rubrik): ambil skor per soal yang sudah pernah
+  // disimpan guru (lihat 12_skor_per_soal_essay.sql), supaya form koreksi
+  // bisa menampilkan kembali angka per soal saat dibuka ulang — bukan cuma
+  // angka gabungan 0-100 seperti sebelumnya.
+  const { data: skorList } = await db
+    .from('skor_essay_siswa')
+    .select('nis, soal_essay_id, skor')
+    .eq('sesi_id', sesiId)
+    .in('nis', nisList)
+  const skorMap: Record<string, Record<string, number>> = {}
+  for (const s of skorList ?? []) {
+    if (!skorMap[s.nis]) skorMap[s.nis] = {}
+    skorMap[s.nis][s.soal_essay_id] = Number(s.skor)
+  }
+
   const peserta = (pesertaList ?? []).map(p => ({
     nis: p.nis,
     nama: namaMap[p.nis] ?? p.nis,
@@ -166,20 +181,38 @@ export async function GET(req: NextRequest) {
     nilaiTotal: nilaiMap[p.nis]?.nilai_total ?? null,
     sudahDinilai: nilaiMap[p.nis]?.dinilai_pada != null || p.status_essay === 'TIDAK_MENGERJAKAN',
     dirilis: nilaiMap[p.nis]?.dirilis ?? false,
+    // FIX (penilaian berbasis rubrik): skor per soal yang sudah tersimpan,
+    // supaya form koreksi bisa menampilkannya lagi saat dibuka ulang.
+    skorPerSoal: skorMap[p.nis] ?? {},
   }))
 
   return NextResponse.json({ soalEssay: soalEssayList ?? [], totalBobotMaks, peserta, modeJawaban, bobotPg, bobotEssay, totalTargetSiswa })
 }
 
-// PUT { sesiId, nis, nilaiEssay } — input/ubah nilai essay 1 siswa & hitung nilai_total.
-// Kalau ingin menandai "Tidak Mengerjakan", kirim { sesiId, nis, tidakMengerjakan: true } sebagai ganti nilaiEssay.
+// PUT { sesiId, nis, skorPerSoal } — input/ubah skor essay 1 siswa PER SOAL
+// (sesuai bobot_maks masing-masing, lihat soal_essay.bobot_maks), backend
+// yang menjumlahkan & mengonversi ke skala 0-100 sebagai nilai.nilai_essay,
+// lalu menghitung nilai_total. Kirim { sesiId, nis, tidakMengerjakan: true }
+// sebagai ganti skorPerSoal untuk menandai siswa tidak mengerjakan.
+//
+// FIX (kembali ke penilaian berbasis rubrik, lihat 12_skor_per_soal_essay.sql):
+// versi sebelumnya menerima satu `nilaiEssay` 0-100 langsung dan bobot_maks
+// per soal diabaikan sama sekali (cuma "panduan" visual, tidak pernah
+// dipakai menghitung). Ini tidak sesuai kaidah Standar Penilaian Pendidikan
+// (instrumen uraian WAJIB dilengkapi pedoman penskoran yang benar-benar
+// dipakai menghitung skor — lihat Permendikbud 66/2013 & 104/2014, prinsip
+// yang sama berlanjut di era Kurikulum Merdeka), dan tidak bisa diaudit per
+// butir soal kalau ada yang mempertanyakan nilai. Sekarang guru mengisi
+// skor per soal, backend yang menjumlah & mengonversi (tidak ada lagi
+// konversi tersembunyi di kepala guru) — dan setiap skor per soal disimpan
+// sebagai jejak audit di skor_essay_siswa.
 export async function PUT(req: NextRequest) {
   const auth = requireRole(req, ['GURU'])
   if ('error' in auth) return auth.error
   const { user } = auth
 
   const db = createAdminClient()
-  const { sesiId, nis, nilaiEssay, tidakMengerjakan } = await req.json()
+  const { sesiId, nis, skorPerSoal, tidakMengerjakan } = await req.json()
   if (!sesiId || !nis) return NextResponse.json({ error: 'sesiId dan nis diperlukan' }, { status: 400 })
 
   const { data: sesi } = await db
@@ -221,26 +254,60 @@ export async function PUT(req: NextRequest) {
 
   let finalNilaiEssay = 0
   let statusEssayUpdate: string | undefined
+  const skorUntukDisimpan: { soal_essay_id: string; skor: number }[] = []
 
   if (tidakMengerjakan) {
     finalNilaiEssay = 0
     statusEssayUpdate = 'TIDAK_MENGERJAKAN'
   } else {
-    // UX (skala nilai essay bebas 0-100, bukan lagi 0-totalBobotMaks):
-    // sebelumnya guru harus input "poin dari X maksimal" (mis. 0-30) yang
-    // lalu dikonversi proporsional ke skala 100 — ini sumber kebingungan
-    // utama karena angka yang diinput guru ≠ angka yang muncul di rekap
-    // (mis. input 30 bisa jadi tampil 100 setelah dikonversi). Sekarang
-    // guru langsung menilai dalam skala 0-100 (standar, sama seperti nilai
-    // PG), tidak ada konversi tersembunyi lagi. `bobot_maks` per soal tetap
-    // disimpan & ditampilkan di UI sebagai PANDUAN bobot/rubrik per soal
-    // untuk membantu guru menimbang skor holistiknya — tapi TIDAK lagi
-    // dipakai dalam rumus penghitungan nilai_total.
-    const nilaiEssayAngka = Number(nilaiEssay)
-    if (isNaN(nilaiEssayAngka) || nilaiEssayAngka < 0 || nilaiEssayAngka > 100) {
-      return NextResponse.json({ error: 'Nilai essay harus antara 0 dan 100' }, { status: 400 })
+    // Ambil soal essay DISETUJUI untuk mapel+kelas ini — jadi acuan
+    // bobot_maks per soal, sama seperti dipakai GET. Pola resolusi kelasId
+    // sengaja disamakan persis dengan GET (kelas.nama → kelas.id, fallback
+    // ke sesi.kelas mentah) supaya soal yang diambil konsisten.
+    const { data: kelasRow } = await db
+      .from('kelas')
+      .select('id')
+      .eq('nama', String(sesi.kelas))
+      .maybeSingle()
+    const kelasId = kelasRow?.id ?? String(sesi.kelas)
+
+    const { data: soalEssayList } = await db
+      .from('soal_essay')
+      .select('id, bobot_maks')
+      .eq('mapel_id', sesi.mapel_id)
+      .eq('kelas_id', kelasId)
+      .eq('status', 'DISETUJUI')
+
+    if (!soalEssayList || soalEssayList.length === 0) {
+      return NextResponse.json({ error: 'Tidak ada soal essay disetujui untuk mapel & kelas ini' }, { status: 400 })
     }
-    finalNilaiEssay = Math.round(nilaiEssayAngka)
+    if (!skorPerSoal || typeof skorPerSoal !== 'object') {
+      return NextResponse.json({ error: 'skorPerSoal diperlukan (skor tiap soal essay)' }, { status: 400 })
+    }
+
+    let totalSkor = 0
+    const totalBobotMaks = soalEssayList.reduce((sum, s) => sum + Number(s.bobot_maks), 0)
+
+    for (const soal of soalEssayList) {
+      const skorMentah = (skorPerSoal as Record<string, unknown>)[soal.id]
+      if (skorMentah === undefined || skorMentah === null || skorMentah === '') {
+        return NextResponse.json({ error: 'Isi skor untuk semua soal essay terlebih dahulu' }, { status: 400 })
+      }
+      const skorAngka = Number(skorMentah)
+      const maksSoal = Number(soal.bobot_maks)
+      if (isNaN(skorAngka) || skorAngka < 0 || skorAngka > maksSoal) {
+        return NextResponse.json({ error: `Skor soal ini harus antara 0 dan ${maksSoal}` }, { status: 400 })
+      }
+      totalSkor += skorAngka
+      skorUntukDisimpan.push({ soal_essay_id: soal.id, skor: skorAngka })
+    }
+
+    // Konversi total skor rubrik ke skala 0-100 — ini SATU-SATUNYA tempat
+    // konversi terjadi, dan hasilnya langsung ditampilkan ke guru sebagai
+    // pratinjau di frontend SEBELUM tombol Simpan ditekan (lihat halaman
+    // koreksi-essay), supaya tidak ada lagi "angka yang diketik guru ≠
+    // angka yang muncul di rekap" seperti masalah versi sebelumnya.
+    finalNilaiEssay = totalBobotMaks > 0 ? Math.round((totalSkor / totalBobotMaks) * 100) : 0
   }
 
   const nilaiPg = nilaiRow.nilai ?? 0
@@ -272,6 +339,22 @@ export async function PUT(req: NextRequest) {
     .eq('id', nilaiRow.id)
 
   if (nilaiError) return NextResponse.json({ error: nilaiError.message }, { status: 500 })
+
+  // FIX (jejak audit rubrik): simpan rincian skor per soal — kosong kalau
+  // "tidak mengerjakan" karena memang tidak ada skor untuk kasus itu.
+  if (skorUntukDisimpan.length > 0) {
+    const { error: skorError } = await db.from('skor_essay_siswa').upsert(
+      skorUntukDisimpan.map(s => ({
+        sesi_id: sesiId,
+        nis,
+        soal_essay_id: s.soal_essay_id,
+        skor: s.skor,
+        updated_at: new Date().toISOString(),
+      })),
+      { onConflict: 'sesi_id,nis,soal_essay_id' }
+    )
+    if (skorError) return NextResponse.json({ error: skorError.message }, { status: 500 })
+  }
 
   if (statusEssayUpdate) {
     await db.from('siswa_ujian').update({ status_essay: statusEssayUpdate }).eq('sesi_id', sesiId).eq('nis', nis)
