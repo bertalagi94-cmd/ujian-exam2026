@@ -46,6 +46,9 @@ interface Peserta {
   nilaiTotal: number | null
   sudahDinilai: boolean
   dirilis: boolean
+  // FIX (penilaian berbasis rubrik): skor yang sudah tersimpan per soal
+  // essay, dipakai untuk mengisi ulang form saat halaman dibuka kembali.
+  skorPerSoal?: Record<string, number>
 }
 
 interface KoreksiData {
@@ -67,7 +70,9 @@ export default function GuruKoreksiEssayPage() {
   const [loadingData, setLoadingData] = useState(false)
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
 
-  const [nilaiInput, setNilaiInput] = useState<Record<string, string>>({})
+  // FIX (penilaian berbasis rubrik): input skor sekarang PER SOAL, bukan
+  // satu angka gabungan — struktur: nis → soal_essay_id → string skor.
+  const [skorInput, setSkorInput] = useState<Record<string, Record<string, string>>>({})
   // UX (tabel koreksi essay): baris siswa dibuat ringkas & bisa di-expand —
   // sebelumnya semua jawaban+form nilai semua siswa selalu tampil sekaligus,
   // jadi terlalu penuh untuk sekadar melihat 1 mapel. Sekarang detail (jawaban
@@ -116,16 +121,17 @@ export default function GuruKoreksiEssayPage() {
     try {
       const res = await apiRequest<KoreksiData>(`/api/guru/koreksi-essay?sesiId=${sesiId}`)
       setData(res)
-      const init: Record<string, string> = {}
+      // FIX (penilaian berbasis rubrik): isi ulang input skor PER SOAL dari
+      // data tersimpan (skorPerSoal), bukan lagi satu angka nilaiEssay.
+      const initSkor: Record<string, Record<string, string>> = {}
       for (const p of res.peserta) {
-        // UX (skala nilai essay 0-100 langsung): nilai yang tersimpan di
-        // database memang sudah dalam skala 0-100, jadi tidak perlu
-        // dikonversi balik ke skala lain lagi seperti sebelumnya.
-        if (p.nilaiEssay !== null && p.nilaiEssay !== undefined) {
-          init[p.nis] = String(p.nilaiEssay)
+        initSkor[p.nis] = {}
+        for (const soal of res.soalEssay) {
+          const skorTersimpan = p.skorPerSoal?.[soal.id]
+          if (skorTersimpan !== undefined) initSkor[p.nis][soal.id] = String(skorTersimpan)
         }
       }
-      setNilaiInput(init)
+      setSkorInput(initSkor)
     } catch (e: unknown) {
       showToast(e instanceof Error ? e.message : 'Gagal memuat data koreksi', 'error')
     } finally {
@@ -141,17 +147,28 @@ export default function GuruKoreksiEssayPage() {
   }
 
   async function handleSimpanNilai(nis: string) {
-    if (!selectedSesiId) return
-    const nilaiRaw = nilaiInput[nis]
-    if (nilaiRaw === undefined || nilaiRaw === '') {
-      showToast('Isi nilai essay terlebih dahulu', 'error')
+    if (!selectedSesiId || !data) return
+    // FIX (penilaian berbasis rubrik): validasi semua soal terisi DI SINI
+    // dulu (sebelum request dikirim) supaya guru langsung tahu soal mana
+    // yang masih kosong, bukan menunggu pesan error dari server.
+    const skorSiswa = skorInput[nis] ?? {}
+    const soalKosong = data.soalEssay.find(s => {
+      const v = skorSiswa[s.id]
+      return v === undefined || v.trim() === ''
+    })
+    if (soalKosong) {
+      showToast(`Isi dulu skor untuk semua soal essay (Soal "${soalKosong.teks.slice(0, 30)}..." masih kosong)`, 'error')
       return
+    }
+    const skorPerSoal: Record<string, number> = {}
+    for (const soal of data.soalEssay) {
+      skorPerSoal[soal.id] = Number(skorSiswa[soal.id])
     }
     setSavingNis(nis)
     try {
       await apiRequest('/api/guru/koreksi-essay', {
         method: 'PUT',
-        body: JSON.stringify({ sesiId: selectedSesiId, nis, nilaiEssay: Number(nilaiRaw) }),
+        body: JSON.stringify({ sesiId: selectedSesiId, nis, skorPerSoal }),
       })
       showToast(`Nilai essay ${nis} berhasil disimpan`)
       if (selectedJadwal) await selectSesi(selectedJadwal)
@@ -368,13 +385,13 @@ export default function GuruKoreksiEssayPage() {
                     </Badge>
                   </div>
 
-                  {/* UX (menghindari kebingungan skala nilai essay): jelaskan
-                      di sini, sekali untuk seluruh sesi, bagaimana nilai
-                      essay digabung dengan nilai PG jadi nilai akhir —
-                      supaya guru tidak perlu menebak-nebak. */}
+                  {/* FIX (penilaian berbasis rubrik): jelaskan di sini, sekali
+                      untuk seluruh sesi, bagaimana skor per soal → nilai essay
+                      → nilai akhir — supaya guru tidak perlu menebak-nebak. */}
                   <div className="bg-brand-50 border border-brand-100 rounded-lg px-3 py-2 text-xs text-slate-600 space-y-0.5">
                     <p>
-                      Input Nilai siswa dari <strong>0–100</strong>.
+                      Beri skor tiap soal essay sesuai bobot maksimalnya (rubrik yang dibuat
+                      di menu Buat Soal). Sistem menjumlahkan &amp; mengonversi otomatis ke skala 0–100.
                     </p>
                     <div className="flex items-center justify-between gap-2">
                       <p>
@@ -437,7 +454,6 @@ export default function GuruKoreksiEssayPage() {
                     </thead>
                     <tbody>
                       {data.peserta.map(p => {
-                        const nilaiSaatIni = nilaiInput[p.nis] ?? ''
                         const terbuka = expandedNis === p.nis
                         const sb = statusBadge(p)
                         const akhirLulus = p.nilaiTotal !== null && p.nilaiPg ? p.nilaiTotal >= p.nilaiPg.kkm : null
@@ -537,21 +553,45 @@ export default function GuruKoreksiEssayPage() {
                                     )}
                                     </div>
 
-                                    {/* Input nilai */}
+                                    {/* FIX (penilaian berbasis rubrik): input nilai sekarang PER
+                                        SOAL essay, sesuai bobot_maks masing-masing (rubrik yang
+                                        dibuat guru sendiri di menu Buat Soal) — bukan lagi satu
+                                        angka gabungan yang ditaksir sendiri. Total & konversi ke
+                                        skala 0-100 dihitung & ditampilkan LANGSUNG di sini secara
+                                        real-time, mengikuti rumus persis yang dipakai backend
+                                        (lihat PUT di api/guru/koreksi-essay/route.ts), supaya guru
+                                        selalu melihat hasil akhirnya SEBELUM menekan Simpan — tidak
+                                        ada lagi konversi tersembunyi. */}
                                     {p.statusEssay !== 'TIDAK_MENGERJAKAN' && (
-                                      <div className="bg-white rounded-lg border border-slate-200 p-3 space-y-2">
-                                        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Beri Nilai Essay</p>
-                                        <div className="flex items-end gap-2 flex-wrap">
-                                          <div className="flex-1 min-w-[140px]">
-                                            <label className="label">Nilai Essay (skala 0–100)</label>
-                                            <input
-                                              type="number" className="input" min={0} max={100}
-                                              placeholder="0 – 100"
-                                              value={nilaiSaatIni}
-                                              onClick={e => e.stopPropagation()}
-                                              onChange={e => setNilaiInput(prev => ({ ...prev, [p.nis]: e.target.value }))}
-                                            />
-                                          </div>
+                                      <div className="bg-white rounded-lg border border-slate-200 p-3 space-y-3">
+                                        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Beri Skor per Soal</p>
+                                        <div className="space-y-2">
+                                          {data.soalEssay.map((soal, i) => {
+                                            const skorSoalStr = skorInput[p.nis]?.[soal.id] ?? ''
+                                            return (
+                                              <div key={soal.id} className="flex items-center justify-between gap-3 bg-slate-50 rounded-lg px-3 py-2">
+                                                <p className="text-sm text-slate-600 min-w-0 truncate" title={soal.teks}>
+                                                  Soal {i + 1} <span className="text-slate-400">(maks {soal.bobot_maks})</span>
+                                                </p>
+                                                <input
+                                                  type="number"
+                                                  className="input w-24 text-center flex-shrink-0"
+                                                  min={0}
+                                                  max={soal.bobot_maks}
+                                                  placeholder={`0–${soal.bobot_maks}`}
+                                                  value={skorSoalStr}
+                                                  onClick={e => e.stopPropagation()}
+                                                  onChange={e => setSkorInput(prev => ({
+                                                    ...prev,
+                                                    [p.nis]: { ...prev[p.nis], [soal.id]: e.target.value },
+                                                  }))}
+                                                />
+                                              </div>
+                                            )
+                                          })}
+                                        </div>
+
+                                        <div className="flex items-center gap-2 flex-wrap pt-1">
                                           <button className="btn-secondary btn-sm" onClick={() => handleSimpanNilai(p.nis)} disabled={savingNis === p.nis}>
                                             {savingNis === p.nis ? <Spinner size="sm" /> : <><Save className="w-3.5 h-3.5" /> Simpan</>}
                                           </button>
@@ -560,22 +600,33 @@ export default function GuruKoreksiEssayPage() {
                                           </button>
                                         </div>
 
-                                        {/* UX (menghindari kebingungan skala nilai essay): pratinjau
-                                            nilai akhir dihitung LANGSUNG di client, mengikuti rumus
-                                            persis yang dipakai backend (lihat PUT di
-                                            api/guru/koreksi-essay/route.ts), supaya guru melihat hasil
-                                            akhirnya SEBELUM menekan Simpan. Sejak skala essay jadi 0-100
-                                            langsung, tidak ada lagi langkah "konversi poin → skala 100"
-                                            di sini — nilai yang diketik guru = nilai essay itu sendiri. */}
-                                        {nilaiSaatIni !== '' && !isNaN(Number(nilaiSaatIni)) && (
-                                          (() => {
-                                            const essayFinal = Math.max(0, Math.min(100, Number(nilaiSaatIni)))
-                                            const nilaiPgSiswa = p.nilaiPg?.nilai ?? 0
-                                            const perkiraanTotal = Math.round(nilaiPgSiswa * (data.bobotPg / 100) + essayFinal * (data.bobotEssay / 100))
-                                            const kkmSiswa = p.nilaiPg?.kkm ?? 0
-                                            const perkiraanLulus = perkiraanTotal >= kkmSiswa
+                                        {(() => {
+                                          const skorSiswa = skorInput[p.nis] ?? {}
+                                          const semuaTerisi = data.soalEssay.length > 0 && data.soalEssay.every(s => {
+                                            const v = skorSiswa[s.id]
+                                            return v !== undefined && v.trim() !== '' && !isNaN(Number(v))
+                                          })
+                                          if (!semuaTerisi) {
                                             return (
-                                              <p className="text-xs text-slate-500 bg-slate-50 rounded-md px-2.5 py-1.5 border border-slate-100">
+                                              <p className="text-xs text-slate-400">
+                                                Isi skor semua soal untuk melihat pratinjau nilai akhir.
+                                              </p>
+                                            )
+                                          }
+                                          const totalBobotMaksSoal = data.soalEssay.reduce((sum, s) => sum + Number(s.bobot_maks), 0)
+                                          const totalSkorSiswa = data.soalEssay.reduce((sum, s) => sum + Number(skorSiswa[s.id]), 0)
+                                          const essayFinal = totalBobotMaksSoal > 0 ? Math.round((totalSkorSiswa / totalBobotMaksSoal) * 100) : 0
+                                          const nilaiPgSiswa = p.nilaiPg?.nilai ?? 0
+                                          const perkiraanTotal = Math.round(nilaiPgSiswa * (data.bobotPg / 100) + essayFinal * (data.bobotEssay / 100))
+                                          const kkmSiswa = p.nilaiPg?.kkm ?? 0
+                                          const perkiraanLulus = perkiraanTotal >= kkmSiswa
+                                          return (
+                                            <div className="text-xs text-slate-500 bg-slate-50 rounded-md px-2.5 py-1.5 border border-slate-100 space-y-1">
+                                              <p>
+                                                Total skor essay = {totalSkorSiswa}/{totalBobotMaksSoal}
+                                                {' '}→ dikonversi ke skala 100 = <strong className="text-brand-700">{essayFinal}</strong>
+                                              </p>
+                                              <p>
                                                 Nilai Akhir = (PG {nilaiPgSiswa}×{data.bobotPg}%) + (Essay {essayFinal}×{data.bobotEssay}%)
                                                 {' '}= <strong className="text-brand-700">{perkiraanTotal}</strong>
                                                 {' '}· KKM {kkmSiswa} ·{' '}
@@ -583,11 +634,12 @@ export default function GuruKoreksiEssayPage() {
                                                   {perkiraanLulus ? 'Lulus' : 'Tidak Lulus'}
                                                 </strong>
                                               </p>
-                                            )
-                                          })()
-                                        )}
+                                            </div>
+                                          )
+                                        })()}
                                       </div>
                                     )}
+
 
                                     {/* UX (redesain ringkasan nilai): dulu satu baris teks padat
                                         "Tersimpan — Nilai Essay: X/100 · Nilai Total: Y" digabung
