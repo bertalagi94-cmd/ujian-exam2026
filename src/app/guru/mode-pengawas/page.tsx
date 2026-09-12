@@ -1128,7 +1128,7 @@ export default function ModePengawasPage() {
                   </div>
                   <p className="text-xs text-orange-600 text-center mt-2">
                     Siswa di atas belum sempat login ke sesi ini sama sekali. Kalau sesi ditutup sekarang, mereka
-                    tidak akan bisa mengikuti ujian ini lagi — pastikan sudah dicek alasannya (izin, sakit,
+                    tidak akan bisa mengikuti ujian ini lagi, tapi siswa tersebut dapat mengikuti ujian susulan — pastikan sudah dicek alasannya (izin, sakit,
                     kendala jaringan, dll) sebelum melanjutkan.
                   </p>
                 </div>
