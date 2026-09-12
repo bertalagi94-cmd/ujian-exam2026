@@ -94,6 +94,7 @@ export async function POST(req: NextRequest) {
     status: 'DRAFT',
     jumlah_soal: 0,
     acak: body.acak ?? 'YA',
+    mode_jawaban: body.mode_jawaban === 'KERTAS' ? 'KERTAS' : 'DIGITAL',
   })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
