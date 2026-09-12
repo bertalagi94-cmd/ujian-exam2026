@@ -23,7 +23,24 @@ export default function AdminSoalPage() {
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
 
+  // FIX (tidak ada notif per tab): sebelumnya admin harus buka tab "Soal PG"
+  // dan "Soal Essay" satu-satu untuk tahu mana yang ada paket menunggu —
+  // badge sidebar juga sebelumnya tidak menghitung Essay sama sekali (lihat
+  // FIX di src/app/api/notif/route.ts). Sekarang kedua jumlah ini diambil
+  // sekali dari /api/notif (endpoint yang sama dipakai badge sidebar) dan
+  // ditampilkan sebagai badge kecil di toggle "Soal PG" / "Soal Essay" —
+  // supaya admin langsung tahu, tanpa perlu klik-klik, tab mana yang perlu
+  // ditinjau.
+  const [pendingCounts, setPendingCounts] = useState<{ PG: number; ESSAY: number }>({ PG: 0, ESSAY: 0 })
+
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => setToast({ msg, type })
+
+  const loadPendingCounts = useCallback(async () => {
+    try {
+      const res = await apiRequest<{ validasiSoalPg?: number; validasiSoalEssay?: number }>('/api/notif')
+      setPendingCounts({ PG: res.validasiSoalPg ?? 0, ESSAY: res.validasiSoalEssay ?? 0 })
+    } catch { /* badge opsional — biarkan diam kalau gagal, tidak menghalangi halaman utama */ }
+  }, [])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -39,6 +56,7 @@ export default function AdminSoalPage() {
   }, [activeTab, jenisSoal])
 
   useEffect(() => { load() }, [load])
+  useEffect(() => { loadPendingCounts() }, [loadPendingCounts])
 
   async function openPreview(p: CombinedPaket) {
     setPreviewPaket(p)
@@ -73,10 +91,69 @@ export default function AdminSoalPage() {
       setActionType(null)
       setCatatanTolak('')
       load()
+      loadPendingCounts()
     } catch (err: unknown) {
       showToast(err instanceof Error ? err.message : 'Gagal memproses', 'error')
     } finally { setSaving(false) }
   }
+
+  // FIX (tidak ada opsi setujui massal): sebelumnya kalau ada banyak paket
+  // menunggu (mis. semua guru mengumpulkan paket menjelang tenggat), admin
+  // harus klik "Setujui" satu per satu untuk tiap paket. Tombol ini hanya
+  // muncul di tab "Menunggu Validasi" saat ada LEBIH DARI 1 paket, dan
+  // memproses tiap paket LEWAT endpoint approve yang SAMA persis dengan
+  // tombol "Setujui" individual (satu per satu, berurutan — bukan paralel)
+  // supaya aturan yang sudah ada di server (mis. auto-mengembalikan paket
+  // lain yang DISETUJUI untuk mapel+kelas yang sama ke DRAFT — lihat FIX BUG
+  // KRITIS di src/app/api/admin/soal/route.ts) tetap berjalan dengan urutan
+  // yang bisa diprediksi, bukan race condition antar request paralel.
+  const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false)
+  const [bulkSaving, setBulkSaving] = useState(false)
+  const [bulkProgress, setBulkProgress] = useState({ done: 0, total: 0 })
+
+  async function handleSetujuiSemua() {
+    setBulkSaving(true)
+    const target = [...pakets]
+    setBulkProgress({ done: 0, total: target.length })
+    let sukses = 0
+    let gagal = 0
+    for (const p of target) {
+      try {
+        await apiRequest(jenisSoal === 'ESSAY' ? '/api/admin/soal-essay' : '/api/admin/soal', {
+          method: 'POST',
+          body: JSON.stringify({ paket_id: p.id, action: 'SETUJUI' }),
+        })
+        sukses++
+      } catch {
+        gagal++
+      }
+      setBulkProgress(prog => ({ ...prog, done: prog.done + 1 }))
+    }
+    setBulkSaving(false)
+    setBulkConfirmOpen(false)
+    if (gagal === 0) {
+      showToast(`${sukses} paket berhasil disetujui sekaligus`)
+    } else {
+      showToast(`${sukses} paket disetujui, ${gagal} gagal — coba lagi satu per satu untuk yang gagal`, 'error')
+    }
+    load()
+    loadPendingCounts()
+  }
+
+  // Kombinasi mapel+kelas yang muncul lebih dari sekali di antara paket yang
+  // sedang ditampilkan — dipakai untuk memberi peringatan eksplisit di modal
+  // konfirmasi "Setujui Semua", karena SERVER hanya mengizinkan SATU paket
+  // DISETUJUI per kombinasi mapel+kelas (paket lain otomatis dikembalikan ke
+  // draft). Tanpa peringatan ini, admin bisa kaget kenapa sebagian paket yang
+  // baru "disetujui semua" balik lagi ke status Draft.
+  const mapelKelasDuplikat = (() => {
+    const seen = new Map<string, number>()
+    for (const p of pakets) {
+      const kunci = `${p.mapel_id}__${p.kelas_id}`
+      seen.set(kunci, (seen.get(kunci) ?? 0) + 1)
+    }
+    return [...seen.values()].some(v => v > 1)
+  })()
 
   const tabs: Array<{ key: typeof activeTab; label: string; color: string }> = [
     { key: 'MENUNGGU', label: 'Menunggu Validasi', color: 'text-amber-600' },
@@ -93,41 +170,79 @@ export default function AdminSoalPage() {
         <p className="page-subtitle">Tinjau dan setujui paket soal dari guru</p>
       </div>
 
-      {/* Toggle jenis soal */}
+      {/* Toggle jenis soal — FIX: masing-masing tombol sekarang punya badge
+          kecil berisi jumlah paket berstatus MENUNGGU untuk jenis itu, jadi
+          admin langsung tahu tab mana yang perlu ditinjau tanpa harus klik
+          bolak-balik. Badge sengaja tetap tampil walau tab yang sedang aktif
+          BUKAN "Menunggu Validasi", supaya info ini tidak hilang begitu saja
+          hanya karena admin sedang melihat tab Disetujui/Ditolak. */}
       <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-fit">
         <button
           onClick={() => setJenisSoal('PG')}
-          className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+          className={`relative px-4 py-2 rounded-lg text-sm font-medium transition-all ${
             jenisSoal === 'PG' ? 'bg-white shadow-card text-slate-900' : 'text-slate-500 hover:text-slate-700'
           }`}
         >
           Soal PG
+          {pendingCounts.PG > 0 && (
+            <span className="ml-1.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-amber-500 text-white text-[10px] font-bold align-middle">
+              {pendingCounts.PG > 99 ? '99+' : pendingCounts.PG}
+            </span>
+          )}
         </button>
         <button
           onClick={() => setJenisSoal('ESSAY')}
-          className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+          className={`relative px-4 py-2 rounded-lg text-sm font-medium transition-all ${
             jenisSoal === 'ESSAY' ? 'bg-white shadow-card text-slate-900' : 'text-slate-500 hover:text-slate-700'
           }`}
         >
           Soal Essay
+          {pendingCounts.ESSAY > 0 && (
+            <span className="ml-1.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-amber-500 text-white text-[10px] font-bold align-middle">
+              {pendingCounts.ESSAY > 99 ? '99+' : pendingCounts.ESSAY}
+            </span>
+          )}
         </button>
       </div>
 
-      {/* Tabs */}
+      {/* Tabs — FIX: badge jumlah juga ditambahkan khusus di tab "Menunggu
+          Validasi" untuk jenis soal yang sedang aktif, sebagai penegasan
+          angka yang sama dengan badge toggle di atas. */}
       <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-fit">
         {tabs.map(t => (
           <button key={t.key}
             onClick={() => setActiveTab(t.key)}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+            className={`relative px-4 py-2 rounded-lg text-sm font-medium transition-all ${
               activeTab === t.key
                 ? 'bg-white shadow-card text-slate-900'
                 : 'text-slate-500 hover:text-slate-700'
             }`}
           >
             {t.label}
+            {t.key === 'MENUNGGU' && pendingCounts[jenisSoal] > 0 && (
+              <span className="ml-1.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-amber-500 text-white text-[10px] font-bold align-middle">
+                {pendingCounts[jenisSoal] > 99 ? '99+' : pendingCounts[jenisSoal]}
+              </span>
+            )}
           </button>
         ))}
       </div>
+
+      {/* Tombol Setujui Semua — FIX: sebelumnya tidak ada opsi setujui
+          massal, admin harus klik "Setujui" satu-satu kalau ada banyak
+          paket menunggu. Hanya muncul di tab Menunggu Validasi saat ada
+          LEBIH DARI 1 paket. */}
+      {activeTab === 'MENUNGGU' && pakets.length > 1 && (
+        <div className="flex justify-end">
+          <button
+            onClick={() => setBulkConfirmOpen(true)}
+            className="btn-success btn-sm"
+            disabled={saving}
+          >
+            <CheckCircle className="w-3.5 h-3.5" /> Setujui Semua ({pakets.length})
+          </button>
+        </div>
+      )}
 
       {loading ? (
         <div className="flex justify-center py-20"><Spinner size="lg" /></div>
@@ -321,6 +436,54 @@ export default function AdminSoalPage() {
             Semua soal dalam paket ini akan disetujui dan bisa digunakan dalam ujian. Lanjutkan?
           </p>
         )}
+      </Modal>
+
+      {/* Konfirmasi Setujui Semua */}
+      <Modal
+        open={bulkConfirmOpen}
+        onClose={() => { if (!bulkSaving) setBulkConfirmOpen(false) }}
+        title={`Setujui Semua Paket (${pakets.length})`}
+        size="sm"
+        footer={
+          <>
+            <button onClick={() => setBulkConfirmOpen(false)} className="btn-secondary" disabled={bulkSaving}>
+              Batal
+            </button>
+            <button onClick={handleSetujuiSemua} className="btn-success" disabled={bulkSaving}>
+              {bulkSaving ? <Spinner size="sm" /> : 'Ya, Setujui Semua'}
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <p className="text-sm text-slate-600">
+            {pakets.length} paket {jenisSoal === 'ESSAY' ? 'Soal Essay' : 'Soal PG'} yang sedang menunggu akan
+            disetujui satu per satu secara berurutan. Semua soal di dalamnya langsung bisa dipakai untuk ujian.
+          </p>
+          {mapelKelasDuplikat && (
+            <div className="flex items-start gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+              <span>
+                ⚠️ Ada lebih dari satu paket untuk kombinasi mata pelajaran + kelas yang sama dalam daftar ini.
+                Sistem hanya mengizinkan <span className="font-semibold">satu</span> paket disetujui per
+                mapel+kelas — paket yang disetujui lebih dulu akan otomatis dikembalikan ke status Draft begitu
+                paket lain untuk mapel+kelas yang sama ikut disetujui setelahnya.
+              </span>
+            </div>
+          )}
+          {bulkSaving && (
+            <div className="space-y-1.5">
+              <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-emerald-500 transition-all"
+                  style={{ width: `${bulkProgress.total ? (bulkProgress.done / bulkProgress.total) * 100 : 0}%` }}
+                />
+              </div>
+              <p className="text-xs text-slate-400 text-center">
+                Memproses {bulkProgress.done} dari {bulkProgress.total} paket...
+              </p>
+            </div>
+          )}
+        </div>
       </Modal>
     </div>
   )
