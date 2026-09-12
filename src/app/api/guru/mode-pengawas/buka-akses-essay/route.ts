@@ -1,58 +1,36 @@
 // Taruh di: src/app/api/guru/mode-pengawas/buka-akses-essay/route.ts
-// POST { sesiId, nis? } — nis kosong = buka untuk SEMUA siswa yang sedang
-// MENGERJAKAN essay di sesi ini sekaligus (tombol "Buka Akses Kirim Semua").
+//
+// FIX BUG (mekanisme "Buka Akses Kirim" mode KERTAS sudah tidak fungsional
+// sama sekali): endpoint ini dulu men-set siswa_ujian.akses_kirim_essay_dibuka
+// = true dengan tujuan menjadi gerbang tombol "Kirim" di akun siswa mode
+// KERTAS (lihat 07_essay.sql). Tapi desain mode KERTAS sudah sengaja diubah
+// (lihat komentar di essay/kirim/route.ts): guru menilai langsung dari kertas
+// fisik, siswa cukup menekan "Selesai" kapan pun, TANPA syarat "akses kirim
+// dibuka" lagi. Akibatnya field akses_kirim_essay_dibuka tidak pernah dibaca
+// di mana pun lagi (grep -rn di seluruh src mengonfirmasi ini) — endpoint ini
+// jadi dead code yang terlihat berfungsi di UI/UX (response sukses) padahal
+// tidak mengubah perilaku siswa sama sekali. Ini berbahaya karena README
+// masih mendaftarkan tombol ini sebagai pekerjaan frontend yang belum
+// dibuat — kalau dibangun nanti, tombolnya akan terlihat berfungsi (guru
+// dapat pesan sukses) padahal tidak berefek apa pun ke siswa.
+//
+// FIX: endpoint dinonaktifkan secara eksplisit (410 Gone) dengan pesan yang
+// jelas, alih-alih dibiarkan pura-pura berhasil. Kalau sekolah memang masih
+// butuh gerbang manual pengawas untuk mode KERTAS, endpoint ini perlu
+// dibangun ulang dari nol supaya essay/kirim/route.ts benar-benar
+// memeriksa akses_kirim_essay_dibuka lagi sebelum menerima "Kirim" — lihat
+// juga catatan README bagian "SISA PEKERJAAN" yang sudah diperbarui.
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
-import { requireRole } from '@/lib/auth'
 
-export async function POST(req: NextRequest) {
-  const auth = requireRole(req, ['GURU'])
-  if ('error' in auth) return auth.error
-  const { user } = auth
-
-  const db = createAdminClient()
-  const { sesiId, nis } = await req.json()
-  if (!sesiId) return NextResponse.json({ error: 'sesiId diperlukan' }, { status: 400 })
-
-  // Verifikasi guru ini adalah pengawas jadwal terkait sesi tsb.
-  const { data: sesi } = await db
-    .from('sesi_ujian')
-    .select('id, jadwal_id, info_json')
-    .eq('id', sesiId)
-    .single()
-
-  if (!sesi) return NextResponse.json({ error: 'Sesi tidak ditemukan' }, { status: 404 })
-
-  const { data: jadwal } = await db
-    .from('jadwal')
-    .select('id, pengawas')
-    .eq('id', sesi.jadwal_id)
-    .eq('pengawas', user.username)
-    .single()
-
-  if (!jadwal) {
-    return NextResponse.json({ error: 'Anda bukan pengawas sesi ini' }, { status: 403 })
-  }
-
-  if (sesi.info_json?.essay_mode_jawaban !== 'KERTAS') {
-    return NextResponse.json({ error: 'Sesi ini tidak menggunakan mode jawaban kertas' }, { status: 400 })
-  }
-
-  let query = db
-    .from('siswa_ujian')
-    .update({ akses_kirim_essay_dibuka: true })
-    .eq('sesi_id', sesiId)
-
-  if (nis) {
-    query = query.eq('nis', nis)
-  } else {
-    query = query.eq('status_essay', 'MENGERJAKAN')
-  }
-
-  const { error } = await query
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-
-  return NextResponse.json({
-    message: nis ? `Akses kirim dibuka untuk siswa ${nis}` : 'Akses kirim dibuka untuk semua siswa yang sedang mengerjakan essay',
-  })
+export async function POST(_req: NextRequest) {
+  return NextResponse.json(
+    {
+      error:
+        'Fitur "Buka Akses Kirim" (mode KERTAS) sudah dinonaktifkan. Sejak ' +
+        'perubahan desain terbaru, siswa mode KERTAS boleh menekan "Kirim" ' +
+        'kapan pun tanpa perlu dibuka pengawas, dan guru menilai langsung ' +
+        'dari kertas fisik. Endpoint ini tidak lagi mengubah perilaku apa pun.',
+    },
+    { status: 410 }
+  )
 }
