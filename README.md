@@ -65,8 +65,12 @@ langsung (Postman/curl). Yang belum ada HANYA tampilan di browser:
 2. Halaman guru: form buat/edit soal essay + setting sesi (pakai endpoint
    `/api/guru/soal-essay` & `/api/guru/jadwal/[id]/essay-setting`)
 3. Halaman guru: panel koreksi essay (pakai `/api/guru/koreksi-essay`)
-4. Tombol "Buka Akses Kirim" di halaman Mode Pengawas guru, untuk mode
-   KERTAS (pakai `/api/guru/mode-pengawas/buka-akses-essay`)
+4. ~~Tombol "Buka Akses Kirim" di halaman Mode Pengawas guru~~ — JANGAN
+   dibuat. Endpoint `/api/guru/mode-pengawas/buka-akses-essay` sudah
+   dinonaktifkan (410 Gone): desain mode KERTAS diubah supaya siswa boleh
+   menekan "Kirim" kapan pun tanpa gerbang pengawas, dan guru menilai
+   langsung dari kertas fisik (lihat komentar di `essay/kirim/route.ts`).
+   Membangun tombol ini tidak akan berefek apa pun ke siswa.
 5. `src/app/guru/kirim-nilai/page.tsx` — tambah tombol rilis nilai essay
    (pakai aksi `rilis_essay_individu` / `rilis_essay_sekaligus`)
 6. Halaman Pengaturan Admin — tambah 2 field untuk
