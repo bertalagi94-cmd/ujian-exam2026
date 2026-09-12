@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
+import { cekSesiMapelKelasSudahMulai, pesanBankSoalTerkunci } from '@/lib/sesi-kelas'
 
 export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['ADMIN'])
@@ -63,6 +64,39 @@ export async function POST(req: NextRequest) {
       { error: 'Alasan penolakan wajib diisi agar guru bisa memperbaiki soalnya.' },
       { status: 400 }
     )
+  }
+
+  // FIX BUG (bank soal PG tidak terkunci di sisi Admin setelah sesi mulai):
+  // cekSesiMapelKelasSudahMulai() sudah dipakai di SEMUA endpoint GURU yang
+  // membuat/mengubah/menghapus paket_soal/soal (lihat doc-comment fungsi ini
+  // di sesi-kelas.ts), tapi endpoint admin INI — yang mengubah status paket
+  // lewat SETUJUI/TOLAK/BATAL_SETUJUI (otomatis ikut mengubah status semua
+  // soal di dalamnya) — tidak pernah memeriksa guard yang sama. Ini bolong
+  // yang berbahaya: soal yang ditampilkan ke siswa (siswa/ujian/validasi)
+  // dan kunci jawaban untuk menilai (ambilDataSesiUntukPenilaian) SELALU
+  // mengambil paket yang SEDANG DISETUJUI saat itu juga (bukan snapshot yang
+  // dikunci ke sesi). Kalau admin BATAL_SETUJUI/TOLAK paket yang sedang/
+  // sudah dipakai sesi BERJALAN/SELESAI, siswa yang belum submit bisa gagal
+  // total (tidak ada paket disetujui), dan siswa yang dinilai belakangan
+  // (cache kedaluwarsa / finalisasi paksa) bisa mendapat nilai 0 walau
+  // jawabannya benar karena kunci jawaban jadi kosong (paketData undefined
+  // → query .eq('paket_id', '') → kunciMap kosong). FIX: tolak SETUJUI/
+  // TOLAK/BATAL_SETUJUI begitu sesi ujian untuk mapel+kelas paket ini sudah
+  // BERJALAN atau SELESAI — persis pola guard yang sama dengan sisi Guru.
+  const { data: paketUntukGuard } = await db
+    .from('paket_soal')
+    .select('mapel_id, kelas_id')
+    .eq('id', paket_id)
+    .single()
+
+  if (paketUntukGuard) {
+    const sesiSudahMulai = await cekSesiMapelKelasSudahMulai(db, paketUntukGuard.mapel_id, paketUntukGuard.kelas_id)
+    if (sesiSudahMulai) {
+      return NextResponse.json(
+        { error: pesanBankSoalTerkunci('PG', sesiSudahMulai, 'mengubah') },
+        { status: 409 }
+      )
+    }
   }
 
   // FIX BUG KRITIS: cegah lebih dari satu paket_soal berstatus DISETUJUI untuk
