@@ -1069,6 +1069,17 @@ export default function ModePengawasPage() {
         const sesiIdTutup = confirmTutup.sesi_ujian?.id
         const siswaTutupList = sesiIdTutup ? (siswaMap[sesiIdTutup] ?? []) : []
         const siswaMasihAktif = siswaTutupList.filter(s => s.status === 'AKTIF')
+        // FIX (fitur diminta): sebelumnya dialog ini HANYA mengecek siswa yang
+        // sedang AKTIF mengerjakan — siswa yang belum login sama sekali
+        // (status semu 'BELUM_LOGIN', lihat definisi SiswaAktif di atas) tidak
+        // pernah ditampilkan di sini, walau datanya sudah tersedia (dipakai di
+        // daftar peserta biasa). Akibatnya pengawas bisa menutup sesi tanpa
+        // sadar ada siswa yang belum sempat login sama sekali, dan siswa itu
+        // kehilangan kesempatan ujian tanpa ada peringatan eksplisit.
+        // Sekarang siswa belum login ikut ditampilkan (nama + total) supaya
+        // pengawas bisa memutuskan sendiri: lanjut tutup atau batal dulu untuk
+        // menunggu/menghubungi siswa yang bersangkutan.
+        const siswaBelumLogin = siswaTutupList.filter(s => s.status === 'BELUM_LOGIN')
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
             <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 animate-fade-in">
@@ -1081,7 +1092,7 @@ export default function ModePengawasPage() {
               {/* Daftar siswa yang sedang mengerjakan di sesi ini, supaya pengawas
                   tahu siapa yang akan terdampak sebelum benar-benar menutup sesi. */}
               {siswaMasihAktif.length > 0 ? (
-                <div className="mt-3 mb-4">
+                <div className="mt-3 mb-3">
                   <div className="text-xs font-semibold text-red-500 uppercase tracking-wide mb-2 text-center">
                     {siswaMasihAktif.length} Siswa Masih Mengerjakan
                   </div>
@@ -1098,9 +1109,38 @@ export default function ModePengawasPage() {
                 <p className="text-xs text-slate-400 text-center mb-3">Tidak ada siswa yang sedang mengerjakan saat ini.</p>
               )}
 
+              {/* FIX (fitur diminta): peringatan siswa yang belum login sama
+                  sekali — terpisah dari "Masih Mengerjakan" karena dampak &
+                  keputusannya berbeda (siswa ini belum sempat mulai ujian
+                  sama sekali, bukan sedang dikerjakan lalu terpotong). */}
+              {siswaBelumLogin.length > 0 && (
+                <div className="mb-3">
+                  <div className="text-xs font-semibold text-orange-500 uppercase tracking-wide mb-2 text-center">
+                    {siswaBelumLogin.length} Siswa Belum Login
+                  </div>
+                  <div className="space-y-1 max-h-40 overflow-y-auto bg-orange-50 rounded-xl p-2">
+                    {siswaBelumLogin.map(sw => (
+                      <div key={sw.nis} className="flex items-center gap-2 px-2 py-1.5 bg-white rounded-lg text-sm">
+                        <span className="font-medium text-slate-800 truncate flex-1">{sw.nama}</span>
+                        <span className="text-xs text-slate-400 font-mono">{sw.nis}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-xs text-orange-600 text-center mt-2">
+                    Siswa di atas belum sempat login ke sesi ini sama sekali. Kalau sesi ditutup sekarang, mereka
+                    tidak akan bisa mengikuti ujian ini lagi — pastikan sudah dicek alasannya (izin, sakit,
+                    kendala jaringan, dll) sebelum melanjutkan.
+                  </p>
+                </div>
+              )}
+
+              {siswaMasihAktif.length === 0 && siswaBelumLogin.length === 0 && (
+                <p className="text-xs text-slate-400 text-center mb-3">Semua siswa sudah login dan tidak ada yang sedang mengerjakan.</p>
+              )}
+
               <p className="text-xs text-slate-400 text-center mb-6">
                 {siswaMasihAktif.length > 0
-                  ? 'Siswa di atas akan otomatis dianggap selesai dengan jawaban terakhir yang tersimpan. Tindakan ini tidak dapat dibatalkan.'
+                  ? 'Siswa yang masih mengerjakan akan otomatis dianggap selesai dengan jawaban terakhir yang tersimpan. Tindakan ini tidak dapat dibatalkan.'
                   : 'Tindakan ini tidak dapat dibatalkan.'}
               </p>
               <div className="flex gap-3">
