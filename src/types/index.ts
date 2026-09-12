@@ -226,6 +226,12 @@ export interface Nilai {
   // joined
   nama_siswa?: string
   nama_mapel?: string
+  // FITUR BARU (riwayat pelanggaran untuk guru pengampu): diisi oleh
+  // /api/guru/nilai — daftar pelanggaran (kecurangan) siswa selama sesi
+  // ujian ini, supaya guru pengampu bisa melihat kondisi siswa selama
+  // ujian, bukan cuma nilai akhirnya.
+  pelanggaran?: Pelanggaran[]
+  jumlah_pelanggaran?: number
 }
 
 export interface Jawaban {
