@@ -1053,6 +1053,30 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
   const [activePaket, setActivePaket] = useState<PaketEssay | null>(null)
   const [soalList, setSoalList] = useState<SoalEssay[]>([])
 
+  // Ubah Mode Jawaban (setelah paket dibuat) — lihat PUT
+  // /api/guru/paket-essay/[id]/route.ts
+  const [ubahModeOpen, setUbahModeOpen] = useState(false)
+  const [modeBaru, setModeBaru] = useState<'DIGITAL' | 'KERTAS'>('DIGITAL')
+
+  async function handleUbahMode() {
+    if (!activePaket) return
+    setSaving(true)
+    try {
+      const res = await apiRequest<{ message: string }>(`/api/guru/paket-essay/${activePaket.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ mode_jawaban: modeBaru }),
+      })
+      setActivePaket({ ...activePaket, mode_jawaban: modeBaru })
+      setPakets(prev => prev.map(p => (p.id === activePaket.id ? { ...p, mode_jawaban: modeBaru } : p)))
+      setUbahModeOpen(false)
+      showToast(res.message ?? 'Mode jawaban berhasil diubah')
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Gagal mengubah mode jawaban', 'error')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   // Setup state
   const [setupMapel, setSetupMapel] = useState('')
   const [setupKelas, setSetupKelas] = useState('')
@@ -1460,9 +1484,24 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
             <ArrowLeft className="w-4 h-4" /> Kembali
           </button>
           <h1 className="page-title">Kelola Soal Essay</h1>
-          <p className="page-subtitle">
-            {namaMapel} · Kelas {namaKelas} · Mode {activePaket.mode_jawaban} · {activePaket.durasi_menit} menit · Bobot PG {activePaket.bobot_pg_persen}% : Essay {activePaket.bobot_essay_persen}% · {soalList.length} soal
+          <p className="page-subtitle flex items-center gap-2 flex-wrap">
+            <span>
+              {namaMapel} · Kelas {namaKelas} · Mode {activePaket.mode_jawaban} · {activePaket.durasi_menit} menit · Bobot PG {activePaket.bobot_pg_persen}% : Essay {activePaket.bobot_essay_persen}% · {soalList.length} soal
+            </span>
+            {activePaket.status !== 'DISETUJUI' && (
+              <button
+                onClick={() => { setModeBaru(activePaket.mode_jawaban); setUbahModeOpen(true) }}
+                className="btn-ghost btn-sm text-emerald-700"
+              >
+                Ubah Mode Jawaban
+              </button>
+            )}
           </p>
+          {activePaket.status === 'DISETUJUI' && (
+            <p className="text-xs text-slate-400 mt-1">
+              Mode jawaban terkunci karena paket sudah disetujui admin. Minta admin membatalkan persetujuan dulu kalau perlu diubah.
+            </p>
+          )}
         </div>
 
         <EssayFlowGuide current="buat-soal" />
@@ -1565,6 +1604,33 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
           onConfirm={handleDeleteSoal} title="Hapus Soal"
           message="Soal ini akan dihapus permanen. Lanjutkan?"
           confirmLabel="Ya, Hapus" loading={saving} />
+
+        {/* Modal Ubah Mode Jawaban */}
+        <Modal open={ubahModeOpen} onClose={() => setUbahModeOpen(false)} title="Ubah Mode Jawaban"
+          footer={
+            <>
+              <button onClick={() => setUbahModeOpen(false)} className="btn-secondary" disabled={saving}>Batal</button>
+              <button onClick={handleUbahMode} className="btn-primary" disabled={saving || modeBaru === activePaket.mode_jawaban}>
+                {saving ? <Spinner size="sm" /> : 'Simpan'}
+              </button>
+            </>
+          }
+        >
+          <div className="space-y-3">
+            <p className="text-sm text-slate-600">
+              Pilih bagaimana siswa akan menjawab soal essay pada paket ini.
+            </p>
+            <select className="select" value={modeBaru} onChange={e => setModeBaru(e.target.value as 'DIGITAL' | 'KERTAS')}>
+              <option value="DIGITAL">Digital — siswa mengetik jawaban di layar</option>
+              <option value="KERTAS">Kertas — siswa menulis jawaban di kertas</option>
+            </select>
+            {activePaket.status === 'MENUNGGU' && (
+              <p className="text-xs text-slate-400">
+                Paket ini masih menunggu validasi admin — mengubah mode tidak akan membatalkan pengiriman.
+              </p>
+            )}
+          </div>
+        </Modal>
       </div>
     )
   }
