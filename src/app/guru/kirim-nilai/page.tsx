@@ -162,10 +162,10 @@ export default function KirimNilaiPage() {
 
     const dikirimRows = grup.rows.filter(r => r.dikirim_ke_wali)
     if (dikirimRows.length === 0) {
-      return { label: 'Belum terkirim', className: 'text-slate-500 font-medium' }
+      return { label: 'Belum terkirim', className: 'bg-red-100 text-red-700 border border-red-200 font-semibold' }
     }
     if (grup.sudahDikirim === grup.total) {
-      return { label: 'Sudah terkirim', className: 'text-emerald-600 font-semibold' }
+      return { label: 'Sudah terkirim', className: 'bg-emerald-100 text-emerald-700 border border-emerald-200 font-semibold' }
     }
 
     // Sudah pernah kirim, tapi belum semua — bedakan siswa yang memang baru
@@ -186,11 +186,11 @@ export default function KirimNilaiPage() {
     if (siswaBaru.length > 0) {
       return {
         label: 'Ada nilai siswa baru masuk. Cek dan Kirim lagi ke wali kelas.',
-        className: 'text-red-600 font-bold',
+        className: 'bg-red-100 text-red-700 border border-red-300 font-bold',
       }
     }
 
-    return { label: 'Belum terkirim', className: 'text-slate-500 font-medium' }
+    return { label: 'Belum terkirim', className: 'bg-red-100 text-red-700 border border-red-200 font-semibold' }
   }
 
   async function simpanEdit(nilaiId: string) {
@@ -382,7 +382,9 @@ export default function KirimNilaiPage() {
                   <div className="font-semibold text-slate-900">
                     {grup.nama_mapel}
                     {!adaDikembalikan && statusKirim && (
-                      <span className={`ml-1 ${statusKirim.className}`}> - {statusKirim.label}</span>
+                      <span className={`ml-2 px-2 py-0.5 rounded-full text-xs align-middle ${statusKirim.className}`}>
+                        {statusKirim.label}
+                      </span>
                     )}
                   </div>
                   <div className="text-xs text-slate-400">Kelas {grup.kelas}</div>
