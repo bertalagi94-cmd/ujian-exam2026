@@ -91,11 +91,24 @@ export async function GET(req: NextRequest) {
   // tetap melihat mereka di daftar (jawaban essay yang sempat ter-autosave
   // ikut ditampilkan jika ada) dan bisa memakai tombol "Tidak Mengerjakan"
   // atau input nilai seperti biasa untuk menuntaskan nilai_total mereka.
+  //
+  // FIX BUG (siswa TERKUNCI permanen di sesi ber-essay tidak pernah bisa
+  // dinilai/dikirim ke wali kelas): siswa yang dikunci permanen karena
+  // pelanggaran (lihat reset-siswa/route.ts) atau dikunci manual admin
+  // (admin/pelanggaran/route.ts, aksi kunci_permanen) SENGAJA dipertahankan
+  // status = 'TERKUNCI' (bukan 'SELESAI') supaya guard akses ujian tetap
+  // memblokirnya — tapi status_essay mereka tidak pernah disentuh, sehingga
+  // sebelumnya tidak masuk kondisi manapun di filter ini dan tidak pernah
+  // muncul di halaman koreksi. Akibatnya guru tidak punya cara menandai
+  // "Tidak Mengerjakan" untuk mereka, dan nilai_essay/nilai_total/dirilis
+  // pada baris nilainya selamanya kosong — nilai mereka macet, tidak pernah
+  // bisa dikirim ke wali kelas lewat kirim-nilai/route.ts. FIX: sertakan
+  // juga status = 'TERKUNCI' supaya guru bisa melihat & menandai siswa ini.
   const { data: pesertaList } = await db
     .from('siswa_ujian')
     .select('nis, status, status_essay, waktu_kirim_essay')
     .eq('sesi_id', sesiId)
-    .or('status_essay.in.(SUDAH_KIRIM,TIDAK_MENGERJAKAN),status.eq.SELESAI')
+    .or('status_essay.in.(SUDAH_KIRIM,TIDAK_MENGERJAKAN),status.in.(SELESAI,TERKUNCI)')
 
   // FIX BUG (badge "Belum Menjawab" selalu 0): sebelumnya frontend menghitung
   // "belum menjawab" dari `peserta.length - sudahMenjawab`, padahal `peserta`
@@ -172,6 +185,8 @@ export async function GET(req: NextRequest) {
   const peserta = (pesertaList ?? []).map(p => ({
     nis: p.nis,
     nama: namaMap[p.nis] ?? p.nis,
+    statusSiswa: p.status,
+    terkunciPelanggaran: p.status === 'TERKUNCI',
     statusEssay: p.status_essay,
     waktuKirimEssay: p.waktu_kirim_essay,
     jawabanTeks: modeJawaban === 'DIGITAL' ? (jawabanMap[p.nis] ?? []) : undefined,
