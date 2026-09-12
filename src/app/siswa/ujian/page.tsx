@@ -1285,13 +1285,27 @@ export default function SiswaUjianPage() {
     setLoadingEssaySoal(true)
     setErrorEssay('')
     try {
-      const [mulaiRes, soalRes] = await Promise.all([
-        apiRequest<{ waktuMulaiEssay: string }>('/api/siswa/ujian/essay/mulai', {
-          method: 'POST',
-          body: JSON.stringify({ sesiId }),
-        }),
-        apiRequest<{ data: SoalEssay[] }>(`/api/siswa/ujian/essay/soal?sesiId=${sesiId}`),
-      ])
+      // FIX BUG (race condition "Sesi essay belum dimulai" walau baru tekan
+      // Mulai): sebelumnya /mulai (POST — mengubah status_essay siswa di DB
+      // dari BELUM_MULAI ke MENGERJAKAN) dan /soal (GET — MENSYARATKAN
+      // status_essay sudah MENGERJAKAN, lihat guard di essay/soal/route.ts)
+      // ditembak BERSAMAAN lewat Promise.all. Kalau request /soal sempat
+      // sampai & dicek server SEBELUM update status dari /mulai selesai
+      // tersimpan, /soal menolak dengan error "belum dimulai" walau siswa
+      // baru saja menekan tombol Mulai — persis skenario yang dilaporkan.
+      // (Tombol "Coba Lagi" biasanya berhasil di percobaan kedua karena
+      // /mulai di percobaan pertama itu SUDAH terlanjur berhasil mengubah
+      // status di DB, walau /soal-nya gagal.)
+      //
+      // FIX: panggil /mulai dan TUNGGU sampai selesai lebih dulu — baru
+      // panggil /soal setelahnya. Ini menghilangkan race-nya sepenuhnya
+      // karena status_essay dijamin sudah MENGERJAKAN di DB sebelum /soal
+      // sempat dicek server.
+      const mulaiRes = await apiRequest<{ waktuMulaiEssay: string }>('/api/siswa/ujian/essay/mulai', {
+        method: 'POST',
+        body: JSON.stringify({ sesiId }),
+      })
+      const soalRes = await apiRequest<{ data: SoalEssay[] }>(`/api/siswa/ujian/essay/soal?sesiId=${sesiId}`)
       setEssayList(soalRes.data ?? [])
 
       const info = essayInfoRef.current
