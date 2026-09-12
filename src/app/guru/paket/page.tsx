@@ -1491,7 +1491,7 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
             {activePaket.status !== 'DISETUJUI' && (
               <button
                 onClick={() => { setModeBaru(activePaket.mode_jawaban); setUbahModeOpen(true) }}
-                className="btn-ghost btn-sm text-emerald-700"
+                className="btn-danger btn-sm"
               >
                 Ubah Mode Jawaban
               </button>
