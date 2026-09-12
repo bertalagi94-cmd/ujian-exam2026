@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import {
-  Send, Save, RotateCcw, ChevronDown, ChevronUp,
+  Send, Save, RotateCcw, ChevronDown, ChevronUp, ChevronLeft, ChevronRight,
   AlertTriangle, CheckCircle, BarChart3, MessageSquare,
   FileText, CheckCircle2,
 } from 'lucide-react'
@@ -296,35 +296,48 @@ export default function KirimNilaiPage() {
       {/* Header */}
       <div>
         <h1 className="page-title">Kirim Nilai ke Wali Kelas</h1>
-        <p className="page-subtitle">
-          Isi nilai edit untuk remedial (opsional), lalu kirim ke wali kelas.
-          Jika kolom nilai edit dikosongkan, nilai asli yang akan dikirim.
+        <p className="page-subtitle text-sm sm:text-base">
+          Kirim nilai akhir siswa ke wali kelas. Nilai edit boleh dikosongkan —
+          nilai asli akan otomatis dipakai.
         </p>
       </div>
 
       {/* FIX (kejelasan istilah): halaman ini menggabungkan dua AKSI yang
-          beda tujuan (rilis ke SISWA vs kirim ke WALI KELAS) dan beberapa
-          ANGKA nilai (asli/edit/essay/total) di satu layar — sebelumnya
-          tidak ada penjelasan eksplisit, guru harus menyimpulkan sendiri
-          dari konteks. Kotak ini murni informasi (tidak mengubah alur atau
-          logika apa pun), tujuannya cuma jadi "peta" sebelum guru mulai
-          mengisi tabel di bawah. */}
-      <div className="card-sm bg-slate-50 border-slate-200">
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs text-slate-600">
-          <div className="flex gap-2">
-            <Send className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
-            <div>
-              <span className="font-semibold text-slate-800">Kirim ke Wali Kelas</span> — tombol hijau
-              di bagian bawah tiap mapel. Mengirim nilai <em>akhir</em> siswa (nilai edit kalau diisi,
-              kalau tidak pakai nilai asli) ke wali kelas untuk mapel &amp; kelas itu.
+          beda tujuan (rilis ke SISWA vs kirim ke WALI KELAS) di satu layar —
+          sebelumnya guru harus menyimpulkan sendiri dari konteks. Ditata
+          ulang jadi panduan 2 langkah bernomor, dengan warna yang sama
+          persis dengan warna tombol aslinya di bawah, supaya guru langsung
+          mengenali tombol mana yang dimaksud tanpa perlu menghafal istilah.
+          Ini MURNI tampilan — tidak mengubah alur atau logika apa pun. */}
+      <div className="card-sm bg-white border-slate-200">
+        <p className="text-sm font-semibold text-slate-700 mb-3">
+          Ada 2 tombol penting di halaman ini:
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="flex items-start gap-3 rounded-xl bg-indigo-50 border border-indigo-100 px-4 py-3.5">
+            <div className="w-7 h-7 rounded-full bg-indigo-600 text-white flex items-center justify-center flex-shrink-0 font-bold text-sm">1</div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 font-semibold text-slate-800 text-sm">
+                <FileText className="w-4 h-4 text-indigo-600 flex-shrink-0" />
+                Rilis Nilai Essay <span className="font-normal text-slate-400">(kalau ada)</span>
+              </div>
+              <p className="text-sm text-slate-600 mt-1 leading-relaxed">
+                Ada di panel ungu di bawah. Tekan ini <strong>dulu</strong> supaya siswa bisa
+                melihat nilai essay-nya sebelum dikirim ke wali kelas.
+              </p>
             </div>
           </div>
-          <div className="flex gap-2">
-            <FileText className="w-4 h-4 text-indigo-600 flex-shrink-0 mt-0.5" />
-            <div>
-              <span className="font-semibold text-slate-800">Rilis Nilai Essay</span> — panel ungu (kalau
-              ada soal Essay). Membuka nilai Essay &amp; nilai Total (PG+Essay) agar bisa dilihat
-              <em> siswa</em>. Harus dirilis dulu sebelum siswa itu ikut terkirim ke wali kelas.
+          <div className="flex items-start gap-3 rounded-xl bg-emerald-50 border border-emerald-100 px-4 py-3.5">
+            <div className="w-7 h-7 rounded-full bg-emerald-600 text-white flex items-center justify-center flex-shrink-0 font-bold text-sm">2</div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 font-semibold text-slate-800 text-sm">
+                <Send className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                Kirim ke Wali Kelas
+              </div>
+              <p className="text-sm text-slate-600 mt-1 leading-relaxed">
+                Tombol hijau paling bawah tiap mapel. Ini yang benar-benar mengirim nilai
+                final siswa ke wali kelas.
+              </p>
             </div>
           </div>
         </div>
@@ -369,41 +382,51 @@ export default function KirimNilaiPage() {
                   : 'border-slate-200'
             }`}
           >
-            {/* Header kelompok */}
+            {/* Header kelompok — ditata ulang jadi 2 baris (nama+status di
+                atas, ringkasan angka di bawah sebagai pill) supaya tidak
+                berdesakan dan lebih enak dibaca/disentuh di layar kecil.
+                Semua nilai (sudahDikirim, total, jumlahTertunda, dst) masih
+                dari state/logika yang sama persis. */}
             <button
-              className="w-full flex items-center justify-between gap-4 px-5 py-4 text-left hover:bg-slate-50 transition-colors"
+              className="w-full flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-5 py-4 text-left hover:bg-slate-50 transition-colors"
               onClick={() => setExpandedGroup(isOpen ? null : grup.kunciMapel)}
             >
-              <div className="flex items-center gap-3 flex-1 min-w-0">
-                <div className={`w-2 h-2 rounded-full flex-shrink-0 ${
+              <div className="flex items-start gap-3 flex-1 min-w-0">
+                <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 mt-2 ${
                   adaDikembalikan ? 'bg-orange-500' : semuaDikirim ? 'bg-emerald-500' : 'bg-amber-400'
                 }`} />
-                <div>
-                  <div className="font-semibold text-slate-900">
-                    {grup.nama_mapel}
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-semibold text-slate-900 text-base">{grup.nama_mapel}</span>
                     {!adaDikembalikan && statusKirim && (
-                      <span className={`ml-2 px-2 py-0.5 rounded-full text-xs align-middle ${statusKirim.className}`}>
+                      <span className={`px-2.5 py-1 rounded-full text-xs ${statusKirim.className}`}>
                         {statusKirim.label}
                       </span>
                     )}
+                    {adaDikembalikan && (
+                      <span className="flex items-center gap-1 text-xs bg-orange-100 text-orange-700 border border-orange-200 px-2.5 py-1 rounded-full font-medium">
+                        <AlertTriangle className="w-3 h-3" /> Dikembalikan wali kelas
+                      </span>
+                    )}
                   </div>
-                  <div className="text-xs text-slate-400">Kelas {grup.kelas}</div>
+                  <div className="text-sm text-slate-400 mt-0.5">Kelas {grup.kelas}</div>
                 </div>
-                {adaDikembalikan && (
-                  <span className="ml-2 flex items-center gap-1 text-xs bg-orange-100 text-orange-700 border border-orange-200 px-2 py-0.5 rounded-full font-medium">
-                    <AlertTriangle className="w-3 h-3" /> Dikembalikan wali kelas
+              </div>
+              <div className="flex items-center gap-2 flex-wrap pl-5 sm:pl-0 sm:flex-shrink-0">
+                <span className="text-xs font-medium text-slate-600 bg-slate-100 px-2.5 py-1 rounded-full">
+                  {grup.sudahDikirim}/{grup.total} terkirim
+                </span>
+                {jumlahTertunda > 0 && (
+                  <span className="text-xs font-medium text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-full">
+                    {jumlahTertunda} menunggu essay
                   </span>
                 )}
-              </div>
-              <div className="flex items-center gap-3 flex-shrink-0">
-                <span className="text-xs text-slate-500">{grup.sudahDikirim}/{grup.total} terkirim</span>
-                {jumlahTertunda > 0 && (
-                  <span className="text-xs text-indigo-500">· {jumlahTertunda} menunggu essay</span>
-                )}
                 {grup.belumUjian.length > 0 && (
-                  <span className="text-xs text-slate-400">· {grup.belumUjian.length} belum ujian</span>
+                  <span className="text-xs font-medium text-slate-500 bg-slate-50 px-2.5 py-1 rounded-full">
+                    {grup.belumUjian.length} belum ujian
+                  </span>
                 )}
-                {isOpen ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+                {isOpen ? <ChevronUp className="w-5 h-5 text-slate-400 flex-shrink-0" /> : <ChevronDown className="w-5 h-5 text-slate-400 flex-shrink-0" />}
               </div>
             </button>
 
@@ -411,6 +434,23 @@ export default function KirimNilaiPage() {
             {isOpen && (
               <div className="border-t border-slate-100">
                 {grup.rows.length > 0 && (
+                <div>
+                  {/* Petunjuk geser — hanya tampil di layar kecil, karena
+                      tabel ini punya banyak kolom dan gampang terlewat kalau
+                      guru tidak sadar harus menggeser ke kanan di HP. */}
+                  <p className="lg:hidden text-xs text-slate-400 px-5 pt-3 pb-1 flex items-center gap-1">
+                    <ChevronLeft className="w-3.5 h-3.5" />
+                    Geser tabel untuk lihat kolom lainnya
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </p>
+                  {/* Catatan singkat dipindah ke sini (satu tempat saja),
+                      menggantikan sub-teks kecil yang sebelumnya menumpuk
+                      di header kolom "Nilai Edit" — supaya header tabel
+                      tetap ringkas dan gampang dipindai sekilas. */}
+                  <p className="text-xs text-slate-400 px-5 pt-1 pb-2">
+                    Kolom <strong className="text-slate-500">Nilai Edit</strong> boleh dikosongkan —
+                    kalau kosong, Nilai Asli yang dipakai saat dikirim.
+                  </p>
                 <div className="overflow-x-auto">
                   <table className="table text-sm w-full">
                     <thead>
@@ -420,7 +460,7 @@ export default function KirimNilaiPage() {
                         <th className="text-center">Nilai Asli</th>
                         <th className="text-center">Grade</th>
                         <th className="text-center">Status</th>
-                        <th className="text-center w-32">Nilai Edit<br /><span className="font-normal text-slate-400 text-xs">(kosongkan = pakai asli)</span></th>
+                        <th className="text-center w-32">Nilai Edit</th>
                         <th className="text-left w-48">Catatan</th>
                         <th className="text-center">Kirim?</th>
                         <th className="text-center"></th>
@@ -539,6 +579,7 @@ export default function KirimNilaiPage() {
                     </tbody>
                   </table>
                 </div>
+                </div>
                 )}
 
                 {/* FIX (fitur essay): panel rilis nilai essay — hanya tampil
@@ -554,8 +595,9 @@ export default function KirimNilaiPage() {
                         <div key={sesiId} className="px-5 py-4 bg-indigo-50/40">
                           <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
                             <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                              <span className="w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center flex-shrink-0 text-[11px] font-bold">1</span>
                               <FileText className="w-4 h-4 text-indigo-500" />
-                              Nilai Essay ({rowsSesi.length} siswa dinilai)
+                              Rilis Nilai Essay ({rowsSesi.length} siswa dinilai)
                             </div>
                             <button
                               onClick={() => rilisEssaySekaligus(sesiId)}
@@ -570,7 +612,7 @@ export default function KirimNilaiPage() {
                               {semuaDirilis ? 'Semua Sudah Dirilis' : 'Rilis Semua ke Siswa'}
                             </button>
                           </div>
-                          <p className="text-[11px] text-indigo-400 mb-2">
+                          <p className="text-xs text-indigo-400 mb-2">
                             Sama dengan tombol rilis di menu Koreksi Essay — cukup dari salah satu.
                           </p>
                           <div className="space-y-1.5">
@@ -631,14 +673,15 @@ export default function KirimNilaiPage() {
 
                 {/* Tombol kirim semua di kelompok ini — hanya relevan kalau ada nilai untuk dikirim */}
                 {grup.total > 0 && (
-                <div className="flex items-center justify-between px-5 py-4 bg-slate-50 border-t border-slate-100">
-                  <p className="text-xs text-slate-500">
-                    Nilai edit yang kosong akan otomatis menggunakan nilai asli saat dikirim.
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-5 py-4 bg-slate-50 border-t border-slate-100">
+                  <p className="text-xs text-slate-500 flex items-center gap-1.5">
+                    <span className="w-5 h-5 rounded-full bg-emerald-600 text-white flex items-center justify-center flex-shrink-0 text-[11px] font-bold">2</span>
+                    Nilai edit yang kosong akan otomatis pakai nilai asli.
                   </p>
                   <button
                     onClick={() => kirimKelompok(grup.mapel_id, grup.kelas, grup.kunciMapel)}
                     disabled={sending === grup.kunciMapel || semuaDikirim}
-                    className="flex items-center gap-2 px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {sending === grup.kunciMapel ? (
                       <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
