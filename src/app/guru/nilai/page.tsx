@@ -2,10 +2,11 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import * as XLSX from 'xlsx'
-import { Download, BarChart3, Trophy, TrendingUp, Users, CheckCircle } from 'lucide-react'
-import { PageLoader, EmptyState, SearchInput, StatCard } from '@/components/ui'
+import { Download, BarChart3, Trophy, TrendingUp, Users, CheckCircle, AlertTriangle, ShieldCheck } from 'lucide-react'
+import { PageLoader, EmptyState, SearchInput, StatCard, Modal } from '@/components/ui'
 import { apiRequest, formatDateTime, nilaiColor } from '@/lib/utils'
 import { Nilai as NilaiBase, Mapel } from '@/types'
+import { terjemahJenisPelanggaran, labelStatusPelanggaran, warnaStatusPelanggaran } from '@/lib/pelanggaran-shared'
 
 // true kalau siswa ini belum sama sekali mengerjakan ujian mapel ini —
 // ditambahkan oleh /api/guru/nilai dari roster jadwal, bukan dari tabel nilai.
@@ -29,6 +30,9 @@ export default function GuruNilaiPage() {
   const [filterKelas, setFilterKelas] = useState('')
   const [search, setSearch] = useState('')
   const [exporting, setExporting] = useState(false)
+  // FITUR BARU (riwayat pelanggaran untuk guru pengampu): baris nilai yang
+  // sedang dibuka modal riwayat pelanggarannya, null kalau modal tertutup.
+  const [pelanggaranModal, setPelanggaranModal] = useState<Nilai | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -104,6 +108,13 @@ export default function GuruNilaiPage() {
           'Nilai Essay': n.essay_aktif ? (n.nilai_essay ?? '-') : '-',
           'Nilai Akhir (PG+Essay)': n.essay_aktif ? (n.nilai_total ?? '-') : '-',
           'Status Essay': !n.essay_aktif ? '-' : n.dirilis ? 'Dirilis' : (n.nilai_essay !== null && n.nilai_essay !== undefined) ? 'Sudah dinilai (belum dirilis)' : 'Belum dinilai',
+          // FITUR BARU (riwayat pelanggaran untuk guru pengampu): supaya
+          // rekap Excel juga mencerminkan kondisi siswa selama ujian, bukan
+          // cuma nilai akhirnya.
+          'Jumlah Pelanggaran': n.jumlah_pelanggaran ?? 0,
+          'Rincian Pelanggaran': (n.pelanggaran ?? []).length
+            ? n.pelanggaran!.map(p => `#${p.level} ${terjemahJenisPelanggaran(p.jenis)} (${formatDateTime(p.created_at)})`).join('; ')
+            : '-',
         }))
 
         const ws = rows.length
@@ -113,7 +124,7 @@ export default function GuruNilaiPage() {
             ]])
 
         ws['!cols'] = rows.length
-          ? [{ wch: 5 }, { wch: 26 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 10 }, { wch: 8 }, { wch: 13 }, { wch: 20 }, { wch: 10 }, { wch: 20 }, { wch: 24 }]
+          ? [{ wch: 5 }, { wch: 26 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 10 }, { wch: 8 }, { wch: 13 }, { wch: 20 }, { wch: 10 }, { wch: 20 }, { wch: 24 }, { wch: 10 }, { wch: 50 }]
           : [{ wch: 90 }]
 
         // Nama sheet Excel maksimal 31 karakter & tidak boleh berisi \ / ? * [ ] :
@@ -220,6 +231,10 @@ export default function GuruNilaiPage() {
                       gabungan (PG+Essay) yang sebenarnya dirilis ke siswa. */}
                   <th>Nilai Akhir (+Essay)</th>
                   <th>Tanggal</th>
+                  {/* FITUR BARU: riwayat pelanggaran (kecurangan) selama
+                      ujian, supaya guru pengampu tahu kondisi siswa selama
+                      ujian, bukan cuma nilai akhirnya. */}
+                  <th>Pelanggaran</th>
                 </tr>
               </thead>
               <tbody>
@@ -236,6 +251,7 @@ export default function GuruNilaiPage() {
                           <span className="badge bg-slate-100 text-slate-500">Belum Ujian</span>
                         </td>
                         <td className="text-xs text-slate-400">—</td>
+                        <td className="text-xs text-slate-300 text-center">—</td>
                       </>
                     ) : (
                       <>
@@ -268,6 +284,22 @@ export default function GuruNilaiPage() {
                           )}
                         </td>
                         <td className="text-xs text-slate-400">{formatDateTime(n.timestamp)}</td>
+                        <td>
+                          {(n.jumlah_pelanggaran ?? 0) > 0 ? (
+                            <button
+                              type="button"
+                              onClick={() => setPelanggaranModal(n)}
+                              className="badge-red text-xs inline-flex items-center gap-1 hover:opacity-80 transition cursor-pointer"
+                              title="Lihat riwayat pelanggaran"
+                            >
+                              <AlertTriangle className="w-3 h-3" /> {n.jumlah_pelanggaran}
+                            </button>
+                          ) : (
+                            <span className="badge bg-emerald-50 text-emerald-600 text-xs inline-flex items-center gap-1">
+                              <ShieldCheck className="w-3 h-3" /> Bersih
+                            </span>
+                          )}
+                        </td>
                       </>
                     )}
                   </tr>
@@ -277,6 +309,45 @@ export default function GuruNilaiPage() {
           </div>
         )}
       </div>
+
+      {/* FITUR BARU: modal riwayat pelanggaran per siswa. Data pelanggaran
+          sudah ikut terbawa di response /api/guru/nilai (lihat kolom
+          `pelanggaran` per baris), jadi tidak perlu fetch tambahan saat
+          modal dibuka. */}
+      <Modal
+        open={!!pelanggaranModal}
+        onClose={() => setPelanggaranModal(null)}
+        title={`Riwayat Pelanggaran — ${pelanggaranModal?.nama_siswa ?? ''}`}
+        size="md"
+      >
+        {pelanggaranModal && (
+          <div className="space-y-3">
+            <p className="text-sm text-slate-500">
+              {pelanggaranModal.nama_mapel} · Kelas {pelanggaranModal.kelas} · Ujian {formatDateTime(pelanggaranModal.timestamp)}
+            </p>
+            {(pelanggaranModal.pelanggaran ?? []).length === 0 ? (
+              <p className="text-sm text-slate-400 py-4 text-center">Tidak ada riwayat pelanggaran selama ujian.</p>
+            ) : (
+              <ul className="space-y-2 max-h-96 overflow-y-auto">
+                {pelanggaranModal.pelanggaran!.map(p => (
+                  <li key={p.id} className="border border-slate-100 rounded-lg p-3 flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-medium text-slate-800 text-sm">
+                        Pelanggaran ke-{p.level}: {terjemahJenisPelanggaran(p.jenis)}
+                      </p>
+                      {p.detail && <p className="text-xs text-slate-500 mt-0.5">{p.detail}</p>}
+                      <p className="text-xs text-slate-400 mt-1">{formatDateTime(p.created_at)}</p>
+                    </div>
+                    <span className={`badge text-xs shrink-0 ${warnaStatusPelanggaran(p.status)}`}>
+                      {labelStatusPelanggaran(p.status)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+      </Modal>
     </div>
   )
 }
