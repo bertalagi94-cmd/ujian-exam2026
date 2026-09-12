@@ -4,6 +4,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
+import { sudahLewatBatasWaktuEssay } from '@/lib/essay-waktu'
 
 // POST { sesiId, jawaban: [{ soal_essay_id, jawaban_teks }] }
 export async function POST(req: NextRequest) {
@@ -26,7 +27,7 @@ export async function POST(req: NextRequest) {
 
   const { data: siswaUjian } = await db
     .from('siswa_ujian')
-    .select('status, status_essay')
+    .select('status, status_essay, waktu_mulai_essay')
     .eq('sesi_id', sesiId)
     .eq('nis', user.nis!)
     .single()
@@ -37,6 +38,13 @@ export async function POST(req: NextRequest) {
   }
   if (siswaUjian.status_essay !== 'MENGERJAKAN') {
     return NextResponse.json({ error: 'Sesi essay belum dimulai atau sudah selesai.' }, { status: 409 })
+  }
+
+  // FIX BUG (tidak ada validasi waktu server-side untuk essay): lihat
+  // src/lib/essay-waktu.ts. Tanpa ini, siswa yang mem-bypass countdown di
+  // client bisa terus autosave jawaban tanpa batas waktu.
+  if (sudahLewatBatasWaktuEssay(siswaUjian.waktu_mulai_essay, sesi.info_json?.essay_durasi_menit)) {
+    return NextResponse.json({ error: 'Waktu pengerjaan essay Anda sudah habis.' }, { status: 409 })
   }
 
   if (Array.isArray(jawaban) && jawaban.length > 0) {
