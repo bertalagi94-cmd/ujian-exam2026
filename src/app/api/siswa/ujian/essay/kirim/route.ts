@@ -10,6 +10,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
+import { sudahLewatBatasWaktuEssay } from '@/lib/essay-waktu'
 
 export async function POST(req: NextRequest) {
   const auth = requireRole(req, ['SISWA'])
@@ -26,7 +27,7 @@ export async function POST(req: NextRequest) {
 
   const { data: siswaUjian } = await db
     .from('siswa_ujian')
-    .select('status, status_essay')
+    .select('status, status_essay, waktu_mulai_essay')
     .eq('sesi_id', sesiId)
     .eq('nis', nis)
     .single()
@@ -53,6 +54,19 @@ export async function POST(req: NextRequest) {
 
   if (siswaUjian.status_essay !== 'MENGERJAKAN') {
     return NextResponse.json({ error: 'Essay belum dimulai, tidak bisa dikirim.' }, { status: 409 })
+  }
+
+  // FIX BUG (tidak ada validasi waktu server-side untuk essay): pola & pesan
+  // sengaja disamakan dengan pengecekan PG di selesai/route.ts. Tanpa ini,
+  // siswa yang mem-bypass countdown client bisa menekan "Kirim" kapan saja
+  // jauh melewati durasi essay yang ditentukan guru, tanpa ditolak sistem.
+  // Jawaban yang sudah ter-autosave sebelum batas waktu tetap tersimpan dan
+  // bisa dinilai guru lewat halaman koreksi essay.
+  if (sudahLewatBatasWaktuEssay(siswaUjian.waktu_mulai_essay, sesi.info_json?.essay_durasi_menit)) {
+    return NextResponse.json(
+      { error: 'Waktu pengerjaan essay Anda sudah habis. Jawaban yang sudah tersimpan akan dinilai oleh guru.' },
+      { status: 409 }
+    )
   }
 
   // MODE KERTAS: siswa menulis jawaban di kertas fisik (dinilai guru
