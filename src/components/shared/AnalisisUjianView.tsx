@@ -130,11 +130,20 @@ function SoalCard({
 }) {
   const [expanded, setExpanded] = useState(false)
 
+  // FIX (ambigu): sebelumnya warna badge nomor urut ditentukan murni dari
+  // POSISI (rank 1 = selalu merah, rank 2 = selalu oranye, dst) — tidak
+  // peduli seberapa besar persenSalah soal itu sebenarnya. Akibatnya soal
+  // rank #1 tetap tampil merah (kesan "bermasalah") walau di ujian itu soal
+  // paling banyak salah pun cuma disalah-jawab 20% siswa (masih tergolong
+  // MUDAH menurut ambang batas di bawah). Sekarang warna mengikuti ambang
+  // persenSalah aktual — SAMA seperti ambang kategori Mudah/Sedang/Sulit di
+  // ringkasan (persenBenar 70%/40% ⇔ persenSalah 30%/60%) dan sama seperti
+  // warna progress bar yang sudah dipakai di baris statistik soal ini —
+  // supaya guru tidak salah baca "soal teratas = pasti soal bermasalah".
   const rankColor =
-    rank === 1 ? 'bg-red-500' :
-    rank === 2 ? 'bg-orange-500' :
-    rank === 3 ? 'bg-amber-500' :
-    'bg-slate-400'
+    soal.persenSalah >= 60 ? 'bg-red-500' :
+    soal.persenSalah >= 30 ? 'bg-amber-500' :
+    'bg-emerald-500'
 
   return (
     <div className="card overflow-hidden">
@@ -462,16 +471,33 @@ export default function AnalisisUjianView({ apiPath, showMapelFilter = false, sh
                 </div>
               )}
 
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              {/* FIX (ambigu): sebelumnya "Soal Sedang" dihitung backend
+                  (ringkasan.soalSedang) tapi tidak pernah ditampilkan di
+                  sini — cuma ada Mudah & Sulit. Guru yang menjumlahkan
+                  Mudah + Sulit akan mendapati totalnya tidak pernah pas
+                  dengan Total Soal (selisihnya = soal kategori Sedang yang
+                  "hilang" dari tampilan), seolah-olah datanya tidak
+                  lengkap. Sekarang kartu Sedang ikut ditampilkan supaya
+                  Mudah + Sedang + Sulit = Total Soal, sama seperti angka
+                  yang sebenarnya sudah dihitung backend. */}
+              <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
                 <StatCard label="Total Soal" value={ringkasan.totalSoal} icon={BookOpen} color="bg-brand-500" />
                 <StatCard label="Rata-rata Benar" value={`${ringkasan.rataPersenBenar}%`} icon={BarChart3} color="bg-emerald-500" />
                 <StatCard label="Soal Mudah" value={ringkasan.soalMudah} icon={CheckCircle} color="bg-emerald-400" />
+                <StatCard label="Soal Sedang" value={ringkasan.soalSedang} icon={BarChart3} color="bg-amber-400" />
                 <StatCard label="Soal Sulit" value={ringkasan.soalSulit} icon={AlertTriangle} color="bg-red-500" />
               </div>
 
-              <div className="flex items-center gap-2 text-xs text-slate-400">
-                <span className="w-2 h-2 rounded-full bg-red-500 inline-block" /> Soal paling banyak salah di atas
-                <span className="ml-3 w-2 h-2 rounded-full bg-emerald-500 inline-block" /> Kunci jawaban
+              {/* FIX (ambigu): ambang batas kategori Mudah/Sedang/Sulit
+                  (dan warna badge peringkat di setiap kartu soal di bawah)
+                  sebelumnya tidak dijelaskan sama sekali di UI — guru tidak
+                  tahu persisnya "mudah" itu mulai dari berapa persen benar.
+                  Legenda ini murni informasi, tidak mengubah logika apa pun. */}
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-400">
+                <span><span className="w-2 h-2 rounded-full bg-emerald-500 inline-block mr-1.5" />Mudah (≥70% benar)</span>
+                <span><span className="w-2 h-2 rounded-full bg-amber-400 inline-block mr-1.5" />Sedang (40–69% benar)</span>
+                <span><span className="w-2 h-2 rounded-full bg-red-500 inline-block mr-1.5" />Sulit (&lt;40% benar)</span>
+                <span className="ml-auto">Kunci jawaban ditandai <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block mx-1" /> hijau pada tiap opsi</span>
               </div>
 
               <div className="space-y-3">
