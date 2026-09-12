@@ -112,6 +112,7 @@ export interface PaketSoal {
   catatan?: string
   jumlah_soal: number
   acak: 'YA' | 'TIDAK'
+  mode_jawaban: 'DIGITAL' | 'KERTAS'
   // joined
   nama_mapel?: string
   nama_guru?: string
