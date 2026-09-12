@@ -16,14 +16,22 @@ export async function GET(req: NextRequest) {
   const db = createAdminClient()
 
   if (user.role === 'ADMIN') {
-    // Hitung paket soal yang menunggu validasi
-    const { count } = await db
-      .from('paket_soal')
-      .select('*', { count: 'exact', head: true })
-      .eq('status', 'MENUNGGU')
+    // FIX (badge tidak menghitung Essay): sebelumnya badge sidebar "Validasi
+    // Soal" hanya menghitung paket_soal (PG) berstatus MENUNGGU — kalau ada
+    // paket ESSAY yang menunggu validasi tapi tidak ada satupun paket PG yang
+    // menunggu, badge di sidebar akan menunjukkan 0 (tidak muncul sama
+    // sekali), padahal ada pekerjaan yang perlu ditinjau admin. Sekarang
+    // dijumlahkan dari kedua tabel, sama seperti gabungan kedua tab (PG +
+    // Essay) di halaman /admin/soal.
+    const [{ count: pgCount }, { count: essayCount }] = await Promise.all([
+      db.from('paket_soal').select('*', { count: 'exact', head: true }).eq('status', 'MENUNGGU'),
+      db.from('paket_essay').select('*', { count: 'exact', head: true }).eq('status', 'MENUNGGU'),
+    ])
 
     return NextResponse.json({
-      validasiSoal: count ?? 0,
+      validasiSoal: (pgCount ?? 0) + (essayCount ?? 0),
+      validasiSoalPg: pgCount ?? 0,
+      validasiSoalEssay: essayCount ?? 0,
     })
   }
 
