@@ -48,12 +48,25 @@ export async function GET(req: NextRequest) {
   const { data: guruMapel } = await db.from('mapel').select('id').eq('guru_id', guruId)
   const mapelGuruIds = (guruMapel ?? []).map(m => m.id)
 
+  // BUG FIX (statistik dashboard tidak konsisten dengan halaman Nilai):
+  // sebelumnya query ini pakai .limit(50), lalu limit yang sama itu juga
+  // dipakai untuk menghitung stats.totalNilai dan stats.rataRataNilai.
+  // Akibatnya begitu guru punya >50 baris nilai, "Rekap Nilai" di dashboard
+  // mentok di 50 (padahal jumlah sebenarnya lebih banyak) dan "Rata-rata
+  // Nilai" hanya mencerminkan 50 submission TERBARU — bukan rata-rata
+  // sesungguhnya — sehingga tidak akan pernah sama dengan angka di halaman
+  // /guru/nilai (yang menghitung dari SELURUH data, tanpa limit). Guru bisa
+  // mengira datanya hilang atau bingung angka mana yang benar.
+  //
+  // FIX: ambil SELURUH baris nilai (tanpa limit) untuk keperluan hitung
+  // stats, sama seperti /api/guru/nilai. Limit hanya diterapkan belakangan,
+  // khusus untuk daftar tampilan "Nilai Terbaru" (nilaiTerbaru) yang memang
+  // cuma pratinjau ringkas — tidak memengaruhi angka statistik.
   const { data: nilaiAll } = await db
     .from('nilai')
     .select('nilai, nis, mapel_id, grade, kelas, timestamp, sesi_id, nilai_total, dirilis')
     .in('mapel_id', mapelGuruIds.length ? mapelGuruIds : ['__none__'])
     .order('timestamp', { ascending: false })
-    .limit(50)
 
   // BUG FIX (rekap nilai guru belum menyesuaikan fitur essay): sama seperti
   // /api/guru/nilai, "Rata-rata Nilai" di dashboard ini sebelumnya dihitung
@@ -70,7 +83,7 @@ export async function GET(req: NextRequest) {
     ? Math.round((nilaiAll).reduce((s, r) => s + nilaiEfektif(r), 0) / nilaiAll.length)
     : 0
 
-  // Enrich recent nilai
+  // Enrich recent nilai — limit HANYA di sini, untuk widget pratinjau saja.
   const recent = (nilaiAll ?? []).slice(0, 8)
   const nisSet = [...new Set(recent.map(r => r.nis))]
   const { data: siswaList } = await db.from('siswa').select('nis, nama').in('nis', nisSet)
