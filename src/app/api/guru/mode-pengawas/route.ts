@@ -257,7 +257,7 @@ export async function POST(req: NextRequest) {
   const { user } = auth
 
   const db = createAdminClient()
-  const { jadwalId } = await req.json()
+  const { jadwalId, abaikanPeringatanEssay } = await req.json()
 
   // Verify jadwal belongs to this guru as pengawas
   // FIX (fitur essay): '*' sudah mengambil semua kolom termasuk kolom
@@ -369,6 +369,53 @@ export async function POST(req: NextRequest) {
       kodeSesi: bentrokKelas.kodeSesi,
       jadwalAktifId: bentrokKelas.jadwalId,
     }, { status: 409 })
+  }
+
+  // FIX (kasus nyata): guru pernah membuat soal Essay tapi LUPA mengajukannya
+  // ("Kirim") ke admin untuk divalidasi — paket_essay-nya masih
+  // DRAFT/MENUNGGU/DITOLAK. Sebelumnya ini SENYAP: resolveEssayInfoJson di
+  // bawah hanya melihat paket_essay yang DISETUJUI, jadi sesi ujian langsung
+  // dibuat TANPA essay sama sekali (essay_aktif tidak pernah diset), siswa
+  // mengerjakan PG lalu ujian otomatis "selesai" seolah-olah memang tidak ada
+  // essay — padahal essay-nya ADA, cuma belum divalidasi.
+  //
+  // Untuk mencegah ini terulang, kalau ternyata ADA paket_essay untuk
+  // mapel+kelas jadwal ini (dengan minimal 1 soal) yang belum DISETUJUI, kita
+  // tahan dulu pembukaan sesi dan minta guru konfirmasi eksplisit — supaya
+  // guru sadar essay-nya belum siap SEBELUM ujian dimulai, bukan sesudah
+  // siswa selesai. Guru tetap bisa lanjut tanpa essay (misal memang sengaja
+  // ujian PG-saja) dengan mengirim ulang `abaikanPeringatanEssay: true`.
+  if (!abaikanPeringatanEssay) {
+    const { data: kelasRowEssay } = await db
+      .from('kelas')
+      .select('id')
+      .eq('nama', String(jadwal.kelas))
+      .maybeSingle()
+    const kelasIdEssay = kelasRowEssay?.id ?? String(jadwal.kelas)
+
+    const { data: paketEssayList } = await db
+      .from('paket_essay')
+      .select('status, jumlah_soal')
+      .eq('mapel_id', jadwal.mapel_id)
+      .eq('kelas_id', kelasIdEssay)
+
+    const sudahDisetujui = (paketEssayList ?? []).some(p => p.status === 'DISETUJUI')
+    const belumDiajukan = (paketEssayList ?? []).find(
+      p => p.status !== 'DISETUJUI' && (p.jumlah_soal ?? 0) > 0
+    )
+
+    if (!sudahDisetujui && belumDiajukan) {
+      const labelStatus = belumDiajukan.status === 'MENUNGGU'
+        ? 'masih menunggu validasi admin'
+        : belumDiajukan.status === 'DITOLAK'
+          ? 'ditolak admin dan belum diperbaiki/dikirim ulang'
+          : 'belum diajukan ke admin (masih draft)'
+
+      return NextResponse.json({
+        error: `Ada soal Essay untuk mapel ini yang ${labelStatus}. Kalau sesi ujian dibuka sekarang, siswa HANYA akan mengerjakan Pilihan Ganda — Essay tidak akan muncul sama sekali. Segera ajukan/tunggu validasi essay-nya dulu, atau lanjutkan sekarang kalau memang ujian ini sengaja PG saja.`,
+        peringatanEssayBelumSiap: true,
+      }, { status: 409 })
+    }
   }
 
   // Essay sekarang mengikuti pola PG: aktif otomatis kalau ada paket_essay
