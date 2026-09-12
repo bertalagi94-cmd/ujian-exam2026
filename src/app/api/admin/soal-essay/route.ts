@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
+import { cekSesiMapelKelasSudahMulai, pesanBankSoalTerkunci } from '@/lib/sesi-kelas'
 
 export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['ADMIN'])
@@ -61,6 +62,31 @@ export async function POST(req: NextRequest) {
       { error: 'Alasan penolakan wajib diisi agar guru bisa memperbaiki soalnya.' },
       { status: 400 }
     )
+  }
+
+  // FIX BUG (bank soal Essay tidak terkunci di sisi Admin setelah sesi
+  // mulai): pola & alasan identik dengan fix di admin/soal/route.ts (PG) —
+  // lihat komentar di sana untuk detail lengkap. Dampaknya untuk essay malah
+  // lebih parah: koreksi-essay/route.ts (GET & PUT) selalu mengambil
+  // soal_essay yang DISETUJUI secara live (tanpa cache) untuk membangun
+  // daftar soal & bobot_maks yang wajib diisi guru. Kalau bank soal essay
+  // yang disetujui berubah setelah siswa sudah menjawab, guru bisa dipaksa
+  // mengisi skor untuk soal yang tidak pernah dilihat siswa, sementara soal
+  // yang benar-benar dijawab siswa bisa hilang dari daftar rubrik.
+  const { data: paketUntukGuard } = await db
+    .from('paket_essay')
+    .select('mapel_id, kelas_id')
+    .eq('id', paket_id)
+    .single()
+
+  if (paketUntukGuard) {
+    const sesiSudahMulai = await cekSesiMapelKelasSudahMulai(db, paketUntukGuard.mapel_id, paketUntukGuard.kelas_id)
+    if (sesiSudahMulai) {
+      return NextResponse.json(
+        { error: pesanBankSoalTerkunci('Essay', sesiSudahMulai, 'mengubah') },
+        { status: 409 }
+      )
+    }
   }
 
   // Sama seperti PG: cegah lebih dari satu paket_essay DISETUJUI untuk
