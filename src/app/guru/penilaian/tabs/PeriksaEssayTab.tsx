@@ -285,6 +285,13 @@ export function PeriksaEssayTab({
   // sebagai penyebut, bukan panjang array yang memang tidak lengkap.
   const jumlahSudahMenjawab = data ? data.peserta.filter(p => p.statusEssay === 'SUDAH_KIRIM').length : 0
   const jumlahBelumMenjawab = data ? Math.max(0, data.totalTargetSiswa - jumlahSudahMenjawab) : 0
+  // UX (peringatan belum dinilai di header mapel): siswa yang sudah kirim
+  // jawaban essay tapi belum diberi skor oleh guru (status "Belum Dinilai"
+  // pada statusBadge) — ditampilkan sebagai peringatan mencolok di sebelah
+  // nama mapel supaya guru langsung sadar masih ada yang perlu dikoreksi.
+  const jumlahBelumDinilai = data
+    ? data.peserta.filter(p => p.statusEssay === 'SUDAH_KIRIM' && !p.dirilis && !p.sudahDinilai).length
+    : 0
 
   // UX (redesain tampilan koreksi essay): sebelumnya status siswa ditampilkan
   // sebagai 3-4 badge berjejer sekaligus (Tidak Mengerjakan + Belum
@@ -361,7 +368,14 @@ export function PeriksaEssayTab({
                 <div className="card space-y-1">
                   <div className="flex items-center justify-between flex-wrap gap-2">
                     <div>
-                      <h2 className="font-bold text-slate-900 text-lg">{selectedJadwal?.nama_mapel}</h2>
+                      <h2 className="font-bold text-slate-900 text-lg flex items-center gap-2 flex-wrap">
+                        {selectedJadwal?.nama_mapel}
+                        {jumlahBelumDinilai > 0 && (
+                          <span className="inline-flex items-center gap-1 bg-red-600 text-white text-xs font-bold px-2.5 py-1 rounded-md">
+                            - {jumlahBelumDinilai} Siswa Belum Dinilai
+                          </span>
+                        )}
+                      </h2>
                       <p className="text-xs text-slate-500 flex items-center gap-1 mt-0.5">
                         <Users className="w-3 h-3" /> Kelas {selectedJadwal?.nama_kelas}
                         <span className="text-slate-300">·</span>
