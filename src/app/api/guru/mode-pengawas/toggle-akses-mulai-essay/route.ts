@@ -7,6 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
+import { verifySesiOwnership } from '@/lib/sesi-ownership'
 
 export async function POST(req: NextRequest) {
   const auth = requireRole(req, ['GURU'])
@@ -26,15 +27,15 @@ export async function POST(req: NextRequest) {
 
   if (!sesi) return NextResponse.json({ error: 'Sesi tidak ditemukan' }, { status: 404 })
 
-  // Verifikasi guru ini adalah pengawas jadwal terkait sesi tsb.
-  const { data: jadwal } = await db
-    .from('jadwal')
-    .select('id, pengawas')
-    .eq('id', sesi.jadwal_id)
-    .eq('pengawas', user.username)
-    .single()
+  // Verifikasi guru ini adalah pengawas yang sah untuk sesi ini — mencakup
+  // baik pengawas ASLI (jadwal.pengawas) maupun pengawas PENGGANTI untuk
+  // sesi susulan yang diambil-alih admin (info_json.pengawas_susulan).
+  // FIX BUG: sebelumnya endpoint ini hanya mengecek jadwal.pengawas secara
+  // manual, sehingga pengawas pengganti selalu mendapat 403 di sini padahal
+  // dia sudah bisa melihat sesi ini di Mode Pengawas.
+  const sah = await verifySesiOwnership(db, sesiId, user.username)
 
-  if (!jadwal) {
+  if (!sah) {
     return NextResponse.json({ error: 'Anda bukan pengawas sesi ini' }, { status: 403 })
   }
 
