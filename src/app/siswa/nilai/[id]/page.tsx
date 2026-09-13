@@ -25,6 +25,16 @@ interface NilaiDetail {
   nilai_essay?: number | null
   nilai_total?: number | null
   essay_belum_dirilis?: boolean
+  // BUG FIX (nilai remedial tidak masuk ke akun siswa): dihitung server-side
+  // (lihat /api/siswa/nilai/[id]/route.ts) — nilai_final/grade_final/
+  // lulus_final sudah mengutamakan nilai_edit (remedial) kalau guru
+  // pernah menginputnya lewat tab Rekap Nilai.
+  nilai_edit?: number | null
+  catatan_guru?: string | null
+  ada_remedial?: boolean
+  nilai_final?: number
+  grade_final?: string
+  lulus_final?: boolean
 }
 
 // FITUR (Rincian jawaban essay per soal): ditampilkan hanya kalau guru sudah
@@ -86,10 +96,19 @@ export default function RincianNilaiPage() {
   // dirilis (nilai_total terisi, di-mask null oleh API selama belum
   // dirilis), tampilkan nilai_total sebagai "Nilai" & hitung ulang
   // grade/status lulus dari situ.
+  //
+  // BUG FIX (nilai remedial tidak masuk ke akun siswa): sebelumnya logika
+  // ini tidak pernah tahu tentang nilai_edit (remedial), jadi siswa yang
+  // sudah lulus KKM lewat remedial tetap melihat nilai & status lama di
+  // halaman rincian mereka sendiri, kontradiktif dengan yang guru & wali
+  // kelas lihat. Sekarang pakai nilai_final/grade_final/lulus_final dari
+  // server (sudah menghitung prioritas remedial > essay > PG), dengan
+  // fallback ke logika lama kalau field itu belum ada.
+  const adaRemedial = nilai.ada_remedial === true
   const sudahDirilis = nilai.nilai_total != null
-  const nilaiTampil = sudahDirilis ? nilai.nilai_total! : nilai.nilai
-  const gradeTampil = sudahDirilis ? hitungGrade(nilai.nilai_total!) : nilai.grade
-  const lulusTampil = sudahDirilis ? nilai.nilai_total! >= nilai.kkm : nilai.lulus
+  const nilaiTampil = nilai.nilai_final ?? (sudahDirilis ? nilai.nilai_total! : nilai.nilai)
+  const gradeTampil = nilai.grade_final ?? (sudahDirilis ? hitungGrade(nilai.nilai_total!) : nilai.grade)
+  const lulusTampil = nilai.lulus_final ?? (sudahDirilis ? nilai.nilai_total! >= nilai.kkm : nilai.lulus)
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -107,10 +126,12 @@ export default function RincianNilaiPage() {
         <div>
           <div className="text-xs text-slate-500">Nilai</div>
           <div className={`text-3xl font-bold ${nilaiColor(nilaiTampil)}`}>{nilaiTampil}</div>
-          {sudahDirilis && (
+          {adaRemedial ? (
+            <div className="text-[11px] text-indigo-500 mt-0.5">Nilai remedial dari guru</div>
+          ) : sudahDirilis && (
             <div className="text-[11px] text-slate-400 mt-0.5">PG {nilai.nilai} + Essay {nilai.nilai_essay}</div>
           )}
-          {nilai.essay_belum_dirilis && (
+          {!adaRemedial && nilai.essay_belum_dirilis && (
             <div className="text-[11px] text-amber-600 mt-0.5">Menunggu rilis nilai essay dari guru</div>
           )}
         </div>
@@ -137,6 +158,16 @@ export default function RincianNilaiPage() {
           <div className="text-sm text-slate-500">{formatDateTime(nilai.timestamp)}</div>
         </div>
       </div>
+
+      {/* BUG FIX (nilai remedial tidak masuk ke akun siswa): catatan dari
+          guru saat menyimpan nilai remedial (kalau diisi) sebelumnya tidak
+          pernah dikirim/ditampilkan ke siswa sama sekali. */}
+      {adaRemedial && nilai.catatan_guru && (
+        <div className="card bg-indigo-50/60 border-indigo-100">
+          <div className="text-xs font-medium text-indigo-600 mb-1">Catatan dari guru</div>
+          <p className="text-sm text-slate-700">{nilai.catatan_guru}</p>
+        </div>
+      )}
 
       {/* FITUR (Rincian jawaban essay per soal): hanya muncul kalau ada
           soal essay di sesi ini DAN guru sudah merilis nilainya (rincianEssay
