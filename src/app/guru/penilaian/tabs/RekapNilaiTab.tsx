@@ -226,13 +226,17 @@ export function RekapNilaiTab() {
                   <th>Nilai PG</th>
                   <th>Grade</th>
                   <th>Benar/Total</th>
+                  {/* FITUR BARU: kolom nilai Essay berdiri sendiri (di samping
+                      Nilai PG), supaya guru bisa lihat komponen PG & Essay
+                      terpisah sebelum melihat status lulus/tidak di kolom
+                      Status (yang sudah mencakup total gabungannya). */}
+                  <th>Nilai Essay</th>
                   <th>KKM</th>
-                  <th>Status</th>
                   {/* BUG FIX (rekap nilai guru belum menyesuaikan fitur essay):
-                      kolom baru, sama seperti rekap admin — "Nilai"/"Grade"/
-                      "Status" murni PG, jadi guru perlu lihat nilai akhir
-                      gabungan (PG+Essay) yang sebenarnya dirilis ke siswa. */}
-                  <th>Nilai Akhir (+Essay)</th>
+                      kolom "Status" sekarang sekaligus menampilkan info nilai
+                      akhir gabungan "Nilai Akhir (PG + Essay)" yang sebenarnya
+                      dirilis ke siswa, bukan cuma status lulus/tidak dari PG. */}
+                  <th>Status</th>
                   <th>Tanggal</th>
                   {/* FITUR BARU: riwayat pelanggaran (kecurangan) selama
                       ujian, supaya guru pengampu tahu kondisi siswa selama
@@ -269,22 +273,35 @@ export function RekapNilaiTab() {
                           }`}>{n.grade}</span>
                         </td>
                         <td className="text-slate-600 text-sm">{n.benar}/{n.total}</td>
-                        <td className="text-slate-500 text-sm">{n.kkm}</td>
-                        <td>
-                          <span className={`badge ${n.lulus ? 'badge-green' : 'badge-red'}`}>
-                            {n.lulus ? '✓ Lulus' : '✗ Tidak Lulus'}
-                          </span>
-                        </td>
                         <td>
                           {!n.essay_aktif ? (
                             <span className="text-slate-300 text-xs">— PG saja —</span>
-                          ) : n.dirilis ? (
-                            <span className={`text-sm font-bold ${nilaiColor(n.nilai_total ?? 0)}`}>{n.nilai_total}</span>
                           ) : n.nilai_essay !== null && n.nilai_essay !== undefined ? (
-                            <span className="badge-yellow text-xs" title={`Sudah dinilai (${n.nilai_total}) tapi belum dirilis ke siswa`}>Belum dirilis</span>
+                            <span className={`text-sm font-bold ${nilaiColor(n.nilai_essay)}`}>{n.nilai_essay}</span>
                           ) : (
-                            <span className="badge-red text-xs">Essay belum dinilai</span>
+                            <span className="badge-red text-xs">Belum dinilai</span>
                           )}
+                        </td>
+                        <td className="text-slate-500 text-sm">{n.kkm}</td>
+                        <td>
+                          <div className="flex flex-col gap-1">
+                            <span className={`badge ${n.lulus ? 'badge-green' : 'badge-red'}`}>
+                              {n.lulus ? '✓ Lulus' : '✗ Tidak Lulus'}
+                            </span>
+                            {n.essay_aktif && (
+                              n.dirilis ? (
+                                <span className="text-xs text-slate-400">
+                                  Nilai Akhir (PG + Essay): <span className={`font-bold ${nilaiColor(n.nilai_total ?? 0)}`}>{n.nilai_total}</span>
+                                </span>
+                              ) : n.nilai_essay !== null && n.nilai_essay !== undefined ? (
+                                <span className="text-xs text-amber-600" title={`Sudah dinilai (${n.nilai_total}) tapi belum dirilis ke siswa`}>
+                                  Nilai Akhir (PG + Essay): belum dirilis
+                                </span>
+                              ) : (
+                                <span className="text-xs text-red-500">Essay belum dinilai</span>
+                              )
+                            )}
+                          </div>
                         </td>
                         <td className="text-xs text-slate-400">{formatDateTime(n.timestamp)}</td>
                         <td>
