@@ -141,10 +141,14 @@ async function fetchLaporanLengkap() {
   const namaKelasAll = [...new Set(combos.map(c => c.namaKelas))]
 
   // ── 3. PRA UJIAN: paket_soal + soal (distribusi tingkat) + kisi_kisi + jadwal ──
+  // + paket_essay (untuk kolom "Mode Jawaban Essay" — kertas/digital sesuai
+  // yang diatur guru saat membuat paket essay, atau "Tidak ada soal essay"
+  // kalau mapel+kelas ini belum punya paket essay sama sekali).
   const [
     { data: paketRows },
     { data: kisiRows },
     { data: jadwalRows },
+    { data: paketEssayRows },
   ] = await Promise.all([
     db.from('paket_soal')
       .select('id, mapel_id, kelas_id, guru_id, status, catatan, jumlah_soal, tanggal, created_at')
@@ -159,6 +163,10 @@ async function fetchLaporanLengkap() {
       .in('mapel_id', safeIn(mapelIdsAll))
       .in('kelas', safeIn(namaKelasAll))
       .order('tanggal'),
+    db.from('paket_essay')
+      .select('id, mapel_id, kelas_id, status, mode_jawaban, tanggal, created_at')
+      .in('mapel_id', safeIn(mapelIdsAll))
+      .in('kelas_id', safeIn(kelasIdsAll)),
   ])
 
   type PaketRow = { id: string; mapel_id: string; kelas_id: string; guru_id: string | null; status: string; catatan: string | null; jumlah_soal: number; tanggal: string; created_at: string }
@@ -225,6 +233,18 @@ async function fetchLaporanLengkap() {
     const key = `${k.mapel_id}::${k.kelas_id}`
     const existing = kisiMap.get(key)
     if (!existing || k.updated_at > existing.updated_at) kisiMap.set(key, k)
+  }
+
+  // Mode jawaban essay per kombinasi mapel+kelas — kalau ada lebih dari satu
+  // paket_essay (mis. revisi), pakai yang PALING BARU (sama seperti pola
+  // praPaketMap di atas untuk paket_soal PG).
+  type PaketEssayRow = { id: string; mapel_id: string; kelas_id: string; status: string; mode_jawaban: string; tanggal: string; created_at: string }
+  const paketEssayMap = new Map<string, PaketEssayRow>()
+  for (const pe of (paketEssayRows ?? []) as PaketEssayRow[]) {
+    const key = `${pe.mapel_id}::${pe.kelas_id}`
+    const existing = paketEssayMap.get(key)
+    const tanggalPe = pe.tanggal ?? pe.created_at
+    if (!existing || tanggalPe > (existing.tanggal ?? existing.created_at)) paketEssayMap.set(key, pe)
   }
 
   type JadwalRow = { id: string; tanggal: string; sesi: number; jam_mulai: string; jam_selesai: string; mapel_id: string; kelas: string; pengawas: string | null; durasi: number; status: string }
@@ -352,6 +372,8 @@ async function fetchLaporanLengkap() {
       catatanPenolakan: string | null
       statusKisiKisi: string
       jadwal: { tanggal: string; sesi: number; jamMulai: string; jamSelesai: string; namaPengawas: string; durasi: number; statusJadwal: string }[]
+      adaEssay: boolean
+      modeJawabanEssay: 'DIGITAL' | 'KERTAS' | null
     }
     saat: {
       adaSesiBerjalan: boolean
@@ -383,6 +405,7 @@ async function fetchLaporanLengkap() {
 
     const pra = praPaketMap.get(c.keyId)
     const kisi = kisiMap.get(c.keyId)
+    const paketEssay = paketEssayMap.get(c.keyId)
     const jadwalCombo = jadwalMap.get(c.keyNama) ?? []
     const sesiCombo = sesiMap.get(c.keyNama) ?? []
     const nilaiAgg = nilaiAggMap.get(c.keyNama)
@@ -420,6 +443,8 @@ async function fetchLaporanLengkap() {
             durasi: j.durasi,
             statusJadwal: j.status,
           })),
+        adaEssay: !!paketEssay,
+        modeJawabanEssay: (paketEssay?.mode_jawaban as 'DIGITAL' | 'KERTAS' | undefined) ?? null,
       },
       saat: {
         adaSesiBerjalan,
