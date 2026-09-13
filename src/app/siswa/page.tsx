@@ -82,25 +82,33 @@ export default function SiswaDashboard() {
             </Link>
           </div>
           <div className="space-y-2">
-            {(data?.nilaiTerbaru ?? []).map((n, i) => (
+            {(data?.nilaiTerbaru ?? []).map((n, i) => {
+              // BUG FIX (nilai remedial tidak masuk ke akun siswa): kartu
+              // ini sebelumnya selalu memakai n.nilai/n.grade mentah, tidak
+              // pernah nilai_final/grade_final (yang sudah mengutamakan
+              // nilai remedial — lihat /api/siswa/dashboard/route.ts).
+              const nilaiTampil = n.nilai_final ?? n.nilai
+              const gradeTampil = n.grade_final ?? n.grade
+              return (
               <div key={i} className="flex items-center gap-3 p-3 rounded-xl hover:bg-slate-50 transition-colors">
                 <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-xs font-bold flex-shrink-0
-                  ${n.grade === 'A' ? 'bg-emerald-100 text-emerald-700' :
-                    n.grade === 'B' ? 'bg-blue-100 text-blue-700' :
-                    n.grade === 'C' ? 'bg-yellow-100 text-yellow-700' :
+                  ${gradeTampil === 'A' ? 'bg-emerald-100 text-emerald-700' :
+                    gradeTampil === 'B' ? 'bg-blue-100 text-blue-700' :
+                    gradeTampil === 'C' ? 'bg-yellow-100 text-yellow-700' :
                     'bg-red-100 text-red-700'}`}>
-                  {n.grade}
+                  {gradeTampil}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-medium text-slate-800 truncate">{n.nama_mapel}</div>
                   <div className="text-xs text-slate-400">{formatDate(n.timestamp)}</div>
                 </div>
                 <div className="text-right flex-shrink-0">
-                  <div className={`text-base font-bold ${nilaiColor(n.nilai)}`}>{n.nilai}</div>
+                  <div className={`text-base font-bold ${nilaiColor(nilaiTampil)}`}>{nilaiTampil}</div>
                   <div className="text-xs text-slate-400">{n.benar}/{n.total}</div>
                 </div>
               </div>
-            ))}
+              )
+            })}
             {!data?.nilaiTerbaru?.length && (
               <p className="text-sm text-slate-400 text-center py-8">Belum ada nilai ujian</p>
             )}
