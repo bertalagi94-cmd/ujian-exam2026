@@ -27,11 +27,21 @@ export async function GET(req: NextRequest) {
   // padahal guru yang MENGAJAR mapel (mapel.guru_id) sering kali bukan guru
   // yang bertugas mengawas ruangan ujian tsb. Sekarang akses diberikan kalau
   // salah satu terpenuhi: dia pengawas sesi ATAU dia guru pengampu mapel ini.
+  //
+  // FIX BUG (pengawas PENGGANTI untuk sesi susulan tidak bisa koreksi essay):
+  // "pengawas sesi" di atas sebelumnya hanya dicek lewat jadwal.pengawas
+  // (pengawas ASLI). Untuk sesi susulan yang diambil-alih ADMIN, pengawas
+  // yang berwenang bisa jadi guru LAIN yang dicatat di
+  // info_json.pengawas_susulan (lihat src/lib/sesi-ownership.ts) — dan
+  // pengawas pengganti ini tidak selalu guru pengampu mapel-nya juga.
+  // Tanpa ini, pengawas pengganti bisa buka akses "Mulai Essay" tapi lalu
+  // 403 saat mau koreksi/input skor essay yang baru saja dikerjakan siswa.
   const [{ data: jadwal }, { data: mapel }] = await Promise.all([
     db.from('jadwal').select('id, pengawas, essay_bobot_pg_persen, essay_bobot_essay_persen').eq('id', sesi.jadwal_id).maybeSingle(),
     db.from('mapel').select('id, guru_id').eq('id', sesi.mapel_id).maybeSingle(),
   ])
-  const isPengawas = jadwal?.pengawas === user.username
+  const pengawasSusulan = sesi.info_json?.dibuka_oleh_admin ? sesi.info_json?.pengawas_susulan : undefined
+  const isPengawas = jadwal?.pengawas === user.username || pengawasSusulan === user.username
   const isGuruPengampu = mapel?.guru_id === user.username
   if (!isPengawas && !isGuruPengampu) {
     return NextResponse.json({ error: 'Anda bukan pengawas maupun guru pengampu sesi ini' }, { status: 403 })
@@ -238,11 +248,14 @@ export async function PUT(req: NextRequest) {
   if (!sesi) return NextResponse.json({ error: 'Sesi tidak ditemukan' }, { status: 404 })
 
   // FIX BUG (sama seperti di GET): izinkan pengawas ATAU guru pengampu mapel.
+  // FIX BUG (sama seperti di GET): pengawas juga mencakup pengawas PENGGANTI
+  // sesi susulan (info_json.pengawas_susulan), bukan cuma jadwal.pengawas.
   const [{ data: jadwal }, { data: mapel }] = await Promise.all([
     db.from('jadwal').select('id, pengawas, essay_bobot_pg_persen, essay_bobot_essay_persen').eq('id', sesi.jadwal_id).maybeSingle(),
     db.from('mapel').select('id, guru_id').eq('id', sesi.mapel_id).maybeSingle(),
   ])
-  const isPengawas = jadwal?.pengawas === user.username
+  const pengawasSusulan = sesi.info_json?.dibuka_oleh_admin ? sesi.info_json?.pengawas_susulan : undefined
+  const isPengawas = jadwal?.pengawas === user.username || pengawasSusulan === user.username
   const isGuruPengampu = mapel?.guru_id === user.username
   if (!jadwal || (!isPengawas && !isGuruPengampu)) {
     return NextResponse.json({ error: 'Anda bukan pengawas maupun guru pengampu sesi ini' }, { status: 403 })
@@ -411,11 +424,15 @@ export async function PATCH(req: NextRequest) {
     .single()
   if (!sesi) return NextResponse.json({ error: 'Sesi tidak ditemukan' }, { status: 404 })
 
+  // FIX BUG (sama seperti di GET/PUT): pengawas juga mencakup pengawas
+  // PENGGANTI sesi susulan (info_json.pengawas_susulan), bukan cuma
+  // jadwal.pengawas.
   const [{ data: jadwal }, { data: mapel }] = await Promise.all([
     db.from('jadwal').select('id, pengawas').eq('id', sesi.jadwal_id).maybeSingle(),
     db.from('mapel').select('id, guru_id').eq('id', sesi.mapel_id).maybeSingle(),
   ])
-  const isPengawas = jadwal?.pengawas === user.username
+  const pengawasSusulan = sesi.info_json?.dibuka_oleh_admin ? sesi.info_json?.pengawas_susulan : undefined
+  const isPengawas = jadwal?.pengawas === user.username || pengawasSusulan === user.username
   const isGuruPengampu = mapel?.guru_id === user.username
   if (!jadwal || (!isPengawas && !isGuruPengampu)) {
     return NextResponse.json({ error: 'Anda bukan pengawas maupun guru pengampu sesi ini' }, { status: 403 })
