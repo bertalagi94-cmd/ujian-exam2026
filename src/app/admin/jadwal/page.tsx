@@ -711,15 +711,18 @@ export default function AdminJadwalPage() {
       my += 7
 
       doc.setFont('helvetica', 'normal')
+      // FIX: baris tanda tangan diperbesar dari 7mm menjadi 20mm (~2cm) —
+      // 1cm sebelumnya terlalu sempit untuk siswa dengan tanda tangan besar.
+      const rowH = 20
       for (let i = 0; i < j.siswa.length; i++) {
         const siswa = j.siswa[i]
-        if (my > 265) { doc.addPage(); my = 20 }
+        if (my + rowH > 280) { doc.addPage(); my = 20 }
         cx = lm
-        doc.rect(cx, my, colW[0], 7); doc.text(String(i + 1), cx + colW[0] / 2, my + 4.8, { align: 'center' }); cx += colW[0]
-        doc.rect(cx, my, colW[1], 7); doc.text(siswa.nis, cx + 2, my + 4.8); cx += colW[1]
-        doc.rect(cx, my, colW[2], 7); doc.text(siswa.nama, cx + 2, my + 4.8); cx += colW[2]
-        doc.rect(cx, my, colW[3], 7); cx += colW[3]
-        my += 7
+        doc.rect(cx, my, colW[0], rowH); doc.text(String(i + 1), cx + colW[0] / 2, my + 4.8, { align: 'center' }); cx += colW[0]
+        doc.rect(cx, my, colW[1], rowH); doc.text(siswa.nis, cx + 2, my + 4.8); cx += colW[1]
+        doc.rect(cx, my, colW[2], rowH); doc.text(siswa.nama, cx + 2, my + 4.8); cx += colW[2]
+        doc.rect(cx, my, colW[3], rowH); cx += colW[3]
+        my += rowH
       }
       my += 5
       doc.setFontSize(10)
