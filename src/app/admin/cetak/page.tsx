@@ -231,7 +231,7 @@ function CetakContent() {
         .hadir-table th, .hadir-table td { border: 1px solid #000; padding: 5px 8px; font-size: 10.5pt; }
         .hadir-table th { background: #f0f0f0; font-weight: bold; text-align: left; }
         .hadir-table .tc { text-align: center; }
-        .ttd-cell { height: 32px; }
+        .ttd-cell { height: 2cm; }
         .ttd-area { display: flex; justify-content: space-between; margin-top: 28px; font-size: 11pt; }
         .ttd-col { display: flex; flex-direction: column; min-width: 200px; }
         .ttd-space { height: 60px; }
