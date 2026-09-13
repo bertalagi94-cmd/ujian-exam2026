@@ -557,7 +557,7 @@ export function PeriksaEssayTab({
                                               }`}
                                             >
                                               <div className="flex items-center justify-between gap-2 mb-1">
-                                                <p className="text-xs text-slate-400">Soal {i + 1} · Bobot rubrik: {soal.bobot_maks} <span className="text-slate-300">(panduan, bukan skala nilai)</span></p>
+                                                <p className="text-xs text-slate-400">Soal {i + 1} · Bobot maks: {soal.bobot_maks}</p>
                                                 {terjawab ? (
                                                   <span className="text-[11px] font-medium text-emerald-700 flex items-center gap-1">
                                                     <CheckCircle2 className="w-3 h-3" /> Dijawab
