@@ -62,10 +62,22 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Teks soal wajib diisi' }, { status: 400 })
   }
 
-  // FIX (hapus bobot per-soal dari alur pembuatan): bobot_maks per soal
-  // TIDAK dipakai dalam rumus nilai_total (lihat catatan di
-  // koreksi-essay/route.ts) — hanya kolom legacy dengan DEFAULT 100 di DB
-  // (lihat 07_essay.sql). Guru tidak perlu mengisinya lagi saat membuat soal.
+  // FIX (bobot per-soal harus bisa diisi saat membuat soal): bobot_maks
+  // per soal DIPAKAI sebagai patokan saat menghitung nilai_essay siswa
+  // (lihat PUT di koreksi-essay/route.ts, yang mengonversi total skor
+  // rubrik ke skala 0-100 memakai total bobot_maks semua soal). Sebelumnya
+  // bobot ini tidak bisa diisi sama sekali saat membuat soal dan selalu
+  // memakai DEFAULT 100 di DB (07_essay.sql), sehingga semua soal essay
+  // selalu dianggap berbobot sama besar walau niat guru berbeda. Sekarang
+  // guru bisa menentukan bobotnya sendiri per nomor soal; kalau tidak
+  // diisi, tetap default 100 supaya soal lama/perilaku lama tidak berubah.
+  let bobotMaks = 100
+  if (body.bobot_maks !== undefined && body.bobot_maks !== null && body.bobot_maks !== '') {
+    bobotMaks = Number(body.bobot_maks)
+    if (isNaN(bobotMaks) || bobotMaks <= 0) {
+      return NextResponse.json({ error: 'Bobot maksimal soal harus lebih dari 0' }, { status: 400 })
+    }
+  }
 
   const { data: paket } = await db
     .from('paket_essay')
@@ -112,6 +124,7 @@ export async function POST(req: NextRequest) {
     guru_id: user.username,
     teks,
     gambar_url: body.gambar_url || null,
+    bobot_maks: bobotMaks,
     urutan,
     status: 'DRAFT',
   })
