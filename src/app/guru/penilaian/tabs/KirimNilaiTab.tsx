@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import {
-  Send, Save, RotateCcw, ChevronDown, ChevronUp, ChevronLeft, ChevronRight,
+  Send, RotateCcw, ChevronDown, ChevronUp, ChevronLeft, ChevronRight,
   AlertTriangle, CheckCircle, BarChart3, MessageSquare,
   FileText, CheckCircle2,
 } from 'lucide-react'
@@ -43,6 +43,16 @@ interface NilaiRow {
   // true kalau siswa ini belum sama sekali mengerjakan ujian mapel ini —
   // tidak ada nilai untuk diedit/dikirim, hanya ditampilkan sebagai info.
   belum_ujian?: boolean
+  // FITUR BARU (hapus dualisme tab Rekap Nilai vs Kirim Nilai): dihitung
+  // server-side oleh hitungNilaiFinal() di api/guru/kirim-nilai/route.ts —
+  // nilai_final sudah termasuk nilai_edit (remedial) kalau guru pernah
+  // menginputnya di tab Rekap Nilai. Ini SATU-SATUNYA sumber "nilai yang
+  // akan benar-benar dikirim ke wali kelas" yang ditampilkan di tab ini.
+  nilai_efektif?: number
+  nilai_final?: number
+  grade_final?: string
+  lulus_final?: boolean
+  ada_remedial?: boolean
 }
 
 interface MapelInfo { id: string; nama: string; kkm: number }
@@ -78,11 +88,6 @@ export function KirimNilaiTab({
 }) {
   const [apiData, setApiData] = useState<ApiData | null>(null)
   const [loading, setLoading] = useState(true)
-  // Map id nilai → nilai edit sementara di form
-  const [editMap, setEditMap] = useState<Record<string, string>>({})
-  // Map id nilai → catatan sementara
-  const [catatanMap, setCatatanMap] = useState<Record<string, string>>({})
-  const [saving, setSaving] = useState<string | null>(null)
   const [sending, setSending] = useState<string | null>(null)
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null)
@@ -98,16 +103,6 @@ export function KirimNilaiTab({
     try {
       const res = await apiRequest<ApiData>('/api/guru/kirim-nilai')
       setApiData(res)
-
-      // Isi editMap dari data yang ada di DB
-      const em: Record<string, string> = {}
-      const cm: Record<string, string> = {}
-      for (const n of res.data ?? []) {
-        em[n.id] = n.nilai_edit != null ? String(n.nilai_edit) : ''
-        cm[n.id] = n.catatan_guru ?? ''
-      }
-      setEditMap(em)
-      setCatatanMap(cm)
 
       // Buka kelompok pertama yang butuh perhatian: masih ada yang belum
       // dikirim, ATAU ada siswa yang belum ujian sama sekali (kelompok
@@ -210,29 +205,6 @@ export function KirimNilaiTab({
     return { label: 'Belum terkirim', className: 'bg-red-100 text-red-700 border border-red-200 font-semibold' }
   }
 
-  async function simpanEdit(nilaiId: string) {
-    setSaving(nilaiId)
-    try {
-      const nilaiEditStr = editMap[nilaiId] ?? ''
-      const nilai_edit = nilaiEditStr.trim() === '' ? null : parseFloat(nilaiEditStr)
-      await apiRequest('/api/guru/kirim-nilai', {
-        method: 'PATCH',
-        body: JSON.stringify({
-          aksi: 'simpan_edit',
-          id: nilaiId,
-          nilai_edit,
-          catatan_guru: catatanMap[nilaiId]?.trim() || null,
-        }),
-      })
-      showToast('Nilai edit berhasil disimpan')
-      await load()
-    } catch (e) {
-      showToast(e instanceof Error ? e.message : 'Gagal menyimpan', 'error')
-    } finally {
-      setSaving(null)
-    }
-  }
-
   // FIX (kelas campuran PG-only vs PG+Essay): backend sekarang bisa mengirim
   // SEBAGIAN saja (siswa yang siap) dan melewati siswa yang essay-nya belum
   // dirilis guru — lihat `tertunda` di response PATCH kirim_ke_wali. Toast di
@@ -311,10 +283,15 @@ export function KirimNilaiTab({
       )}
 
       {/* Header */}
+      {/* KEPUTUSAN DESAIN (hapus dualisme tab Rekap Nilai vs Kirim Nilai):
+          tab ini sekarang READ-ONLY untuk nilai — cuma menampilkan &
+          mengonfirmasi kirim. Input/ubah nilai remedial dipindah ke tab
+          Rekap Nilai (tombol pensil per baris di sana). */}
       <div>
         <p className="text-sm text-slate-500">
-          Kirim nilai akhir siswa ke wali kelas. Nilai edit boleh dikosongkan —
-          nilai asli akan otomatis dipakai.
+          Kirim nilai akhir siswa ke wali kelas. Perlu mengubah nilai (remedial)?
+          Buka tab <strong className="text-slate-600">Rekap Nilai</strong> — perubahannya
+          langsung terlihat di sini.
         </p>
       </div>
 
@@ -457,20 +434,19 @@ export function KirimNilaiTab({
                     Geser tabel untuk lihat kolom lainnya
                     <ChevronRight className="w-3.5 h-3.5" />
                   </p>
-                  {/* Catatan singkat dipindah ke sini (satu tempat saja),
-                      menggantikan sub-teks kecil yang sebelumnya menumpuk
-                      di header kolom "Nilai Edit" — supaya header tabel
-                      tetap ringkas dan gampang dipindai sekilas.
-                      FIX (teks menyesatkan): sebelumnya tertulis "Nilai
-                      Asli yang dipakai saat dikirim" — padahal untuk mapel
-                      yang punya essay, yang benar-benar dipakai (lihat
-                      nilaiEfektif di api/guru/wali-kelas/route.ts) adalah
-                      NILAI AKHIR (PG+Essay gabungan), bukan Nilai Asli/PG
-                      saja. Teks diperbaiki supaya sesuai kode yang berjalan. */}
+                  {/* FITUR BARU (hapus dualisme tab Rekap Nilai vs Kirim
+                      Nilai): kolom "Nilai Edit" & "Catatan" yang dulu bisa
+                      diketik di sini sekarang READ-ONLY — sumbernya adalah
+                      nilai_edit yang diinput guru lewat tab Rekap Nilai.
+                      Kolom "Nilai Final" di bawah adalah nilai_final
+                      (hitungNilaiFinal() di backend, sama dengan yang
+                      ditampilkan di tab Rekap Nilai) — angka inilah yang
+                      benar-benar dikirim saat tombol "Kirim ke Wali Kelas"
+                      ditekan. */}
                   <p className="text-xs text-slate-400 px-5 pt-1 pb-2">
-                    Kolom <strong className="text-slate-500">Nilai Edit</strong> boleh dikosongkan —
-                    kalau kosong, <strong className="text-slate-500">Nilai Akhir</strong> siswa
-                    (Nilai Asli, atau PG+Essay gabungan kalau mapel ini punya essay) yang dipakai saat dikirim.
+                    Kolom <strong className="text-slate-500">Nilai Final</strong> adalah nilai yang
+                    akan dikirim ke wali kelas — sudah termasuk nilai remedial kalau pernah
+                    diinput lewat tab Rekap Nilai.
                   </p>
                 <div className="overflow-x-auto">
                   <table className="table text-sm w-full">
@@ -481,19 +457,16 @@ export function KirimNilaiTab({
                         <th className="text-center">Nilai Asli</th>
                         <th className="text-center">Grade</th>
                         <th className="text-center">Status</th>
-                        <th className="text-center w-32">Nilai Edit</th>
+                        <th className="text-center w-32">Nilai Final</th>
                         <th className="text-left w-48">Catatan</th>
                         <th className="text-center">Kirim?</th>
-                        <th className="text-center"></th>
                       </tr>
                     </thead>
                     <tbody>
                       {grup.rows.map((n, i) => {
-                        const nilaiEditStr = editMap[n.id] ?? ''
-                        const nilaiEditNum = nilaiEditStr.trim() !== '' ? parseFloat(nilaiEditStr) : null
-                        const kkm = n.kkm ?? 75
-                        const lulusEdit = nilaiEditNum != null ? nilaiEditNum >= kkm : null
-                        const isSaving = saving === n.id
+                        const nilaiFinal = n.nilai_final ?? n.nilai
+                        const gradeFinal = n.grade_final ?? n.grade
+                        const lulusFinal = n.lulus_final ?? n.lulus
 
                         return (
                           <tr key={n.id} className={n.dikembalikan ? 'bg-orange-50' : n.dikirim_ke_wali ? 'bg-emerald-50/40' : ''}>
@@ -548,37 +521,29 @@ export function KirimNilaiTab({
                                 </div>
                               )}
                             </td>
+                            {/* FITUR BARU (hapus dualisme tab Rekap Nilai vs
+                                Kirim Nilai): READ-ONLY — nilai_final sudah
+                                termasuk nilai_edit (remedial) kalau pernah
+                                diinput lewat tab Rekap Nilai. Tidak ada input
+                                di sini lagi. */}
                             <td className="text-center">
-                              <input
-                                type="number"
-                                min={0}
-                                max={100}
-                                step={0.5}
-                                placeholder="—"
-                                value={nilaiEditStr}
-                                onChange={e => setEditMap(m => ({ ...m, [n.id]: e.target.value }))}
-                                className="input w-24 text-center text-sm"
-                                disabled={n.dikirim_ke_wali && !n.dikembalikan}
-                              />
-                              {nilaiEditNum != null && (
-                                <div className={`text-xs mt-1 ${lulusEdit ? 'text-emerald-600' : 'text-red-500'}`}>
-                                  {lulusEdit ? '✓ Lulus' : '✗ Tidak'}
+                              <span className={`text-base font-bold ${nilaiColor(nilaiFinal)}`}>{nilaiFinal}</span>
+                              <div className={`text-xs mt-0.5 ${lulusFinal ? 'text-emerald-600' : 'text-red-500'}`}>
+                                {gradeFinal} · {lulusFinal ? '✓ Lulus' : '✗ Tidak'}
+                              </div>
+                              {n.ada_remedial && (
+                                <div className="text-[10px] text-indigo-600 mt-1" title={`Nilai sebelum remedial: ${n.nilai_efektif}`}>
+                                  Diremedial (awal: {n.nilai_efektif})
                                 </div>
                               )}
                             </td>
                             <td>
-                              <input
-                                type="text"
-                                placeholder="Catatan opsional..."
-                                value={catatanMap[n.id] ?? ''}
-                                onChange={e => setCatatanMap(m => ({ ...m, [n.id]: e.target.value }))}
-                                className="input w-full text-sm"
-                                disabled={n.dikirim_ke_wali && !n.dikembalikan}
-                              />
-                              {n.catatan_guru && (
-                                <div className="text-xs text-slate-400 mt-1 flex items-center gap-1">
-                                  <MessageSquare className="w-3 h-3" /> {n.catatan_guru}
+                              {n.catatan_guru ? (
+                                <div className="text-xs text-slate-500 flex items-center gap-1">
+                                  <MessageSquare className="w-3 h-3 flex-shrink-0" /> {n.catatan_guru}
                                 </div>
+                              ) : (
+                                <span className="text-xs text-slate-300">—</span>
                               )}
                             </td>
                             <td className="text-center">
@@ -598,21 +563,6 @@ export function KirimNilaiTab({
                               ) : (
                                 <span className="text-xs text-slate-400">Belum</span>
                               )}
-                            </td>
-                            <td className="text-center">
-                              <button
-                                onClick={() => simpanEdit(n.id)}
-                                disabled={isSaving || (n.dikirim_ke_wali && !n.dikembalikan)}
-                                className="btn-secondary btn-sm text-xs"
-                                title="Simpan nilai edit"
-                              >
-                                {isSaving ? (
-                                  <span className="w-3 h-3 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
-                                ) : (
-                                  <Save className="w-3.5 h-3.5" />
-                                )}
-                                Simpan
-                              </button>
                             </td>
                           </tr>
                         )
@@ -717,7 +667,7 @@ export function KirimNilaiTab({
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-5 py-4 bg-slate-50 border-t border-slate-100">
                   <p className="text-xs text-slate-500 flex items-center gap-1.5">
                     <span className="w-5 h-5 rounded-full bg-emerald-600 text-white flex items-center justify-center flex-shrink-0 text-[11px] font-bold">2</span>
-                    Nilai edit yang kosong akan otomatis pakai Nilai Akhir siswa.
+                    Nilai Final di atas (termasuk remedial, kalau ada) yang akan dikirim.
                   </p>
                   <button
                     onClick={() => kirimKelompok(grup.mapel_id, grup.kelas, grup.kunciMapel)}
