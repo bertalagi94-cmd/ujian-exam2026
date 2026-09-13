@@ -31,6 +31,23 @@ interface JadwalCetak {
   kelas: string; nama_mapel: string; nama_pengawas: string
   siswa: Siswa[]
   sekolah: SekolahCetak | null
+  jumlah_soal_pg?: number
+  jumlah_soal_essay?: number
+  mode_jawaban_essay?: 'DIGITAL' | 'KERTAS' | null
+}
+
+// Info jumlah soal (PG + Essay). Kalau mapel ini ada essay, tambahkan
+// keterangan cara menjawab (digital di layar / manual di kertas).
+function infoJumlahSoal(j: JadwalCetak): string {
+  const pg = j.jumlah_soal_pg ?? 0
+  const essay = j.jumlah_soal_essay ?? 0
+  let teks = `Pilihan Ganda: ${pg} soal, Essay: ${essay} soal`
+  if (essay > 0) {
+    teks += j.mode_jawaban_essay === 'KERTAS'
+      ? ' (Jawaban di isi dikertas-Pastikan kertas jawaban telah di siapkan)'
+      : ' (Jawaban langsung di input di Layar)'
+  }
+  return teks
 }
 
 function CetakContent() {
@@ -92,6 +109,7 @@ function CetakContent() {
             <tr><td>Kelas</td><td>:</td><td>${j.kelas}</td></tr>
             <tr><td>Pukul</td><td>:</td><td>${j.jam_mulai} s.d. ${j.jam_selesai} (${j.durasi} menit)</td></tr>
             <tr><td>Sesi ke-</td><td>:</td><td>${j.sesi}</td></tr>
+            <tr><td>Jumlah Soal</td><td>:</td><td>${infoJumlahSoal(j)}</td></tr>
             <tr><td>Nama Pengawas</td><td>:</td><td>${j.nama_pengawas || '-'}</td></tr>
             <tr><td>Jumlah Peserta Terdaftar</td><td>:</td><td>${j.siswa.length} siswa</td></tr>
             <tr><td>Jumlah Hadir</td><td>:</td><td>______ siswa</td></tr>
@@ -156,6 +174,10 @@ function CetakContent() {
             <td>Tahun Ajaran</td><td>:</td>
             <td>${s.tahunAjaran ?? '-'}</td>
             <td>Durasi</td><td>:</td><td>${j.durasi} menit</td>
+          </tr>
+          <tr>
+            <td>Jumlah Soal</td><td>:</td>
+            <td colspan="4">${infoJumlahSoal(j)}</td>
           </tr>
         </table>
         <table class="hadir-table">
