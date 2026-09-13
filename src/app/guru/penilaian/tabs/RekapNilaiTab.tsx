@@ -36,7 +36,7 @@ interface Stats {
 // akhir (nilai_edit override nilai_efektif, dipakai final saat dikirim ke
 // wali kelas) tidak berubah — lihat hitungNilaiFinal() di
 // api/guru/kirim-nilai/route.ts, dipakai bareng oleh kedua tab.
-export function RekapNilaiTab() {
+export function RekapNilaiTab({ onDataChanged }: { onDataChanged?: () => void } = {}) {
   const [nilaiList, setNilaiList] = useState<Nilai[]>([])
   const [mapelList, setMapelList] = useState<Mapel[]>([])
   const [stats, setStats] = useState<Stats | null>(null)
@@ -107,6 +107,14 @@ export function RekapNilaiTab() {
       setToast({ msg: 'Nilai remedial berhasil disimpan', type: 'success' })
       setEditTarget(null)
       await load()
+      // BUG FIX (badge "Siswa di Bawah KKM" di tab bar tidak ikut update):
+      // `load()` di atas hanya me-refresh data tabel INI (tab Rekap Nilai
+      // sendiri). Halaman induk (/guru/penilaian) menghitung ringkasan
+      // badge tab bar dari fetch-nya sendiri yang terpisah, jadi tanpa
+      // baris ini badge tetap menampilkan angka lama sampai guru me-refresh
+      // browser. `onDataChanged` memberi tahu halaman induk untuk menghitung
+      // ulang ringkasan itu sekarang juga.
+      onDataChanged?.()
     } catch (e) {
       setToast({ msg: e instanceof Error ? e.message : 'Gagal menyimpan nilai', type: 'error' })
     } finally {
