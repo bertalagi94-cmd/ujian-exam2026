@@ -1285,6 +1285,11 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
     if (!activePaket) return
     const fd = new FormData(e.currentTarget)
     const teks = String(fd.get('teks') ?? '')
+    const bobotMaks = Number(fd.get('bobot_maks') ?? 100)
+    if (!bobotMaks || bobotMaks <= 0) {
+      showToast('Bobot soal harus lebih dari 0', 'error')
+      return
+    }
     setSaving(true)
     try {
       await apiRequest('/api/guru/soal-essay', {
@@ -1293,6 +1298,7 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
           paket_id: activePaket.id,
           teks,
           gambar_url: gambarUrl || null,
+          bobot_maks: bobotMaks,
         }),
       })
       showToast('Soal berhasil ditambahkan')
@@ -1321,11 +1327,16 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
     if (!editSoal?.id) return
     const fd = new FormData(e.currentTarget)
     const teks = String(fd.get('teks') ?? '')
+    const bobotMaks = Number(fd.get('bobot_maks') ?? editSoal.bobot_maks ?? 100)
+    if (!bobotMaks || bobotMaks <= 0) {
+      showToast('Bobot soal harus lebih dari 0', 'error')
+      return
+    }
     setSaving(true)
     try {
       await apiRequest(`/api/guru/soal-essay/${editSoal.id}`, {
         method: 'PUT',
-        body: JSON.stringify({ teks, gambar_url: editGambarUrl || null }),
+        body: JSON.stringify({ teks, gambar_url: editGambarUrl || null, bobot_maks: bobotMaks }),
       })
       showToast('Soal berhasil diperbarui')
       setEditSoal(null)
@@ -1441,6 +1452,7 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
         <div className="flex-1 min-w-0">
           <p className="line-clamp-2">{s.teks}</p>
           <div className="flex items-center gap-2 mt-0.5">
+            <span className="text-xs text-slate-400">Bobot: {s.bobot_maks}</span>
             {s.gambar_url && <span className="text-xs text-brand-500">📷 Ada gambar</span>}
           </div>
         </div>
@@ -1530,6 +1542,22 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
                     onUrl={setGambarUrl} uploadKey="tambah" uploading={uploadingImg} onTrigger={triggerUpload} />
                 </div>
               </div>
+              <div>
+                <label className="label">Bobot Soal (maks skor) *</label>
+                <input
+                  name="bobot_maks"
+                  type="number"
+                  min={1}
+                  step={1}
+                  defaultValue={100}
+                  required
+                  className="input w-32"
+                />
+                <p className="text-xs text-slate-400 mt-1">
+                  Ini yang jadi patokan saat memberi nilai jawaban siswa untuk soal ini — soal dengan bobot
+                  lebih besar akan lebih menentukan nilai essay akhir siswa dibanding soal berbobot kecil.
+                </p>
+              </div>
               <div className="flex gap-3 pt-2 flex-wrap">
                 <button type="submit" className="btn-primary" disabled={saving || !!uploadingImg}>
                   {saving ? <Spinner size="sm" /> : <><Plus className="w-4 h-4" /> Tambah & Lanjut ke Soal Berikutnya</>}
@@ -1574,6 +1602,21 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
                     onUrl={setEditGambarUrl} uploadKey="edit" uploading={uploadingImg} onTrigger={triggerUpload} />
                 </div>
               </div>
+              <div>
+                <label className="label">Bobot Soal (maks skor) *</label>
+                <input
+                  name="bobot_maks"
+                  type="number"
+                  min={1}
+                  step={1}
+                  defaultValue={editSoal.bobot_maks ?? 100}
+                  required
+                  className="input w-32"
+                />
+                <p className="text-xs text-slate-400 mt-1">
+                  Patokan skor maksimal saat guru menilai jawaban siswa untuk soal ini.
+                </p>
+              </div>
             </form>
           )}
         </Modal>
@@ -1589,6 +1632,10 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
               <div>
                 <p className="label mb-1">Pertanyaan</p>
                 <p className="text-sm text-slate-800 leading-relaxed">{viewSoal.teks}</p>
+              </div>
+              <div>
+                <p className="label mb-1">Bobot Soal (maks skor)</p>
+                <p className="text-sm text-slate-800">{viewSoal.bobot_maks}</p>
               </div>
               {viewSoal.gambar_url && (
                 <div>
