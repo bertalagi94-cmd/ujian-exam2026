@@ -230,6 +230,29 @@ export async function POST(req: NextRequest) {
   const db = createAdminClient()
   const body = await req.json()
 
+  // FIX (jaring pengaman untuk penilaian essay): tolak pembuatan jadwal kalau
+  // mapel-nya belum punya guru pengampu (mapel.guru_id kosong). Sejak
+  // koreksi-essay/route.ts diperketat supaya HANYA guru pengampu yang boleh
+  // menilai essay (bukan lagi pengawas ruangan), sesi ujian yang mapelnya
+  // tanpa guru_id akan membuat nilai essay siswa macet permanen — tidak ada
+  // siapa pun yang berwenang menilainya. Dicegah dari sumbernya di sini,
+  // supaya admin sadar dan mengisi guru pengampu dulu SEBELUM jadwal dibuat,
+  // bukan ketemu masalah nanti saat essay sudah dikerjakan siswa.
+  if (body.mapel_id) {
+    const { data: mapelDicek } = await db
+      .from('mapel')
+      .select('id, nama, guru_id')
+      .eq('id', body.mapel_id)
+      .maybeSingle()
+
+    if (mapelDicek && !mapelDicek.guru_id) {
+      return NextResponse.json(
+        { error: `Mata pelajaran "${mapelDicek.nama}" belum punya guru pengampu. Tetapkan guru pengampu di menu Mata Pelajaran terlebih dahulu sebelum membuat jadwal ujiannya.` },
+        { status: 422 }
+      )
+    }
+  }
+
   // Cegah duplikat: cek apakah sudah ada jadwal dengan mapel + kelas yang sama
   const { data: existing } = await db
     .from('jadwal')
@@ -319,6 +342,23 @@ export async function PUT(req: NextRequest) {
 
   const db = createAdminClient()
   const { id, ...update } = await req.json()
+
+  // FIX (sama seperti POST): kalau mapel_id diganti saat edit, pastikan
+  // mapel tujuannya sudah punya guru pengampu.
+  if (update.mapel_id) {
+    const { data: mapelDicek } = await db
+      .from('mapel')
+      .select('id, nama, guru_id')
+      .eq('id', update.mapel_id)
+      .maybeSingle()
+
+    if (mapelDicek && !mapelDicek.guru_id) {
+      return NextResponse.json(
+        { error: `Mata pelajaran "${mapelDicek.nama}" belum punya guru pengampu. Tetapkan guru pengampu di menu Mata Pelajaran terlebih dahulu sebelum menautkannya ke jadwal ini.` },
+        { status: 422 }
+      )
+    }
+  }
 
   // Cegah duplikat saat edit
   if (update.mapel_id && update.kelas) {
