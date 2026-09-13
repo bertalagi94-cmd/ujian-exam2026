@@ -1,18 +1,25 @@
 'use client'
 
 import Link from 'next/link'
-import { ClipboardList, CheckSquare, Send, ChevronRight, Check } from 'lucide-react'
+import { ClipboardList, ClipboardCheck, ChevronRight, Check } from 'lucide-react'
 
-// FIX (kejelasan alur Essay): proses nilai Essay melewati 4 menu terpisah
-// (Buat Soal → Mode Pengawas untuk mode KERTAS → Koreksi Essay → Kirim
-// Nilai), dan sebelum ini tidak ada satu pun tempat yang merangkum urutan
-// lengkapnya — guru harus tahu sendiri dari pengalaman. Komponen ini HANYA
-// menampilkan ringkasan & link antar-halaman yang sudah ada; tidak
-// menambah/mengubah endpoint, state, atau aturan bisnis apa pun.
+// FIX (kejelasan alur Essay): proses nilai Essay melewati beberapa menu
+// (Buat Soal → Mode Pengawas untuk mode KERTAS → Penilaian), dan sebelum
+// ini tidak ada satu pun tempat yang merangkum urutan lengkapnya — guru
+// harus tahu sendiri dari pengalaman. Komponen ini HANYA menampilkan
+// ringkasan & link antar-halaman yang sudah ada; tidak menambah/mengubah
+// endpoint, state, atau aturan bisnis apa pun.
+//
+// FIX (konsolidasi menu Penilaian): langkah "Koreksi Essay" dan "Rilis
+// Nilai" dulu 2 node terpisah di sini karena memang 2 halaman terpisah.
+// Sekarang keduanya jadi tab di 1 menu "Penilaian" (/guru/penilaian), jadi
+// digabung jadi 1 node saja di sini — supaya tidak ada dua sistem
+// penomoran yang tumpang-tindih (breadcrumb vs nomor tab). Urutan tab di
+// dalam menu Penilaian sendiri sudah cukup untuk menjelaskan sub-langkahnya.
 //
 // `current` menyorot langkah yang sedang dilihat guru supaya dia tahu
 // "saya di tahap mana" dan "apa selanjutnya" tanpa perlu bertanya.
-export type EssayFlowStep = 'buat-soal' | 'koreksi' | 'rilis'
+export type EssayFlowStep = 'buat-soal' | 'penilaian'
 
 const STEPS: {
   key: EssayFlowStep
@@ -29,18 +36,11 @@ const STEPS: {
     icon: ClipboardList,
   },
   {
-    key: 'koreksi',
-    label: 'Koreksi Essay',
-    desc: 'Baca jawaban siswa (diketik, atau langsung dari kertas fisik untuk mode Kertas), input nilai per soal',
-    href: '/guru/koreksi-essay',
-    icon: CheckSquare,
-  },
-  {
-    key: 'rilis',
-    label: 'Rilis Nilai',
-    desc: 'Buka nilai Essay & Total ke siswa, lalu kirim ke wali kelas',
-    href: '/guru/kirim-nilai',
-    icon: Send,
+    key: 'penilaian',
+    label: 'Penilaian',
+    desc: 'Periksa jawaban, lihat rekap nilai, lalu kirim nilai akhir ke wali kelas',
+    href: '/guru/penilaian',
+    icon: ClipboardCheck,
   },
 ]
 
