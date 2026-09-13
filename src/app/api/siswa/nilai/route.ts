@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 import { petakanEssayAktifPerSesi } from '@/app/api/guru/kirim-nilai/route'
+import { hitungGrade } from '@/lib/utils'
 
 export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['SISWA'])
@@ -46,6 +47,32 @@ export async function GET(req: NextRequest) {
   const enriched = (nilaiList ?? []).map(n => {
     const essayDirilis = n.dirilis === true
     const essayAktif = n.sesi_id ? (essayAktifMap.get(n.sesi_id) ?? false) : false
+
+    // BUG FIX (nilai remedial guru tidak masuk ke akun siswa): endpoint ini
+    // sebelumnya TIDAK PERNAH memakai nilai_edit/grade_edit/lulus_edit
+    // (nilai remedial yang guru input di tab "Rekap Nilai" — lihat
+    // RekapNilaiTab.tsx) walau kolomnya sudah ikut terambil oleh
+    // `select('*')` di atas. Akibatnya siswa yang sudah lulus KKM lewat
+    // remedial (dan sudah tampil lulus di tab Rekap Nilai guru maupun di
+    // tab Kirim Nilai/wali kelas) tetap melihat nilai & status LAMA
+    // (sebelum remedial) di akun mereka sendiri — kontradiktif dengan apa
+    // yang guru & wali kelas lihat. Sekarang nilai_edit (kalau diisi) jadi
+    // prioritas utama, PERSIS urutan prioritas hitungNilaiFinal() di
+    // api/guru/kirim-nilai/route.ts. Bedanya dengan versi guru: di sini
+    // nilai_total (PG+Essay) TETAP tidak boleh dipakai sebelum essay
+    // benar-benar dirilis (`essayDirilis`) — nilai_edit sendiri BOLEH
+    // dilihat siswa kapan saja karena itu keputusan final guru yang
+    // sengaja menggantikan hasil ujian, terlepas dari status rilis essay.
+    const adaRemedial = n.nilai_edit !== null && n.nilai_edit !== undefined
+    const nilaiEfektifSiswa = (essayAktif && essayDirilis && n.nilai_total != null) ? n.nilai_total : n.nilai
+    const nilaiFinal = adaRemedial ? (n.nilai_edit as number) : nilaiEfektifSiswa
+    const gradeFinal = adaRemedial
+      ? (n.grade_edit ?? hitungGrade(nilaiFinal))
+      : (essayDirilis && essayAktif && n.nilai_total != null ? hitungGrade(n.nilai_total) : n.grade)
+    const lulusFinal = adaRemedial
+      ? (n.lulus_edit ?? (nilaiFinal >= n.kkm))
+      : (essayDirilis && essayAktif && n.nilai_total != null ? n.nilai_total >= n.kkm : n.lulus)
+
     return {
       ...n,
       nilai_essay: essayDirilis ? n.nilai_essay : null,
@@ -54,6 +81,10 @@ export async function GET(req: NextRequest) {
       dinilai_oleh: essayDirilis ? n.dinilai_oleh : null,
       nama_mapel: mapelMap[n.mapel_id] ?? n.mapel_id,
       essay_belum_dirilis: essayAktif && !essayDirilis,
+      ada_remedial: adaRemedial,
+      nilai_final: nilaiFinal,
+      grade_final: gradeFinal,
+      lulus_final: lulusFinal,
     }
   })
 
@@ -63,11 +94,11 @@ export async function GET(req: NextRequest) {
   // sendiri (lihat siswa/nilai/page.tsx) sudah menampilkan nilai_total
   // begitu essay dirilis. Sekarang dipakai nilai efektif yang sama supaya
   // konsisten dengan apa yang siswa lihat di baris tabel.
-  const nilaiEfektif = (n: (typeof enriched)[number]) => {
-    const essayAktif = n.sesi_id ? (essayAktifMap.get(n.sesi_id) ?? false) : false
-    return (essayAktif && n.dirilis === true && n.nilai_total != null) ? n.nilai_total : (n.nilai || 0)
-  }
-  const nums = enriched.map(nilaiEfektif)
+  //
+  // BUG FIX (nilai remedial tidak ikut kartu statistik): pakai nilai_final
+  // (sudah dihitung di atas, termasuk remedial) supaya kartu ini juga tidak
+  // ketinggalan begitu guru menyimpan nilai remedial.
+  const nums = enriched.map(n => n.nilai_final)
   const stats = {
     totalUjian: nums.length,
     rataRata: nums.length ? Math.round(nums.reduce((a, b) => a + b, 0) / nums.length) : 0,
