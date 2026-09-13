@@ -1,8 +1,45 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
-import { kirimPasanganPaket } from '@/lib/gabungKirim'
+import { kirimPasanganPaket, cekPasanganPaket } from '@/lib/gabungKirim'
 import { cekSesiMapelKelasSudahMulai, pesanBankSoalTerkunci } from '@/lib/sesi-kelas'
+
+// GET dipakai FE untuk menanyakan (tanpa mengubah apa pun) apakah ada paket
+// PG pasangan (mapel+kelas sama, masih DRAFT/DITOLAK, minimal 1 soal)
+// SEBELUM guru benar-benar menekan "Kirim" — supaya bisa ditampilkan popup
+// konfirmasi "kirim sekaligus atau Essay saja?" hanya kalau memang relevan.
+export async function GET(
+  req: NextRequest,
+  { params }: { params: { id: string; action: string } }
+) {
+  const auth = requireRole(req, ['GURU'])
+  if ('error' in auth) return auth.error
+  const { user } = auth
+  const db = createAdminClient()
+
+  if (params.action !== 'kirim') {
+    return NextResponse.json({ error: 'Action tidak valid' }, { status: 400 })
+  }
+
+  const { data: paket } = await db
+    .from('paket_essay')
+    .select('guru_id, mapel_id, kelas_id')
+    .eq('id', params.id)
+    .single()
+
+  if (!paket || paket.guru_id !== user.username) {
+    return NextResponse.json({ error: 'Tidak memiliki izin' }, { status: 403 })
+  }
+
+  const pasangan = await cekPasanganPaket(db, {
+    mapelId: paket.mapel_id,
+    kelasId: paket.kelas_id,
+    guruId: user.username,
+    jenisPasangan: 'PG',
+  })
+
+  return NextResponse.json({ adaPasangan: pasangan.ada, jumlahSoal: pasangan.jumlahSoal })
+}
 
 export async function POST(
   req: NextRequest,
@@ -56,13 +93,20 @@ export async function POST(
 
     await db.from('soal_essay').update({ status: 'MENUNGGU' }).eq('paket_essay_id', paketId).eq('status', 'DRAFT')
 
-    // Ikut ajukan paket PG untuk mapel+kelas yang sama (kalau ada draft-nya)
-    const pasangan = await kirimPasanganPaket(db, {
-      mapelId: paket.mapel_id,
-      kelasId: paket.kelas_id,
-      guruId: user.username,
-      jenisPasangan: 'PG',
-    })
+    // FE menanyakan dulu ke guru lewat popup (lihat GET di atas) apakah mau
+    // ikut mengirim paket PG pasangan sekaligus. Defaultnya true supaya
+    // pemanggil lama (kalau ada) tetap berperilaku seperti sebelumnya.
+    const body = await req.json().catch(() => ({} as { gabungPasangan?: boolean }))
+    const gabungPasangan = body?.gabungPasangan !== false
+
+    const pasangan = gabungPasangan
+      ? await kirimPasanganPaket(db, {
+        mapelId: paket.mapel_id,
+        kelasId: paket.kelas_id,
+        guruId: user.username,
+        jenisPasangan: 'PG',
+      })
+      : { submitted: false }
 
     return NextResponse.json({
       message: pasangan.submitted
