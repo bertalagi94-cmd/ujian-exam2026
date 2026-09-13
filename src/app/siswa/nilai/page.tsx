@@ -20,6 +20,12 @@ function buatSidikJari(list: Nilai[]): Map<string, string> {
     map.set(n.id, JSON.stringify([
       n.nilai, n.nilai_total, n.nilai_essay, n.dirilis, n.grade,
       n.lulus, n.essay_belum_dirilis, n.kkm, n.benar, n.total,
+      // BUG FIX (nilai remedial tidak terdeteksi oleh "Cek nilai terbaru"):
+      // sidik jari sebelumnya tidak menyertakan nilai_edit/nilai_final/
+      // lulus_final, jadi kalau guru HANYA menyimpan nilai remedial (tanpa
+      // menyentuh nilai PG/essay mentah), baris ini dianggap "tidak
+      // berubah" walau nilai & status akhirnya sudah beda.
+      n.nilai_edit, n.nilai_final, n.lulus_final,
     ]))
   }
   return map
@@ -74,8 +80,14 @@ export default function SiswaNilaiPage() {
       if (filterMapel !== 'SEMUA' && namaMapel !== filterMapel) return false
 
       if (filterStatus !== 'SEMUA') {
+        // BUG FIX (nilai remedial tidak masuk ke akun siswa): filter status
+        // kelulusan sebelumnya hanya mempertimbangkan essay (nilai_total),
+        // tidak pernah nilai_edit (remedial) — sekarang pakai lulus_final
+        // dari server (sudah menghitung prioritas remedial > essay > PG,
+        // lihat komentar di /api/siswa/nilai/route.ts), dengan fallback ke
+        // logika lama untuk jaga-jaga kalau field itu belum ada.
         const essayDirilis = n.dirilis === true && n.nilai_total != null
-        const hasilAkhirLulus = essayDirilis ? n.nilai_total! >= n.kkm : n.lulus
+        const hasilAkhirLulus = n.lulus_final ?? (essayDirilis ? n.nilai_total! >= n.kkm : n.lulus)
         if (filterStatus === 'LULUS' && !hasilAkhirLulus) return false
         if (filterStatus === 'TIDAK_LULUS' && hasilAkhirLulus) return false
       }
@@ -276,8 +288,21 @@ export default function SiswaNilaiPage() {
                   // n.kkm, tidak boleh mengandalkan n.lulus.
                   const essayDirilis = n.dirilis === true && n.nilai_total != null
                   const pgLulus = n.nilai >= n.kkm
-                  const hasilAkhirLulus = essayDirilis ? n.nilai_total! >= n.kkm : n.lulus
-                  const essayTertunda = n.essay_belum_dirilis === true
+                  // BUG FIX (nilai remedial guru tidak masuk ke akun siswa):
+                  // kolom "Hasil akhir" sebelumnya cuma memakai nilai_total
+                  // (essay) atau n.lulus mentah, tidak pernah nilai remedial
+                  // (nilai_edit) yang guru input di tab Rekap Nilai — siswa
+                  // yang sudah lulus KKM lewat remedial (dan sudah tampil
+                  // lulus di akun guru & wali kelas) tetap terlihat "Tidak
+                  // Lulus" di akun mereka sendiri. Sekarang pakai
+                  // nilai_final/lulus_final dari server (sudah menghitung
+                  // prioritas remedial > essay > PG), dan kalau
+                  // ada_remedial, ini ditampilkan TERLEPAS dari status
+                  // "menunggu rilis essay" — nilai remedial adalah keputusan
+                  // final guru, tidak perlu menunggu apa pun lagi.
+                  const hasilAkhirLulus = n.lulus_final ?? (essayDirilis ? n.nilai_total! >= n.kkm : n.lulus)
+                  const hasilAkhirNilai = n.nilai_final ?? (essayDirilis ? n.nilai_total! : n.nilai)
+                  const essayTertunda = !n.ada_remedial && n.essay_belum_dirilis === true
 
                   return (
                   <tr key={n.id} onClick={() => router.push(`/siswa/nilai/${n.id}`)} className="cursor-pointer hover:bg-slate-50">
@@ -309,7 +334,11 @@ export default function SiswaNilaiPage() {
                           <span className={`badge ${hasilAkhirLulus ? 'badge-green' : 'badge-red'}`}>
                             {hasilAkhirLulus ? '✓ Lulus' : '✗ Tidak Lulus'}
                           </span>
-                          {essayDirilis && (
+                          {n.ada_remedial ? (
+                            <div className="text-[11px] text-indigo-500 mt-0.5">
+                              Nilai remedial: {hasilAkhirNilai}
+                            </div>
+                          ) : essayDirilis && (
                             <div className="text-[11px] text-slate-400 mt-0.5">
                               PG {n.nilai} + Essay {n.nilai_essay} = {n.nilai_total}
                             </div>
