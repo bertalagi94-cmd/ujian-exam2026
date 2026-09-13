@@ -524,6 +524,8 @@ export function SiswaSidebar() {
     ...(adaJadwalHariIni ? [{ label: 'Mulai Ujian', href: '/siswa/ujian', icon: BookOpen } as NavItem] : []),
     { label: 'Nilai Saya', href: '/siswa/nilai', icon: BarChart3 },
     { label: 'Jadwal', href: '/siswa/jadwal', icon: Calendar },
+    // FITUR (Halaman profil siswa): biodata + ganti password sendiri.
+    { label: 'Profil Saya', href: '/siswa/profil', icon: User },
   ]
 
   return (
