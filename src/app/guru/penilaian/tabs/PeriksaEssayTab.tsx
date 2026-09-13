@@ -68,8 +68,10 @@ interface KoreksiData {
 // mapel+kelas yang sama sudah otomatis terbuka — tanpa harus mencari-cari lagi.
 export function PeriksaEssayTab({
   onLanjutKirimNilai,
+  onDataChanged,
 }: {
   onLanjutKirimNilai?: (target: { mapelId: string; kelas: string; namaMapel: string; namaKelas: string }) => void
+  onDataChanged?: () => void
 }) {
   const [jadwalList, setJadwalList] = useState<JadwalKoreksi[]>([])
   const [loading, setLoading] = useState(true)
@@ -181,6 +183,7 @@ export function PeriksaEssayTab({
       })
       showToast(`Nilai essay ${nis} berhasil disimpan`)
       if (selectedJadwal) await selectSesi(selectedJadwal)
+      onDataChanged?.()
     } catch (e: unknown) {
       showToast(e instanceof Error ? e.message : 'Gagal menyimpan nilai', 'error')
     } finally {
@@ -200,6 +203,7 @@ export function PeriksaEssayTab({
       showToast(`Siswa ${nis} ditandai tidak mengerjakan essay`)
       setConfirmTakMengerjakan(null)
       if (selectedJadwal) await selectSesi(selectedJadwal)
+      onDataChanged?.()
     } catch (e: unknown) {
       showToast(e instanceof Error ? e.message : 'Gagal menyimpan', 'error')
     } finally {
@@ -217,6 +221,7 @@ export function PeriksaEssayTab({
       })
       showToast(`Nilai untuk siswa ${nis} berhasil dirilis`)
       if (selectedJadwal) await selectSesi(selectedJadwal)
+      onDataChanged?.()
     } catch (e: unknown) {
       showToast(e instanceof Error ? e.message : 'Gagal merilis nilai', 'error')
     } finally {
@@ -235,6 +240,7 @@ export function PeriksaEssayTab({
       showToast(res.message ?? 'Nilai berhasil dirilis ke semua siswa')
       setConfirmRilisSemua(false)
       if (selectedJadwal) await selectSesi(selectedJadwal)
+      onDataChanged?.()
     } catch (e: unknown) {
       showToast(e instanceof Error ? e.message : 'Gagal merilis nilai', 'error')
     } finally {
@@ -266,6 +272,7 @@ export function PeriksaEssayTab({
       showToast(`Bobot nilai berhasil diperbarui (${res.jumlahNilaiDiperbarui} nilai siswa dihitung ulang)`)
       setEditBobotStep(null)
       await loadKoreksiData(selectedSesiId)
+      onDataChanged?.()
     } catch (e: unknown) {
       showToast(e instanceof Error ? e.message : 'Gagal menyimpan bobot', 'error')
     } finally {
