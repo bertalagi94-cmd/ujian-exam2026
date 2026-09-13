@@ -415,7 +415,21 @@ export function hitungNilaiFinal(row: {
   dirilis?: boolean | null
   nilai_total?: number | null
 }) {
-  const nilaiEfektif = (row.essay_aktif && row.dirilis === true && row.nilai_total != null)
+  // BUG FIX (nilai remedial guru salah tampil sebagai nilai PG mentah):
+  // SEBELUMNYA syarat pakai nilai_total di sini adalah `dirilis === true`
+  // — disalin dari logika /api/guru/wali-kelas yang memang sengaja begitu
+  // (di sana aman, karena baris yang dikirim ke wali kelas dijamin sudah
+  // dirilis lewat pisahkanSiapKirim). Tapi fungsi INI dipakai untuk
+  // tampilan INTERNAL guru sendiri (Rekap Nilai & Kirim Nilai, termasuk
+  // modal input nilai remedial) — di situ `dirilis` SALAH dijadikan syarat,
+  // karena `nilai_total`/`lulus` di database sudah dihitung ulang begitu
+  // guru menilai essay (lihat koreksi-essay/route.ts), TIDAK menunggu
+  // tombol "Rilis" ditekan. Guru sempat melihat modal bilang "Nilai saat
+  // ini: 80" (PG murni) padahal status Lulus/Tidak di tabel sebelahnya
+  // SUDAH benar memakai nilai gabungan PG+Essay yang lebih rendah —
+  // kontradiktif. Sekarang cukup cek nilai_total sudah terisi (= essay
+  // sudah dinilai guru), tidak peduli sudah dirilis ke siswa atau belum.
+  const nilaiEfektif = (row.essay_aktif && row.nilai_total != null)
     ? row.nilai_total
     : row.nilai
   const adaRemedial = row.nilai_edit !== null && row.nilai_edit !== undefined
