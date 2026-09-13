@@ -232,6 +232,26 @@ export interface Nilai {
   // ujian, bukan cuma nilai akhirnya.
   pelanggaran?: Pelanggaran[]
   jumlah_pelanggaran?: number
+  // FITUR BARU (hapus dualisme tab Rekap Nilai vs Kirim Nilai): "nilai
+  // remedial guru" — sebelumnya hanya bisa diinput di tab Kirim Nilai,
+  // sekarang diinput langsung di tab Rekap Nilai (lihat RekapNilaiTab).
+  nilai_edit?: number | null
+  grade_edit?: string | null
+  lulus_edit?: boolean | null
+  catatan_guru?: string | null
+  dikirim_ke_wali?: boolean
+  dikirim_at?: string | null
+  dikembalikan?: boolean
+  // Dihitung server-side (lihat hitungNilaiFinal di
+  // api/guru/kirim-nilai/route.ts) supaya Rekap Nilai & Kirim Nilai selalu
+  // menampilkan angka yang identik: nilai_final = nilai_edit kalau ada,
+  // kalau tidak fallback ke nilai_efektif (nilai_total kalau essay aktif &
+  // dirilis, kalau tidak nilai PG biasa).
+  nilai_efektif?: number
+  nilai_final?: number
+  grade_final?: string
+  lulus_final?: boolean
+  ada_remedial?: boolean
 }
 
 export interface Jawaban {
