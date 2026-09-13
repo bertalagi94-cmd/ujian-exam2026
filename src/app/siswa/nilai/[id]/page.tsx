@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { ChevronLeft, CheckCircle2, XCircle } from 'lucide-react'
+import { ChevronLeft, CheckCircle2, XCircle, PenSquare, ImageIcon } from 'lucide-react'
 import { PageLoader, EmptyState, Badge } from '@/components/ui'
 import { apiRequest, formatDateTime, nilaiColor, hitungGrade } from '@/lib/utils'
 
@@ -27,6 +27,18 @@ interface NilaiDetail {
   essay_belum_dirilis?: boolean
 }
 
+// FITUR (Rincian jawaban essay per soal): ditampilkan hanya kalau guru sudah
+// merilis nilai essay (lihat masking di API — rincianEssay null selama belum
+// dirilis).
+interface RincianEssaySoal {
+  no: number
+  teks: string
+  gambar_url: string | null
+  bobot_maks: number
+  jawaban_teks: string | null
+  skor: number | null
+}
+
 const LABELS = ['A', 'B', 'C', 'D', 'E'] as const
 
 export default function RincianNilaiPage() {
@@ -34,14 +46,25 @@ export default function RincianNilaiPage() {
   const params = useParams<{ id: string }>()
   const [nilai, setNilai] = useState<NilaiDetail | null>(null)
   const [rincian, setRincian] = useState<RincianSoal[]>([])
+  const [rincianEssay, setRincianEssay] = useState<RincianEssaySoal[] | null>(null)
+  const [essayFotoUrl, setEssayFotoUrl] = useState<string | null>(null)
+  const [essayModeJawaban, setEssayModeJawaban] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     try {
-      const res = await apiRequest<{ nilai: NilaiDetail; rincian: RincianSoal[] }>(`/api/siswa/nilai/${params.id}`)
+      const res = await apiRequest<{
+        nilai: NilaiDetail; rincian: RincianSoal[]
+        rincianEssay: RincianEssaySoal[] | null
+        essayFotoUrl: string | null
+        essayModeJawaban: string | null
+      }>(`/api/siswa/nilai/${params.id}`)
       setNilai(res.nilai)
       setRincian(res.rincian)
+      setRincianEssay(res.rincianEssay)
+      setEssayFotoUrl(res.essayFotoUrl)
+      setEssayModeJawaban(res.essayModeJawaban)
     } catch (e: any) {
       setError(e?.message ?? 'Gagal memuat rincian nilai')
     } finally {
@@ -115,8 +138,67 @@ export default function RincianNilaiPage() {
         </div>
       </div>
 
+      {/* FITUR (Rincian jawaban essay per soal): hanya muncul kalau ada
+          soal essay di sesi ini DAN guru sudah merilis nilainya (rincianEssay
+          null selama belum dirilis, lihat masking di API). */}
+      {rincianEssay && rincianEssay.length > 0 && (
+        <div className="space-y-4">
+          <h2 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
+            <PenSquare className="w-5 h-5 text-brand-600" /> Rincian Jawaban Essay
+          </h2>
+
+          {essayModeJawaban === 'KERTAS' && essayFotoUrl && (
+            <div className="card">
+              <div className="flex items-center gap-2 mb-3 text-sm font-medium text-slate-700">
+                <ImageIcon className="w-4 h-4 text-slate-400" /> Foto Lembar Jawaban Kamu
+              </div>
+              <img
+                src={essayFotoUrl}
+                alt="Foto lembar jawaban essay"
+                className="w-full max-w-lg mx-auto rounded-lg border border-slate-200 object-contain block"
+              />
+            </div>
+          )}
+
+          {rincianEssay.map(s => (
+            <div key={s.no} className="card">
+              <div className="flex items-center justify-between gap-2 mb-4">
+                <span className="badge-blue font-semibold">Soal Essay {s.no}</span>
+                <span className="badge badge-yellow font-bold">
+                  Skor: {s.skor ?? 0} / {s.bobot_maks}
+                </span>
+              </div>
+
+              <p className="text-slate-800 text-base leading-relaxed mb-4">{s.teks}</p>
+              {s.gambar_url && (
+                <div className="mb-6">
+                  <img
+                    src={s.gambar_url}
+                    alt="Gambar soal essay"
+                    className="w-full max-w-lg mx-auto rounded-lg border border-slate-200 object-contain block"
+                    style={{ maxHeight: '320px' }}
+                  />
+                </div>
+              )}
+
+              {essayModeJawaban === 'DIGITAL' && (
+                <div>
+                  <div className="text-xs text-slate-500 mb-1.5">Jawaban Kamu</div>
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 text-sm text-slate-700 whitespace-pre-wrap">
+                    {s.jawaban_teks || <span className="text-slate-400 italic">Tidak dijawab</span>}
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Daftar soal */}
       <div className="space-y-4">
+        {rincianEssay && rincianEssay.length > 0 && (
+          <h2 className="text-lg font-semibold text-slate-800">Rincian Jawaban Pilihan Ganda</h2>
+        )}
         {rincian.map(s => (
           <div key={s.no} className="card">
             <div className="flex items-center justify-between gap-2 mb-4">
