@@ -17,11 +17,19 @@ interface CounterpartResult {
   id?: string
 }
 
+interface CounterpartCheck {
+  ada: boolean
+  id?: string
+  jumlahSoal?: number
+}
+
 /**
- * Mengirim (DRAFT/DITOLAK -> MENUNGGU) paket pasangan (jenis lain) untuk
- * mapel+kelas+guru yang sama, kalau ada dan sudah punya minimal 1 soal.
+ * Cek (read-only, TANPA mengubah apa pun) apakah ada paket pasangan (jenis
+ * lain) untuk mapel+kelas+guru yang sama, yang masih DRAFT/DITOLAK dan sudah
+ * punya minimal 1 soal. Dipakai untuk menampilkan popup konfirmasi ke guru
+ * SEBELUM benar-benar mengirim ("apakah mau dikirim sekaligus?").
  */
-export async function kirimPasanganPaket(
+export async function cekPasanganPaket(
   db: SupabaseClient,
   opts: {
     mapelId: string
@@ -29,7 +37,7 @@ export async function kirimPasanganPaket(
     guruId: string
     jenisPasangan: 'PG' | 'ESSAY'
   }
-): Promise<CounterpartResult> {
+): Promise<CounterpartCheck> {
   const { mapelId, kelasId, guruId, jenisPasangan } = opts
 
   const paketTable = jenisPasangan === 'PG' ? 'paket_soal' : 'paket_essay'
@@ -45,23 +53,50 @@ export async function kirimPasanganPaket(
     .in('status', ['DRAFT', 'DITOLAK'])
     .maybeSingle()
 
-  if (!pasangan) return { submitted: false }
+  if (!pasangan) return { ada: false }
 
   const { count } = await db
     .from(soalTable)
     .select('*', { count: 'exact', head: true })
     .eq(soalFkCol, pasangan.id)
 
-  if (!count || count < 1) return { submitted: false }
+  if (!count || count < 1) return { ada: false }
+
+  return { ada: true, id: pasangan.id, jumlahSoal: count }
+}
+
+/**
+ * Mengirim (DRAFT/DITOLAK -> MENUNGGU) paket pasangan (jenis lain) untuk
+ * mapel+kelas+guru yang sama, kalau ada dan sudah punya minimal 1 soal.
+ *
+ * Dipanggil hanya kalau guru sudah memilih "Ya, kirim sekaligus" di popup
+ * konfirmasi (lihat cekPasanganPaket di atas) — atau kalau pasangannya
+ * memang tidak ada sehingga tidak ada apa pun untuk dikonfirmasi.
+ */
+export async function kirimPasanganPaket(
+  db: SupabaseClient,
+  opts: {
+    mapelId: string
+    kelasId: string
+    guruId: string
+    jenisPasangan: 'PG' | 'ESSAY'
+  }
+): Promise<CounterpartResult> {
+  const cek = await cekPasanganPaket(db, opts)
+  if (!cek.ada || !cek.id) return { submitted: false }
+
+  const paketTable = opts.jenisPasangan === 'PG' ? 'paket_soal' : 'paket_essay'
+  const soalTable = opts.jenisPasangan === 'PG' ? 'soal' : 'soal_essay'
+  const soalFkCol = opts.jenisPasangan === 'PG' ? 'paket_id' : 'paket_essay_id'
 
   await db
     .from(paketTable)
-    .update({ status: 'MENUNGGU', jumlah_soal: count, catatan: null, notif_dibaca: true, tanggal: new Date().toISOString() })
-    .eq('id', pasangan.id)
+    .update({ status: 'MENUNGGU', jumlah_soal: cek.jumlahSoal, catatan: null, notif_dibaca: true, tanggal: new Date().toISOString() })
+    .eq('id', cek.id)
 
-  await db.from(soalTable).update({ status: 'MENUNGGU' }).eq(soalFkCol, pasangan.id).eq('status', 'DRAFT')
+  await db.from(soalTable).update({ status: 'MENUNGGU' }).eq(soalFkCol, cek.id).eq('status', 'DRAFT')
 
-  return { submitted: true, id: pasangan.id }
+  return { submitted: true, id: cek.id }
 }
 
 /**
