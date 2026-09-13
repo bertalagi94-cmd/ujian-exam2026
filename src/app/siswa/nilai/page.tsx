@@ -251,7 +251,7 @@ export default function SiswaNilaiPage() {
               </div>
             </div>
             <div className="text-center">
-              <p className="font-semibold text-slate-800">Mengambil nilai terbaru dari guru...</p>
+              <p className="font-semibold text-slate-800">Mengambil nilai Essay dari guru...</p>
               <p className="text-xs text-slate-400 mt-1">Mohon tunggu sebentar</p>
             </div>
             <div className="flex gap-1.5">
@@ -289,7 +289,7 @@ export default function SiswaNilaiPage() {
             <div className="w-14 h-14 rounded-full bg-red-50 flex items-center justify-center">
               <AlertCircle className="w-6 h-6 text-red-500" />
             </div>
-            <p className="font-medium text-slate-700">Gagal mengambil nilai</p>
+            <p className="font-medium text-slate-700">Gagal mengambil nilai Essay</p>
             <p className="text-sm text-slate-500">Periksa koneksi internet kamu lalu coba lagi.</p>
           </div>
         ) : (
