@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import * as XLSX from 'xlsx'
-import { Download, BarChart3, Trophy, TrendingUp, Users, CheckCircle, AlertTriangle, ShieldCheck } from 'lucide-react'
-import { PageLoader, EmptyState, SearchInput, StatCard, Modal } from '@/components/ui'
+import { Download, BarChart3, Trophy, TrendingUp, Users, CheckCircle, AlertTriangle, ShieldCheck, Pencil, Save, Lock } from 'lucide-react'
+import { PageLoader, EmptyState, SearchInput, StatCard, Modal, Toast } from '@/components/ui'
 import { apiRequest, formatDateTime, nilaiColor } from '@/lib/utils'
 import { Nilai as NilaiBase, Mapel } from '@/types'
 import { terjemahJenisPelanggaran, labelStatusPelanggaran, warnaStatusPelanggaran } from '@/lib/pelanggaran-shared'
@@ -25,6 +25,17 @@ interface Stats {
 // halaman sendiri (/guru/nilai) — logikanya tidak diubah, cuma dipindah
 // jadi salah satu tab dan header halamannya disederhanakan (judul besar
 // sudah diwakili oleh nama tab di atasnya).
+//
+// KEPUTUSAN DESAIN (hapus dualisme tab Rekap Nilai vs Kirim Nilai): dulu
+// nilai remedial (`nilai_edit`) hanya bisa diinput dari tab "Kirim Nilai ke
+// Wali Kelas", sedangkan tab ini (Rekap Nilai) menampilkan nilai asli murni
+// dan tidak pernah ikut berubah walau nilai remedial sudah disimpan — dua
+// tab menampilkan angka berbeda untuk siswa yang sama. Sekarang input nilai
+// remedial dipindah ke SINI (tombol pensil per baris → modal), dan tab
+// Kirim Nilai jadi murni konfirmasi/kirim (read-only). Logika bisnis nilai
+// akhir (nilai_edit override nilai_efektif, dipakai final saat dikirim ke
+// wali kelas) tidak berubah — lihat hitungNilaiFinal() di
+// api/guru/kirim-nilai/route.ts, dipakai bareng oleh kedua tab.
 export function RekapNilaiTab() {
   const [nilaiList, setNilaiList] = useState<Nilai[]>([])
   const [mapelList, setMapelList] = useState<Mapel[]>([])
@@ -37,6 +48,13 @@ export function RekapNilaiTab() {
   // FITUR BARU (riwayat pelanggaran untuk guru pengampu): baris nilai yang
   // sedang dibuka modal riwayat pelanggarannya, null kalau modal tertutup.
   const [pelanggaranModal, setPelanggaranModal] = useState<Nilai | null>(null)
+  // FITUR BARU (input nilai remedial dipindah ke tab ini): baris nilai yang
+  // sedang dibuka modal edit-nya, null kalau modal tertutup.
+  const [editTarget, setEditTarget] = useState<Nilai | null>(null)
+  const [editNilaiStr, setEditNilaiStr] = useState('')
+  const [editCatatan, setEditCatatan] = useState('')
+  const [savingEdit, setSavingEdit] = useState(false)
+  const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -57,6 +75,44 @@ export function RekapNilaiTab() {
   }, [filterMapel, filterKelas])
 
   useEffect(() => { load() }, [load])
+
+  // FITUR BARU (input nilai remedial dipindah ke tab ini): baris yang sudah
+  // dikirim ke wali kelas dan BELUM dikembalikan tidak boleh diedit lagi —
+  // sama seperti aturan lama di tab Kirim Nilai — supaya nilai yang sudah
+  // resmi diterima wali kelas tidak berubah diam-diam di belakang mereka.
+  function terkunci(n: Nilai) {
+    return !!n.dikirim_ke_wali && !n.dikembalikan
+  }
+
+  function openEdit(n: Nilai) {
+    setEditTarget(n)
+    setEditNilaiStr(n.nilai_edit != null ? String(n.nilai_edit) : '')
+    setEditCatatan(n.catatan_guru ?? '')
+  }
+
+  async function simpanNilaiEdit() {
+    if (!editTarget) return
+    setSavingEdit(true)
+    try {
+      const nilai_edit = editNilaiStr.trim() === '' ? null : parseFloat(editNilaiStr)
+      await apiRequest('/api/guru/kirim-nilai', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          aksi: 'simpan_edit',
+          id: editTarget.id,
+          nilai_edit,
+          catatan_guru: editCatatan.trim() || null,
+        }),
+      })
+      setToast({ msg: 'Nilai remedial berhasil disimpan', type: 'success' })
+      setEditTarget(null)
+      await load()
+    } catch (e) {
+      setToast({ msg: e instanceof Error ? e.message : 'Gagal menyimpan nilai', type: 'error' })
+    } finally {
+      setSavingEdit(false)
+    }
+  }
 
   const kelasList = [...new Set(nilaiList.map(n => n.kelas))].sort()
 
@@ -160,9 +216,17 @@ export function RekapNilaiTab() {
 
   return (
     <div className="space-y-6 animate-fade-in">
+      {toast && (
+        <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />
+      )}
+
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <p className="text-sm text-slate-500">Nilai siswa dari mata pelajaran yang Anda ampu</p>
+          <p className="text-xs text-slate-400 mt-0.5">
+            Perlu remedial? Tekan ikon <Pencil className="w-3 h-3 inline" /> di baris siswa untuk input nilai —
+            akan langsung dipakai sebagai Nilai Akhir di sini dan saat dikirim ke wali kelas.
+          </p>
         </div>
         {mapelList.length > 0 && (
           <button onClick={exportExcel} disabled={exporting} className="btn-secondary btn-sm">
@@ -237,11 +301,19 @@ export function RekapNilaiTab() {
                       akhir gabungan "Nilai Akhir (PG + Essay)" yang sebenarnya
                       dirilis ke siswa, bukan cuma status lulus/tidak dari PG. */}
                   <th>Status</th>
+                  {/* FITUR BARU (hapus dualisme tab Rekap Nilai vs Kirim
+                      Nilai): kolom ini menampilkan nilai_final — sudah
+                      termasuk nilai remedial (nilai_edit) kalau guru pernah
+                      menginputnya lewat tombol pensil di kolom Aksi. Ini
+                      angka yang SAMA persis dengan yang akan dikirim ke
+                      wali kelas. */}
+                  <th>Nilai Akhir</th>
                   <th>Tanggal</th>
                   {/* FITUR BARU: riwayat pelanggaran (kecurangan) selama
                       ujian, supaya guru pengampu tahu kondisi siswa selama
                       ujian, bukan cuma nilai akhirnya. */}
                   <th>Pelanggaran</th>
+                  <th>Aksi</th>
                 </tr>
               </thead>
               <tbody>
@@ -257,7 +329,9 @@ export function RekapNilaiTab() {
                         <td>
                           <span className="badge bg-slate-100 text-slate-500">Belum Ujian</span>
                         </td>
+                        <td className="text-xs text-slate-300 text-center">—</td>
                         <td className="text-xs text-slate-400">—</td>
+                        <td className="text-xs text-slate-300 text-center">—</td>
                         <td className="text-xs text-slate-300 text-center">—</td>
                       </>
                     ) : (
@@ -303,6 +377,30 @@ export function RekapNilaiTab() {
                             )}
                           </div>
                         </td>
+                        {/* FITUR BARU (hapus dualisme tab Rekap Nilai vs Kirim
+                            Nilai): nilai_final sudah termasuk nilai_edit
+                            (remedial) kalau pernah diinput — persis angka
+                            yang akan dikirim ke wali kelas. */}
+                        <td className="text-center">
+                          <div className="flex flex-col items-center gap-1">
+                            <span className={`text-lg font-bold ${nilaiColor(n.nilai_final ?? n.nilai)}`}>
+                              {n.nilai_final ?? n.nilai}
+                            </span>
+                            <span className={`badge text-xs font-bold ${
+                              n.grade_final === 'A' ? 'badge-green' :
+                              n.grade_final === 'B' ? 'badge-blue' :
+                              n.grade_final === 'C' ? 'badge-yellow' : 'badge-red'
+                            }`}>{n.grade_final ?? n.grade}</span>
+                            {n.ada_remedial && (
+                              <span
+                                className="badge bg-indigo-50 text-indigo-600 text-[10px]"
+                                title={`Nilai sebelum remedial: ${n.nilai_efektif}`}
+                              >
+                                Diremedial (awal: {n.nilai_efektif})
+                              </span>
+                            )}
+                          </div>
+                        </td>
                         <td className="text-xs text-slate-400">{formatDateTime(n.timestamp)}</td>
                         <td>
                           {(n.jumlah_pelanggaran ?? 0) > 0 ? (
@@ -319,6 +417,24 @@ export function RekapNilaiTab() {
                               <ShieldCheck className="w-3 h-3" /> Bersih
                             </span>
                           )}
+                        </td>
+                        {/* FITUR BARU: tombol input nilai remedial — pindah
+                            dari tab Kirim Nilai. Terkunci kalau nilainya
+                            sudah dikirim ke wali kelas & belum dikembalikan,
+                            supaya tidak berubah diam-diam di belakang wali
+                            kelas (aturan sama seperti sebelumnya). */}
+                        <td className="text-center">
+                          <button
+                            type="button"
+                            onClick={() => openEdit(n)}
+                            disabled={terkunci(n)}
+                            className="btn-ghost btn-icon disabled:opacity-40 disabled:cursor-not-allowed"
+                            title={terkunci(n)
+                              ? 'Sudah dikirim ke wali kelas — tidak bisa diedit sampai dikembalikan'
+                              : 'Input/ubah nilai remedial'}
+                          >
+                            {terkunci(n) ? <Lock className="w-4 h-4 text-slate-400" /> : <Pencil className="w-4 h-4 text-slate-500" />}
+                          </button>
                         </td>
                       </>
                     )}
@@ -365,6 +481,70 @@ export function RekapNilaiTab() {
                 ))}
               </ul>
             )}
+          </div>
+        )}
+      </Modal>
+
+      {/* FITUR BARU (hapus dualisme tab Rekap Nilai vs Kirim Nilai): modal
+          input nilai remedial — sebelumnya ini ada sebagai kolom input
+          langsung di tabel tab Kirim Nilai. Setelah disimpan di sini, angka
+          ini langsung tampil di kolom "Nilai Akhir" tabel Rekap Nilai DAN
+          jadi nilai yang dipakai saat guru menekan "Kirim ke Wali Kelas"
+          di tab sebelah — tidak ada logika baru, cuma dipindah tempatnya. */}
+      <Modal
+        open={!!editTarget}
+        onClose={() => !savingEdit && setEditTarget(null)}
+        title={`Input Nilai Remedial — ${editTarget?.nama_siswa ?? ''}`}
+        size="sm"
+        footer={
+          <div className="flex justify-end gap-2">
+            <button type="button" className="btn-ghost btn-sm" onClick={() => setEditTarget(null)} disabled={savingEdit}>
+              Batal
+            </button>
+            <button type="button" className="btn-primary btn-sm" onClick={simpanNilaiEdit} disabled={savingEdit}>
+              {savingEdit ? (
+                <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <Save className="w-3.5 h-3.5" />
+              )}
+              Simpan
+            </button>
+          </div>
+        }
+      >
+        {editTarget && (
+          <div className="space-y-4">
+            <p className="text-sm text-slate-500">
+              {editTarget.nama_mapel} · Kelas {editTarget.kelas} ·{' '}
+              Nilai saat ini: <span className="font-semibold text-slate-700">{editTarget.nilai_efektif ?? editTarget.nilai}</span>
+            </p>
+            <div>
+              <label className="text-xs font-medium text-slate-600 mb-1 block">Nilai Remedial</label>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                step={0.5}
+                placeholder="Kosongkan untuk hapus nilai remedial"
+                value={editNilaiStr}
+                onChange={e => setEditNilaiStr(e.target.value)}
+                className="input w-full"
+                autoFocus
+              />
+              <p className="text-xs text-slate-400 mt-1">
+                Dikosongkan artinya kembali memakai nilai asli/nilai akhir hasil ujian.
+              </p>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-slate-600 mb-1 block">Catatan (opsional)</label>
+              <input
+                type="text"
+                placeholder="Catatan untuk wali kelas..."
+                value={editCatatan}
+                onChange={e => setEditCatatan(e.target.value)}
+                className="input w-full"
+              />
+            </div>
           </div>
         )}
       </Modal>
