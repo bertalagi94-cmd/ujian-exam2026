@@ -48,6 +48,89 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     essay_belum_dirilis: essayAktif && !essayDirilis,
   }
 
+  // FITUR (Rincian jawaban essay per soal): sebelumnya halaman rincian nilai
+  // siswa hanya menampilkan rincian soal PG — jawaban essay siswa dan skor
+  // per soal (dari skor_essay_siswa, lihat 12_skor_per_soal_essay.sql) tidak
+  // pernah dikirim ke client, padahal datanya sudah ada sejak guru menilai
+  // lewat /api/guru/koreksi-essay. Sengaja HANYA dikirim setelah
+  // `essayDirilis === true` — sama seperti masking nilai_essay/nilai_total
+  // di atas — supaya siswa tidak bisa mengintip skor per soal sebelum guru
+  // benar-benar merilis nilai akhir.
+  let rincianEssay: {
+    no: number
+    teks: string
+    gambar_url: string | null
+    bobot_maks: number
+    jawaban_teks: string | null
+    skor: number | null
+  }[] | null = null
+  let essayFotoUrl: string | null = null
+  let essayModeJawaban: string | null = null
+
+  if (essayAktif && essayDirilis && nilai.sesi_id) {
+    const { data: sesi } = await db
+      .from('sesi_ujian')
+      .select('id, info_json')
+      .eq('id', nilai.sesi_id)
+      .maybeSingle()
+    essayModeJawaban = sesi?.info_json?.essay_mode_jawaban ?? 'DIGITAL'
+
+    // Resolusi kelasId mengikuti pola yang sama dengan
+    // /api/guru/koreksi-essay (kelas.nama → kelas.id, fallback ke nilai.kelas
+    // mentah), supaya soal essay yang diambil konsisten dengan yang dipakai
+    // guru saat menilai.
+    const { data: kelasRow } = await db
+      .from('kelas')
+      .select('id')
+      .eq('nama', String(nilai.kelas))
+      .maybeSingle()
+    const kelasId = kelasRow?.id ?? String(nilai.kelas)
+
+    const { data: soalEssayList } = await db
+      .from('soal_essay')
+      .select('id, teks, gambar_url, bobot_maks, urutan')
+      .eq('mapel_id', nilai.mapel_id)
+      .eq('kelas_id', kelasId)
+      .eq('status', 'DISETUJUI')
+      .order('urutan', { ascending: true })
+
+    const { data: skorList } = await db
+      .from('skor_essay_siswa')
+      .select('soal_essay_id, skor')
+      .eq('sesi_id', nilai.sesi_id)
+      .eq('nis', nilai.nis)
+    const skorMap = Object.fromEntries((skorList ?? []).map(s => [s.soal_essay_id, Number(s.skor)]))
+
+    if (essayModeJawaban === 'KERTAS') {
+      const { data: foto } = await db
+        .from('jawaban_essay_foto')
+        .select('foto_url')
+        .eq('sesi_id', nilai.sesi_id)
+        .eq('nis', nilai.nis)
+        .maybeSingle()
+      essayFotoUrl = foto?.foto_url ?? null
+    }
+
+    let jawabanMap: Record<string, string> = {}
+    if (essayModeJawaban === 'DIGITAL') {
+      const { data: jawabanList } = await db
+        .from('jawaban_essay')
+        .select('soal_essay_id, jawaban_teks')
+        .eq('sesi_id', nilai.sesi_id)
+        .eq('nis', nilai.nis)
+      jawabanMap = Object.fromEntries((jawabanList ?? []).map(j => [j.soal_essay_id, j.jawaban_teks]))
+    }
+
+    rincianEssay = (soalEssayList ?? []).map((s, i) => ({
+      no: i + 1,
+      teks: s.teks,
+      gambar_url: s.gambar_url ?? null,
+      bobot_maks: Number(s.bobot_maks),
+      jawaban_teks: essayModeJawaban === 'DIGITAL' ? (jawabanMap[s.id] ?? null) : null,
+      skor: skorMap[s.id] ?? null,
+    }))
+  }
+
   const { data: mapel } = await db.from('mapel').select('nama').eq('id', nilai.mapel_id).single()
 
   // Jawaban siswa untuk sesi ini — soal_id + jawaban dipakai SERVER-SIDE saja
@@ -94,5 +177,8 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       nama_mapel: mapel?.nama ?? nilai.mapel_id,
     },
     rincian,
+    rincianEssay,
+    essayFotoUrl,
+    essayModeJawaban,
   })
 }
