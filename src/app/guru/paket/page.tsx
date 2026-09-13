@@ -1285,7 +1285,7 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
     if (!activePaket) return
     const fd = new FormData(e.currentTarget)
     const teks = String(fd.get('teks') ?? '')
-    const bobotMaks = Number(fd.get('bobot_maks') ?? 100)
+    const bobotMaks = Number(fd.get('bobot_maks'))
     if (!bobotMaks || bobotMaks <= 0) {
       showToast('Bobot soal harus lebih dari 0', 'error')
       return
@@ -1549,13 +1549,14 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
                   type="number"
                   min={1}
                   step={1}
-                  defaultValue={100}
+                  placeholder={`mis. ${Math.round(100 / (soalList.length + 1))}`}
                   required
                   className="input w-32"
                 />
                 <p className="text-xs text-slate-400 mt-1">
                   Ini yang jadi patokan saat memberi nilai jawaban siswa untuk soal ini — soal dengan bobot
                   lebih besar akan lebih menentukan nilai essay akhir siswa dibanding soal berbobot kecil.
+                  Biasanya dibagi rata dari 100 sesuai jumlah soal, tapi boleh diatur berbeda per soal.
                 </p>
               </div>
               <div className="flex gap-3 pt-2 flex-wrap">
