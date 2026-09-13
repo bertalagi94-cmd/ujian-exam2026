@@ -62,6 +62,47 @@ export async function GET(req: NextRequest) {
     ((pengawasList ?? []) as { username: string; nama: string }[]).map(p => [p.username, p.nama])
   )
 
+  // ── Enrich jumlah soal PG & Essay (untuk cetak Berita Acara / Daftar Hadir) ──
+  // kelas_id di tabel soal / soal_essay / paket_essay SELALU berupa id asli
+  // dari tabel kelas (mis. "KLS_xxx"), sedangkan jadwal.kelas menyimpan NAMA
+  // kelas (mis. "10") — jadi perlu resolve id -> nama dulu, sama seperti pola
+  // di src/lib/soal-status.ts & src/lib/rangkuman.ts.
+  const { data: semuaKelasRaw } = await db.from('kelas').select('id, nama')
+  const idKeNamaKelas = Object.fromEntries(
+    ((semuaKelasRaw ?? []) as { id: string; nama: string }[]).map(k => [k.id, String(k.nama)])
+  )
+  const buildKeySoal = (mapelId: string, kelasNama: string) =>
+    `${mapelId}__${String(kelasNama).trim().toUpperCase()}`
+
+  const jumlahPgMap: Record<string, number> = {}
+  const jumlahEssayMap: Record<string, number> = {}
+  const modeEssayMap: Record<string, string> = {}
+
+  if (mapelIds.length) {
+    const [{ data: soalPgList }, { data: soalEssayList }, { data: paketEssayList }] = await Promise.all([
+      db.from('soal').select('mapel_id, kelas_id').in('mapel_id', mapelIds).eq('status', 'DISETUJUI'),
+      db.from('soal_essay').select('mapel_id, kelas_id').in('mapel_id', mapelIds).eq('status', 'DISETUJUI'),
+      db.from('paket_essay').select('mapel_id, kelas_id, mode_jawaban, tanggal')
+        .in('mapel_id', mapelIds).eq('status', 'DISETUJUI').order('tanggal', { ascending: false }),
+    ])
+
+    for (const s of (soalPgList ?? []) as { mapel_id: string; kelas_id: string }[]) {
+      const key = buildKeySoal(s.mapel_id, idKeNamaKelas[s.kelas_id] ?? s.kelas_id)
+      jumlahPgMap[key] = (jumlahPgMap[key] ?? 0) + 1
+    }
+    for (const s of (soalEssayList ?? []) as { mapel_id: string; kelas_id: string }[]) {
+      const key = buildKeySoal(s.mapel_id, idKeNamaKelas[s.kelas_id] ?? s.kelas_id)
+      jumlahEssayMap[key] = (jumlahEssayMap[key] ?? 0) + 1
+    }
+    // Ambil mode_jawaban dari paket_essay DISETUJUI terbaru per mapel+kelas
+    // (jarang ada lebih dari satu paket disetujui untuk kombinasi yang sama,
+    // tapi kalau ada, prioritaskan yang paling baru dibuat).
+    for (const p of (paketEssayList ?? []) as { mapel_id: string; kelas_id: string; mode_jawaban: string }[]) {
+      const key = buildKeySoal(p.mapel_id, idKeNamaKelas[p.kelas_id] ?? p.kelas_id)
+      if (!modeEssayMap[key]) modeEssayMap[key] = p.mode_jawaban ?? 'DIGITAL'
+    }
+  }
+
   const result = await Promise.all(list.map(async (j) => {
     const { data: siswaList } = await db
       .from('siswa')
@@ -71,12 +112,17 @@ export async function GET(req: NextRequest) {
       .order('nama')
 
     const sekolahKelas = kelasSekolahMap[j.kelas] ?? null
+    const keySoal = buildKeySoal(j.mapel_id, j.kelas)
 
     return {
       ...j,
       nama_mapel:    mapelMap[j.mapel_id]  ?? j.mapel_id,
       nama_pengawas: pengawasMap[j.pengawas] ?? j.pengawas ?? '',
       siswa: siswaList ?? [],
+      jumlah_soal_pg:    jumlahPgMap[keySoal] ?? 0,
+      jumlah_soal_essay: jumlahEssayMap[keySoal] ?? 0,
+      // 'DIGITAL' | 'KERTAS' | null (null kalau tidak ada essay sama sekali)
+      mode_jawaban_essay: (jumlahEssayMap[keySoal] ?? 0) > 0 ? (modeEssayMap[keySoal] ?? 'DIGITAL') : null,
       sekolah: sekolahKelas ? {
         namaSekolah: sekolahKelas.nama_sekolah,
         npsn:        sekolahKelas.npsn,
