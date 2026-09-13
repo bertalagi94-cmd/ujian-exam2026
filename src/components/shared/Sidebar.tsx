@@ -6,7 +6,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import {
   LayoutDashboard, Users, BookOpen, Calendar, ClipboardList,
   BarChart3, Settings, LogOut, Menu, X, ChevronRight,
-  GraduationCap, School, Bell, User, FileText, Eye, ShieldAlert, Send,
+  GraduationCap, School, Bell, User, FileText, Eye, ShieldAlert,
   FileBarChart, CheckSquare
 } from 'lucide-react'
 import { cn, apiRequest } from '@/lib/utils'
@@ -439,15 +439,21 @@ export function GuruSidebar() {
       icon: ClipboardList,
       badge: counts.bankSoal || undefined,
     },
-    { label: 'Koreksi Essay', href: '/guru/koreksi-essay', icon: CheckSquare },
-    { label: 'Rekap Nilai', href: '/guru/nilai', icon: BarChart3 },
-    { label: 'Kirim Nilai ke Wali Kelas', href: '/guru/kirim-nilai', icon: Send },
+    // FIX (konsolidasi menu): "Koreksi Essay", "Rekap Nilai", dan "Kirim
+    // Nilai ke Wali Kelas" digabung jadi satu menu "Penilaian" dengan 3 tab
+    // bernomor (lihat src/app/guru/penilaian/page.tsx) — guru cuma perlu
+    // satu tempat untuk seluruh alur penilaian, dari periksa jawaban essay
+    // sampai kirim nilai akhir. Route lama (/guru/koreksi-essay, /guru/nilai,
+    // /guru/kirim-nilai) masih ada sebagai redirect supaya link/bookmark
+    // lama tidak 404, tapi tidak lagi punya menu sendiri.
+    { label: 'Penilaian', href: '/guru/penilaian', icon: CheckSquare },
     // FIX (kejelasan menu): sebelumnya pakai ikon BarChart3 yang sama persis
-    // dengan "Rekap Nilai" di atas, jadi dua menu berbeda fungsi terlihat
-    // seperti menu yang sama sekilas pandang. Dipakaikan FileBarChart (sudah
-    // dipakai di sidebar admin untuk "Laporan Lengkap", jadi maknanya
-    // konsisten: laporan/analisis, bukan tabel nilai mentah) supaya guru bisa
-    // membedakan dua menu ini tanpa harus membaca labelnya dulu.
+    // dengan "Rekap Nilai" (kini tab di dalam "Penilaian"), jadi dua menu
+    // berbeda fungsi terlihat seperti menu yang sama sekilas pandang.
+    // Dipakaikan FileBarChart (sudah dipakai di sidebar admin untuk "Laporan
+    // Lengkap", jadi maknanya konsisten: laporan/analisis, bukan tabel nilai
+    // mentah) supaya guru bisa membedakan dua menu ini tanpa harus membaca
+    // labelnya dulu.
     { label: 'Analisis Ujian', href: '/guru/analisis-ujian', icon: FileBarChart },
   ]
 
