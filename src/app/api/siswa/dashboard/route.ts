@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 import { petakanEssayAktifPerSesi } from '@/app/api/guru/kirim-nilai/route'
+import { hitungGrade } from '@/lib/utils'
 
 export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['SISWA'])
@@ -21,12 +22,21 @@ export async function GET(req: NextRequest) {
   // `nilaiAll` (bukan cuma 6 nilai terbaru yang ditampilkan di kartu
   // "Nilai Terbaru") supaya rata-rata/tertinggi/terendah ikut memakai nilai
   // gabungan begitu dirilis.
+  //
+  // BUG FIX (nilai remedial guru tidak masuk ke akun siswa): `nilaiFinal`
+  // sekarang juga mengutamakan nilai_edit (remedial) kalau ada, PERSIS
+  // urutan prioritas & alasan di /api/siswa/nilai/route.ts — nilai_total
+  // (PG+Essay) tetap tidak dipakai sebelum dirilis, tapi nilai_edit boleh
+  // dipakai kapan saja karena itu keputusan final guru.
   const essayAktifMapAll = await petakanEssayAktifPerSesi(db, (nilaiAll ?? []).map(n => n.sesi_id))
-  const nilaiEfektif = (n: NonNullable<typeof nilaiAll>[number]) => {
+  const nilaiFinalUntukSiswa = (n: NonNullable<typeof nilaiAll>[number]) => {
     const essayAktif = n.sesi_id ? (essayAktifMapAll.get(n.sesi_id) ?? false) : false
-    return (essayAktif && n.dirilis === true && n.nilai_total != null) ? n.nilai_total : (n.nilai || 0)
+    const essayDirilis = n.dirilis === true
+    const adaRemedial = n.nilai_edit !== null && n.nilai_edit !== undefined
+    if (adaRemedial) return n.nilai_edit as number
+    return (essayAktif && essayDirilis && n.nilai_total != null) ? n.nilai_total : (n.nilai || 0)
   }
-  const nums = (nilaiAll ?? []).map(nilaiEfektif)
+  const nums = (nilaiAll ?? []).map(nilaiFinalUntukSiswa)
   const stats = {
     totalUjian: nums.length,
     rataRata: nums.length ? Math.round(nums.reduce((a, b) => a + b, 0) / nums.length) : 0,
@@ -48,6 +58,15 @@ export async function GET(req: NextRequest) {
   const enrichedNilai = recentNilai.map(r => {
     const essayDirilis = r.dirilis === true
     const essayAktif = r.sesi_id ? (essayAktifMapAll.get(r.sesi_id) ?? false) : false
+    const adaRemedial = r.nilai_edit !== null && r.nilai_edit !== undefined
+    const nilaiEfektifSiswa = (essayAktif && essayDirilis && r.nilai_total != null) ? r.nilai_total : r.nilai
+    const nilaiFinal = adaRemedial ? (r.nilai_edit as number) : nilaiEfektifSiswa
+    const gradeFinal = adaRemedial
+      ? (r.grade_edit ?? hitungGrade(nilaiFinal))
+      : (essayDirilis && essayAktif && r.nilai_total != null ? hitungGrade(r.nilai_total) : r.grade)
+    const lulusFinal = adaRemedial
+      ? (r.lulus_edit ?? (nilaiFinal >= r.kkm))
+      : (essayDirilis && essayAktif && r.nilai_total != null ? r.nilai_total >= r.kkm : r.lulus)
     return {
       ...r,
       nilai_essay: essayDirilis ? r.nilai_essay : null,
@@ -56,6 +75,10 @@ export async function GET(req: NextRequest) {
       dinilai_oleh: essayDirilis ? r.dinilai_oleh : null,
       nama_mapel: mapelMap[r.mapel_id] ?? r.mapel_id,
       essay_belum_dirilis: essayAktif && !essayDirilis,
+      ada_remedial: adaRemedial,
+      nilai_final: nilaiFinal,
+      grade_final: gradeFinal,
+      lulus_final: lulusFinal,
     }
   })
 
