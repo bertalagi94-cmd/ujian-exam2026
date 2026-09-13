@@ -48,6 +48,20 @@ export async function GET(req: NextRequest) {
 
   const enriched = (nilaiData ?? []).map((r: Record<string, unknown>) => {
     const essayAktif = essayAktifMap.get(r.sesi_id as string) ?? false
+    // FITUR BARU (hapus dualisme tab): tab ini sekarang read-only untuk
+    // nilai — nilai_edit hanya bisa diinput dari tab Rekap Nilai. Field
+    // final di bawah dipakai untuk MENAMPILKAN nilai yang akan benar-benar
+    // dikirim ke wali kelas, termasuk penanda kalau sudah diremedial.
+    const { nilaiEfektif, adaRemedial, nilaiFinal, gradeFinal, lulusFinal } = hitungNilaiFinal({
+      nilai: r.nilai as number,
+      lulus: r.lulus as boolean,
+      nilai_edit: r.nilai_edit as number | null | undefined,
+      grade_edit: r.grade_edit as string | null | undefined,
+      lulus_edit: r.lulus_edit as boolean | null | undefined,
+      essay_aktif: essayAktif,
+      dirilis: r.dirilis as boolean | null | undefined,
+      nilai_total: r.nilai_total as number | null | undefined,
+    })
     return {
       ...r,
       nama_siswa: siswaMap[r.nis as string] ?? r.nis,
@@ -55,6 +69,11 @@ export async function GET(req: NextRequest) {
       // true kalau sesi ini pakai essay TAPI guru belum menekan rilis untuk
       // siswa ini — baris begini akan DILEWATI oleh kirim_ke_wali/kirim_semua.
       essay_belum_dirilis: essayAktif && r.dirilis !== true,
+      nilai_efektif: nilaiEfektif,
+      ada_remedial: adaRemedial,
+      nilai_final: nilaiFinal,
+      grade_final: gradeFinal,
+      lulus_final: lulusFinal,
     }
   })
 
@@ -148,7 +167,10 @@ export async function PATCH(req: NextRequest) {
 
   const mapelIds = (guruMapel ?? []).map((m: { id: string }) => m.id)
 
-  // ── Simpan nilai edit per siswa ──
+  // ── Simpan nilai edit (remedial) per siswa ──
+  // FITUR BARU (hapus dualisme tab): endpoint ini sekarang dipanggil dari
+  // tab Rekap Nilai (RekapNilaiTab), bukan lagi dari tab Kirim Nilai —
+  // tapi body request & logikanya tidak berubah sama sekali.
   if (aksi === 'simpan_edit') {
     const { id, nilai_edit, catatan_guru } = body as {
       id: string
@@ -368,6 +390,39 @@ function hitungGrade(nilai: number): string {
   if (nilai >= 70) return 'C'
   if (nilai >= 60) return 'D'
   return 'E'
+}
+
+// FITUR BARU (hapus dualisme tab Rekap Nilai vs Kirim Nilai): satu fungsi
+// bersama untuk menghitung "nilai final" seorang siswa, dipakai oleh
+// /api/guru/nilai (Rekap Nilai — sekarang jadi tempat input nilai_edit) DAN
+// /api/guru/kirim-nilai (Kirim Nilai — sekarang read-only, murni konfirmasi
+// kirim). Sebelumnya tiap endpoint boleh punya cara sendiri-sendiri
+// menyimpulkan "nilai siswa yang sebenarnya berlaku", itulah yang bikin
+// kedua tab bisa menampilkan angka berbeda untuk siswa yang sama.
+//
+// Urutan prioritas (sama persis dengan /api/guru/wali-kelas, yang sudah
+// lama berlaku sebagai nilai yang diteruskan ke wali kelas):
+//   1. nilai_edit (nilai remedial guru), kalau diisi
+//   2. nilai_total (PG+Essay), kalau sesi ini essay_aktif DAN sudah dirilis
+//   3. nilai (PG biasa)
+export function hitungNilaiFinal(row: {
+  nilai: number
+  lulus: boolean
+  nilai_edit?: number | null
+  grade_edit?: string | null
+  lulus_edit?: boolean | null
+  essay_aktif?: boolean
+  dirilis?: boolean | null
+  nilai_total?: number | null
+}) {
+  const nilaiEfektif = (row.essay_aktif && row.dirilis === true && row.nilai_total != null)
+    ? row.nilai_total
+    : row.nilai
+  const adaRemedial = row.nilai_edit !== null && row.nilai_edit !== undefined
+  const nilaiFinal = adaRemedial ? (row.nilai_edit as number) : nilaiEfektif
+  const gradeFinal = row.grade_edit != null ? row.grade_edit : hitungGrade(nilaiFinal)
+  const lulusFinal = row.lulus_edit != null ? row.lulus_edit : row.lulus
+  return { nilaiEfektif, adaRemedial, nilaiFinal, gradeFinal, lulusFinal }
 }
 
 // FIX (kelas campuran PG-only vs PG+Essay): ambil info_json.essay_aktif dari
