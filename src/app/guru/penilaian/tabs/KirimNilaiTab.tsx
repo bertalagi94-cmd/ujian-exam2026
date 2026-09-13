@@ -83,8 +83,10 @@ interface Kelompok {
 // sini (lihat useEffect di bawah) — guru tidak perlu mencarinya lagi.
 export function KirimNilaiTab({
   focusTarget,
+  onDataChanged,
 }: {
   focusTarget?: { mapelId: string; kelas: string } | null
+  onDataChanged?: () => void
 }) {
   const [apiData, setApiData] = useState<ApiData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -228,6 +230,10 @@ export function KirimNilaiTab({
       const tidakAdaYangTerkirim = res.jumlah === 0 && adaTertunda
       showToast(res.message ?? `Nilai ${kelas} berhasil dikirim ke wali kelas ✓`, tidakAdaYangTerkirim ? 'error' : 'success')
       await load()
+      // BUG FIX (badge tab bar tidak ikut update): lihat komentar
+      // `onDataChanged` di RekapNilaiTab.tsx untuk penjelasan lengkap —
+      // pola yang sama berlaku di sini untuk badge "Kirim Nilai".
+      onDataChanged?.()
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'Gagal mengirim', 'error')
     } finally {
@@ -246,6 +252,7 @@ export function KirimNilaiTab({
       })
       showToast(`Nilai essay untuk ${nis} berhasil dirilis`)
       await load()
+      onDataChanged?.()
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'Gagal merilis nilai', 'error')
     } finally {
@@ -264,6 +271,7 @@ export function KirimNilaiTab({
       })
       showToast(res.message ?? 'Nilai essay berhasil dirilis ke semua siswa')
       await load()
+      onDataChanged?.()
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'Gagal merilis nilai', 'error')
     } finally {
