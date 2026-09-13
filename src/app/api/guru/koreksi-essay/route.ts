@@ -22,29 +22,19 @@ export async function GET(req: NextRequest) {
     .single()
   if (!sesi) return NextResponse.json({ error: 'Sesi tidak ditemukan' }, { status: 404 })
 
-  // FIX BUG (koreksi essay tidak tampil bagi guru pengampu): sebelumnya hanya
-  // pengawas ruangan (jadwal.pengawas) yang boleh membuka koreksi essay,
-  // padahal guru yang MENGAJAR mapel (mapel.guru_id) sering kali bukan guru
-  // yang bertugas mengawas ruangan ujian tsb. Sekarang akses diberikan kalau
-  // salah satu terpenuhi: dia pengawas sesi ATAU dia guru pengampu mapel ini.
-  //
-  // FIX BUG (pengawas PENGGANTI untuk sesi susulan tidak bisa koreksi essay):
-  // "pengawas sesi" di atas sebelumnya hanya dicek lewat jadwal.pengawas
-  // (pengawas ASLI). Untuk sesi susulan yang diambil-alih ADMIN, pengawas
-  // yang berwenang bisa jadi guru LAIN yang dicatat di
-  // info_json.pengawas_susulan (lihat src/lib/sesi-ownership.ts) — dan
-  // pengawas pengganti ini tidak selalu guru pengampu mapel-nya juga.
-  // Tanpa ini, pengawas pengganti bisa buka akses "Mulai Essay" tapi lalu
-  // 403 saat mau koreksi/input skor essay yang baru saja dikerjakan siswa.
+  // KEBIJAKAN: hanya GURU PENGAMPU mapel (mapel.guru_id) yang boleh menilai
+  // essay — bukan pengawas ruangan/pengganti. Pengawas hanya bertugas
+  // mengawasi jalannya ujian (buka akses mulai essay, dsb), sedangkan
+  // menilai jawaban adalah wewenang guru yang memang mengajar mapel
+  // tersebut. jadwal tetap diambil untuk fallback bobot PG:Essay lama
+  // (lihat di bawah), bukan untuk cek kepemilikan sesi lagi.
   const [{ data: jadwal }, { data: mapel }] = await Promise.all([
-    db.from('jadwal').select('id, pengawas, essay_bobot_pg_persen, essay_bobot_essay_persen').eq('id', sesi.jadwal_id).maybeSingle(),
+    db.from('jadwal').select('id, essay_bobot_pg_persen, essay_bobot_essay_persen').eq('id', sesi.jadwal_id).maybeSingle(),
     db.from('mapel').select('id, guru_id').eq('id', sesi.mapel_id).maybeSingle(),
   ])
-  const pengawasSusulan = sesi.info_json?.dibuka_oleh_admin ? sesi.info_json?.pengawas_susulan : undefined
-  const isPengawas = jadwal?.pengawas === user.username || pengawasSusulan === user.username
   const isGuruPengampu = mapel?.guru_id === user.username
-  if (!isPengawas && !isGuruPengampu) {
-    return NextResponse.json({ error: 'Anda bukan pengawas maupun guru pengampu sesi ini' }, { status: 403 })
+  if (!isGuruPengampu) {
+    return NextResponse.json({ error: 'Anda bukan guru pengampu mapel ini' }, { status: 403 })
   }
 
   // UX (menghindari kebingungan skala nilai essay): sertakan bobot PG:Essay
@@ -247,18 +237,15 @@ export async function PUT(req: NextRequest) {
     .single()
   if (!sesi) return NextResponse.json({ error: 'Sesi tidak ditemukan' }, { status: 404 })
 
-  // FIX BUG (sama seperti di GET): izinkan pengawas ATAU guru pengampu mapel.
-  // FIX BUG (sama seperti di GET): pengawas juga mencakup pengawas PENGGANTI
-  // sesi susulan (info_json.pengawas_susulan), bukan cuma jadwal.pengawas.
+  // KEBIJAKAN (sama seperti GET): hanya GURU PENGAMPU mapel yang boleh
+  // menilai essay, bukan pengawas ruangan/pengganti.
   const [{ data: jadwal }, { data: mapel }] = await Promise.all([
-    db.from('jadwal').select('id, pengawas, essay_bobot_pg_persen, essay_bobot_essay_persen').eq('id', sesi.jadwal_id).maybeSingle(),
+    db.from('jadwal').select('id, essay_bobot_pg_persen, essay_bobot_essay_persen').eq('id', sesi.jadwal_id).maybeSingle(),
     db.from('mapel').select('id, guru_id').eq('id', sesi.mapel_id).maybeSingle(),
   ])
-  const pengawasSusulan = sesi.info_json?.dibuka_oleh_admin ? sesi.info_json?.pengawas_susulan : undefined
-  const isPengawas = jadwal?.pengawas === user.username || pengawasSusulan === user.username
   const isGuruPengampu = mapel?.guru_id === user.username
-  if (!jadwal || (!isPengawas && !isGuruPengampu)) {
-    return NextResponse.json({ error: 'Anda bukan pengawas maupun guru pengampu sesi ini' }, { status: 403 })
+  if (!isGuruPengampu) {
+    return NextResponse.json({ error: 'Anda bukan guru pengampu mapel ini' }, { status: 403 })
   }
 
   // FIX (bobot PG:Essay): sejak sesi dibuka, bobot SELALU sudah tersalin ke
@@ -266,8 +253,8 @@ export async function PUT(req: NextRequest) {
   // src/lib/gabungKirim.ts) — fallback ke kolom jadwal di bawah ini HANYA
   // relevan untuk sesi yang dibuat SEBELUM migrasi bobot ke paket_essay
   // (lihat 09_bobot_paket_essay.sql), supaya nilai lama tidak berubah tiba-tiba.
-  const bobotPg = sesi.info_json?.essay_bobot_pg_persen ?? jadwal.essay_bobot_pg_persen ?? 50
-  const bobotEssay = sesi.info_json?.essay_bobot_essay_persen ?? jadwal.essay_bobot_essay_persen ?? 50
+  const bobotPg = sesi.info_json?.essay_bobot_pg_persen ?? jadwal?.essay_bobot_pg_persen ?? 50
+  const bobotEssay = sesi.info_json?.essay_bobot_essay_persen ?? jadwal?.essay_bobot_essay_persen ?? 50
 
   const { data: nilaiRow } = await db
     .from('nilai')
@@ -419,23 +406,17 @@ export async function PATCH(req: NextRequest) {
 
   const { data: sesi } = await db
     .from('sesi_ujian')
-    .select('id, jadwal_id, mapel_id, info_json')
+    .select('id, mapel_id, info_json')
     .eq('id', sesiId)
     .single()
   if (!sesi) return NextResponse.json({ error: 'Sesi tidak ditemukan' }, { status: 404 })
 
-  // FIX BUG (sama seperti di GET/PUT): pengawas juga mencakup pengawas
-  // PENGGANTI sesi susulan (info_json.pengawas_susulan), bukan cuma
-  // jadwal.pengawas.
-  const [{ data: jadwal }, { data: mapel }] = await Promise.all([
-    db.from('jadwal').select('id, pengawas').eq('id', sesi.jadwal_id).maybeSingle(),
-    db.from('mapel').select('id, guru_id').eq('id', sesi.mapel_id).maybeSingle(),
-  ])
-  const pengawasSusulan = sesi.info_json?.dibuka_oleh_admin ? sesi.info_json?.pengawas_susulan : undefined
-  const isPengawas = jadwal?.pengawas === user.username || pengawasSusulan === user.username
+  // KEBIJAKAN (sama seperti GET/PUT): hanya GURU PENGAMPU mapel yang boleh
+  // mengubah bobot PG:Essay, bukan pengawas ruangan/pengganti.
+  const { data: mapel } = await db.from('mapel').select('id, guru_id').eq('id', sesi.mapel_id).maybeSingle()
   const isGuruPengampu = mapel?.guru_id === user.username
-  if (!jadwal || (!isPengawas && !isGuruPengampu)) {
-    return NextResponse.json({ error: 'Anda bukan pengawas maupun guru pengampu sesi ini' }, { status: 403 })
+  if (!isGuruPengampu) {
+    return NextResponse.json({ error: 'Anda bukan guru pengampu mapel ini' }, { status: 403 })
   }
 
   const infoJsonBaru = { ...(sesi.info_json ?? {}), essay_bobot_pg_persen: pgAngka, essay_bobot_essay_persen: essayAngka }
