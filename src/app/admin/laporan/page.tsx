@@ -31,6 +31,8 @@ interface RowLaporan {
     catatanPenolakan: string | null
     statusKisiKisi: string
     jadwal: JadwalItem[]
+    adaEssay: boolean
+    modeJawabanEssay: 'DIGITAL' | 'KERTAS' | null
   }
   saat: {
     adaSesiBerjalan: boolean
@@ -247,9 +249,29 @@ export default function AdminLaporanPage() {
           doc.text(c.label, cx + 2, y + 4.7)
           cx += c.width
         }
+        // Garis pembatas antar kolom + bingkai luar header (garis putih tipis
+        // di atas warna banner) supaya kolom header terlihat terpisah rapi.
+        doc.setDrawColor(255, 255, 255)
+        doc.setLineWidth(0.2)
+        let bx = lm
+        for (const c of cols) { doc.line(bx, y, bx, y + 7); bx += c.width }
+        doc.line(bx, y, bx, y + 7)
+        doc.setDrawColor(0, 0, 0)
         doc.setTextColor(20, 20, 20)
         doc.setFont('helvetica', 'normal')
         return y + 7
+      }
+
+      // Garis kotak (grid) untuk satu baris data — dipanggil setelah teks baris
+      // ditulis, supaya setiap sel tabel punya garis pembatas yang jelas.
+      function drawRowGrid(yTop: number, rowH: number, cols: { width: number }[]) {
+        doc.setDrawColor(210, 210, 210)
+        doc.setLineWidth(0.15)
+        let cx = lm
+        for (const c of cols) { doc.line(cx, yTop, cx, yTop + rowH); cx += c.width }
+        doc.line(cx, yTop, cx, yTop + rowH)
+        doc.line(lm, yTop + rowH, cx, yTop + rowH)
+        doc.setDrawColor(0, 0, 0)
       }
 
       for (let gi = 0; gi < target.length; gi++) {
@@ -297,13 +319,14 @@ export default function AdminLaporanPage() {
         // (STATUS_SOAL_LABEL_PDF / STATUS_KISI_LABEL) memakai doc.getTextWidth,
         // supaya badge status tidak pernah nabrak kolom sebelah.
         const praCols = [
-          { label: 'Mapel', width: 30 },
-          { label: 'Kelas', width: 20 },
-          { label: 'Guru', width: 28 },
-          { label: 'Status Soal', width: 24 },
-          { label: 'Jml (M/S/Sk)', width: 20 },
-          { label: 'Kisi-kisi', width: 23 },
-          { label: 'Jadwal', width: w - (30 + 20 + 28 + 24 + 20 + 23) },
+          { label: 'Mapel', width: 26 },
+          { label: 'Kelas', width: 16 },
+          { label: 'Guru', width: 24 },
+          { label: 'Status Soal', width: 22 },
+          { label: 'Jml (M/S/Sk)', width: 18 },
+          { label: 'Kisi-kisi', width: 20 },
+          { label: 'Mode Jwb Essay', width: 24 },
+          { label: 'Jadwal', width: w - (26 + 16 + 24 + 22 + 18 + 20 + 24) },
         ]
         y = ensureSpace(y, 10)
         y = tableHeader(y, praCols, [37, 99, 235])
@@ -313,14 +336,29 @@ export default function AdminLaporanPage() {
           const rowH = 8
           y = ensureSpace(y, rowH + 12)
           if (y === 20) y = tableHeader(y, praCols, [37, 99, 235]) // header ulang di halaman baru
+          const rowTopY = y
           if (i % 2 === 1) { doc.setFillColor(240, 245, 255); doc.rect(lm, y, w, rowH, 'F') }
           let cx = lm
-          doc.text(r.namaMapel.slice(0, 16), cx + 2, y + 5); cx += praCols[0].width
-          doc.text(r.namaKelas.slice(0, 12), cx + 2, y + 5); cx += praCols[1].width
-          doc.text(r.namaGuru.slice(0, 18), cx + 2, y + 5); cx += praCols[2].width
+          doc.text(r.namaMapel.slice(0, 14), cx + 2, y + 5); cx += praCols[0].width
+          doc.text(r.namaKelas.slice(0, 10), cx + 2, y + 5); cx += praCols[1].width
+          doc.text(r.namaGuru.slice(0, 15), cx + 2, y + 5); cx += praCols[2].width
           pillRect(cx + 1, y + 5.4, STATUS_SOAL_LABEL_PDF[r.pra.statusSoal] ?? r.pra.statusSoal, STATUS_SOAL_COLOR[r.pra.statusSoal] ?? 'slate'); cx += praCols[3].width
           doc.text(`${r.pra.jumlahSoal} (${r.pra.distribusi.mudah}/${r.pra.distribusi.sedang}/${r.pra.distribusi.sukar})`, cx + 2, y + 5); cx += praCols[4].width
           pillRect(cx + 1, y + 5.4, STATUS_KISI_LABEL[r.pra.statusKisiKisi] ?? r.pra.statusKisiKisi, STATUS_KISI_COLOR[r.pra.statusKisiKisi] ?? 'slate'); cx += praCols[5].width
+          // Kolom baru: Mode Jawaban Essay — kalau mapel+kelas ini punya paket
+          // essay, tampilkan mode (Kertas/Digital) sesuai yang diatur guru;
+          // kalau tidak ada paket essay sama sekali, tampilkan keterangan
+          // "Tidak ada soal essay".
+          if (r.pra.adaEssay) {
+            pillRect(cx + 1, y + 5.4, r.pra.modeJawabanEssay === 'KERTAS' ? 'Kertas' : 'Digital', r.pra.modeJawabanEssay === 'KERTAS' ? 'yellow' : 'blue')
+          } else {
+            doc.setTextColor(140, 140, 140)
+            doc.setFontSize(6.8)
+            doc.text('Tidak ada soal essay', cx + 2, y + 5)
+            doc.setTextColor(20, 20, 20)
+            doc.setFontSize(7.5)
+          }
+          cx += praCols[6].width
           // Format ringkas khusus PDF (DD/MM/YYYY, tanpa nama bulan & tanpa
           // "(sesi N)") — versi lengkap formatDate() terlalu lebar untuk
           // kolom Jadwal dan sebelumnya bisa meluber sampai lewat tepi
@@ -329,6 +367,7 @@ export default function AdminLaporanPage() {
             ? `${r.pra.jadwal.length} sesi, ${fmtTglSingkatPdf(r.pra.jadwal[0].tanggal)}`
             : 'Belum dijadwalkan'
           doc.text(jadwalTxt, cx + 2, y + 5)
+          drawRowGrid(rowTopY, rowH, praCols)
           y += rowH
           if (r.pra.catatanPenolakan) {
             doc.setTextColor(180, 45, 45)
@@ -360,6 +399,7 @@ export default function AdminLaporanPage() {
           const rowH = 7
           y = ensureSpace(y, rowH)
           if (y === 20) y = tableHeader(y, saatCols, [217, 119, 6])
+          const rowTopY = y
           if (i % 2 === 1) { doc.setFillColor(255, 247, 235); doc.rect(lm, y, w, rowH, 'F') }
           let cx = lm
           doc.text(r.namaMapel.slice(0, 18), cx + 2, y + 4.7); cx += saatCols[0].width
@@ -376,6 +416,7 @@ export default function AdminLaporanPage() {
           } else {
             doc.text('0', cx + 2, y + 4.7)
           }
+          drawRowGrid(rowTopY, rowH, saatCols)
           y += rowH
         }
         y += 6
@@ -400,6 +441,7 @@ export default function AdminLaporanPage() {
           const rowH = 7
           y = ensureSpace(y, rowH)
           if (y === 20) y = tableHeader(y, setelahCols, [22, 163, 74])
+          const rowTopY = y
           if (i % 2 === 1) { doc.setFillColor(236, 253, 245); doc.rect(lm, y, w, rowH, 'F') }
           let cx = lm
           doc.text(r.namaMapel.slice(0, 15), cx + 2, y + 4.7); cx += setelahCols[0].width
@@ -412,6 +454,7 @@ export default function AdminLaporanPage() {
           pillRect(cx + 1, y + 4.9, kirimTxt, kirimColor); cx += setelahCols[4].width
           doc.text(r.setelah.adaDikembalikan ? 'Ya, direvisi' : '-', cx + 2, y + 4.7); cx += setelahCols[5].width
           doc.text(`${r.setelah.pelanggaranFinal}`, cx + 2, y + 4.7)
+          drawRowGrid(rowTopY, rowH, setelahCols)
           y += rowH
         }
       }
@@ -524,28 +567,29 @@ export default function AdminLaporanPage() {
 
                 {!isCollapsed && (
                   <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
+                    <table className="w-full text-sm border border-slate-200 border-collapse">
                       <thead>
-                        <tr className="bg-slate-50 border-y border-slate-200 text-xs text-slate-500 uppercase tracking-wide">
-                          <th className="text-left p-2.5 pl-4">Mapel</th>
-                          <th className="text-left p-2.5">Kelas</th>
-                          <th className="text-left p-2.5">Guru</th>
-                          <th className="text-left p-2.5 bg-blue-50/50">Status Soal</th>
-                          <th className="text-left p-2.5 bg-blue-50/50">Kisi-kisi</th>
-                          <th className="text-left p-2.5 bg-blue-50/50">Jadwal</th>
-                          <th className="text-left p-2.5 bg-amber-50/50">Progres Ujian</th>
-                          <th className="text-left p-2.5 bg-amber-50/50">Pelanggaran</th>
-                          <th className="text-left p-2.5 bg-emerald-50/50">Rata-rata</th>
-                          <th className="text-left p-2.5 bg-emerald-50/50">Kirim Wali</th>
+                        <tr className="bg-slate-50 text-xs text-slate-500 uppercase tracking-wide">
+                          <th className="text-left p-2.5 pl-4 border border-slate-200">Mapel</th>
+                          <th className="text-left p-2.5 border border-slate-200">Kelas</th>
+                          <th className="text-left p-2.5 border border-slate-200">Guru</th>
+                          <th className="text-left p-2.5 border border-slate-200 bg-blue-50/50">Status Soal</th>
+                          <th className="text-left p-2.5 border border-slate-200 bg-blue-50/50">Kisi-kisi</th>
+                          <th className="text-left p-2.5 border border-slate-200 bg-blue-50/50">Jadwal</th>
+                          <th className="text-left p-2.5 border border-slate-200 bg-indigo-50/50">Mode Jawaban Essay</th>
+                          <th className="text-left p-2.5 border border-slate-200 bg-amber-50/50">Progres Ujian</th>
+                          <th className="text-left p-2.5 border border-slate-200 bg-amber-50/50">Pelanggaran</th>
+                          <th className="text-left p-2.5 border border-slate-200 bg-emerald-50/50">Rata-rata</th>
+                          <th className="text-left p-2.5 border border-slate-200 bg-emerald-50/50">Kirim Wali</th>
                         </tr>
                       </thead>
                       <tbody>
                         {g.rows.map(r => (
-                          <tr key={`${r.mapelId}-${r.kelasId}`} className="border-b border-slate-100 hover:bg-slate-50/60">
-                            <td className="p-2.5 pl-4 font-medium text-slate-700">{r.namaMapel}</td>
-                            <td className="p-2.5 text-slate-600">{r.namaKelas}</td>
-                            <td className="p-2.5 text-slate-600">{r.namaGuru}</td>
-                            <td className="p-2.5">
+                          <tr key={`${r.mapelId}-${r.kelasId}`} className="hover:bg-slate-50/60">
+                            <td className="p-2.5 pl-4 font-medium text-slate-700 border border-slate-200">{r.namaMapel}</td>
+                            <td className="p-2.5 text-slate-600 border border-slate-200">{r.namaKelas}</td>
+                            <td className="p-2.5 text-slate-600 border border-slate-200">{r.namaGuru}</td>
+                            <td className="p-2.5 border border-slate-200">
                               <Pill label={STATUS_SOAL_LABEL[r.pra.statusSoal] ?? r.pra.statusSoal} color={STATUS_SOAL_COLOR[r.pra.statusSoal] ?? 'slate'} />
                               <span className="block text-[11px] text-muted mt-0.5">
                                 {r.pra.jumlahSoal} soal (M{r.pra.distribusi.mudah}/S{r.pra.distribusi.sedang}/Sk{r.pra.distribusi.sukar})
@@ -554,22 +598,30 @@ export default function AdminLaporanPage() {
                                 <span className="block text-[11px] text-red-600 mt-0.5">{r.pra.catatanPenolakan}</span>
                               )}
                             </td>
-                            <td className="p-2.5">
+                            <td className="p-2.5 border border-slate-200">
                               <Pill label={STATUS_KISI_LABEL[r.pra.statusKisiKisi] ?? r.pra.statusKisiKisi} color={STATUS_KISI_COLOR[r.pra.statusKisiKisi] ?? 'slate'} />
                             </td>
-                            <td className="p-2.5 text-xs text-slate-600">
+                            <td className="p-2.5 text-xs text-slate-600 border border-slate-200">
                               {r.pra.jadwal.length
                                 ? <>{r.pra.jadwal.length} sesi<br />terdekat: {formatDate(r.pra.jadwal[0].tanggal)}</>
                                 : <span className="text-slate-400">Belum dijadwalkan</span>}
                             </td>
-                            <td className="p-2.5 text-xs">
+                            <td className="p-2.5 text-xs border border-slate-200">
+                              {r.pra.adaEssay
+                                ? <Pill
+                                    label={r.pra.modeJawabanEssay === 'KERTAS' ? 'Kertas' : 'Digital'}
+                                    color={r.pra.modeJawabanEssay === 'KERTAS' ? 'yellow' : 'blue'}
+                                  />
+                                : <span className="text-slate-400">Tidak ada soal essay</span>}
+                            </td>
+                            <td className="p-2.5 text-xs border border-slate-200">
                               <Pill
                                 label={r.saat.adaSesiBerjalan ? 'Sedang Berjalan' : (r.saat.siswaTerdaftar > 0 ? 'Sudah Selesai' : 'Belum Mulai')}
                                 color={r.saat.adaSesiBerjalan ? 'blue' : (r.saat.siswaTerdaftar > 0 ? 'green' : 'slate')}
                               />
                               <span className="block text-slate-500 mt-0.5">{r.saat.siswaSelesai}/{r.saat.totalSiswaKelas} siswa selesai</span>
                             </td>
-                            <td className="p-2.5 text-xs">
+                            <td className="p-2.5 text-xs border border-slate-200">
                               {r.saat.pelanggaranBelumDitindak > 0
                                 ? <span className="font-semibold text-red-600">{r.saat.pelanggaranBelumDitindak} belum ditindak</span>
                                 : <span className="text-slate-400">Tidak ada</span>}
@@ -577,7 +629,7 @@ export default function AdminLaporanPage() {
                                 <span className="block text-slate-500 mt-0.5">{r.setelah.pelanggaranFinal} total tercatat</span>
                               )}
                             </td>
-                            <td className="p-2.5 text-slate-700">
+                            <td className="p-2.5 text-slate-700 border border-slate-200">
                               {r.setelah.totalNilai > 0 ? (
                                 <>
                                   <span className="font-semibold">{r.setelah.rataRata}</span>
@@ -585,7 +637,7 @@ export default function AdminLaporanPage() {
                                 </>
                               ) : <span className="text-slate-400 text-xs">Belum ada nilai</span>}
                             </td>
-                            <td className="p-2.5 text-xs">
+                            <td className="p-2.5 text-xs border border-slate-200">
                               {r.setelah.totalNilai > 0 ? (
                                 <>
                                   <Pill
