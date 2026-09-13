@@ -19,7 +19,7 @@
 //  - Route lama (/guru/koreksi-essay, /guru/nilai, /guru/kirim-nilai) tetap
 //    ada sebagai redirect ke sini (?tab=...) supaya bookmark/link lama
 //    tidak 404 — pola yang sama seperti redirect /guru/soal → /guru/paket.
-import { Suspense, useEffect, useState } from 'react'
+import { Suspense, useCallback, useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { CheckSquare, BarChart3, Send, Check, AlertTriangle, CheckCircle2 } from 'lucide-react'
 import { Spinner } from '@/components/ui'
@@ -87,18 +87,32 @@ function PenilaianContent() {
   const [adaEssay, setAdaEssay] = useState<boolean | null>(null)
   const [jumlahSesiEssay, setJumlahSesiEssay] = useState(0)
 
-  useEffect(() => {
-    let batal = false
+  // BUG FIX (badge tab bar tidak ikut update setelah aksi di dalam tab):
+  // fungsi-fungsi fetch ringkasan di bawah ini sebelumnya HANYA dipanggil
+  // sekali saat mount (di dalam useEffect masing-masing dengan dependency
+  // kosong `[]`). Begitu guru menyimpan nilai remedial di tab "Rekap
+  // Nilai", tab itu me-refresh data dirinya SENDIRI (state lokalnya) tapi
+  // tidak pernah memberi tahu halaman ini untuk menghitung ulang ringkasan
+  // di badge tab bar — jadi badge "1 Siswa di Bawah KKM" tetap nyangkut
+  // walau nilainya sudah lulus semua, sampai guru refresh browser (yang
+  // me-remount semuanya dari nol). Sekarang tiga fetch ringkasan diubah
+  // jadi fungsi bernama (bukan langsung di dalam useEffect) supaya bisa
+  // dipanggil ULANG lewat `refreshRingkasan`, yang diteruskan sebagai
+  // prop `onDataChanged` ke KETIGA tab. Setiap aksi di tab yang mengubah
+  // nilai/status siswa (simpan remedial, nilai/rilis essay, kirim ke wali
+  // kelas) memanggil prop ini setelah berhasil, supaya badge di tab bar
+  // ini langsung akurat tanpa perlu refresh manual.
+  const fetchAdaEssay = useCallback(() => {
     apiRequest<{ data: unknown[] }>('/api/guru/koreksi-essay/jadwal')
       .then(res => {
-        if (batal) return
         const jumlah = (res.data ?? []).length
         setJumlahSesiEssay(jumlah)
         setAdaEssay(jumlah > 0)
       })
-      .catch(() => { if (!batal) setAdaEssay(false) })
-    return () => { batal = true }
+      .catch(() => setAdaEssay(prev => prev ?? false))
   }, [])
+
+  useEffect(() => { fetchAdaEssay() }, [fetchAdaEssay])
 
   // UX (peringatan di tab bar): "Rekap Nilai" & "Kirim Nilai ke Wali Kelas"
   // masing-masing komponen tab mandiri (fetch sendiri, lihat komentar di
@@ -113,16 +127,15 @@ function PenilaianContent() {
   // server-side di /api/guru/nilai dari nilai_final/lulus_final, dan TIDAK
   // ikut menghitung siswa yang belum ujian sama sekali — persis yang
   // dibutuhkan di sini.
-  useEffect(() => {
-    let batal = false
+  const fetchRingkasanRekap = useCallback(() => {
     apiRequest<{ stats: { tidakLulus: number } | null }>('/api/guru/nilai')
       .then(res => {
-        if (batal) return
         setRingkasanRekap({ diBawahKkm: res.stats?.tidakLulus ?? 0, adaData: !!res.stats })
       })
-      .catch(() => { if (!batal) setRingkasanRekap(null) })
-    return () => { batal = true }
+      .catch(() => setRingkasanRekap(null))
   }, [])
+
+  useEffect(() => { fetchRingkasanRekap() }, [fetchRingkasanRekap])
 
   // Ringkasan "Kirim Nilai ke Wali Kelas": TIGA kondisi berbeda yang perlu
   // dibedakan (sama seperti `statusKirimKelompok` di KirimNilaiTab) —
@@ -150,8 +163,7 @@ function PenilaianContent() {
   // kategori sendiri (`siswaMenungguEssay`), supaya mapelnya tetap muncul
   // di ringkasan atas dengan label yang jujur, tanpa dobel-label sebagai
   // "siswa baru".
-  useEffect(() => {
-    let batal = false
+  const fetchRingkasanKirim = useCallback(() => {
     interface RowRingkas {
       mapel_id: string
       kelas: string
@@ -163,7 +175,6 @@ function PenilaianContent() {
     }
     apiRequest<{ data: RowRingkas[] }>('/api/guru/kirim-nilai')
       .then(res => {
-        if (batal) return
         const rows = (res.data ?? []).filter(r => !r.belum_ujian)
         const map: Record<string, RowRingkas[]> = {}
         for (const r of rows) {
@@ -197,9 +208,19 @@ function PenilaianContent() {
         }
         setRingkasanKirim({ mapelBelumKirim, siswaBaruBelumKirim, siswaMenungguEssay, adaData: Object.keys(map).length > 0 })
       })
-      .catch(() => { if (!batal) setRingkasanKirim(null) })
-    return () => { batal = true }
+      .catch(() => setRingkasanKirim(null))
   }, [])
+
+  useEffect(() => { fetchRingkasanKirim() }, [fetchRingkasanKirim])
+
+  // Dipanggil oleh ketiga tab setelah aksi yang mengubah nilai/status siswa
+  // berhasil disimpan (simpan remedial, nilai/rilis essay, kirim ke wali
+  // kelas) — lihat komentar panjang di atas `fetchAdaEssay`.
+  const refreshRingkasan = useCallback(() => {
+    fetchRingkasanRekap()
+    fetchRingkasanKirim()
+    fetchAdaEssay()
+  }, [fetchRingkasanRekap, fetchRingkasanKirim, fetchAdaEssay])
 
   // Jembatan antar-tab: begitu guru merilis semua nilai essay di tab
   // "Periksa Jawaban Essay", kita pindah ke tab "Kirim Nilai" dan simpan
@@ -349,11 +370,12 @@ function PenilaianContent() {
               setFocusTarget(target)
               gotoTab('kirim')
             }}
+            onDataChanged={refreshRingkasan}
           />
         ) : activeKey === 'rekap' ? (
-          <RekapNilaiTab />
+          <RekapNilaiTab onDataChanged={refreshRingkasan} />
         ) : (
-          <KirimNilaiTab focusTarget={focusTarget} />
+          <KirimNilaiTab focusTarget={focusTarget} onDataChanged={refreshRingkasan} />
         )}
       </div>
     </div>
