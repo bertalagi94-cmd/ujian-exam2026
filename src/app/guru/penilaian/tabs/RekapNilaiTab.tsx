@@ -163,7 +163,14 @@ export function RekapNilaiTab() {
           'Benar': n.benar,
           'Total Soal': n.total,
           'KKM': n.kkm,
-          'Status': n.lulus ? 'Lulus' : 'Tidak Lulus',
+          // BUG FIX (Status export pakai n.lulus mentah — sama seperti bug di
+          // tabel tampilan): sebelumnya kolom ini tidak ikut berubah walau
+          // nilai remedial (nilai_edit) sudah disimpan, jadi siswa yang lolos
+          // KKM lewat remedial tetap tercatat "Tidak Lulus" di file Excel.
+          // Sekarang pakai lulus_final, konsisten dengan Nilai Akhir final
+          // yang sebenarnya dikirim ke wali kelas.
+          'Nilai Akhir Final': n.nilai_final ?? n.nilai,
+          'Status': (n.lulus_final ?? n.lulus) ? 'Lulus' : 'Tidak Lulus',
           'Tanggal': formatDateTime(n.timestamp),
           'Nilai Essay': n.essay_aktif ? (n.nilai_essay ?? '-') : '-',
           'Nilai Akhir (PG+Essay)': n.essay_aktif ? (n.nilai_total ?? '-') : '-',
@@ -184,7 +191,7 @@ export function RekapNilaiTab() {
             ]])
 
         ws['!cols'] = rows.length
-          ? [{ wch: 5 }, { wch: 26 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 10 }, { wch: 8 }, { wch: 13 }, { wch: 20 }, { wch: 10 }, { wch: 20 }, { wch: 24 }, { wch: 10 }, { wch: 50 }]
+          ? [{ wch: 5 }, { wch: 26 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 10 }, { wch: 8 }, { wch: 14 }, { wch: 13 }, { wch: 20 }, { wch: 10 }, { wch: 20 }, { wch: 24 }, { wch: 10 }, { wch: 50 }]
           : [{ wch: 90 }]
 
         // Nama sheet Excel maksimal 31 karakter & tidak boleh berisi \ / ? * [ ] :
@@ -296,11 +303,6 @@ export function RekapNilaiTab() {
                       Status (yang sudah mencakup total gabungannya). */}
                   <th>Nilai Essay</th>
                   <th>KKM</th>
-                  {/* BUG FIX (rekap nilai guru belum menyesuaikan fitur essay):
-                      kolom "Status" sekarang sekaligus menampilkan info nilai
-                      akhir gabungan "Nilai Akhir (PG + Essay)" yang sebenarnya
-                      dirilis ke siswa, bukan cuma status lulus/tidak dari PG. */}
-                  <th>Status</th>
                   {/* FITUR BARU (hapus dualisme tab Rekap Nilai vs Kirim
                       Nilai): kolom ini menampilkan nilai_final — sudah
                       termasuk nilai remedial (nilai_edit) kalau guru pernah
@@ -308,6 +310,17 @@ export function RekapNilaiTab() {
                       angka yang SAMA persis dengan yang akan dikirim ke
                       wali kelas. */}
                   <th>Nilai Akhir</th>
+                  {/* BUG FIX (Status memakai n.lulus mentah — sebelum remedial):
+                      kolom "Status" sekarang memakai lulus_final (konsisten
+                      dengan Nilai Akhir di sebelah kirinya), bukan n.lulus
+                      mentah yang tidak ikut berubah waktu nilai remedial
+                      disimpan. Sebelumnya siswa yang sudah lulus KKM lewat
+                      remedial masih tampil "Tidak Lulus" di sini. Kolom ini
+                      juga dipindah ke SETELAH "Nilai Akhir" (bukan sebelum)
+                      supaya urutannya logis: lihat angka dulu, baru status
+                      simpulannya — dan info "Nilai Akhir (PG + Essay)"
+                      (rincian gabungan sebelum nilai_edit) ikut pindah ke sini. */}
+                  <th>Status</th>
                   <th>Tanggal</th>
                   {/* FITUR BARU: riwayat pelanggaran (kecurangan) selama
                       ujian, supaya guru pengampu tahu kondisi siswa selama
@@ -357,34 +370,6 @@ export function RekapNilaiTab() {
                           )}
                         </td>
                         <td className="text-slate-500 text-sm">{n.kkm}</td>
-                        <td>
-                          <div className="flex flex-col gap-1">
-                            <span className={`badge ${n.lulus ? 'badge-green' : 'badge-red'}`}>
-                              {n.lulus ? '✓ Lulus' : '✗ Tidak Lulus'}
-                            </span>
-                            {/* BUG FIX (nilai remedial salah tampil sebagai nilai PG
-                                mentah — laporan guru): sebelumnya baris ini
-                                MENYEMBUNYIKAN angka nilai_total ("belum dirilis")
-                                selama essay belum dirilis ke siswa, walau nilai
-                                itu sudah final untuk keperluan internal guru
-                                (lulus di atas juga sudah memakainya). Ini bikin
-                                guru mengira Nilai Akhir "belum ada" padahal sudah
-                                ada, cuma belum boleh dilihat SISWA. Sekarang
-                                angkanya selalu ditampilkan; status rilis ke
-                                siswa jadi catatan terpisah, bukan penyembunyi
-                                angka. */}
-                            {n.essay_aktif && (
-                              n.nilai_total != null ? (
-                                <span className="text-xs text-slate-400">
-                                  Nilai Akhir (PG + Essay): <span className={`font-bold ${nilaiColor(n.nilai_total)}`}>{n.nilai_total}</span>
-                                  {!n.dirilis && <span className="text-indigo-500"> (belum dirilis ke siswa)</span>}
-                                </span>
-                              ) : (
-                                <span className="text-xs text-red-500">Essay belum dinilai</span>
-                              )
-                            )}
-                          </div>
-                        </td>
                         {/* FITUR BARU (hapus dualisme tab Rekap Nilai vs Kirim
                             Nilai): nilai_final sudah termasuk nilai_edit
                             (remedial) kalau pernah diinput — persis angka
@@ -406,6 +391,42 @@ export function RekapNilaiTab() {
                               >
                                 Diremedial (awal: {n.nilai_efektif})
                               </span>
+                            )}
+                          </div>
+                        </td>
+                        <td>
+                          <div className="flex flex-col gap-1">
+                            {/* BUG FIX (Status memakai n.lulus mentah — belum
+                                menghitung remedial): sebelumnya badge ini
+                                selalu memakai n.lulus (status dari nilai
+                                sebelum nilai_edit disimpan), jadi bisa beda
+                                dengan badge di kolom Nilai Akhir untuk siswa
+                                yang sudah diremedial sampai lolos KKM. Sekarang
+                                pakai lulus_final — sama persis dengan yang
+                                menentukan grade_final di kolom sebelah. */}
+                            <span className={`badge ${(n.lulus_final ?? n.lulus) ? 'badge-green' : 'badge-red'}`}>
+                              {(n.lulus_final ?? n.lulus) ? '✓ Lulus' : '✗ Tidak Lulus'}
+                            </span>
+                            {/* BUG FIX (nilai remedial salah tampil sebagai nilai PG
+                                mentah — laporan guru): sebelumnya baris ini
+                                MENYEMBUNYIKAN angka nilai_total ("belum dirilis")
+                                selama essay belum dirilis ke siswa, walau nilai
+                                itu sudah final untuk keperluan internal guru
+                                (lulus di atas juga sudah memakainya). Ini bikin
+                                guru mengira Nilai Akhir "belum ada" padahal sudah
+                                ada, cuma belum boleh dilihat SISWA. Sekarang
+                                angkanya selalu ditampilkan; status rilis ke
+                                siswa jadi catatan terpisah, bukan penyembunyi
+                                angka. */}
+                            {n.essay_aktif && (
+                              n.nilai_total != null ? (
+                                <span className="text-xs text-slate-400">
+                                  Nilai Akhir (PG + Essay): <span className={`font-bold ${nilaiColor(n.nilai_total)}`}>{n.nilai_total}</span>
+                                  {!n.dirilis && <span className="text-indigo-500"> (belum dirilis ke siswa)</span>}
+                                </span>
+                              ) : (
+                                <span className="text-xs text-red-500">Essay belum dinilai</span>
+                              )
                             )}
                           </div>
                         </td>
