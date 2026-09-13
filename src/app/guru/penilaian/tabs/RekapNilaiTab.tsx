@@ -362,14 +362,22 @@ export function RekapNilaiTab() {
                             <span className={`badge ${n.lulus ? 'badge-green' : 'badge-red'}`}>
                               {n.lulus ? '✓ Lulus' : '✗ Tidak Lulus'}
                             </span>
+                            {/* BUG FIX (nilai remedial salah tampil sebagai nilai PG
+                                mentah — laporan guru): sebelumnya baris ini
+                                MENYEMBUNYIKAN angka nilai_total ("belum dirilis")
+                                selama essay belum dirilis ke siswa, walau nilai
+                                itu sudah final untuk keperluan internal guru
+                                (lulus di atas juga sudah memakainya). Ini bikin
+                                guru mengira Nilai Akhir "belum ada" padahal sudah
+                                ada, cuma belum boleh dilihat SISWA. Sekarang
+                                angkanya selalu ditampilkan; status rilis ke
+                                siswa jadi catatan terpisah, bukan penyembunyi
+                                angka. */}
                             {n.essay_aktif && (
-                              n.dirilis ? (
+                              n.nilai_total != null ? (
                                 <span className="text-xs text-slate-400">
-                                  Nilai Akhir (PG + Essay): <span className={`font-bold ${nilaiColor(n.nilai_total ?? 0)}`}>{n.nilai_total}</span>
-                                </span>
-                              ) : n.nilai_essay !== null && n.nilai_essay !== undefined ? (
-                                <span className="text-xs text-amber-600" title={`Sudah dinilai (${n.nilai_total}) tapi belum dirilis ke siswa`}>
-                                  Nilai Akhir (PG + Essay): belum dirilis
+                                  Nilai Akhir (PG + Essay): <span className={`font-bold ${nilaiColor(n.nilai_total)}`}>{n.nilai_total}</span>
+                                  {!n.dirilis && <span className="text-indigo-500"> (belum dirilis ke siswa)</span>}
                                 </span>
                               ) : (
                                 <span className="text-xs text-red-500">Essay belum dinilai</span>
@@ -515,9 +523,52 @@ export function RekapNilaiTab() {
         {editTarget && (
           <div className="space-y-4">
             <p className="text-sm text-slate-500">
-              {editTarget.nama_mapel} · Kelas {editTarget.kelas} ·{' '}
-              Nilai saat ini: <span className="font-semibold text-slate-700">{editTarget.nilai_efektif ?? editTarget.nilai}</span>
+              {editTarget.nama_mapel} · Kelas {editTarget.kelas}
             </p>
+            {/* BUG FIX (nilai remedial salah tampil sebagai nilai PG mentah):
+                sebelumnya modal ini cuma menunjukkan satu angka ambigu
+                ("Nilai saat ini") yang untuk mapel ber-essay bisa berarti
+                nilai PG doang — membuat guru salah kira siswa "sudah 80"
+                padahal Nilai Akhir gabungannya di bawah KKM. Sekarang
+                rinciannya ditampilkan eksplisit (PG, Essay kalau ada, Nilai
+                Akhir gabungan) plus status Lulus/Tidak yang sebenarnya,
+                supaya guru tidak salah menilai perlu-tidaknya remedial. */}
+            <div className="rounded-lg bg-slate-50 border border-slate-100 px-3 py-2.5 text-sm space-y-1">
+              {editTarget.essay_aktif ? (
+                <>
+                  <div className="flex justify-between text-slate-600">
+                    <span>Nilai PG</span>
+                    <span className="font-medium text-slate-700">{editTarget.nilai}</span>
+                  </div>
+                  <div className="flex justify-between text-slate-600">
+                    <span>Nilai Essay</span>
+                    <span className="font-medium text-slate-700">
+                      {editTarget.nilai_essay != null ? editTarget.nilai_essay : 'Belum dinilai'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-slate-800 border-t border-slate-200 pt-1 mt-1">
+                    <span className="font-medium">Nilai Akhir (PG + Essay)</span>
+                    <span className="font-bold">{editTarget.nilai_efektif ?? editTarget.nilai}</span>
+                  </div>
+                  {editTarget.essay_belum_dirilis && (
+                    <p className="text-xs text-indigo-500 pt-0.5">Belum dirilis ke siswa — tapi status di bawah sudah final.</p>
+                  )}
+                </>
+              ) : (
+                <div className="flex justify-between text-slate-800">
+                  <span className="font-medium">Nilai Saat Ini</span>
+                  <span className="font-bold">{editTarget.nilai_efektif ?? editTarget.nilai}</span>
+                </div>
+              )}
+              <div className="flex justify-between items-center pt-1">
+                <span className="text-slate-500">Status</span>
+                <span className={`badge text-xs font-bold ${
+                  (editTarget.lulus_final ?? editTarget.lulus) ? 'badge-green' : 'badge-red'
+                }`}>
+                  {(editTarget.lulus_final ?? editTarget.lulus) ? '✓ Lulus' : '✗ Tidak Lulus'}
+                </span>
+              </div>
+            </div>
             <div>
               <label className="text-xs font-medium text-slate-600 mb-1 block">Nilai Remedial</label>
               <input
