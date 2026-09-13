@@ -6,7 +6,6 @@ import {
   CheckCircle2, XCircle, Save, Send, AlertTriangle, Clock,
 } from 'lucide-react'
 import { Confirm, EmptyState, Spinner, Toast, Badge, Modal } from '@/components/ui'
-import { EssayFlowGuide } from '@/components/shared/EssayFlowGuide'
 import { apiRequest, formatDate, formatDateTime } from '@/lib/utils'
 
 // ── Tipe ──────────────────────────────────────────────────────────
@@ -308,8 +307,6 @@ export function PeriksaEssayTab({
     <div className="space-y-6 animate-fade-in">
       {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
 
-      <EssayFlowGuide current="penilaian" />
-
       {loading ? (
         <div className="flex justify-center py-20"><Spinner size="lg" /></div>
       ) : jadwalList.length === 0 ? (
@@ -530,7 +527,14 @@ export function PeriksaEssayTab({
                                       Dikirim {p.waktuKirimEssay ? formatDateTime(p.waktuKirimEssay) : '-'}
                                     </p>
 
-                                    {/* Jawaban */}
+                                    {/* UX (gabung Jawaban Siswa + Beri Skor per Soal): dulu ada dua
+                                        kartu terpisah — daftar jawaban, lalu di bawahnya daftar input
+                                        skor per soal yang sama persis urutannya. Guru sering salah
+                                        klik ke halaman lain karena harus scroll panjang bolak-balik
+                                        untuk mencocokkan jawaban dengan kolom skornya. Sekarang untuk
+                                        mode DIGITAL, kolom skor kecil ditaruh langsung di tiap kartu
+                                        jawaban (mode KERTAS tetap terpisah karena tidak ada jawaban
+                                        teks untuk digabung skornya). */}
                                     <div className="space-y-2">
                                       <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Jawaban Siswa</p>
                                       {data.modeJawaban === 'DIGITAL' ? (
@@ -542,6 +546,7 @@ export function PeriksaEssayTab({
                                           // perlu baca teks satu-satu — merah = tidak dijawab (teks
                                           // kosong/hanya spasi), hijau = ada jawaban.
                                           const terjawab = !!jawaban?.jawaban_teks?.trim()
+                                          const skorSoalStr = skorInput[p.nis]?.[soal.id] ?? ''
                                           return (
                                             <div
                                               key={soal.id}
@@ -564,7 +569,25 @@ export function PeriksaEssayTab({
                                                 )}
                                               </div>
                                               <p className="text-slate-700 font-medium mb-1.5">{soal.teks}</p>
-                                              <p className="text-slate-600 whitespace-pre-wrap">{jawaban?.jawaban_teks?.trim() || <span className="italic text-slate-400">Tidak dijawab</span>}</p>
+                                              <p className="text-slate-600 whitespace-pre-wrap mb-2">{jawaban?.jawaban_teks?.trim() || <span className="italic text-slate-400">Tidak dijawab</span>}</p>
+                                              {p.statusEssay !== 'TIDAK_MENGERJAKAN' && (
+                                                <div className="flex items-center justify-end gap-2 pt-1.5 border-t border-slate-100">
+                                                  <span className="text-xs text-slate-500">Skor <span className="text-slate-400">(maks {soal.bobot_maks})</span></span>
+                                                  <input
+                                                    type="number"
+                                                    className="input w-20 h-8 text-center flex-shrink-0 text-sm"
+                                                    min={0}
+                                                    max={soal.bobot_maks}
+                                                    placeholder={`0–${soal.bobot_maks}`}
+                                                    value={skorSoalStr}
+                                                    onClick={e => e.stopPropagation()}
+                                                    onChange={e => setSkorInput(prev => ({
+                                                      ...prev,
+                                                      [p.nis]: { ...prev[p.nis], [soal.id]: e.target.value },
+                                                    }))}
+                                                  />
+                                                </div>
+                                              )}
                                             </div>
                                           )
                                         })}
@@ -582,16 +605,9 @@ export function PeriksaEssayTab({
                                     )}
                                     </div>
 
-                                    {/* FIX (penilaian berbasis rubrik): input nilai sekarang PER
-                                        SOAL essay, sesuai bobot_maks masing-masing (rubrik yang
-                                        dibuat guru sendiri di menu Buat Soal) — bukan lagi satu
-                                        angka gabungan yang ditaksir sendiri. Total & konversi ke
-                                        skala 0-100 dihitung & ditampilkan LANGSUNG di sini secara
-                                        real-time, mengikuti rumus persis yang dipakai backend
-                                        (lihat PUT di api/guru/koreksi-essay/route.ts), supaya guru
-                                        selalu melihat hasil akhirnya SEBELUM menekan Simpan — tidak
-                                        ada lagi konversi tersembunyi. */}
-                                    {p.statusEssay !== 'TIDAK_MENGERJAKAN' && (
+                                    {/* Mode KERTAS: tidak ada jawaban teks untuk digabung skornya,
+                                        jadi input skor tetap tampil sebagai kartu tersendiri. */}
+                                    {data.modeJawaban !== 'DIGITAL' && p.statusEssay !== 'TIDAK_MENGERJAKAN' && (
                                       <div className="bg-white rounded-lg border border-slate-200 p-3 space-y-3">
                                         <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Beri Skor per Soal</p>
                                         <div className="space-y-2">
@@ -619,7 +635,22 @@ export function PeriksaEssayTab({
                                             )
                                           })}
                                         </div>
+                                      </div>
+                                    )}
 
+                                    {/* FIX (penilaian berbasis rubrik): input nilai sekarang PER
+                                        SOAL essay, sesuai bobot_maks masing-masing (rubrik yang
+                                        dibuat guru sendiri di menu Buat Soal) — bukan lagi satu
+                                        angka gabungan yang ditaksir sendiri. Total & konversi ke
+                                        skala 0-100 dihitung & ditampilkan LANGSUNG di sini secara
+                                        real-time, mengikuti rumus persis yang dipakai backend
+                                        (lihat PUT di api/guru/koreksi-essay/route.ts), supaya guru
+                                        selalu melihat hasil akhirnya SEBELUM menekan Simpan — tidak
+                                        ada lagi konversi tersembunyi. Tombol Simpan tetap satu di
+                                        paling bawah, di luar daftar jawaban, supaya tidak perlu
+                                        scroll panjang lagi untuk menemukannya. */}
+                                    {p.statusEssay !== 'TIDAK_MENGERJAKAN' && (
+                                      <div className="bg-white rounded-lg border border-slate-200 p-3 space-y-3">
                                         <div className="flex items-center gap-2 flex-wrap pt-1">
                                           <button className="btn-secondary btn-sm" onClick={() => handleSimpanNilai(p.nis)} disabled={savingNis === p.nis}>
                                             {savingNis === p.nis ? <Spinner size="sm" /> : <><Save className="w-3.5 h-3.5" /> Simpan</>}
