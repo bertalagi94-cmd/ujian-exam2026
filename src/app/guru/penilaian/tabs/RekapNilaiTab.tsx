@@ -1,0 +1,356 @@
+'use client'
+
+import { useState, useEffect, useCallback } from 'react'
+import * as XLSX from 'xlsx'
+import { Download, BarChart3, Trophy, TrendingUp, Users, CheckCircle, AlertTriangle, ShieldCheck } from 'lucide-react'
+import { PageLoader, EmptyState, SearchInput, StatCard, Modal } from '@/components/ui'
+import { apiRequest, formatDateTime, nilaiColor } from '@/lib/utils'
+import { Nilai as NilaiBase, Mapel } from '@/types'
+import { terjemahJenisPelanggaran, labelStatusPelanggaran, warnaStatusPelanggaran } from '@/lib/pelanggaran-shared'
+
+// true kalau siswa ini belum sama sekali mengerjakan ujian mapel ini —
+// ditambahkan oleh /api/guru/nilai dari roster jadwal, bukan dari tabel nilai.
+type Nilai = NilaiBase & { belum_ujian?: boolean }
+
+interface Stats {
+  total: number
+  rataRata: number
+  tertinggi: number
+  terendah: number
+  lulus: number
+  tidakLulus: number
+}
+
+// Isi tab "Rekap Nilai" di menu Penilaian (/guru/penilaian). Sebelumnya
+// halaman sendiri (/guru/nilai) — logikanya tidak diubah, cuma dipindah
+// jadi salah satu tab dan header halamannya disederhanakan (judul besar
+// sudah diwakili oleh nama tab di atasnya).
+export function RekapNilaiTab() {
+  const [nilaiList, setNilaiList] = useState<Nilai[]>([])
+  const [mapelList, setMapelList] = useState<Mapel[]>([])
+  const [stats, setStats] = useState<Stats | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [filterMapel, setFilterMapel] = useState('')
+  const [filterKelas, setFilterKelas] = useState('')
+  const [search, setSearch] = useState('')
+  const [exporting, setExporting] = useState(false)
+  // FITUR BARU (riwayat pelanggaran untuk guru pengampu): baris nilai yang
+  // sedang dibuka modal riwayat pelanggarannya, null kalau modal tertutup.
+  const [pelanggaranModal, setPelanggaranModal] = useState<Nilai | null>(null)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const params = new URLSearchParams({
+        ...(filterMapel && { mapel_id: filterMapel }),
+        ...(filterKelas && { kelas: filterKelas }),
+      })
+      const res = await apiRequest<{ data: Nilai[]; stats: Stats; mapelList: Mapel[] }>(
+        `/api/guru/nilai?${params}`
+      )
+      setNilaiList(res.data ?? [])
+      setStats(res.stats)
+      if (res.mapelList?.length) setMapelList(res.mapelList)
+    } finally {
+      setLoading(false)
+    }
+  }, [filterMapel, filterKelas])
+
+  useEffect(() => { load() }, [load])
+
+  const kelasList = [...new Set(nilaiList.map(n => n.kelas))].sort()
+
+  const filtered = nilaiList.filter(n =>
+    !search || (n.nama_siswa ?? '').toLowerCase().includes(search.toLowerCase())
+  )
+
+  // GANTI: sebelumnya export CSV satu lembar yang mencampur semua mata pelajaran
+  // jadi satu tabel besar — membingungkan kalau guru mengampu beberapa mapel.
+  // Sekarang export ke Excel (.xlsx) dengan SATU SHEET PER MAPEL yang diampu
+  // guru ini (judul sheet = nama mapel), termasuk mapel yang belum punya nilai
+  // sama sekali (ditampilkan sebagai pesan, bukan dihilangkan begitu saja).
+  async function exportExcel() {
+    if (!mapelList.length) return
+    setExporting(true)
+    try {
+      // Selalu ambil data LENGKAP (tanpa filter mapel/kelas yang sedang aktif di
+      // tabel) supaya setiap sheet mapel berisi rekap penuh, bukan cuma sebagian
+      // yang kebetulan sedang tersaring di tampilan.
+      let semuaNilai: Nilai[] = nilaiList
+      try {
+        const res = await apiRequest<{ data: Nilai[] }>('/api/guru/nilai')
+        semuaNilai = res.data ?? []
+      } catch {
+        // Kalau gagal refetch, tetap lanjut pakai data yang sudah tampil di halaman
+      }
+
+      const wb = XLSX.utils.book_new()
+      const namaSheetTerpakai = new Set<string>()
+
+      for (const mapel of mapelList) {
+        // Export hanya nilai yang benar-benar sudah ujian — baris "belum ujian"
+        // (placeholder dari roster jadwal) tidak relevan untuk rekap nilai Excel.
+        const nilaiMapel = semuaNilai.filter(n => n.mapel_id === mapel.id && !n.belum_ujian)
+
+        // BUG FIX (rekap nilai guru belum menyesuaikan fitur essay): kolom
+        // export sebelumnya hanya berisi nilai PG ('Nilai'/'Grade'/'Status')
+        // — untuk mapel yang punya essay aktif, nilai akhir gabungan
+        // (nilai_total) yang sebenarnya dirilis ke siswa tidak pernah ikut
+        // ter-export. Ditambahkan 3 kolom essay di akhir, sama seperti
+        // export admin, kosong ('-') untuk mapel yang memang PG-only.
+        const rows = nilaiMapel.map((n, i) => ({
+          'No': i + 1,
+          'Nama Siswa': n.nama_siswa ?? n.nis,
+          'Kelas': n.kelas,
+          'Nilai PG': n.nilai,
+          'Grade': n.grade,
+          'Benar': n.benar,
+          'Total Soal': n.total,
+          'KKM': n.kkm,
+          'Status': n.lulus ? 'Lulus' : 'Tidak Lulus',
+          'Tanggal': formatDateTime(n.timestamp),
+          'Nilai Essay': n.essay_aktif ? (n.nilai_essay ?? '-') : '-',
+          'Nilai Akhir (PG+Essay)': n.essay_aktif ? (n.nilai_total ?? '-') : '-',
+          'Status Essay': !n.essay_aktif ? '-' : n.dirilis ? 'Dirilis' : (n.nilai_essay !== null && n.nilai_essay !== undefined) ? 'Sudah dinilai (belum dirilis)' : 'Belum dinilai',
+          // FITUR BARU (riwayat pelanggaran untuk guru pengampu): supaya
+          // rekap Excel juga mencerminkan kondisi siswa selama ujian, bukan
+          // cuma nilai akhirnya.
+          'Jumlah Pelanggaran': n.jumlah_pelanggaran ?? 0,
+          'Rincian Pelanggaran': (n.pelanggaran ?? []).length
+            ? n.pelanggaran!.map(p => `#${p.level} ${terjemahJenisPelanggaran(p.jenis)} (${formatDateTime(p.created_at)})`).join('; ')
+            : '-',
+        }))
+
+        const ws = rows.length
+          ? XLSX.utils.json_to_sheet(rows)
+          : XLSX.utils.aoa_to_sheet([[
+              'Mapel belum ujian atau tidak memiliki jadwal ujian. Hubungi admin jika Anda merasa ini keliru.',
+            ]])
+
+        ws['!cols'] = rows.length
+          ? [{ wch: 5 }, { wch: 26 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 8 }, { wch: 10 }, { wch: 8 }, { wch: 13 }, { wch: 20 }, { wch: 10 }, { wch: 20 }, { wch: 24 }, { wch: 10 }, { wch: 50 }]
+          : [{ wch: 90 }]
+
+        // Nama sheet Excel maksimal 31 karakter & tidak boleh berisi \ / ? * [ ] :
+        // Tambahkan juga pengaman kalau ada 2 mapel dengan nama sama (mis. mapel
+        // yang sama diampu untuk kelas berbeda dengan mapel_id berbeda).
+        let sheetName = (mapel.nama || 'Mapel').replace(/[\\/?*[\]:]/g, '').slice(0, 31)
+        if (namaSheetTerpakai.has(sheetName)) {
+          let i = 2
+          let kandidat = `${sheetName} (${i})`.slice(0, 31)
+          while (namaSheetTerpakai.has(kandidat)) { i++; kandidat = `${sheetName} (${i})`.slice(0, 31) }
+          sheetName = kandidat
+        }
+        namaSheetTerpakai.add(sheetName)
+
+        XLSX.utils.book_append_sheet(wb, ws, sheetName)
+      }
+
+      XLSX.writeFile(wb, `rekap-nilai-guru-${Date.now()}.xlsx`)
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  if (loading) return <PageLoader />
+
+  const persenLulus = stats && stats.total > 0
+    ? Math.round((stats.lulus / stats.total) * 100)
+    : 0
+
+  return (
+    <div className="space-y-6 animate-fade-in">
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <p className="text-sm text-slate-500">Nilai siswa dari mata pelajaran yang Anda ampu</p>
+        </div>
+        {mapelList.length > 0 && (
+          <button onClick={exportExcel} disabled={exporting} className="btn-secondary btn-sm">
+            {exporting ? (
+              <span className="w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <Download className="w-4 h-4" />
+            )}
+            {exporting ? 'Menyiapkan Excel...' : 'Export Excel'}
+          </button>
+        )}
+      </div>
+
+      {stats && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <StatCard label="Total Ujian" value={stats.total} icon={Users} color="bg-brand-500" />
+          <StatCard label="Rata-rata Nilai" value={stats.rataRata} icon={BarChart3} color="bg-emerald-500" />
+          <StatCard label="Nilai Tertinggi" value={stats.tertinggi} icon={Trophy} color="bg-amber-500" />
+          <StatCard label="Persentase Lulus" value={`${persenLulus}%`} icon={CheckCircle} color="bg-cyan-500" />
+        </div>
+      )}
+
+      {/* Filter */}
+      <div className="card py-4 flex gap-3 flex-wrap">
+        <SearchInput
+          value={search}
+          onChange={setSearch}
+          placeholder="Cari nama siswa..."
+          className="flex-1 min-w-[180px]"
+        />
+        <select
+          value={filterMapel}
+          onChange={e => setFilterMapel(e.target.value)}
+          className="select w-44"
+        >
+          <option value="">Semua Mapel</option>
+          {mapelList.map(m => <option key={m.id} value={m.id}>{m.nama}</option>)}
+        </select>
+        <select
+          value={filterKelas}
+          onChange={e => setFilterKelas(e.target.value)}
+          className="select w-36"
+        >
+          <option value="">Semua Kelas</option>
+          {kelasList.map(k => <option key={k} value={k}>{k}</option>)}
+        </select>
+      </div>
+
+      <div className="card p-0 overflow-hidden">
+        {filtered.length === 0 ? (
+          <EmptyState message="Belum ada data nilai" icon={BarChart3} />
+        ) : (
+          <div className="table-wrapper">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Nama Siswa</th>
+                  <th>Kelas</th>
+                  <th>Mata Pelajaran</th>
+                  <th>Nilai PG</th>
+                  <th>Grade</th>
+                  <th>Benar/Total</th>
+                  <th>KKM</th>
+                  <th>Status</th>
+                  {/* BUG FIX (rekap nilai guru belum menyesuaikan fitur essay):
+                      kolom baru, sama seperti rekap admin — "Nilai"/"Grade"/
+                      "Status" murni PG, jadi guru perlu lihat nilai akhir
+                      gabungan (PG+Essay) yang sebenarnya dirilis ke siswa. */}
+                  <th>Nilai Akhir (+Essay)</th>
+                  <th>Tanggal</th>
+                  {/* FITUR BARU: riwayat pelanggaran (kecurangan) selama
+                      ujian, supaya guru pengampu tahu kondisi siswa selama
+                      ujian, bukan cuma nilai akhirnya. */}
+                  <th>Pelanggaran</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((n, i) => (
+                  <tr key={n.id} className={n.belum_ujian ? 'bg-slate-50/60' : ''}>
+                    <td className="text-slate-400 text-xs">{i + 1}</td>
+                    <td className="font-medium text-slate-800">{n.nama_siswa}</td>
+                    <td><span className="badge-blue text-xs">{n.kelas}</span></td>
+                    <td className="text-sm text-slate-600">{n.nama_mapel}</td>
+                    {n.belum_ujian ? (
+                      <>
+                        <td className="text-slate-400 text-sm" colSpan={5}>—</td>
+                        <td>
+                          <span className="badge bg-slate-100 text-slate-500">Belum Ujian</span>
+                        </td>
+                        <td className="text-xs text-slate-400">—</td>
+                        <td className="text-xs text-slate-300 text-center">—</td>
+                      </>
+                    ) : (
+                      <>
+                        <td>
+                          <span className={`text-lg font-bold ${nilaiColor(n.nilai)}`}>{n.nilai}</span>
+                        </td>
+                        <td>
+                          <span className={`badge font-bold ${
+                            n.grade === 'A' ? 'badge-green' :
+                            n.grade === 'B' ? 'badge-blue' :
+                            n.grade === 'C' ? 'badge-yellow' : 'badge-red'
+                          }`}>{n.grade}</span>
+                        </td>
+                        <td className="text-slate-600 text-sm">{n.benar}/{n.total}</td>
+                        <td className="text-slate-500 text-sm">{n.kkm}</td>
+                        <td>
+                          <span className={`badge ${n.lulus ? 'badge-green' : 'badge-red'}`}>
+                            {n.lulus ? '✓ Lulus' : '✗ Tidak Lulus'}
+                          </span>
+                        </td>
+                        <td>
+                          {!n.essay_aktif ? (
+                            <span className="text-slate-300 text-xs">— PG saja —</span>
+                          ) : n.dirilis ? (
+                            <span className={`text-sm font-bold ${nilaiColor(n.nilai_total ?? 0)}`}>{n.nilai_total}</span>
+                          ) : n.nilai_essay !== null && n.nilai_essay !== undefined ? (
+                            <span className="badge-yellow text-xs" title={`Sudah dinilai (${n.nilai_total}) tapi belum dirilis ke siswa`}>Belum dirilis</span>
+                          ) : (
+                            <span className="badge-red text-xs">Essay belum dinilai</span>
+                          )}
+                        </td>
+                        <td className="text-xs text-slate-400">{formatDateTime(n.timestamp)}</td>
+                        <td>
+                          {(n.jumlah_pelanggaran ?? 0) > 0 ? (
+                            <button
+                              type="button"
+                              onClick={() => setPelanggaranModal(n)}
+                              className="badge-red text-xs inline-flex items-center gap-1 hover:opacity-80 transition cursor-pointer"
+                              title="Lihat riwayat pelanggaran"
+                            >
+                              <AlertTriangle className="w-3 h-3" /> {n.jumlah_pelanggaran}
+                            </button>
+                          ) : (
+                            <span className="badge bg-emerald-50 text-emerald-600 text-xs inline-flex items-center gap-1">
+                              <ShieldCheck className="w-3 h-3" /> Bersih
+                            </span>
+                          )}
+                        </td>
+                      </>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* FITUR BARU: modal riwayat pelanggaran per siswa. Data pelanggaran
+          sudah ikut terbawa di response /api/guru/nilai (lihat kolom
+          `pelanggaran` per baris), jadi tidak perlu fetch tambahan saat
+          modal dibuka. */}
+      <Modal
+        open={!!pelanggaranModal}
+        onClose={() => setPelanggaranModal(null)}
+        title={`Riwayat Pelanggaran — ${pelanggaranModal?.nama_siswa ?? ''}`}
+        size="md"
+      >
+        {pelanggaranModal && (
+          <div className="space-y-3">
+            <p className="text-sm text-slate-500">
+              {pelanggaranModal.nama_mapel} · Kelas {pelanggaranModal.kelas} · Ujian {formatDateTime(pelanggaranModal.timestamp)}
+            </p>
+            {(pelanggaranModal.pelanggaran ?? []).length === 0 ? (
+              <p className="text-sm text-slate-400 py-4 text-center">Tidak ada riwayat pelanggaran selama ujian.</p>
+            ) : (
+              <ul className="space-y-2 max-h-96 overflow-y-auto">
+                {pelanggaranModal.pelanggaran!.map(p => (
+                  <li key={p.id} className="border border-slate-100 rounded-lg p-3 flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-medium text-slate-800 text-sm">
+                        Pelanggaran ke-{p.level}: {terjemahJenisPelanggaran(p.jenis)}
+                      </p>
+                      {p.detail && <p className="text-xs text-slate-500 mt-0.5">{p.detail}</p>}
+                      <p className="text-xs text-slate-400 mt-1">{formatDateTime(p.created_at)}</p>
+                    </div>
+                    <span className={`badge text-xs shrink-0 ${warnaStatusPelanggaran(p.status)}`}>
+                      {labelStatusPelanggaran(p.status)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+      </Modal>
+    </div>
+  )
+}
