@@ -21,7 +21,7 @@
 //    tidak 404 — pola yang sama seperti redirect /guru/soal → /guru/paket.
 import { Suspense, useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { CheckSquare, BarChart3, Send, Check } from 'lucide-react'
+import { CheckSquare, BarChart3, Send, Check, AlertTriangle, CheckCircle2 } from 'lucide-react'
 import { Spinner } from '@/components/ui'
 import { apiRequest, cn } from '@/lib/utils'
 import { PeriksaEssayTab } from './tabs/PeriksaEssayTab'
@@ -100,6 +100,85 @@ function PenilaianContent() {
     return () => { batal = true }
   }, [])
 
+  // UX (peringatan di tab bar): "Rekap Nilai" & "Kirim Nilai ke Wali Kelas"
+  // masing-masing komponen tab mandiri (fetch sendiri, lihat komentar di
+  // atas), jadi supaya tab bar bisa menampilkan ringkasan tanpa menunggu
+  // tab itu dibuka, halaman ini fetch RINGAN sendiri secara independen —
+  // sama seperti pola `adaEssay`/`jumlahSesiEssay` di atas.
+  const [ringkasanRekap, setRingkasanRekap] = useState<{ diBawahKkm: number; adaData: boolean } | null>(null)
+  const [ringkasanKirim, setRingkasanKirim] = useState<{ mapelBelumKirim: number; siswaBaruBelumKirim: number; adaData: boolean } | null>(null)
+
+  // Ringkasan "Rekap Nilai": jumlah siswa yang nilai akhirnya (nilai_final,
+  // sudah termasuk remedial) di bawah KKM. `stats.tidakLulus` sudah dihitung
+  // server-side di /api/guru/nilai dari nilai_final/lulus_final, dan TIDAK
+  // ikut menghitung siswa yang belum ujian sama sekali — persis yang
+  // dibutuhkan di sini.
+  useEffect(() => {
+    let batal = false
+    apiRequest<{ stats: { tidakLulus: number } | null }>('/api/guru/nilai')
+      .then(res => {
+        if (batal) return
+        setRingkasanRekap({ diBawahKkm: res.stats?.tidakLulus ?? 0, adaData: !!res.stats })
+      })
+      .catch(() => { if (!batal) setRingkasanRekap(null) })
+    return () => { batal = true }
+  }, [])
+
+  // Ringkasan "Kirim Nilai ke Wali Kelas": dua kondisi berbeda yang perlu
+  // dibedakan (sama seperti `statusKirimKelompok` di KirimNilaiTab) —
+  //  - Mapel yang BELUM PERNAH dikirim sama sekali → "X Mapel Belum Dikirim"
+  //  - Mapel yang sudah pernah dikirim, TAPI ada nilai siswa baru masuk
+  //    setelah pengiriman terakhir dan belum ikut terkirim → "X Siswa
+  //    Belum Dikirim". Siswa yang cuma tertunda menunggu rilis essay
+  //    sengaja TIDAK dihitung di sini — itu bagian dari alur "Periksa
+  //    Jawaban Essay", bukan kelalaian kirim ke wali kelas.
+  useEffect(() => {
+    let batal = false
+    interface RowRingkas {
+      mapel_id: string
+      kelas: string
+      timestamp: string
+      dikirim_ke_wali: boolean
+      dikirim_at: string | null
+      essay_belum_dirilis?: boolean
+      belum_ujian?: boolean
+    }
+    apiRequest<{ data: RowRingkas[] }>('/api/guru/kirim-nilai')
+      .then(res => {
+        if (batal) return
+        const rows = (res.data ?? []).filter(r => !r.belum_ujian)
+        const map: Record<string, RowRingkas[]> = {}
+        for (const r of rows) {
+          const kunci = `${r.mapel_id}__${r.kelas}`
+          if (!map[kunci]) map[kunci] = []
+          map[kunci].push(r)
+        }
+        let mapelBelumKirim = 0
+        let siswaBaruBelumKirim = 0
+        for (const grupRows of Object.values(map)) {
+          const dikirimRows = grupRows.filter(r => r.dikirim_ke_wali)
+          if (dikirimRows.length === 0) {
+            mapelBelumKirim++
+            continue
+          }
+          if (dikirimRows.length === grupRows.length) continue // sudah terkirim semua
+          const waktuKirimTerakhir = dikirimRows
+            .map(r => r.dikirim_at)
+            .filter((t): t is string => !!t)
+            .sort()
+            .pop()
+          const siswaBaru = grupRows.filter(r =>
+            !r.dikirim_ke_wali && !r.essay_belum_dirilis && r.timestamp &&
+            (!waktuKirimTerakhir || r.timestamp > waktuKirimTerakhir)
+          )
+          siswaBaruBelumKirim += siswaBaru.length
+        }
+        setRingkasanKirim({ mapelBelumKirim, siswaBaruBelumKirim, adaData: Object.keys(map).length > 0 })
+      })
+      .catch(() => { if (!batal) setRingkasanKirim(null) })
+    return () => { batal = true }
+  }, [])
+
   // Jembatan antar-tab: begitu guru merilis semua nilai essay di tab
   // "Periksa Jawaban Essay", kita pindah ke tab "Kirim Nilai" dan simpan
   // target mapel+kelasnya supaya grup itu otomatis terbuka di sana.
@@ -136,6 +215,29 @@ function PenilaianContent() {
 
   function gotoTab(key: TabKey) {
     router.push(`/guru/penilaian?tab=${key}`, { scroll: false })
+  }
+
+  // Pesan ringkas di bawah label tab "Rekap Nilai" & "Kirim Nilai ke Wali
+  // Kelas" — merah kalau ada yang perlu ditindaklanjuti, hijau kalau semua
+  // sudah aman, atau null kalau datanya belum ada sama sekali (belum ada
+  // nilai untuk diringkas).
+  function pesanTab(key: TabKey): { label: string; warna: 'merah' | 'hijau' } | null {
+    if (key === 'rekap') {
+      if (!ringkasanRekap || !ringkasanRekap.adaData) return null
+      if (ringkasanRekap.diBawahKkm > 0) {
+        return { label: `${ringkasanRekap.diBawahKkm} Siswa di Bawah KKM`, warna: 'merah' }
+      }
+      return { label: 'Semua Nilai Aman', warna: 'hijau' }
+    }
+    if (key === 'kirim') {
+      if (!ringkasanKirim || !ringkasanKirim.adaData) return null
+      const bagian: string[] = []
+      if (ringkasanKirim.mapelBelumKirim > 0) bagian.push(`${ringkasanKirim.mapelBelumKirim} Mapel Belum Dikirim`)
+      if (ringkasanKirim.siswaBaruBelumKirim > 0) bagian.push(`${ringkasanKirim.siswaBaruBelumKirim} Siswa Belum Dikirim`)
+      if (bagian.length > 0) return { label: bagian.join(' & '), warna: 'merah' }
+      return { label: 'Semua Nilai Sudah Terkirim', warna: 'hijau' }
+    }
+    return null
   }
 
   return (
@@ -188,6 +290,20 @@ function PenilaianContent() {
                 <span className={cn('block text-xs truncate', isActive ? 'text-white/85' : 'text-slate-400')}>
                   {tab.desc}
                 </span>
+                {(() => {
+                  const pesan = pesanTab(tab.key)
+                  if (!pesan) return null
+                  const Icon2 = pesan.warna === 'merah' ? AlertTriangle : CheckCircle2
+                  return (
+                    <span className={cn(
+                      'mt-1 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-bold',
+                      pesan.warna === 'merah' ? 'bg-red-600 text-white' : 'bg-emerald-600 text-white'
+                    )}>
+                      <Icon2 className="w-2.5 h-2.5 flex-shrink-0" />
+                      {pesan.label}
+                    </span>
+                  )
+                })()}
               </span>
               {isActive && <Check className="w-4 h-4 text-white/90 flex-shrink-0" />}
             </button>
