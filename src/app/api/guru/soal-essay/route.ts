@@ -68,15 +68,14 @@ export async function POST(req: NextRequest) {
   // rubrik ke skala 0-100 memakai total bobot_maks semua soal). Sebelumnya
   // bobot ini tidak bisa diisi sama sekali saat membuat soal dan selalu
   // memakai DEFAULT 100 di DB (07_essay.sql), sehingga semua soal essay
-  // selalu dianggap berbobot sama besar walau niat guru berbeda. Sekarang
-  // guru bisa menentukan bobotnya sendiri per nomor soal; kalau tidak
-  // diisi, tetap default 100 supaya soal lama/perilaku lama tidak berubah.
-  let bobotMaks = 100
-  if (body.bobot_maks !== undefined && body.bobot_maks !== null && body.bobot_maks !== '') {
-    bobotMaks = Number(body.bobot_maks)
-    if (isNaN(bobotMaks) || bobotMaks <= 0) {
-      return NextResponse.json({ error: 'Bobot maksimal soal harus lebih dari 0' }, { status: 400 })
-    }
+  // selalu dianggap berbobot sama besar walau niat guru berbeda (mis.
+  // soal dibagi rata 100/jumlah soal, atau sengaja dibuat tidak rata).
+  // Sekarang guru WAJIB mengisinya sendiri per nomor soal — tidak ada
+  // lagi default diam-diam di backend, supaya tidak ada soal yang
+  // ke-hitung berbobot 100 tanpa guru sadari.
+  const bobotMaks = Number(body.bobot_maks)
+  if (!body.bobot_maks || isNaN(bobotMaks) || bobotMaks <= 0) {
+    return NextResponse.json({ error: 'Bobot maksimal soal wajib diisi dan harus lebih dari 0' }, { status: 400 })
   }
 
   const { data: paket } = await db
