@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
-import { petakanEssayAktifPerSesi } from '@/app/api/guru/kirim-nilai/route'
+import { petakanEssayAktifPerSesi, hitungNilaiFinal } from '@/app/api/guru/kirim-nilai/route'
 
 export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['GURU'])
@@ -82,9 +82,25 @@ export async function GET(req: NextRequest) {
     pelanggaranMap.get(kunci)!.push(p)
   }
 
+  // FITUR BARU (hapus dualisme tab Rekap Nilai vs Kirim Nilai): setiap baris
+  // sekarang ikut dilengkapi nilai_final/grade_final/lulus_final/ada_remedial
+  // lewat hitungNilaiFinal() — fungsi yang SAMA dipakai oleh
+  // /api/guru/kirim-nilai (tab Kirim Nilai) — supaya kedua tab menampilkan
+  // angka yang identik untuk siswa yang sama, termasuk setelah nilai
+  // remedial (nilai_edit) diinput langsung di tab ini.
   const enriched = nilaiData.map(r => {
     const essayAktif = r.sesi_id ? (essayAktifMap.get(r.sesi_id) ?? false) : false
     const pelanggaranSiswa = pelanggaranMap.get(`${r.sesi_id}__${r.nis}`) ?? []
+    const { nilaiEfektif, adaRemedial, nilaiFinal, gradeFinal, lulusFinal } = hitungNilaiFinal({
+      nilai: r.nilai,
+      lulus: r.lulus,
+      nilai_edit: r.nilai_edit,
+      grade_edit: r.grade_edit,
+      lulus_edit: r.lulus_edit,
+      essay_aktif: essayAktif,
+      dirilis: r.dirilis,
+      nilai_total: r.nilai_total,
+    })
     return {
       ...r,
       nama_siswa: siswaMap[r.nis] ?? r.nis,
@@ -93,6 +109,11 @@ export async function GET(req: NextRequest) {
       essay_belum_dirilis: essayAktif && r.dirilis !== true,
       pelanggaran: pelanggaranSiswa,
       jumlah_pelanggaran: pelanggaranSiswa.length,
+      nilai_efektif: nilaiEfektif,
+      ada_remedial: adaRemedial,
+      nilai_final: nilaiFinal,
+      grade_final: gradeFinal,
+      lulus_final: lulusFinal,
     }
   })
 
@@ -101,23 +122,20 @@ export async function GET(req: NextRequest) {
   // Tetap `null` kalau belum ada nilai sama sekali (sama seperti perilaku
   // lama) supaya kartu statistik di UI tidak muncul dengan angka 0 palsu.
   //
-  // BUG FIX: `vals` sebelumnya selalu `r.nilai` (PG-only). Sekarang pakai
-  // nilai efektif — nilai_total kalau sesi essay-nya aktif & sudah dirilis
-  // guru, kalau belum tetap fallback ke nilai PG — supaya Rata-rata/
-  // Tertinggi/Terendah konsisten dengan nilai akhir yang benar-benar
-  // diterima siswa. `lulus`/`tidakLulus` tidak perlu penyesuaian terpisah
-  // karena kolom `nilai.lulus` sendiri sudah dihitung ulang dari nilai_total
-  // begitu essay dinilai (lihat koreksi-essay/route.ts).
-  const nilaiEfektif = (r: (typeof enriched)[number]) =>
-    (r.essay_aktif && r.dirilis && r.nilai_total != null) ? r.nilai_total : r.nilai
-  const vals = enriched.map(nilaiEfektif)
+  // BUG FIX (dualisme tab Rekap Nilai vs Kirim Nilai): `vals` & `lulus`/
+  // `tidakLulus` sebelumnya memakai nilai_efektif (PG atau PG+Essay) TANPA
+  // mempertimbangkan nilai_edit — sehingga statistik guru tidak pernah
+  // ikut berubah walau guru sudah menginput & menyimpan nilai remedial.
+  // Sekarang pakai nilai_final/lulus_final (sudah termasuk nilai_edit kalau
+  // ada), sama dengan yang ditampilkan di kolom "Nilai Akhir".
+  const vals = enriched.map(r => r.nilai_final)
   const stats = enriched.length === 0 ? null : {
     total: enriched.length,
     rataRata: Math.round(vals.reduce((a, b) => a + b, 0) / vals.length),
     tertinggi: Math.max(...vals),
     terendah: Math.min(...vals),
-    lulus: enriched.filter(r => r.lulus).length,
-    tidakLulus: enriched.filter(r => !r.lulus).length,
+    lulus: enriched.filter(r => r.lulus_final).length,
+    tidakLulus: enriched.filter(r => !r.lulus_final).length,
   }
 
   // ── Roster siswa yang BELUM ujian ───────────────────────────────────────
