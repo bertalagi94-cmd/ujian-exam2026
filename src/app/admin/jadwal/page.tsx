@@ -343,6 +343,12 @@ interface JadwalCetak {
   // kop surat PDF selalu menampilkan placeholder "NAMA SEKOLAH" / "NPSN: -"
   // untuk SEMUA jadwal, bukan cuma yang sekolahnya beda.
   sekolah: Sekolah | null
+  // Ditambahkan bersamaan dengan info soal PG/Essay di halaman /admin/cetak —
+  // API /api/admin/cetak sudah mengirim field ini, dipakai juga di sini
+  // (Cetak Massal) supaya kedua jalur cetak konsisten.
+  jumlah_soal_pg?: number
+  jumlah_soal_essay?: number
+  mode_jawaban_essay?: 'DIGITAL' | 'KERTAS' | null
 }
 interface Sekolah {
   namaSekolah?: string; npsn?: string; alamat?: string
@@ -598,6 +604,21 @@ export default function AdminJadwalPage() {
     }
   }
   
+  // Info jumlah soal (PG + Essay) untuk PDF Cetak Massal — sama seperti versi
+  // di /admin/cetak/page.tsx, supaya kedua jalur cetak menampilkan info yang
+  // sama persis.
+  function infoJumlahSoalPDF(j: JadwalCetak): string {
+    const pg = j.jumlah_soal_pg ?? 0
+    const essay = j.jumlah_soal_essay ?? 0
+    let teks = `Pilihan Ganda: ${pg} soal, Essay: ${essay} soal`
+    if (essay > 0) {
+      teks += j.mode_jawaban_essay === 'KERTAS'
+        ? ' (Jawaban di isi dikertas-Pastikan kertas jawaban telah di siapkan)'
+        : ' (Jawaban langsung di input di Layar)'
+    }
+    return teks
+  }
+
   async function generatePDFBlob(j: JadwalCetak, sekolah: Sekolah, mode: 'daftar-hadir' | 'berita-acara', logoB64Cache: Map<string, string>): Promise<Uint8Array> {
     const { jsPDF } = await import('jspdf')
     const doc = new jsPDF({ unit: 'mm', format: 'a4' })
@@ -664,7 +685,13 @@ export default function AdminJadwalPage() {
         my += 6
       }
 
-      my += 3
+      doc.text('Jumlah Soal', lm, my); doc.text(':', lm + 32, my)
+      doc.setFont('helvetica', 'bold')
+      const jumlahSoalLines = doc.splitTextToSize(infoJumlahSoalPDF(j), w - 35)
+      doc.text(jumlahSoalLines, lm + 35, my)
+      doc.setFont('helvetica', 'normal')
+      my += jumlahSoalLines.length * 5 + 3
+
       const colW = [12, 35, w - 12 - 35 - 38, 38]
       const headers = ['No', 'NIS', 'Nama Siswa', 'Tanda Tangan']
       doc.setFillColor(220, 220, 220)
@@ -729,6 +756,7 @@ export default function AdminJadwalPage() {
         ['Kelas', j.kelas],
         ['Pukul', `${j.jam_mulai} s.d. ${j.jam_selesai} WITA (${j.durasi} menit)`],
         ['Sesi ke-', String(j.sesi)],
+        ['Jumlah Soal', infoJumlahSoalPDF(j)],
         ['Nama Pengawas', j.nama_pengawas || '-'],
         ['Jumlah Peserta Terdaftar', `${j.siswa.length} siswa`],
         ['Jumlah Hadir', '______ siswa'],
@@ -736,8 +764,14 @@ export default function AdminJadwalPage() {
         ['Kejadian Khusus', '_'.repeat(50)],
       ]
       for (const [label, val] of baRows) {
-        doc.text(label, lm, my); doc.text(':', lm + 56, my); doc.text(val, lm + 60, my)
-        my += 7
+        doc.text(label, lm, my); doc.text(':', lm + 56, my)
+        // FIX: teks panjang (mis. keterangan mode jawaban Essay) dibungkus
+        // multi-baris supaya tidak meluber keluar batas kertas — baris lain
+        // (Kejadian Khusus dsb) tetap muat karena garis bawah/underscore
+        // biasanya pas satu baris, tapi tetap aman dibungkus bila panjang.
+        const valLines = doc.splitTextToSize(val, w - 60)
+        doc.text(valLines, lm + 60, my)
+        my += valLines.length * 6.5 + 0.5
       }
       my += 5
       const closing = 'Demikian berita acara ini dibuat dengan sesungguhnya untuk dapat dipergunakan sebagaimana mestinya.'
