@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 import { petakanEssayAktifPerSesi } from '@/app/api/guru/kirim-nilai/route'
+import { hitungGrade } from '@/lib/utils'
 
 // Rincian hasil ujian per nomor soal.
 //
@@ -26,9 +27,13 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   // halaman rincian nilai siswa tidak mungkin menampilkan nilai gabungan
   // PG+essay walau guru sudah merilisnya. Kolom essay di-mask sama seperti
   // di /api/siswa/nilai — hanya boleh dilihat siswa kalau dirilis === true.
+  // BUG FIX (nilai remedial tidak masuk ke akun siswa): tambahkan
+  // nilai_edit/grade_edit/lulus_edit/catatan_guru — sebelumnya kolom ini
+  // sama sekali tidak diambil, jadi halaman rincian tidak mungkin tahu ada
+  // nilai remedial (lihat perhitungan nilai_final di bawah).
   const { data: nilai, error: nilaiError } = await db
     .from('nilai')
-    .select('id, sesi_id, nis, mapel_id, kelas, benar, total, nilai, grade, lulus, kkm, timestamp, nilai_essay, nilai_total, dirilis, dinilai_pada')
+    .select('id, sesi_id, nis, mapel_id, kelas, benar, total, nilai, grade, lulus, kkm, timestamp, nilai_essay, nilai_total, dirilis, dinilai_pada, nilai_edit, grade_edit, lulus_edit, catatan_guru')
     .eq('id', id)
     .eq('nis', user.nis!)
     .single()
@@ -40,12 +45,30 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   const essayDirilis = nilai.dirilis === true
   const essayAktifMap = await petakanEssayAktifPerSesi(db, [nilai.sesi_id])
   const essayAktif = nilai.sesi_id ? (essayAktifMap.get(nilai.sesi_id) ?? false) : false
+
+  // BUG FIX (nilai remedial guru tidak masuk ke akun siswa): logika & urutan
+  // prioritas sama persis dengan enrich di /api/siswa/nilai/route.ts — lihat
+  // komentar panjang di sana untuk penjelasan lengkapnya.
+  const adaRemedial = nilai.nilai_edit !== null && nilai.nilai_edit !== undefined
+  const nilaiEfektifSiswa = (essayAktif && essayDirilis && nilai.nilai_total != null) ? nilai.nilai_total : nilai.nilai
+  const nilaiFinal = adaRemedial ? (nilai.nilai_edit as number) : nilaiEfektifSiswa
+  const gradeFinal = adaRemedial
+    ? (nilai.grade_edit ?? hitungGrade(nilaiFinal))
+    : (essayDirilis && essayAktif && nilai.nilai_total != null ? hitungGrade(nilai.nilai_total) : nilai.grade)
+  const lulusFinal = adaRemedial
+    ? (nilai.lulus_edit ?? (nilaiFinal >= nilai.kkm))
+    : (essayDirilis && essayAktif && nilai.nilai_total != null ? nilai.nilai_total >= nilai.kkm : nilai.lulus)
+
   const nilaiMasked = {
     ...nilai,
     nilai_essay: essayDirilis ? nilai.nilai_essay : null,
     nilai_total: essayDirilis ? nilai.nilai_total : null,
     dinilai_pada: essayDirilis ? nilai.dinilai_pada : null,
     essay_belum_dirilis: essayAktif && !essayDirilis,
+    ada_remedial: adaRemedial,
+    nilai_final: nilaiFinal,
+    grade_final: gradeFinal,
+    lulus_final: lulusFinal,
   }
 
   // FITUR (Rincian jawaban essay per soal): sebelumnya halaman rincian nilai
