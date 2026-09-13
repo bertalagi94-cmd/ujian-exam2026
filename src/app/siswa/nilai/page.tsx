@@ -1,9 +1,9 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
-import { BarChart3, TrendingUp, Trophy, BookOpen, ChevronRight, RefreshCw, Sparkles, CheckCircle2, SearchX, AlertCircle } from 'lucide-react'
-import { PageLoader, EmptyState, Modal } from '@/components/ui'
+import { BarChart3, TrendingUp, Trophy, BookOpen, ChevronRight, RefreshCw, Sparkles, CheckCircle2, SearchX, AlertCircle, Filter, X } from 'lucide-react'
+import { PageLoader, EmptyState, Modal, SearchInput } from '@/components/ui'
 import { apiRequest, formatDateTime, nilaiColor } from '@/lib/utils'
 import { Nilai } from '@/types'
 
@@ -41,6 +41,62 @@ export default function SiswaNilaiPage() {
   const [mengecek, setMengecek] = useState(false)
   const [hasilCek, setHasilCek] = useState<HasilCek | null>(null)
   const sidikJariRef = useRef<Map<string, string>>(new Map())
+
+  // ── FITUR (Filter & pencarian di halaman nilai): daftar nilai bisa
+  // panjang kalau siswa punya banyak mapel/ujian (termasuk susulan), jadi
+  // ditambahkan pencarian nama mapel + filter mapel/status/rentang tanggal.
+  // Semua dilakukan di client karena data nilai siswa sendiri jumlahnya
+  // kecil dan sudah sekali fetch penuh (tidak dipaginasi dari server).
+  const [pencarian, setPencarian] = useState('')
+  const [filterMapel, setFilterMapel] = useState('SEMUA')
+  const [filterStatus, setFilterStatus] = useState<'SEMUA' | 'LULUS' | 'TIDAK_LULUS'>('SEMUA')
+  const [tanggalDari, setTanggalDari] = useState('')
+  const [tanggalSampai, setTanggalSampai] = useState('')
+  const [showFilter, setShowFilter] = useState(false)
+
+  const daftarMapel = useMemo(() => {
+    const set = new Set<string>()
+    nilaiList.forEach(n => set.add(n.nama_mapel || n.mapel_id))
+    return Array.from(set).sort((a, b) => a.localeCompare(b))
+  }, [nilaiList])
+
+  const nilaiTerfilter = useMemo(() => {
+    const dari = tanggalDari ? new Date(tanggalDari) : null
+    const sampai = tanggalSampai ? new Date(tanggalSampai) : null
+    if (sampai) sampai.setHours(23, 59, 59, 999) // inklusif sampai akhir hari
+
+    return nilaiList.filter(n => {
+      const namaMapel = n.nama_mapel || n.mapel_id
+
+      if (pencarian.trim() && !namaMapel.toLowerCase().includes(pencarian.trim().toLowerCase())) {
+        return false
+      }
+      if (filterMapel !== 'SEMUA' && namaMapel !== filterMapel) return false
+
+      if (filterStatus !== 'SEMUA') {
+        const essayDirilis = n.dirilis === true && n.nilai_total != null
+        const hasilAkhirLulus = essayDirilis ? n.nilai_total! >= n.kkm : n.lulus
+        if (filterStatus === 'LULUS' && !hasilAkhirLulus) return false
+        if (filterStatus === 'TIDAK_LULUS' && hasilAkhirLulus) return false
+      }
+
+      const tanggalNilai = n.timestamp ? new Date(n.timestamp) : null
+      if (dari && tanggalNilai && tanggalNilai < dari) return false
+      if (sampai && tanggalNilai && tanggalNilai > sampai) return false
+
+      return true
+    })
+  }, [nilaiList, pencarian, filterMapel, filterStatus, tanggalDari, tanggalSampai])
+
+  const filterAktif = pencarian.trim() !== '' || filterMapel !== 'SEMUA' || filterStatus !== 'SEMUA' || tanggalDari !== '' || tanggalSampai !== ''
+
+  const resetFilter = () => {
+    setPencarian('')
+    setFilterMapel('SEMUA')
+    setFilterStatus('SEMUA')
+    setTanggalDari('')
+    setTanggalSampai('')
+  }
 
   const load = useCallback(async () => {
     try {
@@ -131,10 +187,63 @@ export default function SiswaNilaiPage() {
         ))}
       </div>
 
+      {/* FITUR (Filter & pencarian) */}
+      <div className="card p-4 space-y-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <SearchInput
+            value={pencarian}
+            onChange={setPencarian}
+            placeholder="Cari mata pelajaran..."
+            className="flex-1 min-w-[200px]"
+          />
+          <button
+            onClick={() => setShowFilter(v => !v)}
+            className={`btn-secondary ${showFilter ? 'ring-2 ring-brand-400' : ''}`}
+          >
+            <Filter className="w-4 h-4" /> Filter
+          </button>
+          {filterAktif && (
+            <button onClick={resetFilter} className="btn-ghost btn-sm text-slate-500">
+              <X className="w-3.5 h-3.5" /> Reset
+            </button>
+          )}
+        </div>
+
+        {showFilter && (
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-3 border-t border-slate-100 animate-fade-in">
+            <div>
+              <label className="label">Mata Pelajaran</label>
+              <select className="select" value={filterMapel} onChange={e => setFilterMapel(e.target.value)}>
+                <option value="SEMUA">Semua Mapel</option>
+                {daftarMapel.map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="label">Status Kelulusan</label>
+              <select className="select" value={filterStatus} onChange={e => setFilterStatus(e.target.value as any)}>
+                <option value="SEMUA">Semua Status</option>
+                <option value="LULUS">Lulus</option>
+                <option value="TIDAK_LULUS">Tidak Lulus</option>
+              </select>
+            </div>
+            <div>
+              <label className="label">Dari Tanggal</label>
+              <input type="date" className="input" value={tanggalDari} onChange={e => setTanggalDari(e.target.value)} />
+            </div>
+            <div>
+              <label className="label">Sampai Tanggal</label>
+              <input type="date" className="input" value={tanggalSampai} onChange={e => setTanggalSampai(e.target.value)} />
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* Table */}
       <div className="card p-0 overflow-hidden">
         {nilaiList.length === 0 ? (
           <EmptyState message="Belum ada nilai ujian" icon={BarChart3} />
+        ) : nilaiTerfilter.length === 0 ? (
+          <EmptyState message="Tidak ada nilai yang cocok dengan filter" icon={SearchX} />
         ) : (
           <div className="table-wrapper">
             <table className="table">
@@ -153,7 +262,7 @@ export default function SiswaNilaiPage() {
                 </tr>
               </thead>
               <tbody>
-                {nilaiList.map((n, i) => {
+                {nilaiTerfilter.map((n, i) => {
                   // FIX (kolom "Nilai PG Anda" & "Status nilai PG" ikut
                   // berubah saat essay dirilis): sebelumnya kolom ini
                   // memakai n.nilai_total begitu essay dirilis — padahal
