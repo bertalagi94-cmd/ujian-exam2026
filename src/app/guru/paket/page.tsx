@@ -78,6 +78,32 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
   const [dupKelas, setDupKelas] = useState('')
   const [hapusPaketId, setHapusPaketId] = useState<string | null>(null)
 
+  // Popup "kirim sekaligus dengan Essay?" — cek dulu (read-only) apakah ada
+  // paket Essay pasangan (mapel+kelas sama) yang masih draft, baru tampilkan
+  // pertanyaannya. Kalau tidak ada pasangan, langsung kirim tanpa nanya.
+  const [pasanganInfo, setPasanganInfo] = useState<{ ada: boolean; jumlahSoal?: number } | null>(null)
+  const [checkingPasangan, setCheckingPasangan] = useState(false)
+
+  function tutupKirim() {
+    setKirimId(null)
+    setPasanganInfo(null)
+  }
+
+  async function bukaKirim(paketId: string) {
+    setKirimId(paketId)
+    setPasanganInfo(null)
+    setCheckingPasangan(true)
+    try {
+      const res = await apiRequest<{ adaPasangan: boolean; jumlahSoal?: number }>(`/api/guru/paket/${paketId}/kirim`)
+      setPasanganInfo({ ada: res.adaPasangan, jumlahSoal: res.jumlahSoal })
+    } catch {
+      // Kalau cek gagal, anggap tidak ada pasangan supaya guru tetap bisa kirim normal
+      setPasanganInfo({ ada: false })
+    } finally {
+      setCheckingPasangan(false)
+    }
+  }
+
   // Setup state
   const [setupMapel, setSetupMapel] = useState('')
   const [setupKelas, setSetupKelas] = useState('')
@@ -370,17 +396,20 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
   }
 
   // ── Kirim paket ───────────────────────────────────────────────
-  async function handleKirim() {
+  // gabung=true: ikut kirim paket Essay pasangan sekaligus (kalau ada).
+  // gabung=false: hanya kirim paket PG ini saja.
+  async function handleKirim(gabung: boolean) {
     if (!kirimId) return
     setSaving(true)
     try {
-      // Backend bisa ikut mengirim paket Essay pasangan (mapel+kelas sama)
-      // sekaligus — tampilkan pesannya apa adanya supaya guru tahu itu
-      // terjadi, bukan pesan generik.
-      const res = await apiRequest<{ message?: string }>(`/api/guru/paket/${kirimId}/kirim`, { method: 'POST' })
+      const res = await apiRequest<{ message?: string }>(`/api/guru/paket/${kirimId}/kirim`, {
+        method: 'POST',
+        body: JSON.stringify({ gabungPasangan: gabung }),
+      })
       showToast(res?.message || 'Paket berhasil dikirim untuk validasi')
-      setKirimId(null)
-      if (expandedId === kirimId) await loadSoalPaket(kirimId)
+      const sudahDikirimId = kirimId
+      tutupKirim()
+      if (expandedId === sudahDikirimId) await loadSoalPaket(sudahDikirimId)
       await load()
       window.dispatchEvent(new Event(SYNC_EVENT))
     } catch (err: unknown) {
@@ -777,7 +806,7 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
 
                   {/* Kirim */}
                   {(p.status === 'DRAFT' || p.status === 'DITOLAK') && (
-                    <button onClick={() => setKirimId(p.id)} className="btn-primary btn-sm">
+                    <button onClick={() => bukaKirim(p.id)} className="btn-primary btn-sm">
                       <Send className="w-3.5 h-3.5" /> {p.status === 'DITOLAK' ? 'Kirim Ulang' : 'Kirim'}
                     </button>
                   )}
@@ -925,11 +954,44 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
         </div>
       </Modal>
 
-      {/* Confirm Kirim */}
-      <Confirm open={!!kirimId} onClose={() => setKirimId(null)} onConfirm={handleKirim}
-        title="Kirim Paket Soal"
-        message="Semua soal dalam paket ini akan dikirim ke admin untuk divalidasi. Setelah dikirim, soal tidak bisa diedit atau dihapus sampai admin menentukan keputusan. Lanjutkan?"
-        confirmLabel="Ya, Kirim" variant="primary" loading={saving} />
+      {/* Kirim Paket PG — kalau ada paket Essay pasangan (mapel+kelas sama)
+          yang masih draft, tanya dulu apakah mau dikirim sekaligus. Kalau
+          tidak ada pasangan, tampil seperti konfirmasi kirim biasa. */}
+      <Modal open={!!kirimId} onClose={tutupKirim} title="Kirim Paket Soal" size="sm"
+        footer={checkingPasangan ? null : pasanganInfo?.ada ? (
+          <>
+            <button onClick={tutupKirim} className="btn-secondary" disabled={saving}>Batal</button>
+            <button onClick={() => handleKirim(false)} className="btn-secondary" disabled={saving}>
+              {saving ? <Spinner size="sm" /> : 'Hanya PG Saja'}
+            </button>
+            <button onClick={() => handleKirim(true)} className="btn-primary" disabled={saving}>
+              {saving ? <Spinner size="sm" /> : 'Ya, Kirim Sekaligus'}
+            </button>
+          </>
+        ) : (
+          <>
+            <button onClick={tutupKirim} className="btn-secondary" disabled={saving}>Batal</button>
+            <button onClick={() => handleKirim(false)} className="btn-primary" disabled={saving}>
+              {saving ? <Spinner size="sm" /> : 'Ya, Kirim'}
+            </button>
+          </>
+        )}
+      >
+        {checkingPasangan ? (
+          <div className="flex items-center gap-2 text-sm text-slate-500 py-2">
+            <Spinner size="sm" /> Memeriksa paket Essay terkait...
+          </div>
+        ) : pasanganInfo?.ada ? (
+          <p className="text-slate-600 text-sm">
+            Paket <strong>Essay</strong> untuk mapel &amp; kelas yang sama juga sudah dibuat (masih Draft, {pasanganInfo.jumlahSoal} soal).
+            Kirim sekaligus dengan paket PG ini untuk divalidasi admin, atau kirim paket PG ini saja dulu?
+          </p>
+        ) : (
+          <p className="text-slate-600 text-sm">
+            Semua soal dalam paket ini akan dikirim ke admin untuk divalidasi. Setelah dikirim, soal tidak bisa diedit atau dihapus sampai admin menentukan keputusan. Lanjutkan?
+          </p>
+        )}
+      </Modal>
 
       {/* Confirm Tarik */}
       <Confirm open={!!tarikId} onClose={() => setTarikId(null)} onConfirm={handleTarik}
@@ -1124,6 +1186,31 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
   const [dupId, setDupId] = useState<string | null>(null)
   const [dupKelas, setDupKelas] = useState('')
   const [hapusPaketId, setHapusPaketId] = useState<string | null>(null)
+
+  // Popup "kirim sekaligus dengan PG?" — cek dulu (read-only) apakah ada
+  // paket PG pasangan (mapel+kelas sama) yang masih draft, baru tampilkan
+  // pertanyaannya. Kalau tidak ada pasangan, langsung kirim tanpa nanya.
+  const [pasanganInfo, setPasanganInfo] = useState<{ ada: boolean; jumlahSoal?: number } | null>(null)
+  const [checkingPasangan, setCheckingPasangan] = useState(false)
+
+  function tutupKirim() {
+    setKirimId(null)
+    setPasanganInfo(null)
+  }
+
+  async function bukaKirim(paketId: string) {
+    setKirimId(paketId)
+    setPasanganInfo(null)
+    setCheckingPasangan(true)
+    try {
+      const res = await apiRequest<{ adaPasangan: boolean; jumlahSoal?: number }>(`/api/guru/paket-essay/${paketId}/kirim`)
+      setPasanganInfo({ ada: res.adaPasangan, jumlahSoal: res.jumlahSoal })
+    } catch {
+      setPasanganInfo({ ada: false })
+    } finally {
+      setCheckingPasangan(false)
+    }
+  }
 
   // Soal form (tambah)
   const [gambarUrl, setGambarUrl] = useState('')
@@ -1365,13 +1452,18 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
     } finally { setSaving(false) }
   }
 
-  async function handleKirim() {
+  // gabung=true: ikut kirim paket PG pasangan sekaligus (kalau ada).
+  // gabung=false: hanya kirim paket Essay ini saja.
+  async function handleKirim(gabung: boolean) {
     if (!kirimId) return
     setSaving(true)
     try {
-      const res = await apiRequest<{ message: string }>(`/api/guru/paket-essay/${kirimId}/kirim`, { method: 'POST' })
+      const res = await apiRequest<{ message: string }>(`/api/guru/paket-essay/${kirimId}/kirim`, {
+        method: 'POST',
+        body: JSON.stringify({ gabungPasangan: gabung }),
+      })
       showToast(res.message || 'Paket berhasil dikirim')
-      setKirimId(null)
+      tutupKirim()
       await loadPakets()
       window.dispatchEvent(new Event(ESSAY_SYNC_EVENT))
     } catch (err: unknown) {
@@ -1817,7 +1909,7 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
                     <Copy className="w-3.5 h-3.5" /> Duplikasi
                   </button>
                   {['DRAFT', 'DITOLAK'].includes(p.status) && (
-                    <button onClick={() => setKirimId(p.id)} className="btn-secondary btn-sm">
+                    <button onClick={() => bukaKirim(p.id)} className="btn-secondary btn-sm">
                       <Send className="w-3.5 h-3.5" /> {p.status === 'DITOLAK' ? 'Kirim Ulang' : 'Kirim'}
                     </button>
                   )}
@@ -1864,10 +1956,44 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
         </div>
       </Modal>
 
-      <Confirm open={!!kirimId} onClose={() => setKirimId(null)} onConfirm={handleKirim}
-        title="Kirim Paket" variant="primary"
-        message="Paket ini beserta seluruh soal di dalamnya akan dikirim untuk divalidasi admin. Lanjutkan?"
-        confirmLabel="Ya, Kirim" loading={saving} />
+      {/* Kirim Paket Essay — kalau ada paket PG pasangan (mapel+kelas sama)
+          yang masih draft, tanya dulu apakah mau dikirim sekaligus. Kalau
+          tidak ada pasangan, tampil seperti konfirmasi kirim biasa. */}
+      <Modal open={!!kirimId} onClose={tutupKirim} title="Kirim Paket" size="sm"
+        footer={checkingPasangan ? null : pasanganInfo?.ada ? (
+          <>
+            <button onClick={tutupKirim} className="btn-secondary" disabled={saving}>Batal</button>
+            <button onClick={() => handleKirim(false)} className="btn-secondary" disabled={saving}>
+              {saving ? <Spinner size="sm" /> : 'Hanya Essay Saja'}
+            </button>
+            <button onClick={() => handleKirim(true)} className="btn-primary" disabled={saving}>
+              {saving ? <Spinner size="sm" /> : 'Ya, Kirim Sekaligus'}
+            </button>
+          </>
+        ) : (
+          <>
+            <button onClick={tutupKirim} className="btn-secondary" disabled={saving}>Batal</button>
+            <button onClick={() => handleKirim(false)} className="btn-primary" disabled={saving}>
+              {saving ? <Spinner size="sm" /> : 'Ya, Kirim'}
+            </button>
+          </>
+        )}
+      >
+        {checkingPasangan ? (
+          <div className="flex items-center gap-2 text-sm text-slate-500 py-2">
+            <Spinner size="sm" /> Memeriksa paket PG terkait...
+          </div>
+        ) : pasanganInfo?.ada ? (
+          <p className="text-slate-600 text-sm">
+            Paket <strong>PG</strong> untuk mapel &amp; kelas yang sama juga sudah dibuat (masih Draft, {pasanganInfo.jumlahSoal} soal).
+            Kirim sekaligus dengan paket Essay ini untuk divalidasi admin, atau kirim paket Essay ini saja dulu?
+          </p>
+        ) : (
+          <p className="text-slate-600 text-sm">
+            Paket ini beserta seluruh soal di dalamnya akan dikirim untuk divalidasi admin. Lanjutkan?
+          </p>
+        )}
+      </Modal>
 
       <Confirm open={!!tarikId} onClose={() => setTarikId(null)} onConfirm={handleTarik}
         title="Tarik Paket" variant="primary"
