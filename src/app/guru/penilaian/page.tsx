@@ -106,7 +106,7 @@ function PenilaianContent() {
   // tab itu dibuka, halaman ini fetch RINGAN sendiri secara independen —
   // sama seperti pola `adaEssay`/`jumlahSesiEssay` di atas.
   const [ringkasanRekap, setRingkasanRekap] = useState<{ diBawahKkm: number; adaData: boolean } | null>(null)
-  const [ringkasanKirim, setRingkasanKirim] = useState<{ mapelBelumKirim: number; siswaBaruBelumKirim: number; adaData: boolean } | null>(null)
+  const [ringkasanKirim, setRingkasanKirim] = useState<{ mapelBelumKirim: number; siswaBaruBelumKirim: number; siswaMenungguEssay: number; adaData: boolean } | null>(null)
 
   // Ringkasan "Rekap Nilai": jumlah siswa yang nilai akhirnya (nilai_final,
   // sudah termasuk remedial) di bawah KKM. `stats.tidakLulus` sudah dihitung
@@ -124,14 +124,32 @@ function PenilaianContent() {
     return () => { batal = true }
   }, [])
 
-  // Ringkasan "Kirim Nilai ke Wali Kelas": dua kondisi berbeda yang perlu
+  // Ringkasan "Kirim Nilai ke Wali Kelas": TIGA kondisi berbeda yang perlu
   // dibedakan (sama seperti `statusKirimKelompok` di KirimNilaiTab) —
   //  - Mapel yang BELUM PERNAH dikirim sama sekali → "X Mapel Belum Dikirim"
   //  - Mapel yang sudah pernah dikirim, TAPI ada nilai siswa baru masuk
   //    setelah pengiriman terakhir dan belum ikut terkirim → "X Siswa
-  //    Belum Dikirim". Siswa yang cuma tertunda menunggu rilis essay
-  //    sengaja TIDAK dihitung di sini — itu bagian dari alur "Periksa
-  //    Jawaban Essay", bukan kelalaian kirim ke wali kelas.
+  //    Belum Dikirim".
+  //  - Mapel yang sudah pernah dikirim SEBAGIAN, dan sisanya murni
+  //    tertunda menunggu rilis nilai essay (bukan siswa baru) → "X Siswa
+  //    Menunggu Rilis Essay".
+  //
+  // BUG FIX (badge "Semua Nilai Sudah Terkirim" padahal mapel di bawahnya
+  // masih berlabel "Belum terkirim"): versi sebelumnya SENGAJA mengecualikan
+  // siswa essay_belum_dirilis dari hitungan siswaBaruBelumKirim (supaya
+  // tidak dobel-label dengan alur "Periksa Jawaban Essay") — TAPI kalau
+  // siswa itu satu-satunya alasan sebuah mapel belum 100% terkirim
+  // (dikirimRows.length > 0 tapi < grupRows.length), mapel tsb tidak masuk
+  // cabang `mapelBelumKirim` (karena sudah ada yang terkirim) MAUPUN cabang
+  // `siswaBaruBelumKirim` (karena satu-satunya siswa tersisa dikecualikan) —
+  // mapel itu jadi tidak tercatat sama sekali di ringkasan ini, sehingga
+  // `bagian` tetap kosong dan badge salah menampilkan "Semua Nilai Sudah
+  // Terkirim" walau `statusKirimKelompok` di KirimNilaiTab (yang tidak
+  // punya celah ini) tetap benar menampilkan "Belum terkirim" untuk mapel
+  // yang sama. FIX: hitung eksplisit siswa yang tertunda essay ini sebagai
+  // kategori sendiri (`siswaMenungguEssay`), supaya mapelnya tetap muncul
+  // di ringkasan atas dengan label yang jujur, tanpa dobel-label sebagai
+  // "siswa baru".
   useEffect(() => {
     let batal = false
     interface RowRingkas {
@@ -155,6 +173,7 @@ function PenilaianContent() {
         }
         let mapelBelumKirim = 0
         let siswaBaruBelumKirim = 0
+        let siswaMenungguEssay = 0
         for (const grupRows of Object.values(map)) {
           const dikirimRows = grupRows.filter(r => r.dikirim_ke_wali)
           if (dikirimRows.length === 0) {
@@ -167,13 +186,16 @@ function PenilaianContent() {
             .filter((t): t is string => !!t)
             .sort()
             .pop()
-          const siswaBaru = grupRows.filter(r =>
-            !r.dikirim_ke_wali && !r.essay_belum_dirilis && r.timestamp &&
-            (!waktuKirimTerakhir || r.timestamp > waktuKirimTerakhir)
-          )
-          siswaBaruBelumKirim += siswaBaru.length
+          const belumKirimRows = grupRows.filter(r => !r.dikirim_ke_wali)
+          for (const r of belumKirimRows) {
+            if (r.essay_belum_dirilis) {
+              siswaMenungguEssay++
+            } else if (r.timestamp && (!waktuKirimTerakhir || r.timestamp > waktuKirimTerakhir)) {
+              siswaBaruBelumKirim++
+            }
+          }
         }
-        setRingkasanKirim({ mapelBelumKirim, siswaBaruBelumKirim, adaData: Object.keys(map).length > 0 })
+        setRingkasanKirim({ mapelBelumKirim, siswaBaruBelumKirim, siswaMenungguEssay, adaData: Object.keys(map).length > 0 })
       })
       .catch(() => { if (!batal) setRingkasanKirim(null) })
     return () => { batal = true }
@@ -234,6 +256,12 @@ function PenilaianContent() {
       const bagian: string[] = []
       if (ringkasanKirim.mapelBelumKirim > 0) bagian.push(`${ringkasanKirim.mapelBelumKirim} Mapel Belum Dikirim`)
       if (ringkasanKirim.siswaBaruBelumKirim > 0) bagian.push(`${ringkasanKirim.siswaBaruBelumKirim} Siswa Belum Dikirim`)
+      // BUG FIX (lihat komentar di useEffect ringkasanKirim di atas): kategori
+      // ini WAJIB ikut ditampilkan, bukan cuma dihitung diam-diam — kalau
+      // tidak, mapel yang sisa masalahnya cuma "menunggu rilis essay" akan
+      // hilang dari ringkasan dan badge salah bilang "Semua Nilai Sudah
+      // Terkirim" walau nilainya belum benar-benar sampai ke wali kelas.
+      if (ringkasanKirim.siswaMenungguEssay > 0) bagian.push(`${ringkasanKirim.siswaMenungguEssay} Siswa Menunggu Rilis Essay`)
       if (bagian.length > 0) return { label: bagian.join(' & '), warna: 'merah' }
       return { label: 'Semua Nilai Sudah Terkirim', warna: 'hijau' }
     }
