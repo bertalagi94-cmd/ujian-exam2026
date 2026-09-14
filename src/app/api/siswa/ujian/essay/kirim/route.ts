@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
   const { sesiId } = await req.json()
   if (!sesiId) return NextResponse.json({ error: 'sesiId diperlukan' }, { status: 400 })
 
-  const { data: sesi } = await db.from('sesi_ujian').select('info_json').eq('id', sesiId).single()
+  const { data: sesi } = await db.from('sesi_ujian').select('status, info_json').eq('id', sesiId).single()
   if (!sesi) return NextResponse.json({ error: 'Sesi tidak ditemukan' }, { status: 404 })
 
   const { data: siswaUjian } = await db
@@ -54,6 +54,25 @@ export async function POST(req: NextRequest) {
 
   if (siswaUjian.status_essay !== 'MENGERJAKAN') {
     return NextResponse.json({ error: 'Essay belum dimulai, tidak bisa dikirim.' }, { status: 409 })
+  }
+
+  // FIX BUG (essay bisa dikirim setelah sesi ujian ditutup): sebelumnya
+  // endpoint ini hanya mengambil `info_json` dari sesi_ujian dan tidak pernah
+  // memeriksa `status`-nya. Akibatnya kalau pengawas menutup sesi (status
+  // jadi SELESAI) sementara siswa masih berada di halaman essay, siswa itu
+  // tetap bisa menekan "Kirim" dan server tetap memprosesnya (status_essay
+  // = SUDAH_KIRIM, siswa_ujian.status = SELESAI) — padahal endpoint autosave
+  // (essay/jawab) dan mulai (essay/mulai) sudah sama-sama menolak begitu
+  // sesi.status !== 'BERJALAN'. Ditaruh SETELAH early-return idempotent di
+  // atas (bukan sebelumnya) supaya siswa yang KEBETULAN sudah berhasil
+  // mengirim sebelum sesi ditutup tetap bisa mengambil ulang hasilnya
+  // (mis. refresh halaman) walau sesi sudah ditutup — cek ini hanya
+  // memblokir PENGIRIMAN BARU, bukan pengambilan hasil yang sudah ada.
+  if (sesi.status !== 'BERJALAN') {
+    return NextResponse.json(
+      { error: 'Sesi ujian sudah ditutup, essay tidak bisa dikirim lagi.' },
+      { status: 409 }
+    )
   }
 
   // FIX BUG (tidak ada validasi waktu server-side untuk essay): pola & pesan
