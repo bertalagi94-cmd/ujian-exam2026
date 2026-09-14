@@ -124,6 +124,32 @@ export async function POST(req: NextRequest) {
   if (!sesiCache) return NextResponse.json({ error: 'Sesi tidak ditemukan' }, { status: 404 })
   const { sesi, kkm, totalSoal, kunciMap } = sesiCache
 
+  // FIX BUG #7 (submit PG tidak eksplisit cek sesi.status, hanya mengandalkan
+  // jendela waktu): sebelumnya endpoint ini HANYA menolak submit lewat
+  // pengecekan `waktu_mulai_awal + durasi` di bawah — tidak pernah mengecek
+  // sesi_ujian.status secara langsung, padahal endpoint lain yang menulis
+  // data siswa selama ujian (sync/route.ts, essay/jawab/route.ts, dst) semua
+  // menolak begitu sesi.status !== 'BERJALAN'. Akibatnya kalau pengawas
+  // menutup sesi (status → SELESAI) SEBELUM jendela waktu ujian siswa habis
+  // (mis. menutup sesi lebih awal secara sengaja), siswa yang device-nya
+  // masih dalam jendela waktu tetap bisa lolos memanggil endpoint ini dan
+  // membuat baris `nilai` sendiri — bersaing dengan finalisasiNilaiPaksa
+  // yang justru sudah/akan menghitungkan nilai mereka dari sisi server.
+  // Sesuai catatan di ambilDataSesiUntukPenilaian: status sesi TIDAK di-cache
+  // (data di sesiCache murni statis), jadi di-query langsung di sini, tanpa
+  // cache, supaya tidak ada risiko status basi lintas-instance Vercel.
+  const { data: sesiStatusCheck } = await db
+    .from('sesi_ujian')
+    .select('status')
+    .eq('id', sesiId)
+    .single()
+  if (sesiStatusCheck && sesiStatusCheck.status !== 'BERJALAN') {
+    return NextResponse.json(
+      { error: 'Sesi ujian sudah ditutup, ujian tidak bisa diselesaikan dari sini. Jawaban yang sudah tersimpan akan dinilai secara otomatis oleh sistem.' },
+      { status: 409 }
+    )
+  }
+
   // ── VALIDASI WAKTU SERVER ─────────────────────────────────────────────────
   // Cek apakah submit masih dalam jendela waktu yang sah.
   // waktu_mulai_awal adalah referensi tunggal yang tidak pernah berubah
