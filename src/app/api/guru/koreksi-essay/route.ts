@@ -258,7 +258,7 @@ export async function PUT(req: NextRequest) {
 
   const { data: nilaiRow } = await db
     .from('nilai')
-    .select('id, nilai, kkm')
+    .select('id, nilai, kkm, dirilis')
     .eq('sesi_id', sesiId)
     .eq('nis', nis)
     .single()
@@ -342,6 +342,20 @@ export async function PUT(req: NextRequest) {
   // rekap.
   const lulusBaru = nilaiTotal >= (nilaiRow.kkm ?? 0)
 
+  // FIX BUG (nilai yang sudah dirilis bisa berubah tanpa rilis ulang):
+  // sebelumnya update di sini TIDAK PERNAH menyentuh `dirilis`, padahal
+  // siswa hanya boleh melihat nilai_essay/nilai_total kalau `dirilis === true`
+  // (lihat guard di /api/siswa/nilai & /api/siswa/nilai/[id]). Akibatnya kalau
+  // guru mengoreksi ULANG nilai essay siswa yang nilainya SUDAH pernah
+  // dirilis (mis. salah input, lalu dibetulkan), angka baru itu LANGSUNG
+  // terlihat oleh siswa tanpa guru sempat meninjau/menekan tombol "Rilis"
+  // lagi — padahal alur yang dimaksud (lihat guru/kirim-nilai/route.ts) guru
+  // memang harus me-review dulu sebelum merilis. Sekarang setiap kali nilai
+  // essay (di)simpan/diubah di sini, `dirilis` di-reset ke false (dan
+  // `dirilis_pada` dikosongkan) supaya guru WAJIB menekan Rilis lagi sebelum
+  // nilai terbaru ini boleh tampil ke siswa.
+  const sudahPernahDirilis = nilaiRow.dirilis === true
+
   const { error: nilaiError } = await db
     .from('nilai')
     .update({
@@ -350,6 +364,8 @@ export async function PUT(req: NextRequest) {
       lulus: lulusBaru,
       dinilai_pada: new Date().toISOString(),
       dinilai_oleh: user.username,
+      dirilis: false,
+      dirilis_pada: null,
     })
     .eq('id', nilaiRow.id)
 
@@ -375,7 +391,14 @@ export async function PUT(req: NextRequest) {
     await db.from('siswa_ujian').update({ status_essay: statusEssayUpdate }).eq('sesi_id', sesiId).eq('nis', nis)
   }
 
-  return NextResponse.json({ message: 'Nilai essay berhasil disimpan', nilaiEssay: finalNilaiEssay, nilaiTotal })
+  return NextResponse.json({
+    message: sudahPernahDirilis
+      ? 'Nilai essay berhasil diubah. Nilai ini sudah dirilis sebelumnya, jadi otomatis ditarik kembali (belum terlihat siswa) — silakan Rilis ulang.'
+      : 'Nilai essay berhasil disimpan',
+    nilaiEssay: finalNilaiEssay,
+    nilaiTotal,
+    perluRilisUlang: sudahPernahDirilis,
+  })
 }
 
 // PATCH { sesiId, bobotPg, bobotEssay } — ubah bobot PG:Essay untuk sesi ini
