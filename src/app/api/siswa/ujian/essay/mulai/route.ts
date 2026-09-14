@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
   // menyalakan aksesnya.
   const { data: sesi } = await db
     .from('sesi_ujian')
-    .select('status, akses_mulai_essay_dibuka')
+    .select('status, akses_mulai_essay_dibuka, mapel_id, kelas')
     .eq('id', sesiId)
     .single()
 
@@ -73,6 +73,40 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       { error: 'Menunggu pengawas membuka akses mulai essay.' },
       { status: 403 }
+    )
+  }
+
+  // FIX BUG P2 (essay bisa dimulai walau 0 soal DISETUJUI): endpoint toggle
+  // (guru/mode-pengawas/toggle-akses-mulai-essay/route.ts) memang menolak
+  // MENYALAKAN akses_mulai_essay_dibuka kalau soal DISETUJUI untuk mapel+
+  // kelas ini masih 0 — tapi itu hanya dicek SEKALI saat toggle dinyalakan.
+  // Kalau guru menghapus/membatalkan approval SEMUA soal essay SETELAH
+  // toggle sudah menyala (mis. sedang direvisi ulang), sesi tetap punya
+  // akses_mulai_essay_dibuka = true sementara soalnya sudah kosong — tanpa
+  // pertahanan kedua di sini, siswa tetap lolos ke status MENGERJAKAN lalu
+  // terjebak di halaman essay kosong (tidak ada soal untuk dikerjakan,
+  // hanya bisa menekan Selesai/Kirim tanpa jawaban apa pun). Cek ulang
+  // jumlah soal DISETUJUI persis sebelum mengizinkan status MENGERJAKAN,
+  // sama seperti resolusi kelasId di endpoint essay lain (info/soal/
+  // koreksi-essay).
+  const { data: kelasRow } = await db
+    .from('kelas')
+    .select('id')
+    .eq('nama', String(sesi.kelas))
+    .maybeSingle()
+  const kelasId = kelasRow?.id ?? String(sesi.kelas)
+
+  const { count: jumlahSoalEssay } = await db
+    .from('soal_essay')
+    .select('id', { count: 'exact', head: true })
+    .eq('mapel_id', sesi.mapel_id)
+    .eq('kelas_id', kelasId)
+    .eq('status', 'DISETUJUI')
+
+  if (!jumlahSoalEssay || jumlahSoalEssay === 0) {
+    return NextResponse.json(
+      { error: 'Belum ada soal essay yang disetujui untuk mapel ini. Hubungi guru/pengawas Anda.' },
+      { status: 409 }
     )
   }
 
