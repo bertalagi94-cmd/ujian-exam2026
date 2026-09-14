@@ -339,21 +339,36 @@ export default function AdminSoalPage() {
                 <div key={s.id} className="border border-slate-100 rounded-xl p-4">
                   <div className="flex items-start gap-2 mb-3">
                     <span className="badge-blue font-bold flex-shrink-0">{i + 1}</span>
-                    <p className="text-sm text-slate-800 leading-relaxed">{s.teks}</p>
+                    <div className="flex-1">
+                      <p className="text-sm text-slate-800 leading-relaxed">{s.teks}</p>
+                      {/* FIX: soal PG bergambar tidak pernah tampil di preview
+                          admin — gambar_pertanyaan tersimpan di DB tapi tidak
+                          dirender di sini. */}
+                      {s.gambar_pertanyaan && (
+                        <img src={s.gambar_pertanyaan} alt="Gambar pertanyaan"
+                          className="mt-2 max-h-40 rounded-lg border border-slate-200" />
+                      )}
+                    </div>
                   </div>
                   <div className="space-y-1.5 pl-6">
                     {['a', 'b', 'c', 'd', 'e'].slice(0, s.jumlah_opsi).map(l => {
                       const opsiText = s[`opsi_${l}` as keyof Soal] as string
+                      const opsiGambar = s[`gambar_opsi_${l}` as keyof Soal] as string | undefined
                       const isKunci = s.kunci === l.toUpperCase()
                       return (
-                        <div key={l} className={`flex items-center gap-2 text-xs px-3 py-2 rounded-lg ${
+                        <div key={l} className={`flex items-start gap-2 text-xs px-3 py-2 rounded-lg ${
                           isKunci ? 'bg-emerald-50 text-emerald-800 font-medium' : 'text-slate-600'
                         }`}>
                           <span className={`w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold flex-shrink-0 ${
                             isKunci ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-500'
                           }`}>{l.toUpperCase()}</span>
-                          {opsiText}
-                          {isKunci && <span className="ml-auto text-emerald-600 text-[10px]">✓ Kunci</span>}
+                          <div className="flex-1 space-y-1">
+                            {opsiText && <span className="block">{opsiText}</span>}
+                            {opsiGambar && (
+                              <img src={opsiGambar} alt={`Gambar opsi ${l.toUpperCase()}`} className="max-h-20 rounded border border-slate-200" />
+                            )}
+                          </div>
+                          {isKunci && <span className="ml-auto text-emerald-600 text-[10px] flex-shrink-0">✓ Kunci</span>}
                         </div>
                       )
                     })}
