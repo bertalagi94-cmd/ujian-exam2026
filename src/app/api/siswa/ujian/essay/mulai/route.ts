@@ -46,11 +46,30 @@ export async function POST(req: NextRequest) {
   // menyalakan aksesnya.
   const { data: sesi } = await db
     .from('sesi_ujian')
-    .select('akses_mulai_essay_dibuka')
+    .select('status, akses_mulai_essay_dibuka')
     .eq('id', sesiId)
     .single()
 
-  if (!sesi?.akses_mulai_essay_dibuka) {
+  if (!sesi) return NextResponse.json({ error: 'Sesi tidak ditemukan' }, { status: 404 })
+
+  // FIX BUG (essay bisa dimulai walau sesi sudah ditutup): sebelumnya
+  // endpoint ini hanya mengecek status siswa (TERKUNCI/RESET) dan gerbang
+  // akses_mulai_essay_dibuka, TIDAK PERNAH mengecek sesi_ujian.status.
+  // Padahal endpoint autosave (essay/jawab/route.ts) dan endpoint soal
+  // (essay/soal/route.ts — lihat fix terkait di bawah) sama-sama menolak
+  // kalau sesi.status !== 'BERJALAN'. Akibatnya siswa bisa mendapat
+  // status_essay = 'MENGERJAKAN' + waktu_mulai_essay untuk sesi yang
+  // sebenarnya sudah ditutup (SELESAI/dibatalkan), lalu macet total karena
+  // tidak bisa autosave/kirim jawaban sama sekali. Sekarang dicek di sini
+  // juga, konsisten dengan endpoint lain.
+  if (sesi.status !== 'BERJALAN') {
+    return NextResponse.json(
+      { error: 'Sesi ujian sudah tidak berjalan, essay tidak bisa dimulai.' },
+      { status: 409 }
+    )
+  }
+
+  if (!sesi.akses_mulai_essay_dibuka) {
     return NextResponse.json(
       { error: 'Menunggu pengawas membuka akses mulai essay.' },
       { status: 403 }
