@@ -205,6 +205,15 @@ export default function ModePengawasPage() {
   // sebagai parameter `sejak` supaya poll cepat di bawah ini murah (server
   // hanya perlu mencari baris yang lebih baru dari ini, hampir selalu kosong).
   const sejakPelRef = useRef<Record<string, string>>({})
+  // FIX: penanda "sinkronisasi pelanggaran awal (baseline) sudah selesai".
+  // Dulu kode menebak status ini dari ukuran seenPelIdsRef (size > 0), yang
+  // keliru untuk sesi yang baru mulai dan memang belum punya pelanggaran
+  // sama sekali — pelanggaran PERTAMA yang sungguhan ikut kebaca sebagai
+  // "baseline lama" (karena size masih 0 juga) sehingga suaranya dibisukan.
+  // Dengan flag terpisah ini, baseline dianggap selesai begitu load() awal
+  // kelar — apa pun hasilnya (ada pelanggaran lama atau tidak sama sekali)
+  // — sehingga pelanggaran pertama yang muncul SETELAH itu tetap berbunyi.
+  const baselineSiapRef = useRef(false)
 
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const pollingPelRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -376,7 +385,7 @@ export default function ModePengawasPage() {
 
       const allPel = Object.values(newPelMap).flat()
       const brandNew = allPel.filter(p => !seenPelIdsRef.current.has(p.id))
-      if (brandNew.length > 0 && seenPelIdsRef.current.size > 0) {
+      if (brandNew.length > 0 && baselineSiapRef.current) {
         playAlert()
         setPelNotif(brandNew[0])
         setTimeout(() => setPelNotif(null), 8000)
@@ -424,10 +433,19 @@ export default function ModePengawasPage() {
         if (!existing || p.created_at > existing) sejakPelRef.current[p.sesi_id] = p.created_at
       })
 
-      // Baru dianggap "kejadian baru yang perlu suara" kalau memang belum
-      // pernah dilihat sebelumnya DAN ini bukan pemuatan pertama halaman
-      // (seenPelIdsRef masih kosong berarti baru pertama kali load).
-      if (brandNew.length > 0 && seenPelIdsRef.current.size > brandNew.length) {
+      // FIX (notif bisu di pelanggaran PERTAMA pada sesi yang baru mulai):
+      // sebelumnya kondisi di sini pakai "seenPelIdsRef.current.size > 0"
+      // (atau bentuk setaranya) untuk menebak "apakah ini baru pertama kali
+      // load halaman". Masalahnya, untuk sesi yang baru mulai dan MEMANG
+      // belum punya pelanggaran sama sekali, seenPelIdsRef juga kosong (size
+      // 0) — sehingga pelanggaran sungguhan yang PERTAMA kali terjadi ikut
+      // dikira "baseline lama" dan suaranya dibisukan. Baru pelanggaran
+      // ke-2 dst yang benar berbunyi, karena saat itu size sudah > 0.
+      // Perbaikannya: pakai flag terpisah (baselineSiapRef, lihat load())
+      // yang menandai "proses sinkronisasi awal halaman sudah selesai",
+      // bukan menebak dari isi/ukuran set — supaya pelanggaran pertama pun
+      // tetap berbunyi selama itu terjadi SETELAH halaman selesai dimuat.
+      if (brandNew.length > 0 && baselineSiapRef.current) {
         playAlert()
         setPelNotif(brandNew[0])
         setTimeout(() => setPelNotif(null), 8000)
@@ -452,6 +470,11 @@ export default function ModePengawasPage() {
     } finally {
       setLoading(false)
       setRefreshing(false)
+      // Tandai baseline pelanggaran sudah tersinkron — lihat definisi
+      // baselineSiapRef di atas untuk alasannya. Sengaja hanya di-set true
+      // (tidak pernah direset), jadi aman dipanggil berkali-kali walau
+      // load() ini juga dipakai untuk refresh manual.
+      baselineSiapRef.current = true
     }
   }, [fetchMonitor])
 
