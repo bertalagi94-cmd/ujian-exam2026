@@ -83,6 +83,39 @@ export async function GET(req: NextRequest) {
   const sesiId = searchParams.get('sesiId')
   if (!sesiId) return NextResponse.json({ error: 'sesiId diperlukan' }, { status: 400 })
 
+  // FIX BUG (GET jawaban essay tidak validasi status sesi/ujian): sebelumnya
+  // endpoint ini langsung mengambil jawaban_essay berdasarkan sesi_id+nis
+  // tanpa mengecek apakah sesi masih berjalan, siswa memang sedang
+  // mengerjakan sesi tersebut, atau status_essay-nya masih MENGERJAKAN.
+  // Siswa memang tidak bisa melihat jawaban siswa lain (query selalu
+  // di-scope ke NIS miliknya sendiri lewat requireRole), tapi siswa yang
+  // menyimpan sesiId lama tetap bisa menarik kembali jawaban essay-nya dari
+  // sesi yang sudah tidak relevan lagi (sesi ditutup / essay sudah
+  // dikirim), padahal endpoint terkait lain (mulai, soal, autosave POST di
+  // bawah) semuanya sudah menolak pada kondisi itu. Sekarang disamakan:
+  // GET ini hanya boleh dipakai untuk memulihkan draft SELAGI benar-benar
+  // sedang mengerjakan (sesi BERJALAN & status_essay MENGERJAKAN).
+  const { data: sesi } = await db.from('sesi_ujian').select('status').eq('id', sesiId).single()
+  if (!sesi) return NextResponse.json({ error: 'Sesi tidak ditemukan' }, { status: 404 })
+  if (sesi.status !== 'BERJALAN') {
+    return NextResponse.json({ error: 'Sesi ujian sudah ditutup.' }, { status: 409 })
+  }
+
+  const { data: siswaUjian } = await db
+    .from('siswa_ujian')
+    .select('status, status_essay')
+    .eq('sesi_id', sesiId)
+    .eq('nis', user.nis!)
+    .single()
+
+  if (!siswaUjian) return NextResponse.json({ error: 'Data ujian Anda tidak ditemukan' }, { status: 404 })
+  if (siswaUjian.status === 'TERKUNCI' || siswaUjian.status === 'RESET') {
+    return NextResponse.json({ error: 'Akses ujian Anda sedang dikunci/menunggu reset.' }, { status: 403 })
+  }
+  if (siswaUjian.status_essay !== 'MENGERJAKAN') {
+    return NextResponse.json({ error: 'Sesi essay belum dimulai atau sudah selesai.' }, { status: 409 })
+  }
+
   const { data, error } = await db
     .from('jawaban_essay')
     .select('soal_essay_id, jawaban_teks')
