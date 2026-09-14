@@ -131,7 +131,21 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
         .eq('sesi_id', nilai.sesi_id)
         .eq('nis', nilai.nis)
         .maybeSingle()
-      essayFotoUrl = foto?.foto_url ?? null
+      // FIX BUG (foto lembar jawaban pakai public URL permanen): sama seperti
+      // FIX di guru/koreksi-essay/route.ts — foto_url sekarang berupa PATH di
+      // bucket privat 'jawaban-essay', ditukar jadi signed URL berumur
+      // pendek di sini. Baris lama yang masih public URL penuh ("http...")
+      // ditampilkan apa adanya (sudah pernah publik saat diunggah).
+      if (foto?.foto_url) {
+        if (foto.foto_url.startsWith('http')) {
+          essayFotoUrl = foto.foto_url
+        } else {
+          const { data: signed } = await db.storage
+            .from('jawaban-essay')
+            .createSignedUrl(foto.foto_url, 600)
+          essayFotoUrl = signed?.signedUrl ?? null
+        }
+      }
     }
 
     let jawabanMap: Record<string, string> = {}
