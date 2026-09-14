@@ -191,6 +191,12 @@ export default function SiswaUjianPage() {
   // tampilan "menunggu koreksi guru" (bukan lulus/grade seperti ujian biasa,
   // karena nilai_total memang belum ada sampai guru mengoreksi & merilis).
   const [essaySelesaiDikirim, setEssaySelesaiDikirim] = useState(false)
+  // FIX BUG P1 (jawaban essay bisa hilang saat "Kirim"): dipakai untuk
+  // menampilkan peringatan di layar "Ujian Selesai" khusus kasus auto-submit
+  // karena waktu habis SEKALIGUS autosave terakhir gagal — lihat
+  // handleKirimEssay(). Kasus non-timeout tidak butuh ini karena sudah
+  // dihentikan lebih dulu (siswa diminta coba kirim ulang, belum SELESAI).
+  const [essaySyncGagalSaatTimeout, setEssaySyncGagalSaatTimeout] = useState(false)
 
   // ── Status sinkronisasi jawaban ke server ─────────────────────────────────
   // 'idle' = belum ada perubahan yang perlu disinkron
@@ -1406,12 +1412,16 @@ export default function SiswaUjianPage() {
       if (!info) return
       // Kita tidak menyimpan waktuMulaiEssay di state terpisah — cukup pakai
       // sisaWaktuEssay sebagai basis pengurangan per detik karena durasi essay
-      // biasanya jauh lebih pendek dari PG dan referensi mutlak sudah
-      // ditegakkan di server (validasi ulang saat kirim). Untuk konsistensi
-      // dengan pola anti-drift PG, sisa waktu tetap dikurangi tiap detik di
-      // sini; drift kecil akibat tab throttle tidak fatal karena backend TIDAK
-      // menolak kirim essay berdasarkan waktu (mode digital: auto-submit saat
-      // sisaWaktuEssay mencapai 0; mode kertas: hanya munculkan popup).
+      // biasanya jauh lebih pendek dari PG. CATATAN (diperbarui — komentar
+      // lama di sini sudah tidak sinkron dengan implementasi): backend
+      // SEKARANG SUDAH memvalidasi ulang batas waktu essay secara independen
+      // dari timer ini (lihat sudahLewatBatasWaktuEssay() yang dipanggil di
+      // essay/jawab & essay/kirim, mode DIGITAL) — jadi timer lokal di sini
+      // HANYA untuk tampilan countdown & memicu auto-submit di client, BUKAN
+      // satu-satunya penegak batas waktu. Drift kecil akibat tab throttle
+      // tetap tidak fatal karena server yang jadi sumber kebenaran akhir;
+      // paling buruk klien memicu auto-submit sedikit terlambat/cepat dan
+      // server yang akan menolak/menerima sesuai waktu sebenarnya.
       setSisaWaktuEssay(prev => {
         if (prev <= 1) {
           clearInterval(essayTimerRef.current!)
@@ -1475,13 +1485,34 @@ export default function SiswaUjianPage() {
     const currentSesi = sesiInfoRef.current
     if (!currentSesi) { setSubmittingEssay(false); return }
 
-    // Mode DIGITAL: pastikan draft terakhir tersimpan dulu (best-effort,
-    // sama semangatnya dengan verifikasi sync PG — tapi essay tidak
-    // memblokir pengiriman kalau sync gagal, karena tidak ada kunci jawaban
-    // otomatis yang membuat "jawaban hilang" berakibat fatal seperti PG;
-    // guru tetap bisa lihat draft yang sempat tersimpan).
+    // FIX BUG P1 (jawaban essay bisa hilang saat "Kirim"): sebelumnya hasil
+    // syncJawabanEssay() di sini TIDAK PERNAH diperiksa — kalau autosave
+    // terakhir ini gagal (mis. koneksi jelek tepat sebelum siswa menekan
+    // Kirim), proses tetap lanjut ke essay/kirim, dan server langsung
+    // menandai status SUDAH_KIRIM/SELESAI seolah semua beres — padahal
+    // ketikan TERAKHIR siswa belum tentu tersimpan di server. Siswa tidak
+    // pernah diberi tahu ada kemungkinan jawabannya hilang.
+    // FIX: kalau sync gagal, HENTIKAN proses kirim di sini — beri pesan
+    // eksplisit ke siswa & biarkan dia mencoba lagi (bukan diam-diam
+    // melanjutkan ke status selesai). Auto-submit karena waktu habis
+    // (isTimeout=true) TETAP dilanjutkan walau sync gagal — waktunya sudah
+    // resmi habis di server, essay harus ditutup, jawaban yang SEMPAT
+    // ter-autosave sebelumnya tetap tersimpan dan bisa dinilai guru — hanya
+    // pesan ke siswa yang dibedakan supaya dia tahu ada kemungkinan
+    // ketikan terakhirnya tidak ikut tersimpan.
     if (essayInfoRef.current?.modeJawaban === 'DIGITAL') {
-      await syncJawabanEssay()
+      const syncTerakhir = await syncJawabanEssay()
+      if (!syncTerakhir.ok) {
+        if (!isTimeout) {
+          setSubmittingEssay(false)
+          setErrorEssay(
+            'Jawaban terakhir Anda GAGAL disimpan ke server (periksa koneksi internet Anda). ' +
+            'Essay BELUM dikirim — silakan coba tekan tombol "Kirim Jawaban Essay" lagi setelah koneksi stabil.'
+          )
+          return
+        }
+        setEssaySyncGagalSaatTimeout(true)
+      }
     }
 
     clearInterval(essayTimerRef.current!)
@@ -2381,6 +2412,15 @@ export default function SiswaUjianPage() {
             Jawaban essay Anda sudah terkirim. Nilai akhir akan tersedia setelah guru mengoreksi
             dan merilis nilai essay Anda.
           </div>
+
+          {essaySyncGagalSaatTimeout && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4 text-sm text-amber-700 text-left">
+              Waktu pengerjaan Anda habis dan sistem menutup essay secara otomatis, tetapi jawaban
+              TERAKHIR Anda sempat gagal tersimpan karena masalah koneksi. Jawaban yang berhasil
+              tersimpan sebelumnya tetap akan dinilai guru — segera hubungi guru/pengawas Anda
+              untuk memastikan jawaban terakhir Anda tidak hilang.
+            </div>
+          )}
 
           {nilaiPgSetelahEssay && (
             <div className="grid grid-cols-3 gap-3 mb-6">
