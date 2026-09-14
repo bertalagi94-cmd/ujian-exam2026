@@ -197,10 +197,27 @@ export async function PATCH(req: NextRequest) {
       updateData.grade_edit = null
       updateData.lulus_edit = null
     } else {
+      // FIX (validasi nilai remedial): sebelumnya `nilai_edit` diterima &
+      // disimpan mentah-mentah tanpa dicek sama sekali — bukan cuma bukan
+      // angka (mis. string aneh dari bug frontend), tapi juga angka di luar
+      // rentang wajar (negatif, atau di atas 100) tetap lolos tersimpan dan
+      // ikut dipakai menghitung grade/status lulus lewat hitungGrade() &
+      // perbandingan >= kkm — menghasilkan data nilai yang tidak masuk akal
+      // di semua rekap (admin/guru/kepsek/siswa) tanpa penolakan apapun.
+      // Sekarang divalidasi sama seperti skor per soal essay di
+      // koreksi-essay/route.ts: harus angka valid antara 0–100.
+      const nilaiEditAngka = Number(nilai_edit)
+      if (isNaN(nilaiEditAngka) || nilaiEditAngka < 0 || nilaiEditAngka > 100) {
+        return NextResponse.json(
+          { error: 'Nilai remedial harus berupa angka antara 0 dan 100' },
+          { status: 400 }
+        )
+      }
+
       const kkm = nilaiRow.kkm ?? 75
-      updateData.nilai_edit = nilai_edit
-      updateData.grade_edit = hitungGrade(nilai_edit)
-      updateData.lulus_edit = nilai_edit >= kkm
+      updateData.nilai_edit = nilaiEditAngka
+      updateData.grade_edit = hitungGrade(nilaiEditAngka)
+      updateData.lulus_edit = nilaiEditAngka >= kkm
     }
 
     const { error } = await db.from('nilai').update(updateData).eq('id', id)
