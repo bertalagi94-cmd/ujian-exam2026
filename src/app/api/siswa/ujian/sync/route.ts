@@ -50,7 +50,17 @@ export async function POST(req: NextRequest) {
   // ── Tolak sync dari device yang sudah diambil alih ───────────────────────
   // Kalau device lain sudah login (device_id di DB berbeda), device ini tidak
   // boleh lagi menulis jawaban — hanya device aktif yang berhak sync.
-  if (deviceId && siswaUjian?.device_id && siswaUjian.device_id !== deviceId) {
+  //
+  // FIX BUG (anti-device bisa dilewati dengan tidak mengirim deviceId):
+  // sebelumnya kondisi ini diawali `if (deviceId && ...)`, jadi pemeriksaan
+  // HANYA berjalan kalau request memang menyertakan deviceId. Request yang
+  // sengaja/tidak sengaja tidak mengirim deviceId sama sekali membuat kondisi
+  // ini otomatis `false` dan lolos begitu saja — padahal siswa_ujian.device_id
+  // di DB sudah terisi (device yang sah sudah pernah login). Sekarang: begitu
+  // ada device_id terdaftar di DB, request WAJIB mengirim deviceId yang sama
+  // persis; request tanpa deviceId (atau dengan deviceId lain) ditolak sama
+  // seperti device lain yang mencoba mengambil alih.
+  if (siswaUjian?.device_id && siswaUjian.device_id !== deviceId) {
     return NextResponse.json(
       { error: 'Sesi ujian Anda sedang aktif di perangkat lain. Jawaban tidak bisa disimpan dari perangkat ini.' },
       { status: 409 }
