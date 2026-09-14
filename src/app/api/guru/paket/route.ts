@@ -86,8 +86,30 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: pesanBankSoalTerkunci('PG', sesiSudahMulai, 'menambah') }, { status: 409 })
   }
 
+  // FIX (draft kosong tertinggal): endpoint ini dulu langsung insert baris
+  // paket_soal begitu guru menekan "Buat Paket" di step setup — SEBELUM satu
+  // soal pun sempat diisi/disimpan. Kalau device/koneksi mati tepat di titik
+  // itu, tertinggal draft kosong (jumlah_soal 0) yang membingungkan guru saat
+  // kembali ("kok sudah ada draft padahal belum isi apa-apa?").
+  //
+  // Sekarang FE (src/app/guru/paket/page.tsx) memanggil endpoint ini dua kali
+  // dengan tujuan beda:
+  //   1. `dry_run: true` saat guru menekan "Buat Paket" di step setup — HANYA
+  //      menjalankan validasi di atas (duplikat & sesi terkunci) tanpa insert,
+  //      supaya guru langsung tahu kalau kombinasi mapel+kelasnya tidak valid
+  //      SEBELUM mulai mengetik soal.
+  //   2. Tanpa `dry_run` (insert sungguhan) — dipanggil FE hanya pada saat
+  //      soal pertama BERHASIL disimpan. Dengan begitu baris paket_soal baru
+  //      benar-benar ada di DB kalau minimal 1 soal sudah tersimpan; kalau
+  //      guru belum sempat menyimpan soal apa pun lalu keluar/crash, tidak
+  //      ada draft kosong yang tertinggal sama sekali.
+  if (body.dry_run) {
+    return NextResponse.json({ message: 'Valid, siap membuat soal' })
+  }
+
+  const id = generateId('PKT')
   const { error } = await db.from('paket_soal').insert({
-    id: generateId('PKT'),
+    id,
     mapel_id: body.mapel_id,
     kelas_id: body.kelas_id,
     guru_id: user.username,
@@ -98,5 +120,5 @@ export async function POST(req: NextRequest) {
   })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ message: 'Paket berhasil dibuat' }, { status: 201 })
+  return NextResponse.json({ id, message: 'Paket berhasil dibuat' }, { status: 201 })
 }
