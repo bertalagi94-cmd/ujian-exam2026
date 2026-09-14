@@ -137,6 +137,15 @@ export interface Soal {
   status: 'DRAFT' | 'MENUNGGU' | 'DISETUJUI' | 'DITOLAK'
   tanggal?: string
   gambar_url?: string
+  // FIX: field gambar yang sebenarnya dipakai untuk soal pilihan ganda
+  // (lihat kolom di tabel `soal`) — sebelumnya tidak ada di tipe ini
+  // sehingga preview soal PG di admin tidak pernah menampilkan gambar.
+  gambar_pertanyaan?: string
+  gambar_opsi_a?: string
+  gambar_opsi_b?: string
+  gambar_opsi_c?: string
+  gambar_opsi_d?: string
+  gambar_opsi_e?: string
   paket_id?: string
 }
 
