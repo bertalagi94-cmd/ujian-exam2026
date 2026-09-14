@@ -32,7 +32,12 @@ export async function GET(req: NextRequest) {
   // ── Deteksi device takeover ───────────────────────────────────────────────
   // Kalau device_id di DB berbeda dari yang mengirim request ini, berarti
   // device lain sudah login dan mengambil alih sesi ini. Device ini harus berhenti.
-  if (deviceId && siswaUjian?.device_id && siswaUjian.device_id !== deviceId) {
+  //
+  // FIX BUG (anti-device bisa dilewati dengan tidak mengirim deviceId): lihat
+  // penjelasan lengkap di sync/route.ts — pola yang sama persis ada di sini.
+  // Sekarang deteksi berjalan begitu ada device_id terdaftar di DB, tidak
+  // peduli apakah request ini mengirim deviceId atau tidak.
+  if (siswaUjian?.device_id && siswaUjian.device_id !== deviceId) {
     return NextResponse.json({
       sesi_status: sesi.status,
       siswa_status: siswaUjian?.status ?? 'TIDAK_TERDAFTAR',
