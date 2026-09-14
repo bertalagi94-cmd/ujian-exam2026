@@ -199,6 +199,15 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
     } finally { setLoadingSoal(false) }
   }
 
+  // FIX (draft kosong tertinggal): dulu fungsi ini langsung insert paket_soal
+  // ke DB begitu guru menekan "Buat Paket" — sebelum satu soal pun diisi.
+  // Kalau device mati persis di titik itu, tertinggal draft kosong.
+  //
+  // Sekarang: hanya jalankan validasi (dry_run) di sini — mapel+kelas belum
+  // dipakai & sesi belum terkunci — lalu langsung masuk ke step 'buat' dengan
+  // paket "pending" (id kosong) yang HANYA ada di state React, belum tersimpan
+  // di DB sama sekali. Baris paket_soal baru benar-benar dibuat nanti di
+  // handleTambahSoal(), tepat saat soal pertama berhasil disimpan.
   async function startBuatSoal() {
     if (!setupMapel || !setupKelas) {
       showToast('Pilih mata pelajaran dan kelas terlebih dahulu', 'error')
@@ -206,19 +215,25 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
     }
     setSaving(true)
     try {
-      await apiRequest<{ id?: string; message: string }>('/api/guru/paket', {
+      await apiRequest<{ message: string }>('/api/guru/paket', {
         method: 'POST',
-        body: JSON.stringify({ mapel_id: setupMapel, kelas_id: setupKelas, acak: setupAcak }),
+        body: JSON.stringify({ mapel_id: setupMapel, kelas_id: setupKelas, acak: setupAcak, dry_run: true }),
       })
-      const listRes = await apiRequest<{ data: PaketSoal[] }>('/api/guru/paket')
-      setPakets(listRes.data)
-      const newPaket = listRes.data[0]
-      if (newPaket) {
-        setActivePaket(newPaket)
-        setSoalDibuat([])
-        setStep('buat')
-        resetSoalForm()
+      const pendingPaket: PaketSoal = {
+        id: '',
+        mapel_id: setupMapel,
+        kelas_id: setupKelas,
+        guru_id: '',
+        status: 'DRAFT',
+        tanggal: new Date().toISOString(),
+        jumlah_soal: 0,
+        acak: setupAcak === 'TIDAK' ? 'TIDAK' : 'YA',
+        mode_jawaban: 'DIGITAL',
       }
+      setActivePaket(pendingPaket)
+      setSoalDibuat([])
+      setStep('buat')
+      resetSoalForm()
     } catch (err: unknown) {
       showToast(err instanceof Error ? err.message : 'Gagal membuat paket', 'error')
     } finally { setSaving(false) }
@@ -298,23 +313,38 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
     payload.jumlah_opsi = String(globalJumlahOpsi)
     payload.mapel_id = activePaket.mapel_id
     payload.kelas_id = activePaket.kelas_id
-    payload.paket_id = activePaket.id
     payload.gambar_pertanyaan = imgPertanyaan || null
     for (const l of ['a','b','c','d','e']) {
       payload[`gambar_opsi_${l}`] = imgOpsi[l] || null
     }
     setSaving(true)
     try {
+      // FIX (draft kosong tertinggal): activePaket.id kosong berarti paket ini
+      // masih "pending" (lihat startBuatSoal) — belum pernah ditulis ke DB.
+      // Buat baris paket_soal-nya SEKARANG, tepat sebelum soal pertama
+      // disimpan, supaya tidak pernah ada paket_soal berstatus DRAFT dengan
+      // 0 soal yang tersimpan permanen di DB.
+      let paketId = activePaket.id
+      if (!paketId) {
+        const created = await apiRequest<{ id: string; message: string }>('/api/guru/paket', {
+          method: 'POST',
+          body: JSON.stringify({ mapel_id: activePaket.mapel_id, kelas_id: activePaket.kelas_id, acak: activePaket.acak }),
+        })
+        paketId = created.id
+      }
+      payload.paket_id = paketId
+
       await apiRequest('/api/guru/soal', { method: 'POST', body: JSON.stringify(payload) })
       const newSoal = { ...payload, id: '' } as SoalWithImg
       setSoalDibuat(prev => [...prev, newSoal])
       showToast(`Soal ke-${soalDibuat.length + 1} berhasil ditambahkan`)
       resetSoalForm()
 
-      // Refresh paket list agar jumlah_soal terupdate
+      // Refresh paket list agar jumlah_soal terupdate (dan agar activePaket
+      // dapat id sungguhan kalau baru saja dibuat di atas)
       const listRes = await apiRequest<{ data: PaketSoal[] }>('/api/guru/paket')
       setPakets(listRes.data)
-      const updated = listRes.data.find(p => p.id === activePaket.id)
+      const updated = listRes.data.find(p => p.id === paketId)
       if (updated) setActivePaket(updated)
       window.dispatchEvent(new Event(SYNC_EVENT))
     } catch (err: unknown) {
