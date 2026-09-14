@@ -146,7 +146,7 @@ export async function GET(req: NextRequest) {
   const nilaiMap = Object.fromEntries((nilaiList ?? []).map(n => [n.nis, n]))
 
   let jawabanMap: Record<string, { soal_essay_id: string; jawaban_teks: string }[]> = {}
-  let fotoMap: Record<string, string> = {}
+  let fotoMap: Record<string, string | null> = {}
 
   if (modeJawaban === 'DIGITAL') {
     const { data: jawabanList } = await db
@@ -164,7 +164,25 @@ export async function GET(req: NextRequest) {
       .select('nis, foto_url')
       .eq('sesi_id', sesiId)
       .in('nis', nisList)
-    fotoMap = Object.fromEntries((fotoList ?? []).map(f => [f.nis, f.foto_url]))
+    // FIX BUG (foto lembar jawaban pakai public URL permanen): foto_url yang
+    // tersimpan sekarang adalah PATH di bucket privat 'jawaban-essay' (lihat
+    // FIX di essay/upload-foto/route.ts), bukan URL langsung — jadi harus
+    // ditukar jadi signed URL berumur pendek di sini, tepat sebelum dikirim
+    // ke guru. Baris LAMA (diunggah sebelum fix ini) masih menyimpan public
+    // URL penuh (diawali "http") — ditampilkan apa adanya karena memang
+    // sudah pernah publik saat diunggah, tidak bisa "ditarik" retroaktif;
+    // ini hanya menutup celah untuk foto yang diunggah SETELAH fix ini.
+    const fotoEntries = await Promise.all(
+      (fotoList ?? []).map(async (f) => {
+        if (!f.foto_url) return [f.nis, null] as const
+        if (f.foto_url.startsWith('http')) return [f.nis, f.foto_url] as const
+        const { data: signed } = await db.storage
+          .from('jawaban-essay')
+          .createSignedUrl(f.foto_url, 600)
+        return [f.nis, signed?.signedUrl ?? null] as const
+      })
+    )
+    fotoMap = Object.fromEntries(fotoEntries)
   }
 
   // FIX (penilaian berbasis rubrik): ambil skor per soal yang sudah pernah
@@ -453,19 +471,42 @@ export async function PATCH(req: NextRequest) {
   // & dinilai_pada != null) supaya nilai_total langsung mengikuti bobot baru.
   const { data: nilaiSudahDinilai } = await db
     .from('nilai')
-    .select('id, nilai, nilai_essay, kkm')
+    .select('id, nilai, nilai_essay, kkm, dirilis')
     .eq('sesi_id', sesiId)
     .not('dinilai_pada', 'is', null)
 
   let jumlahDiperbarui = 0
+  let jumlahRilisDitarik = 0
   for (const n of nilaiSudahDinilai ?? []) {
     const nilaiPg = n.nilai ?? 0
     const nilaiEssay = n.nilai_essay ?? 0
     const nilaiTotalBaru = Math.round(nilaiPg * (pgAngka / 100) + nilaiEssay * (essayAngka / 100))
     const lulusBaru = nilaiTotalBaru >= (n.kkm ?? 0)
-    await db.from('nilai').update({ nilai_total: nilaiTotalBaru, lulus: lulusBaru }).eq('id', n.id)
+    // FIX BUG (nilai yang sudah dirilis bisa berubah tanpa rilis ulang):
+    // sama seperti FIX di PUT di atas — mengubah bobot PG:Essay bisa mengubah
+    // nilai_total baris yang SUDAH dirilis ke siswa (mis. 80 → 75) tanpa guru
+    // sempat meninjau ulang. Sebelumnya update di sini hanya menyentuh
+    // nilai_total & lulus, TIDAK menyentuh dirilis — sehingga angka baru
+    // langsung terlihat siswa seolah sudah "disetujui". Sekarang setiap
+    // baris yang terkena hitung ulang bobot juga ditarik rilisnya, konsisten
+    // dengan alur "harus rilis ulang" di PUT.
+    await db.from('nilai').update({
+      nilai_total: nilaiTotalBaru,
+      lulus: lulusBaru,
+      dirilis: false,
+      dirilis_pada: null,
+    }).eq('id', n.id)
     jumlahDiperbarui++
+    if (n.dirilis === true) jumlahRilisDitarik++
   }
 
-  return NextResponse.json({ message: 'Bobot berhasil diperbarui', bobotPg: pgAngka, bobotEssay: essayAngka, jumlahNilaiDiperbarui: jumlahDiperbarui })
+  return NextResponse.json({
+    message: jumlahRilisDitarik > 0
+      ? `Bobot berhasil diperbarui. ${jumlahRilisDitarik} nilai yang sudah dirilis ikut ditarik kembali (belum terlihat siswa) karena angkanya berubah — silakan Rilis ulang.`
+      : 'Bobot berhasil diperbarui',
+    bobotPg: pgAngka,
+    bobotEssay: essayAngka,
+    jumlahNilaiDiperbarui: jumlahDiperbarui,
+    jumlahRilisDitarik,
+  })
 }
