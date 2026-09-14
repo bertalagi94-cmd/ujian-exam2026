@@ -854,8 +854,11 @@ export default function SiswaUjianPage() {
     const backup = loadBackup(sesiId, nis)
     let serverJawaban: JawabanMap = {}
     try {
+      // FIX BUG #9: sertakan deviceId supaya backend bisa menolak device yang
+      // sudah diambil alih saat memulihkan jawaban (lihat guard di
+      // src/app/api/siswa/ujian/sync/route.ts GET).
       const res = await apiRequest<{ jawaban: { soal_id: string; jawaban: string }[] }>(
-        `/api/siswa/ujian/sync?sesiId=${sesiId}`
+        `/api/siswa/ujian/sync?sesiId=${sesiId}&deviceId=${getDeviceId()}`
       )
       serverJawaban = Object.fromEntries((res.jawaban ?? []).map(j => [j.soal_id, j.jawaban]))
     } catch (e) {
@@ -1319,8 +1322,10 @@ export default function SiswaUjianPage() {
         const user = JSON.parse(localStorage.getItem('user') ?? '{}')
         let serverJawaban: JawabanEssayMap = {}
         try {
+          // FIX BUG #10: sertakan deviceId supaya backend bisa menegakkan
+          // guard anti multi-device di fase essay (lihat essay/jawab/route.ts GET).
           const jr = await apiRequest<{ jawaban: { soal_essay_id: string; jawaban_teks: string }[] }>(
-            `/api/siswa/ujian/essay/jawab?sesiId=${sesiId}`
+            `/api/siswa/ujian/essay/jawab?sesiId=${sesiId}&deviceId=${getDeviceId()}`
           )
           serverJawaban = Object.fromEntries((jr.jawaban ?? []).map(j => [j.soal_essay_id, j.jawaban_teks]))
         } catch { /* pakai backup lokal saja kalau gagal */ }
@@ -1362,11 +1367,14 @@ export default function SiswaUjianPage() {
     setEssaySyncStatus('syncing')
     for (let attempt = 1; attempt <= MAX_ESSAY_SYNC_RETRY; attempt++) {
       try {
+        // FIX BUG #10: sertakan deviceId, sama seperti syncJawaban() untuk PG,
+        // supaya guard anti multi-device juga berlaku di autosave essay.
         await apiRequest('/api/siswa/ujian/essay/jawab', {
           method: 'POST',
           body: JSON.stringify({
             sesiId: currentSesi.sesiId,
             jawaban: entries.map(([soal_essay_id, teks]) => ({ soal_essay_id, jawaban_teks: teks })),
+            deviceId: getDeviceId(),
           }),
         })
         setEssaySyncStatus('synced')
