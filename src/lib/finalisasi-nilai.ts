@@ -39,6 +39,56 @@ export async function finalisasiNilaiPaksa(
   if (!sesiCache) return
   const { sesi, kkm, totalSoal, kunciMap } = sesiCache
 
+  // FIX BUG #12 (status_essay tidak pernah difinalisasi saat sesi ditutup
+  // paksa): sebelumnya fungsi ini HANYA peduli tabel `nilai` — begitu semua
+  // NIS di `nisList` sudah punya baris nilai (mis. karena mereka sempat
+  // submit PG sendiri lalu macet di TENGAH fase essay saat jaringan putus),
+  // fungsi langsung `return` di baris "if (!perluDinilai.length) return" di
+  // bawah TANPA PERNAH menyentuh siswa_ujian.status_essay siswa tsb. Padahal
+  // `nisList` di sini persis daftar siswa yang statusnya baru saja dipaksa
+  // AKTIF/RESET → SELESAI oleh pemanggil (mode-pengawas/tutup atau
+  // admin tutup-paksa) — kelompok siswa yang PALING butuh status_essay
+  // final, karena essai mereka tidak akan pernah dikirim sendiri lagi.
+  // Akibatnya: mereka memang tetap muncul di antrean koreksi (lewat filter
+  // status.in.(SELESAI,TERKUNCI) di koreksi-essay/route.ts) dan BISA dinilai
+  // satu-satu, tapi endpoint rilis massal (aksi 'rilis_essay_sekaligus' di
+  // guru/kirim-nilai/route.ts) memfilter siswa wajib-dinilai HANYA dari
+  // status_essay IN (SUDAH_KIRIM, TIDAK_MENGERJAKAN) — siswa yang
+  // status_essay-nya masih menggantung (null/BELUM_MULAI/MENGERJAKAN)
+  // selamanya tidak ikut terhitung di rilis massal walau nilai_essay-nya
+  // sudah diisi guru, jadi harus dirilis manual satu-satu tanpa guru sadar.
+  //
+  // FIX: kalau sesi ini essayAktif, set status_essay = 'TIDAK_MENGERJAKAN'
+  // untuk SEMUA siswa di nisList yang belum berada di status essay final
+  // (SUDAH_KIRIM/TIDAK_MENGERJAKAN) — terlepas dari apakah mereka perlu
+  // baris nilai baru atau tidak. Ini AMAN untuk jawaban essay yang sempat
+  // ter-autosave: koreksi-essay/route.ts mengambil jawabanMap dari tabel
+  // jawaban_essay secara independen dari status_essay, jadi draft mereka
+  // tetap terlihat & tetap bisa dinilai guru seperti biasa — status ini
+  // hanya menandai "fase essay sudah final/tertutup", bukan menghapus draft.
+  const essayAktif = !!sesi.info_json?.essay_aktif
+  if (essayAktif) {
+    // Filter di JS (bukan `.not('status_essay','in',...)` di query) supaya
+    // tidak bergantung pada perilaku NULL di operator NOT IN PostgREST/SQL —
+    // lebih eksplisit dan tidak diam-diam melewatkan baris dengan status
+    // essay yang belum pernah diisi.
+    const { data: statusEssaySaatIni } = await db
+      .from('siswa_ujian')
+      .select('nis, status_essay')
+      .eq('sesi_id', sesiId)
+      .in('nis', nisList)
+    const nisPerluFinalisasiEssay = (statusEssaySaatIni ?? [])
+      .filter(s => s.status_essay !== 'SUDAH_KIRIM' && s.status_essay !== 'TIDAK_MENGERJAKAN')
+      .map(s => s.nis)
+    if (nisPerluFinalisasiEssay.length) {
+      await db
+        .from('siswa_ujian')
+        .update({ status_essay: 'TIDAK_MENGERJAKAN' })
+        .eq('sesi_id', sesiId)
+        .in('nis', nisPerluFinalisasiEssay)
+    }
+  }
+
   // Jangan timpa siswa yang kebetulan sudah punya baris nilai (mis. sempat
   // submit sendiri tepat sebelum sesi ditutup).
   const { data: nilaiAda } = await db
