@@ -21,13 +21,24 @@ export async function GET(req: NextRequest) {
 
   const { data: sesi } = await db
     .from('sesi_ujian')
-    .select('id, jadwal_id, mapel_id, kelas, info_json')
+    .select('id, jadwal_id, mapel_id, kelas, info_json, status')
     .eq('id', sesiId)
     .single()
 
   if (!sesi) return NextResponse.json({ error: 'Sesi tidak ditemukan' }, { status: 404 })
   if (!sesi.info_json?.essay_aktif) {
     return NextResponse.json({ error: 'Sesi ini tidak memiliki soal essay' }, { status: 400 })
+  }
+
+  // FIX BUG (soal essay bisa diambil walau sesi sudah tidak berjalan):
+  // sebelumnya guard di sini hanya mengecek status_essay siswa (di bawah),
+  // TIDAK PERNAH mengecek sesi_ujian.status. Kalau siswa sudah berada di
+  // status_essay = 'MENGERJAKAN' lalu pengawas menutup sesi (atau sesi
+  // ditutup otomatis), endpoint ini masih mengembalikan soal seolah ujian
+  // masih berlangsung — tidak konsisten dengan essay/jawab (autosave) dan
+  // essay/mulai yang sama-sama menolak begitu sesi.status !== 'BERJALAN'.
+  if (sesi.status !== 'BERJALAN') {
+    return NextResponse.json({ error: 'Sesi ujian sudah tidak berjalan.' }, { status: 409 })
   }
 
   // Soal essay sekarang berupa bank per mapel+kelas (paket_essay), sama
