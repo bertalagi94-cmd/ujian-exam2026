@@ -265,11 +265,19 @@ export function PeriksaEssayTab({
     }
     setSavingBobot(true)
     try {
-      const res = await apiRequest<{ jumlahNilaiDiperbarui: number }>('/api/guru/koreksi-essay', {
+      const res = await apiRequest<{ jumlahNilaiDiperbarui: number; jumlahRilisDitarik: number }>('/api/guru/koreksi-essay', {
         method: 'PATCH',
         body: JSON.stringify({ sesiId: selectedSesiId, bobotPg: pg, bobotEssay: essay }),
       })
-      showToast(`Bobot nilai berhasil diperbarui (${res.jumlahNilaiDiperbarui} nilai siswa dihitung ulang)`)
+      // FIX (bobot diubah setelah rilis tidak menarik status rilis): kalau
+      // ada nilai yang sudah dirilis ikut ditarik ulang karena angkanya
+      // berubah akibat bobot baru, beri tahu guru secara eksplisit di toast
+      // supaya tidak lupa menekan Rilis lagi.
+      showToast(
+        res.jumlahRilisDitarik > 0
+          ? `Bobot nilai berhasil diperbarui (${res.jumlahNilaiDiperbarui} nilai siswa dihitung ulang, ${res.jumlahRilisDitarik} di antaranya sudah dirilis dan ditarik kembali — silakan Rilis ulang)`
+          : `Bobot nilai berhasil diperbarui (${res.jumlahNilaiDiperbarui} nilai siswa dihitung ulang)`
+      )
       setEditBobotStep(null)
       await loadKoreksiData(selectedSesiId)
       onDataChanged?.()
