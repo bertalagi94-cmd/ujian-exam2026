@@ -84,7 +84,16 @@ export async function POST(req: NextRequest) {
   // Kalau ada device_id berbeda yang masih aktif (heartbeat segar < 2 menit),
   // tolak login ini. Kalau device lama sudah stale (> 2 menit tidak heartbeat),
   // izinkan takeover — artinya siswa pindah perangkat karena laptop rusak dll.
-  if (deviceId && siswaUjian?.device_id && siswaUjian.device_id !== deviceId) {
+  //
+  // FIX BUG (anti-device bisa dilewati dengan tidak mengirim deviceId): lihat
+  // penjelasan lengkap di sync/route.ts — pola yang sama persis ada di sini,
+  // dan di sinilah paling berbahaya karena ini titik LOGIN awal. Sebelumnya
+  // `if (deviceId && ...)` membuat login TANPA deviceId sama sekali lolos
+  // begitu saja tanpa pernah dicek terhadap device yang sudah aktif. Sekarang
+  // begitu ada device_id terdaftar & masih aktif (heartbeat segar), login
+  // tanpa deviceId yang cocok selalu ditolak — sama seperti device lain yang
+  // mencoba mengambil alih.
+  if (siswaUjian?.device_id && siswaUjian.device_id !== deviceId) {
     const lastHb = siswaUjian.last_heartbeat ? new Date(siswaUjian.last_heartbeat).getTime() : 0
     const deviceLamaMasihAktif = lastHb > 0 && (Date.now() - lastHb) < DEVICE_STALE_MS
     if (deviceLamaMasihAktif) {
@@ -162,7 +171,14 @@ export async function POST(req: NextRequest) {
   // ── Tutup race condition login bersamaan ──────────────────────────────────
   // Setelah upsert, baca ulang device_id yang sebenarnya tersimpan.
   // Kalau berbeda (device lain "menang" dalam race bersamaan), tolak device ini.
-  if (deviceId) {
+  //
+  // FIX BUG (anti-device bisa dilewati dengan tidak mengirim deviceId):
+  // sebelumnya query verifikasi ini hanya dijalankan `if (deviceId)` — login
+  // tanpa deviceId melewatkan verifikasi ulang ini sama sekali. Sekarang
+  // selalu dijalankan; device_id yang tersimpan tetap dibandingkan dengan
+  // `deviceId` request ini (termasuk kalau `deviceId` kosong/undefined, yang
+  // otomatis dianggap tidak cocok kalau ternyata ada device_id tersimpan).
+  {
     const { data: aktualRow } = await db
       .from('siswa_ujian')
       .select('device_id')
