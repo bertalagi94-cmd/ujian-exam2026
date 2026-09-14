@@ -628,7 +628,9 @@ export function PeriksaEssayTab({
                                             <img src={p.fotoUrl} alt={`Lembar jawaban ${p.nama}`} className="max-h-64 rounded-lg border border-slate-200" />
                                           </a>
                                         ) : (
-                                          <p className="text-xs text-slate-400 flex items-center gap-1"><ImageIcon className="w-3.5 h-3.5" /> Mode Kertas — nilai langsung dari lembar jawaban fisik siswa</p>
+                                          <p className="text-xs text-slate-400 flex items-center gap-1">
+                                            <ImageIcon className="w-3.5 h-3.5" /> Mode Kertas — lembar jawaban dikumpulkan manual oleh pengawas ruang ujian, beri skor langsung dari kertas fisik siswa.
+                                          </p>
                                         )}
                                       </div>
                                     )}
