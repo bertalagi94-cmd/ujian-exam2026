@@ -45,7 +45,8 @@ sudah Anda buat di file yang sama sejak repo di-clone.
 3. Siswa submit PG → nilai PG dihitung & DISIMPAN tapi TIDAK dibuka ke
    siswa dulu → diarahkan ke fase essay
 4. Siswa lihat info essay → mulai → jawab (digital: ketik & autosave;
-   kertas: hanya baca soal + upload foto setelah pengawas buka akses)
+   kertas: HANYA baca soal, tulis di kertas fisik, tidak ada unggah foto —
+   lihat catatan di bawah)
 5. Siswa kirim essay → BARU DI SINI nilai PG dibuka & status ujian jadi
    SELESAI (frontend bisa lepas fullscreen)
 6. Guru koreksi essay (lihat jawaban/foto, input nilai) → sistem hitung
@@ -71,9 +72,17 @@ langsung (Postman/curl). Yang belum ada HANYA tampilan di browser:
    menekan "Kirim" kapan pun tanpa gerbang pengawas, dan guru menilai
    langsung dari kertas fisik (lihat komentar di `essay/kirim/route.ts`).
    Membangun tombol ini tidak akan berefek apa pun ke siswa.
-5. `src/app/guru/kirim-nilai/page.tsx` — tambah tombol rilis nilai essay
+5. ~~Fitur unggah foto lembar jawaban (mode KERTAS)~~ — JANGAN dibangun.
+   Endpoint `/api/siswa/ujian/essay/upload-foto` sudah dinonaktifkan (410
+   Gone): keputusan desain final, siswa mode KERTAS TIDAK diminta foto sama
+   sekali — halaman essay-nya hanya menampilkan soal + tombol "Selesai".
+   Lembar jawaban fisik dikumpulkan MANUAL oleh pengawas ruang ujian, lalu
+   diserahkan ke guru untuk dinilai langsung dari kertas (guru tetap input
+   skor per soal lewat UI koreksi essay seperti biasa, tanpa referensi
+   foto).
+6. `src/app/guru/kirim-nilai/page.tsx` — tambah tombol rilis nilai essay
    (pakai aksi `rilis_essay_individu` / `rilis_essay_sekaligus`)
-6. Halaman Pengaturan Admin — tambah 2 field untuk
+7. Halaman Pengaturan Admin — tambah 2 field untuk
    `batas_durasi_essay_min_menit` / `batas_durasi_essay_max_menit`
    (endpoint-nya sudah ada, generik key-value, tidak perlu API baru)
 
