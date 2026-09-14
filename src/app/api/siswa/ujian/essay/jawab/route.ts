@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
   const { user } = auth
 
   const db = createAdminClient()
-  const { sesiId, jawaban } = await req.json()
+  const { sesiId, jawaban, deviceId } = await req.json()
   if (!sesiId) return NextResponse.json({ error: 'sesiId diperlukan' }, { status: 400 })
 
   const { data: sesi } = await db.from('sesi_ujian').select('status, info_json').eq('id', sesiId).single()
@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
 
   const { data: siswaUjian } = await db
     .from('siswa_ujian')
-    .select('status, status_essay, waktu_mulai_essay')
+    .select('status, status_essay, waktu_mulai_essay, device_id')
     .eq('sesi_id', sesiId)
     .eq('nis', user.nis!)
     .single()
@@ -38,6 +38,20 @@ export async function POST(req: NextRequest) {
   }
   if (siswaUjian.status_essay !== 'MENGERJAKAN') {
     return NextResponse.json({ error: 'Sesi essay belum dimulai atau sudah selesai.' }, { status: 409 })
+  }
+
+  // FIX BUG #10 (anti multi-device tidak berlaku di fase essay): kebijakan
+  // "satu siswa satu perangkat" sebelumnya HANYA ditegakkan di endpoint sync
+  // PG (lihat FIX BUG #8 di sync/route.ts) — autosave essay sama sekali
+  // tidak mengecek device_id, jadi begitu siswa masuk fase essay, device
+  // manapun (termasuk device yang sudah "diambil alih"/tidak aktif lagi)
+  // bisa terus menimpa jawaban essay-nya. Disamakan persis dengan pola guard
+  // di sync/route.ts.
+  if (siswaUjian.device_id && siswaUjian.device_id !== deviceId) {
+    return NextResponse.json(
+      { error: 'Sesi ujian Anda sedang aktif di perangkat lain. Jawaban tidak bisa disimpan dari perangkat ini.' },
+      { status: 409 }
+    )
   }
 
   // FIX BUG (tidak ada validasi waktu server-side untuk essay): lihat
@@ -81,6 +95,7 @@ export async function GET(req: NextRequest) {
   const db = createAdminClient()
   const { searchParams } = new URL(req.url)
   const sesiId = searchParams.get('sesiId')
+  const deviceId = searchParams.get('deviceId')
   if (!sesiId) return NextResponse.json({ error: 'sesiId diperlukan' }, { status: 400 })
 
   // FIX BUG (GET jawaban essay tidak validasi status sesi/ujian): sebelumnya
@@ -103,7 +118,7 @@ export async function GET(req: NextRequest) {
 
   const { data: siswaUjian } = await db
     .from('siswa_ujian')
-    .select('status, status_essay')
+    .select('status, status_essay, device_id')
     .eq('sesi_id', sesiId)
     .eq('nis', user.nis!)
     .single()
@@ -114,6 +129,13 @@ export async function GET(req: NextRequest) {
   }
   if (siswaUjian.status_essay !== 'MENGERJAKAN') {
     return NextResponse.json({ error: 'Sesi essay belum dimulai atau sudah selesai.' }, { status: 409 })
+  }
+  // FIX BUG #10: samakan guard device dengan POST di atas & pola sync/route.ts.
+  if (siswaUjian.device_id && siswaUjian.device_id !== deviceId) {
+    return NextResponse.json(
+      { error: 'Sesi ujian Anda sedang aktif di perangkat lain.' },
+      { status: 409 }
+    )
   }
 
   const { data, error } = await db
