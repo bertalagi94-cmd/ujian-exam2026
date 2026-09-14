@@ -114,7 +114,43 @@ export async function GET(req: NextRequest) {
   const db = createAdminClient()
   const { searchParams } = new URL(req.url)
   const sesiId = searchParams.get('sesiId')
+  const deviceId = searchParams.get('deviceId')
   if (!sesiId) return NextResponse.json({ error: 'sesiId diperlukan' }, { status: 400 })
+
+  // FIX BUG #9 (GET jawaban PG tidak validasi status sesi/device): sebelumnya
+  // endpoint ini mengambil jawaban langsung dari sesi_id+nis tanpa mengecek
+  // apakah sesi masih BERJALAN atau apakah device yang meminta masih device
+  // yang sah — padahal POST di atas (sync jawaban) sudah menegakkan keduanya.
+  // Dampaknya memang rendah (read-only, data selalu milik NIS sendiri lewat
+  // requireRole), tapi tetap ada celah kecil: device yang SUDAH diambil alih
+  // (mis. HP lama yang ditinggal siswa) masih bisa terus membaca progres
+  // jawaban dari sesi yang sudah ditutup. Disamakan dengan pola guard di POST
+  // supaya konsisten.
+  const { data: sesi } = await db.from('sesi_ujian').select('status').eq('id', sesiId).single()
+  if (!sesi) return NextResponse.json({ error: 'Sesi tidak ditemukan' }, { status: 404 })
+  if (sesi.status !== 'BERJALAN') {
+    return NextResponse.json({ error: 'Sesi ujian sudah ditutup.' }, { status: 409 })
+  }
+
+  const { data: siswaUjian } = await db
+    .from('siswa_ujian')
+    .select('status, device_id')
+    .eq('sesi_id', sesiId)
+    .eq('nis', user.nis!)
+    .single()
+
+  if (siswaUjian && (siswaUjian.status === 'TERKUNCI' || siswaUjian.status === 'RESET')) {
+    return NextResponse.json(
+      { error: 'Akses ujian Anda sedang dikunci/menunggu reset.' },
+      { status: 403 }
+    )
+  }
+  if (siswaUjian?.device_id && siswaUjian.device_id !== deviceId) {
+    return NextResponse.json(
+      { error: 'Sesi ujian Anda sedang aktif di perangkat lain.' },
+      { status: 409 }
+    )
+  }
 
   const { data, error } = await db
     .from('jawaban')
