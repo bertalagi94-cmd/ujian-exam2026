@@ -76,14 +76,42 @@ export async function POST(req: NextRequest) {
     )
   }
 
+  // FIX (race condition kecil): tambahkan guard .eq('status_essay', ...) yang
+  // sebelumnya tidak ada — kalau dua request /mulai nyaris bersamaan lolos
+  // pengecekan idempotent di atas bersamaan (baca status_essay yang sama-sama
+  // masih BELUM_MULAI SEBELUM salah satu sempat menulis), keduanya akan
+  // menulis waktu_mulai_essay masing-masing dengan selisih milidetik — siapa
+  // yang menulis TERAKHIR yang menang, walau keduanya "berhasil" dari sisi
+  // response masing-masing. Guard ini membuat HANYA update yang baris
+  // status_essay-nya BENAR-BENAR masih BELUM_MULAI (atau null, untuk data
+  // lama) yang benar-benar mengubah baris; kita cek `count`/`data` hasil
+  // update untuk tahu apakah update ini yang "menang". Dampaknya tetap
+  // sangat kecil (beda milidetik), tapi sekarang deterministik: request yang
+  // kalah akan mengambil ulang waktu_mulai_essay yang sudah tersimpan,
+  // bukan menimpanya.
   const waktuMulaiEssay = new Date().toISOString()
-  const { error } = await db
+  const { data: updated, error } = await db
     .from('siswa_ujian')
     .update({ status_essay: 'MENGERJAKAN', waktu_mulai_essay: waktuMulaiEssay })
     .eq('sesi_id', sesiId)
     .eq('nis', user.nis!)
+    .or('status_essay.eq.BELUM_MULAI,status_essay.is.null')
+    .select('waktu_mulai_essay')
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  return NextResponse.json({ waktuMulaiEssay })
+  if (!updated || updated.length === 0) {
+    // Request ini kalah race — baris sudah diubah request lain barusan.
+    // Ambil ulang waktu_mulai_essay yang sebenarnya tersimpan supaya timer
+    // di client tetap konsisten dengan server.
+    const { data: siswaUjianTerbaru } = await db
+      .from('siswa_ujian')
+      .select('waktu_mulai_essay')
+      .eq('sesi_id', sesiId)
+      .eq('nis', user.nis!)
+      .single()
+    return NextResponse.json({ waktuMulaiEssay: siswaUjianTerbaru?.waktu_mulai_essay ?? waktuMulaiEssay })
+  }
+
+  return NextResponse.json({ waktuMulaiEssay: updated[0].waktu_mulai_essay })
 }
