@@ -305,10 +305,12 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
     setTimeout(() => editFileInputRef.current?.click(), 50)
   }
 
-  async function handleTambahSoal(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault()
-    if (!activePaket) return
-    const fd = new FormData(e.currentTarget)
+  // Inti penyimpanan satu soal dari form "Buat Soal". Dipakai baik oleh
+  // tombol "Tambah & Lanjut ke Soal Berikutnya" (submit form) maupun tombol
+  // "Simpan dan Selesai" (simpan draft yang sedang diisi lalu keluar).
+  async function simpanSoalDariForm(formEl: HTMLFormElement): Promise<boolean> {
+    if (!activePaket) return false
+    const fd = new FormData(formEl)
     const payload: Record<string, unknown> = Object.fromEntries(fd.entries())
     payload.jumlah_opsi = String(globalJumlahOpsi)
     payload.mapel_id = activePaket.mapel_id
@@ -347,9 +349,16 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
       const updated = listRes.data.find(p => p.id === paketId)
       if (updated) setActivePaket(updated)
       window.dispatchEvent(new Event(SYNC_EVENT))
+      return true
     } catch (err: unknown) {
       showToast(err instanceof Error ? err.message : 'Gagal menyimpan soal', 'error')
+      return false
     } finally { setSaving(false) }
+  }
+
+  async function handleTambahSoal(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault()
+    await simpanSoalDariForm(e.currentTarget)
   }
 
   function selesaiBuat() {
@@ -357,6 +366,35 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
     setActivePaket(null)
     setSoalDibuat([])
     load()
+  }
+
+  // Cek apakah form soal yang sedang diisi masih benar-benar kosong (belum
+  // disentuh) — kalau ya, tombol "Simpan dan Selesai" boleh langsung keluar
+  // tanpa memvalidasi/menyimpan draft kosong tersebut.
+  function formSoalMasihKosong(formEl: HTMLFormElement): boolean {
+    const fd = new FormData(formEl)
+    const kolomTeks = ['teks', 'opsi_a', 'opsi_b', 'opsi_c', 'opsi_d', 'opsi_e', 'kunci', 'pembahasan']
+    const adaTeksTerisi = kolomTeks.some(k => String(fd.get(k) ?? '').trim() !== '')
+    const adaGambar = !!imgPertanyaan || Object.keys(imgOpsi).length > 0
+    return !adaTeksTerisi && !adaGambar
+  }
+
+  // Tombol "Simpan dan Selesai": kalau soal yang sedang diketik sudah mulai
+  // diisi, validasi & simpan dulu (sama seperti tombol "Tambah & Lanjut ke
+  // Soal Berikutnya") baru keluar dari halaman Buat Soal. Kalau formnya
+  // masih kosong (tidak sedang membuat soal baru), langsung keluar saja.
+  async function handleSimpanDanSelesai() {
+    const formEl = formRef.current
+    if (!formEl || formSoalMasihKosong(formEl)) {
+      selesaiBuat()
+      return
+    }
+    if (!formEl.checkValidity()) {
+      formEl.reportValidity()
+      return
+    }
+    const berhasil = await simpanSoalDariForm(formEl)
+    if (berhasil) selesaiBuat()
   }
 
   // ── Edit soal dari expand list ──
@@ -674,8 +712,8 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
               <button type="submit" className="btn-primary" disabled={saving || !!uploadingImg}>
                 {saving ? <Spinner size="sm" /> : <><Plus className="w-4 h-4" /> Tambah & Lanjut ke Soal Berikutnya</>}
               </button>
-              <button type="button" onClick={selesaiBuat} className="btn-secondary">
-                Selesai ({soalDibuat.length} soal)
+              <button type="button" onClick={handleSimpanDanSelesai} className="btn-secondary" disabled={saving || !!uploadingImg}>
+                {saving ? <Spinner size="sm" /> : `Simpan dan Selesai (${soalDibuat.length} soal)`}
               </button>
             </div>
           </form>
