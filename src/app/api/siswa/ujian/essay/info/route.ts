@@ -47,6 +47,23 @@ export async function GET(req: NextRequest) {
     )
   }
 
+  // FIX BUG (essay/info tidak memeriksa status sesi): sebelumnya endpoint ini
+  // sama sekali tidak mengecek `sesi.status`, padahal essay/mulai dan
+  // essay/soal sudah sama-sama menolak begitu sesi.status !== 'BERJALAN'.
+  // Kombinasi ini membuat siswa bisa terjebak: /api/siswa/jadwal (atau
+  // navigasi manual dengan sesiId lama) mengarahkannya ke halaman info essay,
+  // halaman info berhasil dimuat sepenuhnya (nama mapel, durasi, instruksi),
+  // tapi begitu menekan "Mulai" baru ditolak oleh essay/mulai — state ganjil
+  // di mana siswa merasa "ujian belum selesai" padahal tidak ada lagi yang
+  // bisa dia lakukan. Sekarang ditolak sedini mungkin, di sini, dengan pesan
+  // yang jelas kenapa (bukan sekadar gagal diam-diam di tombol Mulai).
+  if (sesi.status !== 'BERJALAN') {
+    return NextResponse.json(
+      { error: 'Sesi ujian ini sudah ditutup, fase essay tidak bisa dilanjutkan lagi. Nilai Anda akan diproses oleh sistem/guru.' },
+      { status: 409 }
+    )
+  }
+
   // Siswa harus sudah submit PG (ditandai status_essay sudah di-set jadi
   // BELUM_MULAI oleh selesai/route.ts) sebelum boleh melihat halaman info essay.
   if (!siswaUjian.status_essay || siswaUjian.status_essay === null) {
