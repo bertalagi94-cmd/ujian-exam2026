@@ -32,14 +32,34 @@ export async function GET(req: NextRequest) {
   // masing-masing jadwal — supaya kartu jadwalnya bisa langsung tampilkan
   // hasilnya, bukan cuma status sesi (yang masih "Berjalan" selama pengawas
   // belum menutup sesi, padahal siswa ini sendiri sudah selesai).
+  //
+  // FIX BUG (essayPending bisa mengarahkan siswa ke sesi yang sudah ditutup):
+  // sebelumnya query ini hanya mengambil `id, jadwal_id` dari sesi_ujian —
+  // TIDAK ikut mengambil `status`-nya. Normalnya begitu sesi ditutup, helper
+  // finalisasiNilaiPaksa() (dipanggil dari guru/mode-pengawas/tutup dan
+  // admin/.../tutup-paksa) langsung mem-flip status_essay siswa yang masih
+  // menggantung (BELUM_MULAI/MENGERJAKAN) menjadi TIDAK_MENGERJAKAN, jadi
+  // secara normal siswa tidak akan lagi ditemukan di essayPendingByJadwal
+  // setelah sesi ditutup. TAPI langkah "tutup sesi" dan "finalisasi
+  // status_essay" itu 2 operasi terpisah (bukan 1 transaksi DB) — kalau
+  // langkah finalisasi gagal/telat (mis. request time-out di tengah jalan)
+  // SETELAH sesi.status sudah SELESAI, status_essay siswa bisa tertinggal di
+  // BELUM_MULAI/MENGERJAKAN sesaat, dan siswa yang refresh di jendela waktu
+  // itu tetap diarahkan ke Essay walau sesinya sudah ditutup (lihat lompatan
+  // otomatis ke ESSAY_INFO di siswa/ujian/page.tsx). Sekarang essayPending
+  // HANYA dianggap valid kalau sesi terkait MASIH berstatus BERJALAN —
+  // pertahanan lapis kedua, tidak menggantikan finalisasi di atas, hanya
+  // memastikan endpoint ini sendiri tidak pernah mengarahkan siswa ke sesi
+  // yang sudah tertutup.
   const jadwalIds = data.map(j => j.id)
   const { data: sesiList } = await db
     .from('sesi_ujian')
-    .select('id, jadwal_id')
+    .select('id, jadwal_id, status')
     .in('jadwal_id', jadwalIds)
 
   const sesiIds = (sesiList ?? []).map(s => s.id)
   const sesiToJadwal = Object.fromEntries((sesiList ?? []).map(s => [s.id, s.jadwal_id]))
+  const sesiStatusMap = Object.fromEntries((sesiList ?? []).map(s => [s.id, s.status]))
 
   let nilaiByJadwal: Record<string, { id: string }> = {}
   if (sesiIds.length > 0) {
@@ -66,6 +86,13 @@ export async function GET(req: NextRequest) {
   // tahu, untuk tiap jadwal, apakah ada sesi dengan status_essay yang MASIH
   // menggantung (BELUM_MULAI/MENGERJAKAN) — kalau ada, sertakan sesiId-nya
   // supaya frontend bisa langsung melompat ke halaman essay tanpa kode ujian.
+  //
+  // FIX BUG: tambahkan syarat sesiStatusMap[sesi_id] === 'BERJALAN' — lihat
+  // komentar panjang di query sesiList di atas. Kalau sesi sudah tidak
+  // BERJALAN, JANGAN anggap essay pending walau status_essay-nya belum
+  // sempat difinalisasi — siswa akan tetap tampil "sudah_ikut" lewat baris
+  // nilai PG yang sudah ada, dan nilai akhirnya menunggu proses koreksi guru
+  // seperti siswa lain yang di-finalisasi otomatis.
   const essayPendingByJadwal: Record<string, string> = {}
   if (sesiIds.length > 0) {
     const { data: siswaUjianEssayList } = await db
@@ -74,7 +101,8 @@ export async function GET(req: NextRequest) {
       .in('sesi_id', sesiIds)
       .eq('nis', user.nis!)
     for (const su of siswaUjianEssayList ?? []) {
-      if (su.status_essay === 'BELUM_MULAI' || su.status_essay === 'MENGERJAKAN') {
+      const sesiMasihBerjalan = sesiStatusMap[su.sesi_id] === 'BERJALAN'
+      if (sesiMasihBerjalan && (su.status_essay === 'BELUM_MULAI' || su.status_essay === 'MENGERJAKAN')) {
         const jadwalId = sesiToJadwal[su.sesi_id]
         if (jadwalId) essayPendingByJadwal[jadwalId] = su.sesi_id
       }
