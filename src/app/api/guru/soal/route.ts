@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 import { generateId, stripHtmlTags } from '@/lib/utils'
 import { cekSesiMapelKelasSudahMulai, pesanBankSoalTerkunci } from '@/lib/sesi-kelas'
+import { catatAktivitas } from '@/lib/aktivitas'
 
 export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['GURU'])
@@ -103,5 +104,10 @@ export async function POST(req: NextRequest) {
   })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // Catat aktivitas nyata (bukan cuma login) supaya Network Flow Monitor
+  // di admin benar-benar menampilkan pergerakan guru membuat soal.
+  catatAktivitas(db, user.username, 'BUAT_SOAL', `Guru ${user.username} menambahkan soal baru`)
+
   return NextResponse.json({ message: 'Soal berhasil ditambahkan' }, { status: 201 })
 }
