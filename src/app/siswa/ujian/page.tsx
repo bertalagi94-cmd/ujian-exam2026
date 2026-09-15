@@ -259,6 +259,18 @@ export default function SiswaUjianPage() {
   const essayTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const essaySyncRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const essayAksesMulaiPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  // FIX (timer Essay masih basis lokal, rentan drift saat tab di-throttle):
+  // referensi waktu mulai essay ABSOLUT dari server (sama seperti
+  // sesiInfoRef.waktu_mulai untuk PG) — diisi sekali di masukKeHalamanEssay()
+  // dari waktuMulaiEssay yang dikembalikan /essay/mulai (idempotent: baik
+  // saat baru menekan "Mulai" maupun saat resume setelah refresh, nilainya
+  // selalu waktu_mulai_essay yang tersimpan di server, tidak pernah berubah).
+  // Dipakai timer di bawah untuk menghitung ULANG sisa waktu tiap tick dari
+  // referensi absolut ini — TIDAK mengubah kapan auto-submit terpicu atau
+  // logika penilaian; server (sudahLewatBatasWaktuEssay) tetap sumber
+  // kebenaran akhir seperti sebelumnya, ini murni memperbaiki akurasi
+  // tampilan & ketepatan waktu pemicu auto-submit di client.
+  const waktuMulaiEssayRef = useRef<string | null>(null)
 
   useEffect(() => { jawabanRef.current = jawaban }, [jawaban])
   useEffect(() => { sesiInfoRef.current = sesiInfo }, [sesiInfo])
@@ -1319,6 +1331,10 @@ export default function SiswaUjianPage() {
 
       const info = essayInfoRef.current
       const durasiDetik = (info?.durasiMenit ?? 0) * 60
+      // FIX (timer Essay basis absolut): simpan referensi waktu mulai essay
+      // dari server ke ref — dipakai timer di bawah untuk menghitung ulang
+      // sisa waktu tiap tick, sama seperti sesiInfoRef.waktu_mulai untuk PG.
+      waktuMulaiEssayRef.current = mulaiRes.waktuMulaiEssay
       const terpakai = Math.floor((Date.now() - new Date(mulaiRes.waktuMulaiEssay).getTime()) / 1000)
       setSisaWaktuEssay(Math.max(0, durasiDetik - terpakai))
 
@@ -1402,34 +1418,66 @@ export default function SiswaUjianPage() {
     return { ok: false }
   }, [])
 
-  // ── Timer fase essay — pola sama seperti timer PG: dihitung ulang tiap
-  // tick dari referensi absolut (waktu mulai essay), bukan sekadar counter
-  // lokal, supaya tahan terhadap tab yang di-throttle browser. ──────────────
+  // ── Timer fase essay — SEKARANG benar-benar dihitung ulang tiap tick dari
+  // referensi absolut (waktuMulaiEssayRef), sama seperti timer PG. ─────────
   useEffect(() => {
     if (phase !== 'ESSAY_KERJAKAN') return
     essayTimerRef.current = setInterval(() => {
       const info = essayInfoRef.current
       if (!info) return
-      // Kita tidak menyimpan waktuMulaiEssay di state terpisah — cukup pakai
-      // sisaWaktuEssay sebagai basis pengurangan per detik karena durasi essay
-      // biasanya jauh lebih pendek dari PG. CATATAN (diperbarui — komentar
-      // lama di sini sudah tidak sinkron dengan implementasi): backend
-      // SEKARANG SUDAH memvalidasi ulang batas waktu essay secara independen
-      // dari timer ini (lihat sudahLewatBatasWaktuEssay() yang dipanggil di
-      // essay/jawab & essay/kirim, mode DIGITAL) — jadi timer lokal di sini
-      // HANYA untuk tampilan countdown & memicu auto-submit di client, BUKAN
-      // satu-satunya penegak batas waktu. Drift kecil akibat tab throttle
-      // tetap tidak fatal karena server yang jadi sumber kebenaran akhir;
-      // paling buruk klien memicu auto-submit sedikit terlambat/cepat dan
-      // server yang akan menolak/menerima sesuai waktu sebenarnya.
-      setSisaWaktuEssay(prev => {
-        if (prev <= 1) {
+      // FIX (timer Essay masih basis lokal — rentan drift saat tab
+      // di-throttle browser): SEBELUMNYA tick ini hanya mengurangi
+      // `sisaWaktuEssay` lokal (`prev - 1`) setiap 1 detik, TIDAK PERNAH
+      // dihitung ulang dari referensi waktu server selama essay berjalan —
+      // sama persis masalah yang sudah lebih dulu diperbaiki untuk timer PG
+      // (lihat komentar FIX BUG #1 di timer PG, useEffect [phase] lain di
+      // atas). Kalau tab di-throttle/laptop sleep, detik yang "hilang" tidak
+      // pernah dikoreksi — tampilan sisa waktu jadi lebih besar dari
+      // kenyataan sampai tab aktif lagi.
+      //
+      // FIX: setiap tick, hitung ULANG sisa waktu dari waktuMulaiEssayRef
+      // (waktu_mulai_essay dari server, diisi sekali di masukKeHalamanEssay
+      // dan tidak pernah berubah selama fase essay ini). setInterval jadi
+      // cuma pemicu "kapan render ulang", BUKAN sumber kebenaran sisa waktu.
+      //
+      // TIDAK ADA PERUBAHAN LOGIKA BISNIS: kondisi & aksi saat waktu habis
+      // (auto-submit untuk mode DIGITAL, popup+bunyi tanpa auto-submit untuk
+      // mode KERTAS) persis sama seperti sebelumnya — hanya SUMBER angka
+      // sisa waktunya yang diperbaiki. Validasi akhir tetap di server
+      // (sudahLewatBatasWaktuEssay, dipanggil essay/jawab & essay/kirim),
+      // jadi drift kecil yang mungkin masih tersisa (mis. belum sempat
+      // menerima waktuMulaiEssayRef) tetap tidak berdampak ke penilaian.
+      if (waktuMulaiEssayRef.current && info.durasiMenit) {
+        const durasiDetik = info.durasiMenit * 60
+        const terpakaiDetik = Math.floor((Date.now() - new Date(waktuMulaiEssayRef.current).getTime()) / 1000)
+        const sisaBaru = Math.max(0, durasiDetik - terpakaiDetik)
+        setSisaWaktuEssay(sisaBaru)
+        if (sisaBaru <= 0) {
           clearInterval(essayTimerRef.current!)
           if (info.modeJawaban === 'DIGITAL') {
             setTimeout(() => handleKirimEssay(true), 0)
           } else {
             // Mode KERTAS: JANGAN auto-submit — cukup beri tahu siswa +
             // bunyi, siswa tetap menunggu pengawas membuka akses kirim.
+            setEssayWaktuHabisPopup(true)
+            try {
+              const audio = new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=')
+              audio.play().catch(() => {})
+            } catch { /* abaikan kalau browser blokir autoplay */ }
+          }
+        }
+        return
+      }
+      // Fallback (seharusnya tidak terjadi — waktuMulaiEssayRef selalu diisi
+      // di masukKeHalamanEssay sebelum phase berubah jadi ESSAY_KERJAKAN,
+      // sama seperti fallback pada timer PG): tetap jaga UI tidak macet
+      // total kalau referensi absolut kebetulan belum terisi.
+      setSisaWaktuEssay(prev => {
+        if (prev <= 1) {
+          clearInterval(essayTimerRef.current!)
+          if (info.modeJawaban === 'DIGITAL') {
+            setTimeout(() => handleKirimEssay(true), 0)
+          } else {
             setEssayWaktuHabisPopup(true)
             try {
               const audio = new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=')
