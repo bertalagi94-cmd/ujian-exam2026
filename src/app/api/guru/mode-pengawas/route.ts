@@ -398,7 +398,7 @@ export async function POST(req: NextRequest) {
 
     const { data: paketEssayList } = await db
       .from('paket_essay')
-      .select('status, jumlah_soal')
+      .select('status, jumlah_soal, guru_id')
       .eq('mapel_id', jadwal.mapel_id)
       .eq('kelas_id', kelasIdEssay)
 
@@ -414,9 +414,29 @@ export async function POST(req: NextRequest) {
           ? 'ditolak admin dan belum diperbaiki/dikirim ulang'
           : 'belum diajukan ke admin (masih draft)'
 
+      // FIX (permintaan pengawas): supaya modal peringatan di client bisa
+      // menyebut SIAPA yang perlu dihubungi — kalau bolanya ada di admin
+      // (status MENUNGGU) beda orangnya dengan kalau bolanya masih di guru
+      // (status DRAFT/DITOLAK, guru yang harus mengajukan/merevisi dulu).
+      // Nama guru diambil dari pemilik paket_essay ini (guru_id), BUKAN dari
+      // penugasan mapel — supaya yang disebut adalah guru yang benar-benar
+      // membuat soal essay tersebut (bisa beda dari guru pengampu resmi
+      // pada kasus team-teaching).
+      let essayGuruNama: string | null = null
+      if (belumDiajukan.status !== 'MENUNGGU' && belumDiajukan.guru_id) {
+        const { data: guruRow } = await db
+          .from('users')
+          .select('nama')
+          .eq('username', belumDiajukan.guru_id)
+          .maybeSingle()
+        essayGuruNama = guruRow?.nama ?? null
+      }
+
       return NextResponse.json({
         error: `Ada soal Essay untuk mapel ini yang ${labelStatus}. Sesi ujian TIDAK BISA dibuka sampai soal essay ini disetujui admin, atau dihapus dulu dari bank soal kalau memang tidak dipakai untuk ujian ini.`,
         essayBelumSiap: true,
+        essayStatus: belumDiajukan.status,
+        essayGuruNama,
       }, { status: 409 })
     }
   }
