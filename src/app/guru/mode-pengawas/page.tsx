@@ -566,10 +566,21 @@ export default function ModePengawasPage() {
     } finally { setStopping(null); setConfirmTutup(null) }
   }
 
-  // FIX (akses mulai essay): nyalakan/matikan toggle global "Akses Soal
-  // Essay" untuk sesi ini — lihat 11_akses_mulai_essay.sql. Setelah sukses,
-  // reload daftar sesi (load(true)) supaya state toggle di UI langsung
-  // sinkron dengan server, bukan cuma optimistic update lokal.
+  // FIX (toggle terasa lambat): sebelumnya `await load(true)` diletakkan
+  // di jalur utama — switch baru berhenti loading & menampilkan posisi
+  // ON/OFF yang benar SETELAH load(true) selesai total. Padahal load(true)
+  // itu bukan cuma refresh toggle ini, tapi menarik ulang SEMUA jadwal hari
+  // ini (termasuk hitung ulang status_soal dsb) DITAMBAH, untuk setiap sesi
+  // yang sedang BERJALAN, 2 request lagi (daftar siswa + daftar
+  // pelanggaran) lewat fetchMonitor(). Kalau pengawas itu sedang mengawasi
+  // beberapa sesi sekaligus, satu klik toggle bisa menunggu belasan request
+  // berantai dulu sebelum switch-nya kelihatan berubah.
+  //
+  // Sekarang: begitu POST toggle sukses, langsung update state `jadwal`
+  // secara lokal (optimistic update) supaya switch terasa instan. load(true)
+  // tetap dipanggil untuk sinkronisasi data lain (siswa, pelanggaran, dll),
+  // tapi TIDAK di-await lagi di jalur ini — biar jalan di belakang layar
+  // tanpa menahan switch.
   async function handleToggleAksesMulaiEssay(sesiId: string, buka: boolean) {
     setToggleAksesMulaiLoading(sesiId)
     try {
@@ -578,7 +589,11 @@ export default function ModePengawasPage() {
         body: JSON.stringify({ sesiId, buka }),
       })
       showToast(res.message ?? (buka ? 'Akses soal essay dibuka' : 'Akses soal essay ditutup'))
-      await load(true)
+      setJadwal(prev => prev.map(j => {
+        if (!j.sesi_ujian || j.sesi_ujian.id !== sesiId) return j
+        return { ...j, sesi_ujian: { ...j.sesi_ujian, akses_mulai_essay_dibuka: buka } }
+      }))
+      void load(true)
     } catch (err: unknown) {
       showToast(err instanceof Error ? err.message : 'Gagal mengubah akses soal essay', 'error')
     } finally {
