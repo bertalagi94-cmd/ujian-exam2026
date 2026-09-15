@@ -1109,7 +1109,7 @@ export default function ModePengawasPage() {
               onClick={() => setPeringatanEssay(null)}
               className="w-full px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-900 text-white text-sm font-semibold"
             >
-              Mengerti, Selesaikan Essay Dulu
+              Tutup
             </button>
           </div>
         </div>
