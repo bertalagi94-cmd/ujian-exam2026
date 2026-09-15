@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 import { generateId } from '@/lib/utils'
 import { ambilDataSesiUntukPenilaian, hitungHasilPenilaian } from '@/lib/penilaian-ujian'
+import { catatAktivitas } from '@/lib/aktivitas'
 
 export async function POST(req: NextRequest) {
   const auth = requireRole(req, ['SISWA'])
@@ -211,6 +212,11 @@ export async function POST(req: NextRequest) {
       .eq('sesi_id', sesiId)
       .eq('nis', nis),
   ])
+
+  // Catat "submit ujian" — kode di atas hanya sampai sini kalau ini
+  // benar-benar submit BARU (kedua early-return "sudah pernah submit" di
+  // atas sudah menangani kasus panggilan ulang), jadi aman dicatat sekali.
+  catatAktivitas(db, nis, 'SUBMIT_UJIAN', `Siswa ${user.nama} submit ujian ${sesi.mapel_id} (${sesi.kelas}), nilai ${nilaiAngka}`)
 
   // FIX: ignoreDuplicates berarti kalau ada race (klik 2x / retry jaringan)
   // dan baris untuk (sesi_id, nis) ini SUDAH ada duluan dari request lain,
