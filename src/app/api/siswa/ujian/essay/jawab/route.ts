@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
   const { sesiId, jawaban, deviceId } = await req.json()
   if (!sesiId) return NextResponse.json({ error: 'sesiId diperlukan' }, { status: 400 })
 
-  const { data: sesi } = await db.from('sesi_ujian').select('status, info_json').eq('id', sesiId).single()
+  const { data: sesi } = await db.from('sesi_ujian').select('status, info_json, mapel_id, kelas').eq('id', sesiId).single()
   if (!sesi) return NextResponse.json({ error: 'Sesi tidak ditemukan' }, { status: 404 })
   if (sesi.status !== 'BERJALAN') {
     return NextResponse.json({ error: 'Sesi ujian sudah ditutup, jawaban tidak bisa disimpan lagi.' }, { status: 409 })
@@ -62,19 +62,56 @@ export async function POST(req: NextRequest) {
   }
 
   if (Array.isArray(jawaban) && jawaban.length > 0) {
-    const records = jawaban.map((j: { soal_essay_id: string; jawaban_teks: string }) => ({
-      sesi_id: sesiId,
-      nis: user.nis!,
-      soal_essay_id: j.soal_essay_id,
-      jawaban_teks: j.jawaban_teks ?? '',
-      updated_at: new Date().toISOString(),
-    }))
+    // FIX BUG (soal_essay_id tidak divalidasi terhadap bank soal sesi ini):
+    // sebelumnya endpoint ini langsung meng-upsert `soal_essay_id` apa pun
+    // yang dikirim client tanpa memeriksa apakah ID tersebut memang bagian
+    // dari bank soal essay (mapel+kelas) untuk sesi ini — `jawaban_essay`
+    // di schema (07_essay.sql) memang TIDAK punya FOREIGN KEY ke
+    // `soal_essay(id)`, jadi tidak ada apa pun di level database yang
+    // mencegahnya. Client seharusnya tidak pernah jadi sumber kebenaran
+    // untuk daftar ID yang valid. Sekarang daftar ID yang sah diambil dulu
+    // dari bank soal DISETUJUI untuk mapel+kelas sesi ini (pola resolusi
+    // kelasId disamakan dengan essay/info & essay/mulai), lalu jawaban yang
+    // soal_essay_id-nya TIDAK ada di daftar itu di-drop diam-diam sebelum
+    // upsert — TIDAK mengubah perilaku untuk siswa yang sah (ID mereka
+    // selalu berasal dari /essay/soal, jadi selalu ada di daftar ini), dan
+    // TIDAK mengubah kontrak response (`totalTersimpan` tetap menghitung
+    // baris jawaban_essay yang benar-benar tersimpan, sekarang malah lebih
+    // akurat karena tidak lagi bisa "digelembungkan" oleh ID palsu).
+    const { data: kelasRow } = await db
+      .from('kelas')
+      .select('id')
+      .eq('nama', String(sesi.kelas))
+      .maybeSingle()
+    const kelasId = kelasRow?.id ?? String(sesi.kelas)
 
-    const { error } = await db
-      .from('jawaban_essay')
-      .upsert(records, { onConflict: 'sesi_id,nis,soal_essay_id' })
+    const { data: soalSahList } = await db
+      .from('soal_essay')
+      .select('id')
+      .eq('mapel_id', sesi.mapel_id)
+      .eq('kelas_id', kelasId)
+      .eq('status', 'DISETUJUI')
+    const idSoalSah = new Set((soalSahList ?? []).map(s => s.id))
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    const jawabanValid = jawaban.filter(
+      (j: { soal_essay_id: string; jawaban_teks: string }) => idSoalSah.has(j.soal_essay_id)
+    )
+
+    if (jawabanValid.length > 0) {
+      const records = jawabanValid.map((j: { soal_essay_id: string; jawaban_teks: string }) => ({
+        sesi_id: sesiId,
+        nis: user.nis!,
+        soal_essay_id: j.soal_essay_id,
+        jawaban_teks: j.jawaban_teks ?? '',
+        updated_at: new Date().toISOString(),
+      }))
+
+      const { error } = await db
+        .from('jawaban_essay')
+        .upsert(records, { onConflict: 'sesi_id,nis,soal_essay_id' })
+
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    }
   }
 
   const { count } = await db
