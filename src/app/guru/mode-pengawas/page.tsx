@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Shield, Play, Square, Clock, Copy, CheckCircle,
   RefreshCw, AlertTriangle, BookOpen, Users, Lock,
-  ShieldAlert, RotateCcw, KeyRound, Eye, ChevronDown, ChevronUp, FileQuestion
+  ShieldAlert, RotateCcw, KeyRound, Eye, ChevronDown, ChevronUp, FileQuestion, UserRound
 } from 'lucide-react'
 import { apiRequest, formatDateTime } from '@/lib/utils'
 import { PageLoader, Spinner } from '@/components/ui'
@@ -757,6 +757,22 @@ export default function ModePengawasPage() {
                         <span className="flex items-center gap-1"><Clock className="w-3.5 h-3.5 text-slate-400" />{j.jam_mulai} – {j.jam_selesai}</span>
                         <span className="text-slate-400">({j.durasi} menit)</span>
                       </div>
+                      {/* FIX (permintaan pengawas): nama guru mapel ini
+                          sebelumnya cuma nongol tersembunyi di dalam pesan
+                          tooltip status soal saat soal BELUM siap. Sekarang
+                          selalu ditampilkan di kartu jadwal (kalau namanya
+                          diketahui) supaya pengawas tahu harus menghubungi
+                          siapa kapan pun dibutuhkan, bukan cuma saat ada
+                          masalah soal. Sumber data: status_soal_guru dari
+                          computeStatusSoalDetailMap (lihat
+                          src/lib/soal-status.ts) — sudah dikirim API,
+                          cuma belum dipakai di kartu ini. */}
+                      {j.status_soal_guru && (
+                        <div className="flex items-center gap-1 mt-1 text-sm text-slate-500">
+                          <UserRound className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                          Guru: {j.status_soal_guru}
+                        </div>
+                      )}
                       {!isRunning && !isDone && !diambilAlih && !soalSiap && (
                         <div className="mt-2">
                           <SoalStatusBadge status={j.status_soal} />
