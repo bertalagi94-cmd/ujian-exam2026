@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import { Activity, X, Maximize2, Minimize2, RefreshCw, Shield, Database, Users, AlertTriangle, CheckCircle, BarChart3 } from 'lucide-react'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -69,6 +70,21 @@ const ROLE_CFG: Record<string, { color: string; label: string }> = {
   SISTEM:   { color: '#64748b', label: 'Sistem' },
 }
 
+// Tujuan NYATA setelah login, sesuai redirect per-role di aplikasi
+// (lihat src/app/{siswa,guru,admin,kepsek}/page.tsx). Dipakai untuk
+// mengarahkan partikel ke node output yang BENAR sesuai role user —
+// sebelumnya output dipilih acak (index % 3) dan tidak ada hubungannya
+// dengan siapa yang login, jadi terlihat seperti "monitoring" padahal
+// hanya dekorasi. Sekarang: SISWA selalu ke Ruang Siswa, GURU ke Panel
+// Guru, dst — ini benar-benar mencerminkan ke mana user diarahkan.
+const OUTPUT_CFG: Record<string, { label: string; icon: string; color: string; y: number }> = {
+  SISWA:  { label: 'Ruang Siswa', icon: '🎓', color: '#6366f1', y: 0.18 },
+  GURU:   { label: 'Panel Guru',  icon: '🏫', color: '#10b981', y: 0.42 },
+  ADMIN:  { label: 'Panel Admin', icon: '🛠️', color: '#f59e0b', y: 0.66 },
+  KEPSEK: { label: 'Panel Kepsek', icon: '📋', color: '#ec4899', y: 0.90 },
+}
+const OUTPUT_ORDER = ['SISWA', 'GURU', 'ADMIN', 'KEPSEK']
+
 // PENTING: satu-satunya `aksi` yang benar-benar pernah tercatat ke
 // log_aktivitas di seluruh aplikasi ini adalah 'LOGIN' — dipakai untuk
 // SEMUA role (siswa, guru, admin, kepsek), lihat src/app/api/auth/login/route.ts.
@@ -108,29 +124,49 @@ interface DiagramProps {
   particles: Particle[]
   width: number
   height: number
+  loading: boolean
+  lastRefresh: Date | null
 }
 
-function DiagramCanvas({ data, userNodes, particles, width, height }: DiagramProps) {
+function DiagramCanvas({ data, userNodes, particles, width, height, loading, lastRefresh }: DiagramProps) {
   const status = data?.server.status ?? 'NORMAL'
   const cfg = STATUS_CFG[status]
+  const router = useRouter()
+
+  // Data segar kalau refresh terakhir < 20 detik lalu (2x interval polling).
+  // Ini indikator SINKRON yang nyata, bukan label statis yang selalu sama.
+  const secsSinceRefresh = lastRefresh ? (Date.now() - lastRefresh.getTime()) / 1000 : Infinity
+  const isLive = !loading && secsSinceRefresh < 20
+  const dbMs = data?.server.dbResponseMs ?? 0
+  const dbColor = dbMs === 0 ? '#64748b' : dbMs < 150 ? '#10b981' : dbMs < 400 ? '#f59e0b' : '#ef4444'
+  const aktifCount = data?.aktivitas.siswaAktifMengerjakan ?? 0
 
   // Layout
+  // Lebar node output (rx26 = 52px) + garis penghubung (38px) + ikon hasil
+  // (40px, pusat di +72 dari outX) harus muat di dalam `width`, jadi
+  // outX dihitung mundur dari tepi kanan supaya TIDAK ADA yang terpotong
+  // (sebelumnya ikon hasil menjorok ~20px melewati tepi kanan canvas,
+  // makanya terlihat "kepotong" di panel).
   const pad = 24
+  const resultIconReach = 92 // jarak dari outX ke tepi terjauh ikon hasil
   const sourceX = pad + 40
   const dbX = width * 0.36
   const procX = width * 0.58
-  const outX = width - pad - 48
+  const outX = width - pad - resultIconReach
 
   const laneCount = Math.max(4, userNodes.length + 1)
   const laneH = Math.min(52, (height - 80) / laneCount)
   const startY = 48 + laneH / 2
 
-  // Output nodes positions
-  const outNodes = [
-    { label: 'Ujian', icon: '📝', color: '#6366f1', y: height * 0.22 },
-    { label: 'Laporan', icon: '📊', color: '#3b82f6', y: height * 0.50 },
-    { label: 'Siswa', icon: '👥', color: '#10b981', y: height * 0.78 },
-  ]
+  // Output nodes: 4 tujuan NYATA (bukan acak) — satu per role yang
+  // benar-benar ada di aplikasi. Lihat OUTPUT_CFG di atas.
+  const outNodes = OUTPUT_ORDER.map((role) => ({
+    role,
+    label: OUTPUT_CFG[role].label,
+    icon: OUTPUT_CFG[role].icon,
+    color: OUTPUT_CFG[role].color,
+    y: height * OUTPUT_CFG[role].y,
+  }))
 
   return (
     <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} style={{ display: 'block' }}>
@@ -255,9 +291,11 @@ function DiagramCanvas({ data, userNodes, particles, width, height }: DiagramPro
           x = dbX + 36 + (procX - 28 - dbX - 36) * p.progress
           y = height / 2
         } else {
-          // to one of the outputs
-          const outIdx = laneIdx % outNodes.length
-          const targetY = outNodes[outIdx].y
+          // Ke output yang SESUAI ROLE user ini (bukan lagi acak/modulo) —
+          // siswa selalu menuju "Ruang Siswa", admin ke "Panel Admin", dst.
+          const role = u?.role && OUTPUT_CFG[u.role] ? u.role : 'SISWA'
+          const targetNode = outNodes.find(o => o.role === role) ?? outNodes[0]
+          const targetY = targetNode.y
           x = procX + 28 + (outX - 32 - procX - 28) * p.progress
           y = height / 2 + (targetY - height / 2) * p.progress
         }
@@ -320,36 +358,53 @@ function DiagramCanvas({ data, userNodes, particles, width, height }: DiagramPro
         </g>
       ))}
 
-      {/* ── Source devices (left) ── */}
+      {/* ── Bottom status bar: setiap kotak sekarang menampilkan angka/
+          status ASLI (bukan label dekoratif statis), dan yang punya
+          halaman tujuan nyata di aplikasi bisa diklik untuk membukanya. ── */}
       {[
-        { y: height * 0.18, icon: '🖥️', label: 'Server' },
-        { y: height * 0.38, icon: '💻', label: 'Laptop' },
-        { y: height * 0.62, icon: '☁️', label: 'Cloud' },
-        { y: height * 0.82, icon: '📱', label: 'Mobile' },
-      ].map((d) => (
-        <g key={d.label} transform={`translate(${pad},${d.y})`}>
-          <rect x={-18} y={-18} width={36} height={36} rx={9}
-            fill="rgba(59,130,246,0.1)" stroke="rgba(59,130,246,0.3)" strokeWidth={1} />
-          <text x={0} y={8} textAnchor="middle" fontSize={14}>{d.icon}</text>
-          {/* connector line to source */}
-          <line x1={18} y1={0} x2={sourceX - pad - 44} y2={height / 2 - d.y}
-            stroke="rgba(59,130,246,0.3)" strokeWidth={1} strokeDasharray="4 3" />
-        </g>
-      ))}
-
-      {/* ── Bottom status bar icons ── */}
-      {[
-        { icon: <Shield size={12} />, label: data?.maintenanceAktif ? 'Maintenance' : 'Aman', color: data?.maintenanceAktif ? '#f59e0b' : '#10b981' },
-        { icon: <RefreshCw size={12} />, label: 'Sinkron', color: '#3b82f6' },
-        { icon: <Database size={12} />, label: 'Database', color: '#6366f1' },
-        { icon: <Activity size={12} />, label: 'Monitor', color: '#8b5cf6' },
-        { icon: <BarChart3 size={12} />, label: 'Analitik', color: '#10b981' },
+        {
+          key: 'maintenance',
+          icon: <Shield size={12} />,
+          label: data?.maintenanceAktif ? 'Maintenance' : 'Aman',
+          color: data?.maintenanceAktif ? '#f59e0b' : '#10b981',
+          href: '/admin/pengaturan',
+        },
+        {
+          key: 'sinkron',
+          icon: <RefreshCw size={12} />,
+          label: loading ? 'Sinkron…' : isLive ? 'Live' : 'Delay',
+          color: loading ? '#3b82f6' : isLive ? '#10b981' : '#f59e0b',
+          href: null,
+        },
+        {
+          key: 'database',
+          icon: <Database size={12} />,
+          label: data ? `DB ${dbMs}ms` : 'Database',
+          color: dbColor,
+          href: null,
+        },
+        {
+          key: 'monitor',
+          icon: <Activity size={12} />,
+          label: `${aktifCount} Aktif`,
+          color: aktifCount > 0 ? '#8b5cf6' : '#64748b',
+          href: null,
+        },
+        {
+          key: 'analitik',
+          icon: <BarChart3 size={12} />,
+          label: 'Analitik',
+          color: '#10b981',
+          href: '/admin/analisis-ujian',
+        },
       ].map((b, i) => {
         const bw = 64, bh = 36, totalW = bw * 5 + 8 * 4
         const bx = (width - totalW) / 2 + i * (bw + 8)
         const by = height - 46
         return (
-          <g key={b.label}>
+          <g key={b.key}
+            onClick={b.href ? () => router.push(b.href as string) : undefined}
+            style={{ cursor: b.href ? 'pointer' : 'default' }}>
             <rect x={bx} y={by} width={bw} height={bh} rx={8}
               fill="rgba(255,255,255,0.05)" stroke="rgba(255,255,255,0.1)" strokeWidth={1} />
             <text x={bx + bw / 2} y={by + 13} textAnchor="middle" fontSize={9} fill={b.color} fontWeight="600">
@@ -462,12 +517,35 @@ export default function NetworkFlowMonitor() {
     return () => { if (animRef.current) clearInterval(animRef.current) }
   }, [open])
 
-  // Polling
+  // Polling — hanya jalan saat panel dibuka DAN tab sedang aktif dilihat.
+  // Sebelumnya interval tetap jalan tiap 15 detik meski browser tab
+  // di-minimize/pindah tab, terus membebani server tanpa ada yang melihat
+  // hasilnya. Sekarang: berhenti total saat tab disembunyikan (hemat
+  // request), dan langsung fetch ulang begitu admin kembali melihat tab
+  // supaya datanya tetap terasa realtime.
   useEffect(() => {
     if (!open) return
-    fetchData()
-    intervalRef.current = setInterval(fetchData, 15000)
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
+
+    const start = () => {
+      if (intervalRef.current) return
+      fetchData()
+      intervalRef.current = setInterval(fetchData, 15000)
+    }
+    const stop = () => {
+      if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null }
+    }
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') start()
+      else stop()
+    }
+
+    if (document.visibilityState === 'visible') start()
+    document.addEventListener('visibilitychange', onVisibility)
+
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility)
+      stop()
+    }
   }, [open, fetchData])
 
   // ESC key
@@ -584,6 +662,8 @@ export default function NetworkFlowMonitor() {
                 particles={particles}
                 width={canvasW}
                 height={canvasH}
+                loading={loading}
+                lastRefresh={lastRefresh}
               />
             </div>
 
