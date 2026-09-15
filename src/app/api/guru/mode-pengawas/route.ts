@@ -257,7 +257,7 @@ export async function POST(req: NextRequest) {
   const { user } = auth
 
   const db = createAdminClient()
-  const { jadwalId, abaikanPeringatanEssay } = await req.json()
+  const { jadwalId } = await req.json()
 
   // Verify jadwal belongs to this guru as pengawas
   // FIX (fitur essay): '*' sudah mengambil semua kolom termasuk kolom
@@ -379,13 +379,16 @@ export async function POST(req: NextRequest) {
   // mengerjakan PG lalu ujian otomatis "selesai" seolah-olah memang tidak ada
   // essay — padahal essay-nya ADA, cuma belum divalidasi.
   //
-  // Untuk mencegah ini terulang, kalau ternyata ADA paket_essay untuk
-  // mapel+kelas jadwal ini (dengan minimal 1 soal) yang belum DISETUJUI, kita
-  // tahan dulu pembukaan sesi dan minta guru konfirmasi eksplisit — supaya
-  // guru sadar essay-nya belum siap SEBELUM ujian dimulai, bukan sesudah
-  // siswa selesai. Guru tetap bisa lanjut tanpa essay (misal memang sengaja
-  // ujian PG-saja) dengan mengirim ulang `abaikanPeringatanEssay: true`.
-  if (!abaikanPeringatanEssay) {
+  // KEPUTUSAN: kalau ada paket_essay untuk mapel+kelas jadwal ini (dengan
+  // minimal 1 soal) yang belum DISETUJUI, sesi ujian TIDAK BOLEH dibuka sama
+  // sekali — TIDAK ADA jalur untuk melewati ini. Sebelumnya ada opsi
+  // "Lanjut Tanpa Essay" (client mengirim ulang `abaikanPeringatanEssay:
+  // true`) yang mengizinkan pengawas melanjutkan begitu saja; opsi itu
+  // sengaja DIHAPUS supaya soal essay yang belum siap tidak bisa "terlewat"
+  // dan ujian tetap terbuka tanpa essay tanpa guru benar-benar menyelesaikan
+  // status essay-nya dulu (ajukan ke admin & tunggu disetujui, atau hapus
+  // paket essay-nya kalau memang tidak dipakai untuk ujian ini).
+  {
     const { data: kelasRowEssay } = await db
       .from('kelas')
       .select('id')
@@ -412,8 +415,8 @@ export async function POST(req: NextRequest) {
           : 'belum diajukan ke admin (masih draft)'
 
       return NextResponse.json({
-        error: `Ada soal Essay untuk mapel ini yang ${labelStatus}. Kalau sesi ujian dibuka sekarang, siswa HANYA akan mengerjakan Pilihan Ganda — Essay tidak akan muncul sama sekali. Segera ajukan/tunggu validasi essay-nya dulu, atau lanjutkan sekarang kalau memang ujian ini sengaja PG saja.`,
-        peringatanEssayBelumSiap: true,
+        error: `Ada soal Essay untuk mapel ini yang ${labelStatus}. Sesi ujian TIDAK BISA dibuka sampai soal essay ini disetujui admin, atau dihapus dulu dari bank soal kalau memang tidak dipakai untuk ujian ini.`,
+        essayBelumSiap: true,
       }, { status: 409 })
     }
   }
