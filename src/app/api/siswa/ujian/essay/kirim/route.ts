@@ -19,7 +19,15 @@ export async function POST(req: NextRequest) {
   const nis = user.nis!
 
   const db = createAdminClient()
-  const { sesiId } = await req.json()
+  // FIX BUG (essay/kirim tidak memeriksa deviceId): sebelumnya endpoint ini
+  // hanya menerima `sesiId`, padahal autosave essay (essay/jawab) dan endpoint
+  // sync PG sudah sama-sama menegakkan kebijakan "satu siswa satu perangkat"
+  // lewat siswa_ujian.device_id. Akibatnya begitu Device A sedang mengerjakan,
+  // Device B dengan NIS yang sama tetap bisa memanggil endpoint ini secara
+  // langsung dan mengubah status jadi SUDAH_KIRIM/SELESAI, memotong sesi
+  // Device A tanpa sepengetahuannya. Sekarang deviceId wajib dikirim & wajib
+  // cocok dengan device_id yang terdaftar, persis pola guard di essay/jawab.
+  const { sesiId, deviceId } = await req.json()
   if (!sesiId) return NextResponse.json({ error: 'sesiId diperlukan' }, { status: 400 })
 
   const { data: sesi } = await db.from('sesi_ujian').select('status, info_json').eq('id', sesiId).single()
@@ -27,7 +35,7 @@ export async function POST(req: NextRequest) {
 
   const { data: siswaUjian } = await db
     .from('siswa_ujian')
-    .select('status, status_essay, waktu_mulai_essay')
+    .select('status, status_essay, waktu_mulai_essay, device_id')
     .eq('sesi_id', sesiId)
     .eq('nis', nis)
     .single()
@@ -37,6 +45,10 @@ export async function POST(req: NextRequest) {
   // Idempotent: kalau sudah pernah kirim, kembalikan nilai yang sudah ada
   // (pola sama seperti early-return di selesai/route.ts untuk PG) — supaya
   // klik ganda / retry jaringan tidak error, cukup tampilkan hasil yang sama.
+  // Diletakkan SEBELUM guard deviceId di bawah supaya siswa yang sudah
+  // berhasil kirim dari device yang sah tetap bisa mengambil ulang hasilnya
+  // (mis. refresh halaman) meskipun deviceId di localStorage-nya kebetulan
+  // berubah setelahnya — status sudah final, tidak ada aksi tulis baru di sini.
   if (siswaUjian.status_essay === 'SUDAH_KIRIM') {
     const { data: nilaiSudahAda } = await db
       .from('nilai')
@@ -54,6 +66,18 @@ export async function POST(req: NextRequest) {
 
   if (siswaUjian.status_essay !== 'MENGERJAKAN') {
     return NextResponse.json({ error: 'Essay belum dimulai, tidak bisa dikirim.' }, { status: 409 })
+  }
+
+  // FIX BUG (essay/kirim tidak memeriksa deviceId): tolak pengiriman baru
+  // kalau request tidak berasal dari perangkat yang terdaftar di
+  // siswa_ujian.device_id. Kalau device_id belum pernah tercatat (null —
+  // mis. data lama sebelum fitur device-lock ada), lewati pengecekan ini
+  // supaya tidak memblokir siswa yang sah tanpa sebab.
+  if (siswaUjian.device_id && siswaUjian.device_id !== deviceId) {
+    return NextResponse.json(
+      { error: 'Sesi ujian Anda sedang aktif di perangkat lain. Essay tidak bisa dikirim dari perangkat ini.' },
+      { status: 409 }
+    )
   }
 
   // FIX BUG (essay bisa dikirim setelah sesi ujian ditutup): sebelumnya
