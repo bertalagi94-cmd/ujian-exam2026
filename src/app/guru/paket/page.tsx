@@ -7,7 +7,7 @@ import {
 } from 'lucide-react'
 import { Modal, Confirm, StatusBadge, EmptyState, Spinner, Toast, Badge } from '@/components/ui'
 import { EssayFlowGuide } from '@/components/shared/EssayFlowGuide'
-import { apiRequest, formatDateTime } from '@/lib/utils'
+import { apiRequest, formatDateTime, generateId } from '@/lib/utils'
 import { PaketSoal, Mapel, Kelas, Soal, PaketEssay, SoalEssay } from '@/types'
 
 interface SoalWithImg extends Soal {
@@ -1300,6 +1300,15 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
   const [pendingUploadKey, setPendingUploadKey] = useState<string | null>(null)
   const formRef = useRef<HTMLFormElement>(null)
 
+  // FIX BUG (soal dobel saat DB lambat + submit ulang): kunci ini dibuat
+  // SEKALI per "percobaan menyimpan soal baru", lalu dipakai lagi kalau
+  // guru menekan submit ulang setelah gagal/timeout — bukan dibuat baru
+  // setiap submit. Server pakai kunci ini untuk mengenali bahwa request
+  // kedua adalah pengulangan dari yang pertama, bukan soal baru yang
+  // beneran berbeda. Baru di-reset (null) setelah submit benar-benar
+  // sukses, lewat resetSoalForm(), supaya soal berikutnya dapat kunci baru.
+  const soalIdemKeyRef = useRef<string | null>(null)
+
   // Edit soal
   const [editSoal, setEditSoal] = useState<SoalEssay | null>(null)
   const [editGambarUrl, setEditGambarUrl] = useState('')
@@ -1358,6 +1367,7 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
   function resetSoalForm() {
     formRef.current?.reset()
     setGambarUrl('')
+    soalIdemKeyRef.current = null
   }
 
   async function loadSoalPaket(paketId: string) {
@@ -1458,6 +1468,10 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
       showToast('Bobot soal harus lebih dari 0', 'error')
       return
     }
+    // Kunci yang sama dipakai lagi kalau ini pengulangan submit yang gagal
+    // sebelumnya (lihat komentar di deklarasi soalIdemKeyRef di atas).
+    if (!soalIdemKeyRef.current) soalIdemKeyRef.current = generateId('IDEM')
+
     setSaving(true)
     try {
       await apiRequest('/api/guru/soal-essay', {
@@ -1467,6 +1481,7 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
           teks,
           gambar_url: gambarUrl || null,
           bobot_maks: bobotMaks,
+          idempotency_key: soalIdemKeyRef.current,
         }),
       })
       showToast('Soal berhasil ditambahkan')
