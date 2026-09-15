@@ -44,7 +44,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ data: data ?? [] })
 }
 
-// body: { paket_id, teks, gambar_url?, urutan? }
+// body: { paket_id, teks, gambar_url?, urutan?, idempotency_key? }
 export async function POST(req: NextRequest) {
   const auth = requireRole(req, ['GURU'])
   if ('error' in auth) return auth.error
@@ -55,6 +55,29 @@ export async function POST(req: NextRequest) {
 
   if (!body.paket_id) {
     return NextResponse.json({ error: 'paket_id wajib diisi' }, { status: 400 })
+  }
+
+  // FIX BUG (soal dobel saat DB lambat + guru menekan submit ulang):
+  // client mengirim idempotency_key yang SAMA kalau ini adalah percobaan
+  // ulang dari submit sebelumnya (lihat handleTambahSoal() di
+  // guru/paket/page.tsx). Kalau permintaan dengan key ini ternyata sudah
+  // pernah berhasil diproses sebelumnya (insert pertama sempat sukses di
+  // server walau responsnya keburu di-timeout di sisi browser), jangan
+  // insert baris baru lagi — cukup kembalikan soal yang sudah ada.
+  const idempotencyKey: string | null = body.idempotency_key || null
+  if (idempotencyKey) {
+    const { data: existing } = await db
+      .from('soal_essay')
+      .select('id')
+      .eq('idempotency_key', idempotencyKey)
+      .maybeSingle()
+
+    if (existing) {
+      return NextResponse.json(
+        { message: 'Soal essay berhasil ditambahkan', id: existing.id },
+        { status: 200 }
+      )
+    }
   }
 
   const teks = stripHtmlTags(body.teks)
@@ -126,9 +149,31 @@ export async function POST(req: NextRequest) {
     bobot_maks: bobotMaks,
     urutan,
     status: 'DRAFT',
+    idempotency_key: idempotencyKey,
   })
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (error) {
+    // Kode 23505 = unique_violation. Ini bisa kejadian kalau dua request
+    // dengan idempotency_key yang sama nyaris bersamaan lolos dari
+    // pengecekan .maybeSingle() di atas (race condition) — DB yang jadi
+    // penjaga terakhir lewat UNIQUE INDEX (lihat migrasi
+    // 13_idempotency_soal_essay.sql). Kalau ini terjadi, ambil baris yang
+    // sudah berhasil disimpan oleh request lain tadi, bukan tampilkan error.
+    if (idempotencyKey && (error as { code?: string }).code === '23505') {
+      const { data: existing } = await db
+        .from('soal_essay')
+        .select('id')
+        .eq('idempotency_key', idempotencyKey)
+        .maybeSingle()
+      if (existing) {
+        return NextResponse.json(
+          { message: 'Soal essay berhasil ditambahkan', id: existing.id },
+          { status: 200 }
+        )
+      }
+    }
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
 
   await db.from('paket_essay').update({ jumlah_soal: urutan }).eq('id', paket.id)
 
