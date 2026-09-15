@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { Activity, X, Maximize2, Minimize2, RefreshCw, Shield, Database, Users, AlertTriangle, CheckCircle, BarChart3 } from 'lucide-react'
+import { Activity, X, Maximize2, Minimize2, RefreshCw, Shield, Database, Users, AlertTriangle, CheckCircle, BarChart3, LogIn, Search, ChevronLeft } from 'lucide-react'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -49,6 +49,15 @@ interface Particle {
   color: string
   speed: number
   phase: 'to-db' | 'to-proc' | 'to-out'
+}
+
+// Satu baris di daftar nama (dipakai untuk hasil /api/admin/monitoring/daftar)
+interface DaftarItem {
+  id: string
+  nama: string
+  sub: string
+  role: string
+  waktu: string
 }
 
 // ─── Konstanta ───────────────────────────────────────────────────────────────
@@ -126,9 +135,10 @@ interface DiagramProps {
   height: number
   loading: boolean
   lastRefresh: Date | null
+  onOpenList: (jenis: string, label: string) => void
 }
 
-function DiagramCanvas({ data, userNodes, particles, width, height, loading, lastRefresh }: DiagramProps) {
+function DiagramCanvas({ data, userNodes, particles, width, height, loading, lastRefresh, onOpenList }: DiagramProps) {
   const status = data?.server.status ?? 'NORMAL'
   const cfg = STATUS_CFG[status]
   const router = useRouter()
@@ -367,44 +377,50 @@ function DiagramCanvas({ data, userNodes, particles, width, height, loading, las
           icon: <Shield size={12} />,
           label: data?.maintenanceAktif ? 'Maintenance' : 'Aman',
           color: data?.maintenanceAktif ? '#f59e0b' : '#10b981',
-          href: '/admin/pengaturan',
+          href: '/admin/pengaturan' as string | null,
+          onClick: undefined as (() => void) | undefined,
         },
         {
           key: 'sinkron',
           icon: <RefreshCw size={12} />,
           label: loading ? 'Sinkron…' : isLive ? 'Live' : 'Delay',
           color: loading ? '#3b82f6' : isLive ? '#10b981' : '#f59e0b',
-          href: null,
+          href: null as string | null,
+          onClick: undefined as (() => void) | undefined,
         },
         {
           key: 'database',
           icon: <Database size={12} />,
           label: data ? `DB ${dbMs}ms` : 'Database',
           color: dbColor,
-          href: null,
+          href: null as string | null,
+          onClick: undefined as (() => void) | undefined,
         },
         {
           key: 'monitor',
           icon: <Activity size={12} />,
           label: `${aktifCount} Aktif`,
           color: aktifCount > 0 ? '#8b5cf6' : '#64748b',
-          href: null,
+          href: null as string | null,
+          onClick: (() => onOpenList('aktif', 'Sedang Ujian')) as (() => void) | undefined,
         },
         {
           key: 'analitik',
           icon: <BarChart3 size={12} />,
           label: 'Analitik',
           color: '#10b981',
-          href: '/admin/analisis-ujian',
+          href: '/admin/analisis-ujian' as string | null,
+          onClick: undefined as (() => void) | undefined,
         },
       ].map((b, i) => {
         const bw = 64, bh = 36, totalW = bw * 5 + 8 * 4
         const bx = (width - totalW) / 2 + i * (bw + 8)
         const by = height - 46
+        const handleClick = b.onClick ?? (b.href ? () => router.push(b.href as string) : undefined)
         return (
           <g key={b.key}
-            onClick={b.href ? () => router.push(b.href as string) : undefined}
-            style={{ cursor: b.href ? 'pointer' : 'default' }}>
+            onClick={handleClick}
+            style={{ cursor: handleClick ? 'pointer' : 'default' }}>
             <rect x={bx} y={by} width={bw} height={bh} rx={8}
               fill="rgba(255,255,255,0.05)" stroke="rgba(255,255,255,0.1)" strokeWidth={1} />
             <text x={bx + bw / 2} y={by + 13} textAnchor="middle" fontSize={9} fill={b.color} fontWeight="600">
@@ -434,6 +450,52 @@ export default function NetworkFlowMonitor() {
   const animRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const particleId = useRef(0)
   const seenLogs = useRef<Set<string>>(new Set())
+
+  // ── Daftar nama (login / sedang ujian / submit / pelanggaran) ──────────────
+  // Sengaja endpoint TERPISAH (/api/admin/monitoring/daftar) dan HANYA
+  // di-fetch saat admin benar-benar membuka salah satu daftar ini —
+  // supaya polling 15 detik yang jalan terus-menerus tetap ringan, dan
+  // query yang lebih berat (join nama, kelas, mapel utk ratusan baris)
+  // tidak ikut terbawa di setiap siklus polling.
+  const [listJenis, setListJenis] = useState<string | null>(null)
+  const [listLabel, setListLabel] = useState('')
+  const [listItems, setListItems] = useState<DaftarItem[]>([])
+  const [listLoading, setListLoading] = useState(false)
+  const [listError, setListError] = useState<string | null>(null)
+  const [listSearch, setListSearch] = useState('')
+
+  const openList = useCallback(async (jenis: string, label: string) => {
+    setListJenis(jenis)
+    setListLabel(label)
+    setListSearch('')
+    setListLoading(true)
+    setListError(null)
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
+      const r = await fetch(`/api/admin/monitoring/daftar?jenis=${jenis}`, {
+        cache: 'no-store',
+        headers: token ? { Authorization: 'Bearer ' + token } : {},
+      })
+      if (r.ok) {
+        const json: { data: DaftarItem[] } = await r.json()
+        setListItems(json.data)
+      } else {
+        setListError('Gagal memuat daftar. Coba lagi.')
+      }
+    } catch {
+      setListError('Gagal memuat daftar. Periksa koneksi.')
+    } finally {
+      setListLoading(false)
+    }
+  }, [])
+
+  const closeList = useCallback(() => setListJenis(null), [])
+
+  const filteredListItems = listItems.filter((it) => {
+    if (!listSearch.trim()) return true
+    const q = listSearch.toLowerCase()
+    return it.nama.toLowerCase().includes(q) || it.sub.toLowerCase().includes(q) || it.id.toLowerCase().includes(q)
+  })
 
   // Canvas size
   const canvasW = fullscreen ? Math.min(window?.innerWidth ?? 900, 1100) - 32 : 780
@@ -621,22 +683,27 @@ export default function NetworkFlowMonitor() {
                 {cfg.emoji} {cfg.label}
               </span>
 
-              {/* Stats pills */}
+              {/* Stats pills — sekarang bisa DIKLIK untuk melihat daftar
+                  nama lengkapnya (login/aktif/submit/pelanggaran), bukan
+                  cuma angka mati. */}
               <div style={{ display: 'flex', gap: 6, marginLeft: 'auto' }}>
                 {[
-                  { icon: <Users size={10} />, val: data?.aktivitas.siswaAktifMengerjakan ?? 0, color: '#6366f1', label: 'Aktif' },
-                  { icon: <AlertTriangle size={10} />, val: data?.aktivitas.pelanggaranHariIni ?? 0, color: '#ef4444', label: 'Langs.' },
-                  { icon: <CheckCircle size={10} />, val: data?.aktivitas.submitHariIni ?? 0, color: '#10b981', label: 'Submit' },
+                  { icon: <LogIn size={10} />, val: data?.aktivitas.loginHariIni ?? 0, color: '#3b82f6', label: 'Login', jenis: 'login' },
+                  { icon: <Users size={10} />, val: data?.aktivitas.siswaAktifMengerjakan ?? 0, color: '#6366f1', label: 'Aktif', jenis: 'aktif' },
+                  { icon: <AlertTriangle size={10} />, val: data?.aktivitas.pelanggaranHariIni ?? 0, color: '#ef4444', label: 'Langs.', jenis: 'pelanggaran' },
+                  { icon: <CheckCircle size={10} />, val: data?.aktivitas.submitHariIni ?? 0, color: '#10b981', label: 'Submit', jenis: 'submit' },
                 ].map((s) => (
-                  <div key={s.label} style={{
-                    display: 'flex', alignItems: 'center', gap: 4,
-                    background: s.color + '18', border: `1px solid ${s.color}33`,
-                    borderRadius: 8, padding: '3px 8px',
-                  }}>
+                  <button key={s.label} onClick={() => openList(s.jenis, s.label)}
+                    title={`Lihat daftar ${s.label}`}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 4,
+                      background: s.color + '18', border: `1px solid ${s.color}33`,
+                      borderRadius: 8, padding: '3px 8px', cursor: 'pointer',
+                    }}>
                     <span style={{ color: s.color }}>{s.icon}</span>
                     <span style={{ fontSize: 11, fontWeight: 800, color: s.color }}>{s.val}</span>
                     <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)' }}>{s.label}</span>
-                  </div>
+                  </button>
                 ))}
               </div>
 
@@ -654,17 +721,92 @@ export default function NetworkFlowMonitor() {
               </button>
             </div>
 
-            {/* Main canvas */}
+            {/* Main canvas — atau daftar nama kalau salah satu pill diklik */}
             <div style={{ flex: 1, overflow: 'hidden', position: 'relative', padding: '8px 12px 0' }}>
-              <DiagramCanvas
-                data={data}
-                userNodes={userNodes}
-                particles={particles}
-                width={canvasW}
-                height={canvasH}
-                loading={loading}
-                lastRefresh={lastRefresh}
-              />
+              {listJenis ? (
+                <div style={{ display: 'flex', flexDirection: 'column', height: canvasH }}>
+                  {/* List header: back + judul + search */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingBottom: 8, flexShrink: 0 }}>
+                    <button className="nfm-btn" onClick={closeList} title="Kembali ke diagram">
+                      <ChevronLeft size={16} />
+                    </button>
+                    <span style={{ fontSize: 12, fontWeight: 800, color: '#fff' }}>
+                      Daftar {listLabel}
+                    </span>
+                    <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)' }}>
+                      ({filteredListItems.length}{listSearch ? ` / ${listItems.length}` : ''})
+                    </span>
+                    <div style={{
+                      marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6,
+                      background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
+                      borderRadius: 8, padding: '4px 10px', minWidth: 160,
+                    }}>
+                      <Search size={12} color="rgba(255,255,255,0.4)" />
+                      <input
+                        value={listSearch}
+                        onChange={(e) => setListSearch(e.target.value)}
+                        placeholder="Cari nama / kelas…"
+                        style={{
+                          background: 'transparent', border: 'none', outline: 'none',
+                          color: '#fff', fontSize: 11, width: '100%',
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* List body */}
+                  <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    {listLoading && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '20px 0', justifyContent: 'center' }}>
+                        <RefreshCw size={14} color="#64748b" className="nfm-spin" />
+                        <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>Memuat daftar…</span>
+                      </div>
+                    )}
+                    {!listLoading && listError && (
+                      <div style={{ fontSize: 11, color: '#ef4444', textAlign: 'center', padding: '20px 0' }}>{listError}</div>
+                    )}
+                    {!listLoading && !listError && filteredListItems.length === 0 && (
+                      <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', textAlign: 'center', padding: '20px 0' }}>
+                        {listItems.length === 0 ? 'Belum ada data.' : 'Tidak ada yang cocok dengan pencarian.'}
+                      </div>
+                    )}
+                    {!listLoading && filteredListItems.map((it) => {
+                      const c = ROLE_CFG[it.role]?.color ?? '#64748b'
+                      return (
+                        <div key={it.id + it.waktu} style={{
+                          display: 'flex', alignItems: 'center', gap: 10,
+                          background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)',
+                          borderRadius: 8, padding: '7px 10px', flexShrink: 0,
+                        }}>
+                          <span style={{ width: 7, height: 7, borderRadius: '50%', background: c, flexShrink: 0 }} />
+                          <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {it.nama}
+                            </span>
+                            <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {it.sub}
+                            </span>
+                          </div>
+                          <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', flexShrink: 0 }}>
+                            {formatAgo(it.waktu)}
+                          </span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              ) : (
+                <DiagramCanvas
+                  data={data}
+                  userNodes={userNodes}
+                  particles={particles}
+                  width={canvasW}
+                  height={canvasH}
+                  loading={loading}
+                  lastRefresh={lastRefresh}
+                  onOpenList={openList}
+                />
+              )}
             </div>
 
             {/* Footer log strip */}
