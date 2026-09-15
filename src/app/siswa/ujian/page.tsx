@@ -1521,7 +1521,10 @@ export default function SiswaUjianPage() {
     try {
       const res = await apiRequest<{ sudahDikirim: boolean; nilaiPg: { id?: string; benar: number; total: number; kkm: number } | null }>(
         '/api/siswa/ujian/essay/kirim',
-        { method: 'POST', body: JSON.stringify({ sesiId: currentSesi.sesiId }) }
+        // FIX BUG (essay/kirim tidak memeriksa deviceId): sertakan deviceId,
+        // sama seperti syncJawaban()/essay/jawab, supaya backend bisa menolak
+        // pengiriman dari perangkat yang bukan device aktif siswa ini.
+        { method: 'POST', body: JSON.stringify({ sesiId: currentSesi.sesiId, deviceId: getDeviceId() }) }
       )
       // Tampilkan halaman hasil KHUSUS essay (nilai_total masih menunggu
       // koreksi guru, jadi TIDAK memakai layout lulus/grade biasa) — BARU DI
