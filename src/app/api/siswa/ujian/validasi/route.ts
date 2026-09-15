@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
+import { catatAktivitas } from '@/lib/aktivitas'
 
 // Threshold: kalau last_heartbeat device lama lebih muda dari ini,
 // anggap device lama masih aktif → tolak login device baru.
@@ -166,6 +167,14 @@ export async function POST(req: NextRequest) {
       { valid: false, message: 'Gagal mendaftarkan Anda ke sesi ujian. Coba lagi beberapa saat.' },
       { status: 500 }
     )
+  }
+
+  // Catat "mulai ujian" HANYA saat benar-benar pertama kali masuk sesi ini
+  // (isNewEntry) — bukan setiap kali endpoint ini dipanggil ulang (mis.
+  // refresh halaman, retry jaringan), supaya log tidak banjir event yang
+  // sama berulang-ulang untuk satu siswa yang sama.
+  if (isNewEntry) {
+    catatAktivitas(db, nis, 'MULAI_UJIAN', `Siswa ${user.nama} mulai ujian ${mapel?.nama ?? sesi.mapel_id} (${sesi.kelas})`)
   }
 
   // ── Tutup race condition login bersamaan ──────────────────────────────────
