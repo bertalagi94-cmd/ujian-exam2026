@@ -38,6 +38,7 @@ interface UserNode {
   lane: number        // posisi vertikal (0-based)
   enteredAt: number
   aksi: string
+  detail: string
 }
 
 interface Particle {
@@ -63,11 +64,28 @@ const ROLE_CFG: Record<string, { color: string; label: string }> = {
   SISWA:    { color: '#6366f1', label: 'Siswa' },
   GURU:     { color: '#10b981', label: 'Guru' },
   ADMIN:    { color: '#f59e0b', label: 'Admin' },
+  KEPSEK:   { color: '#ec4899', label: 'Kepsek' },
   PENGAWAS: { color: '#8b5cf6', label: 'Pengawas' },
   SISTEM:   { color: '#64748b', label: 'Sistem' },
 }
 
-function detectRole(aksi: string): string {
+// PENTING: satu-satunya `aksi` yang benar-benar pernah tercatat ke
+// log_aktivitas di seluruh aplikasi ini adalah 'LOGIN' — dipakai untuk
+// SEMUA role (siswa, guru, admin, kepsek), lihat src/app/api/auth/login/route.ts.
+// Mengecek prefix pada `aksi` (mis. aksi.startsWith('SISWA')) tidak pernah
+// cocok karena nilainya selalu literal "LOGIN". Info role yang sebenarnya
+// ada di teks `detail`, contoh: "Login sebagai SISWA (Budi)",
+// "Login sebagai GURU", "Login sebagai ADMIN", "Login sebagai KEPSEK".
+// Jadi role dideteksi dari `detail` dulu, baru fallback ke prefix `aksi`
+// untuk jenis log lain yang mungkin ditambahkan di masa depan.
+function detectRole(aksi: string, detail?: string): string {
+  const d = (detail ?? '').toUpperCase()
+  if (d.includes('SISWA')) return 'SISWA'
+  if (d.includes('GURU')) return 'GURU'
+  if (d.includes('KEPSEK')) return 'KEPSEK'
+  if (d.includes('ADMIN')) return 'ADMIN'
+  if (d.includes('PENGAWAS')) return 'PENGAWAS'
+
   if (aksi.startsWith('SISWA') || aksi === 'MULAI_UJIAN' || aksi === 'SUBMIT_UJIAN') return 'SISWA'
   if (aksi.startsWith('GURU') || aksi === 'BUAT_SOAL' || aksi === 'VALIDASI') return 'GURU'
   if (aksi.startsWith('ADMIN')) return 'ADMIN'
@@ -209,7 +227,15 @@ function DiagramCanvas({ data, userNodes, particles, width, height }: DiagramPro
               {ROLE_CFG[u.role]?.label ?? 'Sistem'}
             </text>
             <text x={sourceX + 14} y={y + 7} fontSize={8} fill="rgba(255,255,255,0.45)">
-              {u.aksi.length > 14 ? u.aksi.slice(0, 14) + '…' : u.aksi}
+              {(() => {
+                // Ambil nama dari dalam kurung di `detail` jika ada, mis.
+                // "Login sebagai SISWA (Budi)" → "Budi". Kalau tidak ada,
+                // tampilkan NIS/username (u.label) — lebih informatif
+                // daripada teks aksi generik "LOGIN" yang sama untuk semua orang.
+                const m = /\(([^)]+)\)/.exec(u.detail)
+                const txt = m ? m[1] : u.label
+                return txt.length > 14 ? txt.slice(0, 14) + '…' : txt
+              })()}
             </text>
           </g>
         )
@@ -377,7 +403,7 @@ export default function NetworkFlowMonitor() {
         const newNodes: UserNode[] = []
         recentLogs.forEach((log, idx) => {
           if (idx >= 6) return
-          const role = detectRole(log.aksi)
+          const role = detectRole(log.aksi, log.detail)
           newNodes.push({
             id: log.id,
             label: log.user_id,
@@ -386,6 +412,7 @@ export default function NetworkFlowMonitor() {
             lane: idx,
             enteredAt: Date.now(),
             aksi: log.aksi,
+            detail: log.detail ?? '',
           })
           // Spawn particles for new logs
           if (!seenLogs.current.has(log.id)) {
@@ -568,7 +595,7 @@ export default function NetworkFlowMonitor() {
               flexShrink: 0,
             }}>
               {(data?.logs ?? []).slice(0, 8).map((l) => {
-                const role = detectRole(l.aksi)
+                const role = detectRole(l.aksi, l.detail)
                 const c = ROLE_CFG[role]?.color ?? '#64748b'
                 return (
                   <div key={l.id} style={{
