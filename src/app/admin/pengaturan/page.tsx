@@ -85,6 +85,16 @@ export default function AdminPengaturanPage() {
   const [confirmRestoreForce, setConfirmRestoreForce] = useState<{ ada_sesi: boolean; ada_siswa: boolean } | null>(null)
   const [pendingRestoreFile, setPendingRestoreFile] = useState<File | null>(null)
   const [pendingRestoreInfo, setPendingRestoreInfo] = useState<{ name: string; size: string } | null>(null)
+  // BUG FIX: endpoint /api/admin/reset sudah mendukung `force` (persis seperti
+  // /api/admin/restore) untuk menembus penolakan 409 saat ada sesi ujian
+  // BERJALAN / siswa AKTIF, tapi doReset() di bawah sebelumnya tidak pernah
+  // mengirim `force` dan tidak menangani respons 409-nya sama sekali —
+  // admin yang mencoba Reset Data (kategori apa pun) saat ada sesi/siswa
+  // aktif akan SELALU ditolak tanpa jalan keluar dari UI, walau backend-nya
+  // sudah siap mendukung itu. Simpan kategori yang tertunda + info aktivitas
+  // supaya dialog konfirmasi kedua tahu kategori apa yang harus dipaksa,
+  // sama seperti pola confirmRestoreForce di atas.
+  const [confirmResetForce, setConfirmResetForce] = useState<{ categories: string[]; ada_sesi: boolean; ada_siswa: boolean } | null>(null)
 
   const [hackerOpen, setHackerOpen] = useState(false)
   const [hackerType, setHackerType] = useState<HackerPopupType>('backup')
@@ -353,8 +363,9 @@ export default function AdminPengaturanPage() {
     setSelectedResets(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
   }
 
-  async function doReset(categories: string[]) {
+  async function doReset(categories: string[], force = false) {
     const label = categories.includes('semua') ? 'Semua Data' : `${categories.length} kategori`
+    setConfirmResetForce(null)
     setResetting(true)
     openHacker('reset', label)
     try {
@@ -362,10 +373,21 @@ export default function AdminPengaturanPage() {
       const resPromise = fetch('/api/admin/reset', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        body: JSON.stringify({ categories }),
+        body: JSON.stringify({ categories, force }),
       })
       const [res] = await Promise.all([resPromise, new Promise<void>(resolve => { const ref: { id?: ReturnType<typeof setInterval> } = {}; tickProgress(resolve, ref) })])
       const json = await res.json()
+
+      // FIX: kalau ditolak karena ada sesi/siswa aktif, JANGAN langsung anggap
+      // gagal — tawarkan dialog konfirmasi kedua untuk memaksa (force), sama
+      // seperti doRestore. Tanpa ini, admin mentok di toast error tanpa jalan
+      // keluar walau backend sudah siap mendukung force=true.
+      if (res.status === 409 && json.ada_aktivitas) {
+        setHackerOpen(false)
+        setConfirmResetForce({ categories, ada_sesi: !!json.ada_sesi, ada_siswa: !!json.ada_siswa })
+        return
+      }
+
       if (!res.ok && res.status !== 207) throw new Error(json.error || 'Reset gagal')
       showToast(json.message || 'Reset berhasil')
       setSelectedResets([])
@@ -937,6 +959,23 @@ export default function AdminPengaturanPage() {
         confirmLabel="Ya, Paksa Restore Sekarang"
         variant="danger"
         loading={restoring}
+      />
+
+      {/* FIX: dialog konfirmasi kedua — muncul kalau reset ditolak server
+          karena ada sesi ujian/siswa yang masih aktif (409). Sebelumnya
+          doReset() tidak menangani kasus ini sama sekali sehingga admin
+          mentok di toast error tanpa jalan keluar, walau backend sudah
+          mendukung force=true persis seperti restore. Pola sama dengan
+          confirmRestoreForce di atas. */}
+      <Confirm
+        open={!!confirmResetForce}
+        onClose={() => setConfirmResetForce(null)}
+        onConfirm={() => confirmResetForce && doReset(confirmResetForce.categories, true)}
+        title="⚠️ Ada Ujian yang Sedang Berjalan"
+        message={`Reset tidak bisa dilakukan secara normal karena ${confirmResetForce?.ada_sesi ? 'ada sesi ujian yang berstatus BERJALAN' : ''}${confirmResetForce?.ada_sesi && confirmResetForce?.ada_siswa ? ' dan ' : ''}${confirmResetForce?.ada_siswa ? 'ada siswa yang sedang mengerjakan ujian' : ''}. Sebaiknya tutup dulu sesi tersebut lewat panel Monitoring (tombol "Tutup Paksa") kalau memungkinkan. Kalau sesi itu ternyata terlantar dan tidak bisa ditutup normal (mis. pengawasnya tidak bisa dihubungi), Anda bisa memaksa reset sekarang — TAPI ini akan MENGHAPUS data terkait sesi/siswa yang sedang aktif saat ini. Tetap lanjutkan?`}
+        confirmLabel="Ya, Paksa Reset Sekarang"
+        variant="danger"
+        loading={resetting}
       />
 
       <HackerPopup
