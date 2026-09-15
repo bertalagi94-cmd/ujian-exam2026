@@ -895,7 +895,7 @@ export default function ModePengawasPage() {
                               <FileQuestion className="w-3.5 h-3.5 flex-shrink-0" />
                               {soalKosong
                                 ? 'Tidak ada soal essay untuk mapel ini.'
-                                : `Akses Soal Essay: ${aksesOn ? 'siswa yang sudah selesai PG boleh langsung mulai essay.' : 'Siswa belum bisa masuk. Aktifkan lewat tombol Switch agar siswa bisa masuk.).'}`}
+                                : `Akses Soal Essay: ${aksesOn ? 'siswa yang sudah selesai PG boleh langsung mulai essay.' : 'Siswa belum bisa masuk. Aktifkan lewat tombol Switch agar siswa bisa masuk'}`}
                             </div>
                             <div className="flex-shrink-0 flex items-center gap-2">
                               <span className={`text-xs font-semibold ${aksesOn ? 'text-indigo-600' : 'text-slate-400'}`}>
