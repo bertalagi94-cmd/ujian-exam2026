@@ -175,7 +175,7 @@ export default function ModePengawasPage() {
   const [starting, setStarting] = useState<string | null>(null)
   const [stopping, setStopping] = useState<string | null>(null)
   const [confirmTutup, setConfirmTutup] = useState<JadwalHariIni | null>(null)
-  const [peringatanEssay, setPeringatanEssay] = useState<{ jadwal: JadwalHariIni; pesan: string } | null>(null)
+  const [peringatanEssay, setPeringatanEssay] = useState<{ jadwal: JadwalHariIni; pesan: string; kontak: string } | null>(null)
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
 
   // FIX (akses mulai essay): loading state khusus toggle "Akses Soal Essay"
@@ -541,9 +541,17 @@ export default function ModePengawasPage() {
       showToast(res.sudahAda ? 'Sesi sudah berjalan — kode ditampilkan.' : 'Sesi ujian berhasil dibuka!')
       await load(true)
     } catch (err: unknown) {
-      const data = (err as { data?: { essayBelumSiap?: boolean } })?.data
+      const data = (err as { data?: { essayBelumSiap?: boolean; essayStatus?: string; essayGuruNama?: string | null } })?.data
       if (data?.essayBelumSiap) {
-        setPeringatanEssay({ jadwal: j, pesan: err instanceof Error ? err.message : 'Essay belum siap.' })
+        // FIX (permintaan pengawas): kalau soal masih MENUNGGU, bolanya ada
+        // di admin (guru sudah mengajukan, tinggal nunggu disetujui). Kalau
+        // DRAFT/DITOLAK, bolanya masih di guru pembuat soal (belum
+        // diajukan / perlu direvisi dulu) — sebut namanya kalau diketahui,
+        // fallback ke "guru mapel ini" kalau nama tidak terdeteksi.
+        const kontak = data.essayStatus === 'MENUNGGU'
+          ? 'admin'
+          : (data.essayGuruNama?.trim() || 'guru mapel ini')
+        setPeringatanEssay({ jadwal: j, pesan: err instanceof Error ? err.message : 'Essay belum siap.', kontak })
         return
       }
       showToast(err instanceof Error ? err.message : 'Gagal membuka sesi', 'error')
@@ -1090,6 +1098,9 @@ export default function ModePengawasPage() {
               <AlertTriangle className="w-6 h-6 text-red-600" />
             </div>
             <h3 className="text-lg font-bold text-slate-900 text-center mb-2">Ujian Belum Bisa Dibuka</h3>
+            <p className="text-sm font-bold text-red-600 text-center mb-2">
+              Hubungi {peringatanEssay.kontak}
+            </p>
             <p className="text-sm text-slate-500 text-center mb-1">
               <strong>{peringatanEssay.jadwal.nama_mapel}</strong> — Kelas {peringatanEssay.jadwal.nama_kelas}
             </p>
