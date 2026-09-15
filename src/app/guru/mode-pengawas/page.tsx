@@ -531,19 +531,18 @@ export default function ModePengawasPage() {
     }
   }, [])
 
-  async function handleMulai(j: JadwalHariIni, abaikanPeringatanEssay?: boolean) {
+  async function handleMulai(j: JadwalHariIni) {
     setStarting(j.id)
     try {
       const res = await apiRequest<{ message: string; kodeSesi: string; sesiId: string; sudahAda?: boolean }>(
         '/api/guru/mode-pengawas',
-        { method: 'POST', body: JSON.stringify({ jadwalId: j.id, abaikanPeringatanEssay }) }
+        { method: 'POST', body: JSON.stringify({ jadwalId: j.id }) }
       )
-      setPeringatanEssay(null)
       showToast(res.sudahAda ? 'Sesi sudah berjalan — kode ditampilkan.' : 'Sesi ujian berhasil dibuka!')
       await load(true)
     } catch (err: unknown) {
-      const data = (err as { data?: { peringatanEssayBelumSiap?: boolean } })?.data
-      if (data?.peringatanEssayBelumSiap) {
+      const data = (err as { data?: { essayBelumSiap?: boolean } })?.data
+      if (data?.essayBelumSiap) {
         setPeringatanEssay({ jadwal: j, pesan: err instanceof Error ? err.message : 'Essay belum siap.' })
         return
       }
@@ -1061,30 +1060,30 @@ export default function ModePengawasPage() {
         </div>
       )}
 
-      {/* Peringatan: Soal Essay Belum Diajukan/Divalidasi */}
+      {/* Blokir: Soal Essay Belum Divalidasi — TIDAK ADA opsi untuk
+          melewati ini. Sebelumnya ada tombol "Lanjut Tanpa Essay" yang
+          mengizinkan sesi tetap dibuka tanpa essay; itu sengaja dihapus
+          supaya soal essay yang belum diajukan/divalidasi tidak pernah bisa
+          "terlewat" begitu saja — guru WAJIB menyelesaikan status essay-nya
+          dulu (ajukan & tunggu disetujui admin, atau hapus paket essay-nya
+          kalau memang tidak dipakai) sebelum sesi ujian bisa dibuka. */}
       {peringatanEssay && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
           <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 animate-fade-in">
-            <div className="w-12 h-12 rounded-full bg-amber-100 flex items-center justify-center mx-auto mb-4">
-              <AlertTriangle className="w-6 h-6 text-amber-600" />
+            <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mx-auto mb-4">
+              <AlertTriangle className="w-6 h-6 text-red-600" />
             </div>
-            <h3 className="text-lg font-bold text-slate-900 text-center mb-2">Soal Essay Belum Siap</h3>
+            <h3 className="text-lg font-bold text-slate-900 text-center mb-2">Ujian Belum Bisa Dibuka</h3>
             <p className="text-sm text-slate-500 text-center mb-1">
               <strong>{peringatanEssay.jadwal.nama_mapel}</strong> — Kelas {peringatanEssay.jadwal.nama_kelas}
             </p>
             <p className="text-sm text-slate-600 text-center my-4">{peringatanEssay.pesan}</p>
-            <div className="flex gap-3">
-              <button onClick={() => setPeringatanEssay(null)} className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 text-sm font-medium">
-                Batal, Cek Essay Dulu
-              </button>
-              <button
-                onClick={() => handleMulai(peringatanEssay.jadwal, true)}
-                disabled={starting === peringatanEssay.jadwal.id}
-                className="flex-1 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold"
-              >
-                {starting === peringatanEssay.jadwal.id ? 'Membuka...' : 'Lanjut Tanpa Essay'}
-              </button>
-            </div>
+            <button
+              onClick={() => setPeringatanEssay(null)}
+              className="w-full px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-900 text-white text-sm font-semibold"
+            >
+              Mengerti, Selesaikan Essay Dulu
+            </button>
           </div>
         </div>
       )}
