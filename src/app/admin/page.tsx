@@ -5,6 +5,7 @@ import { Users, BookOpen, GraduationCap, BarChart3, Calendar, ClipboardCheck, Tr
 import { StatCard, PageLoader, Badge, StatusBadge } from '@/components/ui'
 import { apiRequest, formatDateTime, nilaiColor } from '@/lib/utils'
 import MonitoringPanel from '@/components/shared/MonitoringPanel'
+import NetworkFlowMonitor from '@/components/shared/NetworkFlowMonitor'
 
 interface DashboardData {
   stats: {
@@ -167,6 +168,9 @@ export default function AdminDashboard() {
 
       {/* Floating Monitoring Panel */}
       <MonitoringPanel />
+
+      {/* Network Flow Monitor - diagram alir realtime */}
+      <NetworkFlowMonitor />
     </div>
   )
 }
