@@ -64,6 +64,27 @@ export async function POST(req: NextRequest) {
     })
   }
 
+  // FIX BUG (essay/kirim tidak memeriksa status TERKUNCI/RESET): sebelumnya
+  // endpoint ini sama sekali tidak mengecek siswaUjian.status, padahal
+  // essay/jawab dan essay/mulai sudah sama-sama menolak begitu status siswa
+  // TERKUNCI/RESET. Ini bukan cuma soal konsistensi — tanpa guard ini, siswa
+  // yang baru saja DIKUNCI PERMANEN oleh admin (aksi 'kunci_permanen' di
+  // admin/pelanggaran/route.ts, yang SENGAJA hanya mengubah `status` menjadi
+  // TERKUNCI dan TIDAK menyentuh `status_essay`) tetap bisa menekan "Kirim"
+  // selama status_essay-nya masih MENGERJAKAN — dan UPDATE di bawah akan
+  // MENIMPA status TERKUNCI itu kembali menjadi SELESAI, membatalkan efek
+  // penguncian yang sudah sengaja ditegakkan admin karena pelanggaran. Hal
+  // yang sama berlaku untuk siswa yang sedang RESET (menunggu kode dari
+  // pengawas) — reset-siswa/route.ts juga hanya mengubah `status`, bukan
+  // `status_essay`. Sekarang keduanya diblokir di sini, sama seperti endpoint
+  // essay lainnya.
+  if (siswaUjian.status === 'TERKUNCI' || siswaUjian.status === 'RESET') {
+    return NextResponse.json(
+      { error: 'Akses ujian Anda sedang dikunci/menunggu reset. Essay tidak bisa dikirim sekarang.' },
+      { status: 403 }
+    )
+  }
+
   if (siswaUjian.status_essay !== 'MENGERJAKAN') {
     return NextResponse.json({ error: 'Essay belum dimulai, tidak bisa dikirim.' }, { status: 409 })
   }
@@ -133,6 +154,25 @@ export async function POST(req: NextRequest) {
   // menekan tombol "Selesai" kapan pun mereka sudah selesai menulis; endpoint
   // ini hanya menandai status ujian selesai, tidak menyimpan jawaban apapun
   // untuk mode ini.
+
+  // FIX BUG (race: sesi ditutup pengawas TEPAT di antara pengecekan
+  // sesi.status di atas dan UPDATE di bawah): jendela antara pengecekan
+  // `sesi.status !== 'BERJALAN'` di awal fungsi dan UPDATE di sini bisa berisi
+  // waktu tunggu I/O lain (query waktu, dst), jadi ada celah sempit tapi nyata
+  // di mana pengawas menutup sesi PERSIS di tengah proses ini — request tetap
+  // lolos pengecekan awal lalu berhasil menulis SUDAH_KIRIM/SELESAI walau
+  // sesi sudah SELESAI. Ini BUKAN dijadikan atomik penuh lewat SQL
+  // function/transaction (di luar scope perubahan minimal ini), tapi
+  // jendelanya dipersempit drastis dengan mengambil ulang status sesi
+  // sesaat sebelum UPDATE — dari "sepanjang durasi request" menjadi
+  // "satu round-trip DB terakhir".
+  const { data: sesiUlang } = await db.from('sesi_ujian').select('status').eq('id', sesiId).single()
+  if (sesiUlang && sesiUlang.status !== 'BERJALAN') {
+    return NextResponse.json(
+      { error: 'Sesi ujian baru saja ditutup, essay tidak bisa dikirim lagi.' },
+      { status: 409 }
+    )
+  }
 
   const waktuKirim = new Date().toISOString()
 
