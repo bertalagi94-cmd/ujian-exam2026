@@ -3,6 +3,25 @@ import bcrypt from 'bcryptjs'
 import { createAdminClient } from '@/lib/supabase'
 import { signToken } from '@/lib/auth'
 import { cachedFetch, cacheGet, cacheSet } from '@/lib/cache'
+import { generateId } from '@/lib/utils'
+
+// FIX BUG: catat setiap login sukses ke `log_aktivitas` (aksi='LOGIN').
+// Sebelumnya endpoint ini hanya meng-update kolom `last_login` di tabel
+// users/siswa, tapi tidak pernah insert ke `log_aktivitas` — akibatnya
+// panel Monitor Sistem (Aktivitas → "Login Hari Ini" & "Aktivitas 5 Menit
+// Terakhir") selalu menampilkan 0 walau login berhasil, karena query di
+// admin/monitoring/route.ts membaca count dari tabel ini.
+function catatLoginAktivitas(
+  db: ReturnType<typeof createAdminClient>,
+  userId: string,
+  detail: string
+) {
+  db.from('log_aktivitas')
+    .insert({ id: generateId('LOG'), user_id: userId, aksi: 'LOGIN', detail })
+    .then(({ error }: { error: unknown }) => {
+      if (error) console.error('Gagal catat log_aktivitas (LOGIN):', error)
+    })
+}
 
 // Pesan error login digeneralisasi agar tidak membocorkan apakah
 // username/NIS terdaftar di sistem (mencegah user enumeration).
@@ -148,6 +167,7 @@ export async function POST(req: NextRequest) {
       const token = signToken({ username: user.username, nama: user.nama, role: user.role })
       supabase.from('users').update({ last_login: new Date().toISOString() }).eq('username', user.username)
         .then(({ error }) => { if (error) console.error('Gagal update last_login (user):', error) })
+      catatLoginAktivitas(supabase, user.username, `Login sebagai ${user.role}`)
       return NextResponse.json({ token, username: user.username, nama: user.nama, role: user.role })
     }
 
@@ -158,6 +178,7 @@ export async function POST(req: NextRequest) {
       const token = signToken({ username: siswa.nis, nama: siswa.nama, role: 'SISWA', nis: siswa.nis, kelas: siswa.kelas })
       supabase.from('siswa').update({ last_login: new Date().toISOString() }).eq('nis', siswa.nis)
         .then(({ error }) => { if (error) console.error('Gagal update last_login (siswa):', error) })
+      catatLoginAktivitas(supabase, siswa.nis, `Login sebagai SISWA (${siswa.nama})`)
       return NextResponse.json({ token, username: siswa.nis, nama: siswa.nama, role: 'SISWA', nis: siswa.nis, kelas: siswa.kelas })
     }
 
