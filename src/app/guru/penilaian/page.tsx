@@ -20,7 +20,7 @@
 //    ada sebagai redirect ke sini (?tab=...) supaya bookmark/link lama
 //    tidak 404 — pola yang sama seperti redirect /guru/soal → /guru/paket.
 import { Suspense, useCallback, useEffect, useState } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
 import { CheckSquare, BarChart3, Send, Check, AlertTriangle, CheckCircle2 } from 'lucide-react'
 import { Spinner } from '@/components/ui'
 import { apiRequest, cn } from '@/lib/utils'
@@ -77,7 +77,6 @@ const ACCENT: Record<TabDef['accent'], {
 }
 
 function PenilaianContent() {
-  const router = useRouter()
   const searchParams = useSearchParams()
 
   // null = belum tahu (masih dicek), true/false = hasil pengecekan.
@@ -251,13 +250,39 @@ function PenilaianContent() {
     },
   ]
 
-  const tabFromUrl = searchParams.get('tab') as TabKey | null
+  // PERBAIKAN (tab terasa "kurang respon" saat diklik): sebelumnya ganti tab
+  // memakai router.push() dari next/navigation. Di App Router, router.push
+  // SELALU melakukan round-trip ke server untuk mengambil ulang RSC payload
+  // begitu query string berubah — walau halaman ini murni client component
+  // dan isinya cuma mengganti angka `?tab=`. Ditambah tab yang baru aktif
+  // langsung fetch data sendiri (lihat komentar "Isi tab" di bawah), jadi
+  // tiap klik numpuk DUA jeda jaringan (navigasi + fetch data).
+  //
+  // Sekarang ganti tab murni state lokal (`manualTab`) — instan, tidak
+  // menunggu jaringan sama sekali. URL tetap diupdate supaya link lama
+  // (redirect dari /guru/koreksi-essay dst ke ?tab=...) dan tombol back/
+  // forward browser tetap jalan, tapi lewat window.history langsung
+  // (native browser API), BUKAN router Next.js — jadi tidak memicu
+  // round-trip ke server.
+  const [manualTab, setManualTab] = useState<TabKey | null>(null)
+
+  useEffect(() => {
+    function onPopState() {
+      const tab = new URLSearchParams(window.location.search).get('tab') as TabKey | null
+      setManualTab(tab)
+    }
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
+  }, [])
+
+  const tabFromUrl = (manualTab ?? searchParams.get('tab')) as TabKey | null
   const activeKey: TabKey = (tabFromUrl && tabs.some(t => t.key === tabFromUrl))
     ? tabFromUrl
     : (tabs[0]?.key ?? 'rekap')
 
   function gotoTab(key: TabKey) {
-    router.push(`/guru/penilaian?tab=${key}`, { scroll: false })
+    setManualTab(key)
+    window.history.pushState(null, '', `/guru/penilaian?tab=${key}`)
   }
 
   // Pesan ringkas di bawah label tab "Rekap Nilai" & "Kirim Nilai ke Wali
