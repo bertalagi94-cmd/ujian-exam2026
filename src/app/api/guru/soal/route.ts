@@ -4,6 +4,7 @@ import { requireRole } from '@/lib/auth'
 import { generateId, stripHtmlTags } from '@/lib/utils'
 import { cekSesiMapelKelasSudahMulai, pesanBankSoalTerkunci } from '@/lib/sesi-kelas'
 import { catatAktivitas } from '@/lib/aktivitas'
+import { validasiKunciOpsi } from '@/lib/validasi-soal'
 
 export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['GURU'])
@@ -70,6 +71,19 @@ export async function POST(req: NextRequest) {
     }, { status: 400 })
   }
 
+  // FIX BUG (kunci jawaban belum divalidasi server terhadap jumlah opsi):
+  // sebelumnya server hanya memvalidasi TEKS opsi A-E terisi sesuai
+  // jumlah_opsi, tapi tidak pernah memvalidasi bahwa `kunci` benar-benar
+  // salah satu huruf opsi yang valid (mis. jumlah_opsi=4 tapi kunci='E').
+  // Soal seperti itu tetap tersimpan, dan mesin penilaian
+  // (hitungHasilPenilaian di penilaian-ujian.ts) akan SELALU menyalahkan
+  // semua siswa untuk soal itu karena tidak ada jawaban yang bisa cocok
+  // dengan kunci yang tidak valid. Lihat src/lib/validasi-soal.ts.
+  const errorKunci = validasiKunciOpsi(body.kunci, jumlahOpsi)
+  if (errorKunci) {
+    return NextResponse.json({ error: errorKunci }, { status: 400 })
+  }
+
   // Cegah menambah soal PG untuk mapel+kelas yang sesi ujiannya sudah
   // pernah dibuka (sedang berjalan atau sudah selesai) — lihat sesi-kelas.ts
   const sesiSudahMulai = await cekSesiMapelKelasSudahMulai(db, body.mapel_id, body.kelas_id)
@@ -94,7 +108,7 @@ export async function POST(req: NextRequest) {
     gambar_opsi_c: body.gambar_opsi_c || null,
     gambar_opsi_d: body.gambar_opsi_d || null,
     gambar_opsi_e: body.gambar_opsi_e || null,
-    kunci: body.kunci,
+    kunci: String(body.kunci).trim().toUpperCase(),
     pembahasan: body.pembahasan ? stripHtmlTags(body.pembahasan) : null,
     tingkat: body.tingkat ?? 'Sedang',
     jumlah_opsi: parseInt(body.jumlah_opsi) || 4,
