@@ -2286,6 +2286,39 @@ export default function SiswaUjianPage() {
     if (sesiAktif.length === 0 && belumDibuka.length > 0) {
       return (
         <div className="max-w-md mx-auto animate-fade-in space-y-3">
+          {/* FIX BUG (mapel yang sudah dikerjakan tidak terlihat sama sekali
+              kalau hari itu ada mapel lain yang belum dikerjakan): sebelumnya
+              hanya `belumDibuka` yang ditampilkan di sini — mapel yang sudah
+              selesai (sudahDiselesaikanHariIni) tidak disebut sama sekali,
+              jadi siswa tidak tahu apakah mapel itu memang belum ada
+              jadwalnya atau sudah pernah dia kerjakan. Ditampilkan sebagai
+              kartu terpisah di atas, ringkas, supaya kartu utama (yang masih
+              perlu ditunggu/dikerjakan) tetap jadi fokus utama halaman. */}
+          {sudahDiselesaikanHariIni.length > 0 && (
+            <div className="card">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-10 h-10 bg-emerald-100 rounded-xl flex items-center justify-center flex-shrink-0">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-500" />
+                </div>
+                <div>
+                  <h2 className="text-sm font-bold text-slate-900">Sudah Dikerjakan Hari Ini</h2>
+                  <p className="text-xs text-slate-400">Nilai bisa dilihat di menu Nilai</p>
+                </div>
+              </div>
+              <div className="space-y-2">
+                {sudahDiselesaikanHariIni.map(j => (
+                  <div key={j.id} className="flex items-center justify-between bg-emerald-50 border border-emerald-100 rounded-xl px-4 py-2.5">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" />
+                      <span className="font-medium text-slate-800 text-sm">{j.nama_mapel}</span>
+                    </div>
+                    <span className="text-xs text-emerald-600 font-medium">Selesai</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="card">
             <div className="flex items-center gap-3 mb-4">
               <div className="w-10 h-10 bg-amber-100 rounded-xl flex items-center justify-center flex-shrink-0">
@@ -2403,6 +2436,27 @@ export default function SiswaUjianPage() {
               {ujian?.jam_mulai} – {ujian?.jam_selesai} · {ujian?.durasi} menit
             </p>
           </div>
+
+          {/* FIX BUG (mapel yang sudah dikerjakan tidak terlihat sama sekali
+              kalau hari itu ada mapel lain yang sesinya langsung BERJALAN):
+              sesi BERJALAN membuat siswa langsung dilempar ke layar ini
+              (lihat useEffect di cekJadwal/handleRefreshJadwal), jadi kartu
+              "Sudah Dikerjakan Hari Ini" di CEK_JADWAL tidak sempat terlihat.
+              Ditampilkan ringkas di sini juga supaya siswa tetap tahu mapel
+              lain hari itu sudah selesai, bukan cuma diam-diam terlewat. */}
+          {sudahDiselesaikanHariIni.length > 0 && (
+            <div className="bg-emerald-50 border border-emerald-100 rounded-xl px-4 py-3 mb-5">
+              <p className="text-xs text-emerald-600 font-semibold mb-1.5">Sudah kamu kerjakan hari ini:</p>
+              <div className="space-y-1">
+                {sudahDiselesaikanHariIni.map(j => (
+                  <div key={j.id} className="flex items-center gap-1.5 text-sm text-emerald-800">
+                    <CheckCircle className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                    {j.nama_mapel}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Checklist persiapan */}
           <div className="mb-5">
