@@ -314,7 +314,7 @@ export async function POST(req: NextRequest) {
     if (riwayat.sudahAda) {
       return NextResponse.json(
         {
-          error: `Ujian untuk mata pelajaran ini di kelas ${body.kelas} sudah pernah dilaksanakan dan sudah ada nilai ${riwayat.jumlahSiswa} siswa. Tidak bisa membuat jadwal baru untuk kombinasi yang sama. Jika ada siswa yang perlu ujian ulang/susulan, gunakan fitur ujian susulan pada jadwal yang bersangkutan, bukan membuat jadwal baru.`,
+          error: `Ujian ini sudah dilaksanakan (${riwayat.jumlahSiswa} siswa sudah dinilai). Gunakan fitur ujian susulan, bukan membuat jadwal baru.`,
         },
         { status: 409 }
       )
@@ -456,7 +456,7 @@ export async function PUT(req: NextRequest) {
       if (riwayat.sudahAda) {
         return NextResponse.json(
           {
-            error: `Ujian untuk mata pelajaran ini di kelas ${kelasTujuan} sudah pernah dilaksanakan dan sudah ada nilai ${riwayat.jumlahSiswa} siswa. Tidak bisa mengubah jadwal ini menjadi kombinasi yang sama. Jika ada siswa yang perlu ujian ulang/susulan, gunakan fitur ujian susulan pada jadwal yang bersangkutan, bukan mengubah jadwal ini.`,
+            error: `Ujian ini sudah dilaksanakan (${riwayat.jumlahSiswa} siswa sudah dinilai). Gunakan fitur ujian susulan, bukan mengubah jadwal ini.`,
           },
           { status: 409 }
         )
