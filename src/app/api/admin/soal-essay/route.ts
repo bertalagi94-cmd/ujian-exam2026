@@ -69,10 +69,10 @@ export async function POST(req: NextRequest) {
   // lihat komentar di sana untuk detail lengkap. Dampaknya untuk essay malah
   // lebih parah: koreksi-essay/route.ts (GET & PUT) selalu mengambil
   // soal_essay yang DISETUJUI secara live (tanpa cache) untuk membangun
-  // daftar soal & bobot_maks yang wajib diisi guru. Kalau bank soal essay
-  // yang disetujui berubah setelah siswa sudah menjawab, guru bisa dipaksa
-  // mengisi skor untuk soal yang tidak pernah dilihat siswa, sementara soal
-  // yang benar-benar dijawab siswa bisa hilang dari daftar rubrik.
+  // daftar soal & bobot_maks yang wajib diisi guru. (Catatan: pertahanan
+  // UTAMA sekarang ada di snapshot paket_essay_id pada sesi_ujian — lihat
+  // essay/mulai/route.ts & koreksi-essay/route.ts — guard di bawah ini
+  // tetap dipertahankan sebagai lapisan kedua.)
   const { data: paketUntukGuard } = await db
     .from('paket_essay')
     .select('mapel_id, kelas_id')
@@ -89,52 +89,28 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Sama seperti PG: cegah lebih dari satu paket_essay DISETUJUI untuk
-  // kombinasi mapel_id+kelas_id yang sama.
-  if (newStatus === 'DISETUJUI') {
-    const { data: paketAkanDisetujui } = await db
-      .from('paket_essay')
-      .select('mapel_id, kelas_id')
-      .eq('id', paket_id)
-      .single()
+  // FIX ARSITEKTUR KRITIS (transaksi + race condition): sama seperti
+  // admin/soal/route.ts (PG) — seluruh update paket_essay + soal_essay +
+  // demote paket lain sekarang dijalankan lewat satu fungsi Postgres atomik
+  // (set_status_paket_essay, lihat
+  // supabase/14_snapshot_paket_dan_transaksi_atomik.sql) dengan row lock
+  // untuk menyerialkan approval yang bertabrakan, dan unique partial index
+  // sebagai penjaga terakhir di level database.
+  const { error: rpcError } = await db.rpc('set_status_paket_essay', {
+    p_paket_id: paket_id,
+    p_new_status: newStatus,
+    p_catatan: catatan || null,
+  })
 
-    if (paketAkanDisetujui) {
-      const { data: paketLainDisetujui } = await db
-        .from('paket_essay')
-        .select('id')
-        .eq('mapel_id', paketAkanDisetujui.mapel_id)
-        .eq('kelas_id', paketAkanDisetujui.kelas_id)
-        .eq('status', 'DISETUJUI')
-        .neq('id', paket_id)
-
-      const idPaketLain = (paketLainDisetujui ?? []).map(p => p.id)
-      if (idPaketLain.length > 0) {
-        await Promise.all([
-          db.from('paket_essay')
-            .update({ status: 'DRAFT', notif_dibaca: false, catatan: 'Otomatis dikembalikan ke draft karena paket lain untuk mapel+kelas ini disetujui.' })
-            .in('id', idPaketLain),
-          db.from('soal_essay')
-            .update({ status: 'DRAFT' })
-            .in('paket_essay_id', idPaketLain)
-            .eq('status', 'DISETUJUI'),
-        ])
-      }
+  if (rpcError) {
+    if (rpcError.code === '23505') {
+      return NextResponse.json(
+        { error: 'Ada paket lain yang baru saja disetujui untuk mapel & kelas yang sama. Muat ulang halaman dan coba lagi.' },
+        { status: 409 }
+      )
     }
+    return NextResponse.json({ error: rpcError.message }, { status: 500 })
   }
-
-  const { error: paketErr } = await db
-    .from('paket_essay')
-    .update({ status: newStatus, catatan: catatan || null, notif_dibaca: false })
-    .eq('id', paket_id)
-
-  if (paketErr) return NextResponse.json({ error: paketErr.message }, { status: 500 })
-
-  const { error: soalErr } = await db
-    .from('soal_essay')
-    .update({ status: newStatus })
-    .eq('paket_essay_id', paket_id)
-
-  if (soalErr) return NextResponse.json({ error: soalErr.message }, { status: 500 })
 
   const pesanStatus = newStatus === 'DISETUJUI' ? 'disetujui' : newStatus === 'DITOLAK' ? 'ditolak' : 'dikembalikan ke draft'
   return NextResponse.json({ message: `Paket berhasil ${pesanStatus}` })
