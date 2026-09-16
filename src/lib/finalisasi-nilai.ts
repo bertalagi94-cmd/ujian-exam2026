@@ -28,15 +28,33 @@ import { ambilDataSesiUntukPenilaian, hitungHasilPenilaian } from '@/lib/penilai
 
 type DbClient = ReturnType<typeof createAdminClient>
 
+// FIX (finalisasiNilaiPaksa diam-diam mengabaikan error): sebelumnya fungsi
+// ini mengembalikan `void` dan TIDAK PERNAH memeriksa hasil `error` dari
+// query tulis apa pun di dalamnya (update status_essay, upsert nilai) — kalau
+// salah satu gagal (mis. gangguan jaringan ke Supabase persis saat admin
+// menekan "Tutup Paksa"), pemanggil (tutup-paksa/route.ts) tetap akan
+// melaporkan "berhasil" ke admin walau sebagian/semua siswa yang seharusnya
+// difinalisasi TIDAK benar-benar mendapat baris nilai — persis skenario yang
+// bikin siswa hilang dari rekap yang ingin dicegah fungsi ini sejak awal.
+// Sekarang fungsi mengembalikan ringkasan eksplisit supaya pemanggil bisa
+// tahu & melaporkan dengan jujur ke admin kalau ada yang gagal.
+export interface HasilFinalisasiPaksa {
+  ok: boolean
+  jumlahDinilai: number
+  error?: string
+}
+
 export async function finalisasiNilaiPaksa(
   db: DbClient,
   sesiId: string,
   nisList: string[]
-): Promise<void> {
-  if (!nisList.length) return
+): Promise<HasilFinalisasiPaksa> {
+  if (!nisList.length) return { ok: true, jumlahDinilai: 0 }
 
   const sesiCache = await ambilDataSesiUntukPenilaian(db, sesiId)
-  if (!sesiCache) return
+  if (!sesiCache) {
+    return { ok: false, jumlahDinilai: 0, error: 'Data sesi untuk penilaian tidak ditemukan (ambilDataSesiUntukPenilaian mengembalikan null).' }
+  }
   const { sesi, kkm, totalSoal, kunciMap } = sesiCache
 
   // FIX BUG #12 (status_essay tidak pernah difinalisasi saat sesi ditutup
@@ -81,11 +99,19 @@ export async function finalisasiNilaiPaksa(
       .filter(s => s.status_essay !== 'SUDAH_KIRIM' && s.status_essay !== 'TIDAK_MENGERJAKAN')
       .map(s => s.nis)
     if (nisPerluFinalisasiEssay.length) {
-      await db
+      // FIX: periksa error — sebelumnya diabaikan sepenuhnya.
+      const { error: errEssay } = await db
         .from('siswa_ujian')
         .update({ status_essay: 'TIDAK_MENGERJAKAN' })
         .eq('sesi_id', sesiId)
         .in('nis', nisPerluFinalisasiEssay)
+      if (errEssay) {
+        return {
+          ok: false,
+          jumlahDinilai: 0,
+          error: `Gagal memfinalisasi status_essay: ${errEssay.message}`,
+        }
+      }
     }
   }
 
@@ -98,7 +124,7 @@ export async function finalisasiNilaiPaksa(
     .in('nis', nisList)
   const sudahAdaSet = new Set((nilaiAda ?? []).map(n => n.nis))
   const perluDinilai = nisList.filter(nis => !sudahAdaSet.has(nis))
-  if (!perluDinilai.length) return
+  if (!perluDinilai.length) return { ok: true, jumlahDinilai: 0 }
 
   const { data: semuaJawaban } = await db
     .from('jawaban')
@@ -139,5 +165,23 @@ export async function finalisasiNilaiPaksa(
 
   // upsert + ignoreDuplicates: sama seperti di selesai/route.ts, konsisten
   // dengan UNIQUE(sesi_id, nis) di skema — aman kalau ada race condition.
-  await db.from('nilai').upsert(rows, { onConflict: 'sesi_id,nis', ignoreDuplicates: true })
+  // FIX: periksa error di sini juga — sebelumnya diabaikan sepenuhnya,
+  // sehingga kalau upsert ini gagal, siswa_ujian.status siswa tsb tetap
+  // sudah terlanjur SELESAI (diubah oleh pemanggil SEBELUM helper ini
+  // dipanggil) padahal baris `nilai`-nya tidak pernah terbentuk — persis
+  // skenario "siswa hilang dari rekap" yang ingin dicegah helper ini sejak
+  // awal, hanya saja gagalnya di titik yang berbeda.
+  const { error: errUpsert } = await db
+    .from('nilai')
+    .upsert(rows, { onConflict: 'sesi_id,nis', ignoreDuplicates: true })
+
+  if (errUpsert) {
+    return {
+      ok: false,
+      jumlahDinilai: 0,
+      error: `Gagal menyimpan nilai fallback untuk ${rows.length} siswa: ${errUpsert.message}`,
+    }
+  }
+
+  return { ok: true, jumlahDinilai: rows.length }
 }
