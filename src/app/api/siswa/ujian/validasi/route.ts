@@ -20,9 +20,13 @@ export async function POST(req: NextRequest) {
   if (nis !== user.nis) return NextResponse.json({ valid: false, message: 'NIS tidak sesuai' })
 
   // Ambil sesi aktif
+  // FIX ARSITEKTUR KRITIS: sertakan paket_soal_id — kalau sesi ini SUDAH
+  // punya snapshot paket (siswa lain sudah pernah masuk duluan), kita WAJIB
+  // memakai paket yang sama, bukan resolusi ulang berdasarkan status
+  // DISETUJUI (lihat FIX lengkap di bagian bawah & di penilaian-ujian.ts).
   const { data: sesi } = await db
     .from('sesi_ujian')
-    .select('id, mapel_id, kelas, durasi, is_darurat, siswa_diizinkan')
+    .select('id, mapel_id, kelas, durasi, is_darurat, siswa_diizinkan, paket_soal_id')
     .eq('kode_sesi', kodeSesi.toUpperCase())
     .eq('status', 'BERJALAN')
     .single()
@@ -52,6 +56,16 @@ export async function POST(req: NextRequest) {
     .maybeSingle()
   const kelasId = kelasRow?.id ?? String(sesi.kelas)
 
+  // FIX ARSITEKTUR KRITIS (snapshot paket ke sesi): kalau sesi ini sudah
+  // punya paket_soal_id tersimpan (siswa lain sudah pernah masuk duluan),
+  // ambil paket ITU LANGSUNG lewat id — jangan cari ulang berdasarkan
+  // status DISETUJUI, supaya siswa yang masuk belakangan (refresh halaman,
+  // device baru, dst.) selalu mendapat paket yang SAMA dengan siswa
+  // pertama, apa pun yang terjadi pada status approval paket setelah itu.
+  const paketQuery = sesi.paket_soal_id
+    ? db.from('paket_soal').select('id, acak').eq('id', sesi.paket_soal_id).eq('status', 'DISETUJUI').maybeSingle()
+    : db.from('paket_soal').select('id, acak').eq('mapel_id', sesi.mapel_id).eq('kelas_id', kelasId).eq('status', 'DISETUJUI').limit(1).single()
+
   const [
     { data: nilaiAda },
     { data: siswaUjian, error: siswaUjianError },
@@ -61,7 +75,7 @@ export async function POST(req: NextRequest) {
   ] = await Promise.all([
     db.from('nilai').select('id').eq('sesi_id', sesi.id).eq('nis', nis).single(),
     db.from('siswa_ujian').select('status, waktu_mulai, waktu_mulai_awal, device_id, last_heartbeat').eq('sesi_id', sesi.id).eq('nis', nis).single(),
-    db.from('paket_soal').select('id, acak').eq('mapel_id', sesi.mapel_id).eq('kelas_id', kelasId).eq('status', 'DISETUJUI').limit(1).single(),
+    paketQuery,
     db.from('mapel').select('nama').eq('id', sesi.mapel_id).single(),
     db.from('pengaturan').select('key, value').in('key', ['minSubmitAktif', 'minSubmitMenit']),
   ])
@@ -126,10 +140,35 @@ export async function POST(req: NextRequest) {
   // filter paket_id ketika paketData tidak ada — siswa tidak didaftarkan
   // (siswa_ujian) dan tidak diberi soal apa pun dari kelas lain.
   if (!paketData) {
+    // Pesan berbeda kalau sesi ini SUDAH punya snapshot paket tapi paket
+    // itu sekarang entah kenapa tidak lagi DISETUJUI (seharusnya tidak
+    // pernah terjadi selama sesi BERJALAN karena cekSesiMapelKelasSudahMulai
+    // di sisi Admin memblokir perubahan status paket — kalau pesan ini
+    // muncul, berarti ada jalur lain yang belum tertutup dan perlu
+    // diselidiki, BUKAN sekadar disuruh coba lagi).
     return NextResponse.json({
       valid: false,
-      message: 'Belum ada paket soal yang disetujui untuk kelas Anda pada mata pelajaran ini. Hubungi guru pengampu atau admin.',
+      message: sesi.paket_soal_id
+        ? 'Paket soal yang digunakan sesi ini sudah tidak berstatus disetujui. Hubungi admin — JANGAN buka sesi baru untuk kombinasi mapel & kelas ini sebelum masalah ini diperbaiki, karena penilaian bisa salah.'
+        : 'Belum ada paket soal yang disetujui untuk kelas Anda pada mata pelajaran ini. Hubungi guru pengampu atau admin.',
     })
+  }
+
+  // FIX ARSITEKTUR KRITIS (snapshot paket ke sesi): kunci paket_soal_id ini
+  // ke sesi SEKALI, hanya kalau kolomnya masih NULL (siswa pertama yang
+  // masuk). Guard `.is('paket_soal_id', null)` membuat ini idempotent &
+  // aman dari race antar-siswa yang masuk nyaris bersamaan — siapa pun yang
+  // menang update ini, PAKET YANG SAMA (paketData.id, hasil resolusi query
+  // di atas) yang tersimpan, karena semua siswa pertama pada sesi yang sama
+  // pasti me-resolve paket yang sama persis (query yang identik). Sesudah
+  // baris ini terisi, penilaian (ambilDataSesiUntukPenilaian) dan validasi
+  // siswa berikutnya SELALU memakai paket_soal_id ini — tidak peduli apa
+  // yang terjadi pada status approval paket setelahnya.
+  if (!sesi.paket_soal_id) {
+    await db.from('sesi_ujian')
+      .update({ paket_soal_id: paketData.id })
+      .eq('id', sesi.id)
+      .is('paket_soal_id', null)
   }
 
   // Ambil soal TANPA field kunci dan pembahasan (keamanan) — selalu
