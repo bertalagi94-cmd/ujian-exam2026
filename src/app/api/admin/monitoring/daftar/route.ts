@@ -49,13 +49,36 @@ export async function GET(req: NextRequest) {
   }
 
   if (jenis === 'aktif') {
-    // Siswa yang SEDANG mengerjakan ujian sekarang (status AKTIF di
-    // siswa_ujian), lengkap dengan nama, kelas, dan mapel yang sedang
-    // dikerjakan — bukan cuma angka total seperti sebelumnya.
+    // FIX (siswa AKTIF ditampilkan tanpa cek sesi masih BERJALAN, dan
+    // last_heartbeat diambil tapi tidak pernah dipakai): sebelumnya daftar
+    // ini murni `siswa_ujian.status = 'AKTIF'` — tidak pernah dihubungkan
+    // ke sesi_ujian.status, dan last_heartbeat yang di-select tidak pernah
+    // dibaca untuk menentukan apakah siswa itu benar-benar masih terhubung.
+    // Akibatnya siswa yang laptopnya mati/internet putus total (tidak
+    // sempat submit, jadi status tetap AKTIF) tetap muncul sebagai
+    // "Sedang Ujian" tanpa indikasi apa pun bahwa koneksinya sudah lama
+    // putus. Sekarang: (1) daftar difilter ke sesi yang sesi_ujian.status
+    // masih BERJALAN, dan (2) last_heartbeat dipakai untuk menandai baris
+    // yang heartbeat-nya sudah lebih lama dari HEARTBEAT_STALE_MS sebagai
+    // "Terputus" — ambang batas disamakan dengan DEVICE_STALE_MS yang
+    // sudah dipakai untuk deteksi device stale di validasi/route.ts (2
+    // menit), supaya konsisten dengan definisi "stale" yang sudah ada di
+    // aplikasi ini, bukan angka baru yang dikarang sendiri.
+    const HEARTBEAT_STALE_MS = 2 * 60 * 1000 // 2 menit — sama seperti DEVICE_STALE_MS di validasi/route.ts
+
+    const { data: sesiBerjalan } = await db
+      .from('sesi_ujian')
+      .select('id')
+      .eq('status', 'BERJALAN')
+    const sesiIdsBerjalan = (sesiBerjalan ?? []).map((s: { id: string }) => s.id)
+
+    if (!sesiIdsBerjalan.length) return NextResponse.json({ jenis, total: 0, data: [] })
+
     const { data: rows } = await db
       .from('siswa_ujian')
       .select('nis, sesi_id, waktu_mulai, last_heartbeat')
       .eq('status', 'AKTIF')
+      .in('sesi_id', sesiIdsBerjalan)
       .order('waktu_mulai', { ascending: false })
       .limit(LIMIT)
 
@@ -76,16 +99,22 @@ export async function GET(req: NextRequest) {
     const { data: mapelList } = await db.from('mapel').select('id, nama').in('id', mapelIds)
     const mapelMap = Object.fromEntries((mapelList ?? []).map((m: { id: string; nama: string }) => [m.id, m.nama]))
 
+    const nowMs = Date.now()
     const data = rows.map((r: { nis: string; sesi_id: string; waktu_mulai: string; last_heartbeat: string | null }) => {
       const sesi = sesiMap[r.sesi_id]
       const siswa = siswaMap[r.nis]
       const namaMapel = sesi ? (mapelMap[sesi.mapel_id] ?? sesi.mapel_id) : '-'
+      const lastHb = r.last_heartbeat ? new Date(r.last_heartbeat).getTime() : 0
+      const online = lastHb > 0 && (nowMs - lastHb) < HEARTBEAT_STALE_MS
+      const statusKoneksi = lastHb === 0 ? '' : online ? ' • Online' : ' • Terputus'
       return {
         id: r.nis,
         nama: siswa?.nama ?? r.nis,
-        sub: `Kelas ${siswa?.kelas ?? sesi?.kelas ?? '-'} • ${namaMapel}`,
+        sub: `Kelas ${siswa?.kelas ?? sesi?.kelas ?? '-'} • ${namaMapel}${statusKoneksi}`,
         role: 'SISWA',
         waktu: r.waktu_mulai,
+        online,
+        last_heartbeat: r.last_heartbeat,
       }
     })
 
