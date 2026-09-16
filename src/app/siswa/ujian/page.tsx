@@ -1322,9 +1322,13 @@ export default function SiswaUjianPage() {
       // panggil /soal setelahnya. Ini menghilangkan race-nya sepenuhnya
       // karena status_essay dijamin sudah MENGERJAKAN di DB sebelum /soal
       // sempat dicek server.
+      // FIX BUG (essay/mulai tidak memeriksa deviceId): sertakan deviceId,
+      // sama seperti syncJawaban()/essay/jawab/essay/kirim, supaya backend
+      // bisa menegakkan kebijakan satu siswa satu perangkat sejak titik
+      // masuk fase essay, bukan baru mulai dari autosave.
       const mulaiRes = await apiRequest<{ waktuMulaiEssay: string }>('/api/siswa/ujian/essay/mulai', {
         method: 'POST',
-        body: JSON.stringify({ sesiId }),
+        body: JSON.stringify({ sesiId, deviceId: getDeviceId() }),
       })
       const soalRes = await apiRequest<{ data: SoalEssay[] }>(`/api/siswa/ujian/essay/soal?sesiId=${sesiId}`)
       setEssayList(soalRes.data ?? [])
