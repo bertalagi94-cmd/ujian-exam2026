@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 import { stripHtmlTags } from '@/lib/utils'
 import { cekSesiMapelKelasSudahMulai, pesanBankSoalTerkunci } from '@/lib/sesi-kelas'
+import { validasiKunciOpsi } from '@/lib/validasi-soal'
 
 interface Ctx { params: { id: string } }
 
@@ -43,6 +44,14 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
     }, { status: 400 })
   }
 
+  // FIX BUG (kunci jawaban belum divalidasi server terhadap jumlah opsi) —
+  // sama seperti POST di route.ts, lihat komentar lengkap di sana dan di
+  // src/lib/validasi-soal.ts.
+  const errorKunci = validasiKunciOpsi(body.kunci, jumlahOpsi)
+  if (errorKunci) {
+    return NextResponse.json({ error: errorKunci }, { status: 400 })
+  }
+
   const { error } = await db.from('soal').update({
     mapel_id: body.mapel_id,
     kelas_id: body.kelas_id,
@@ -60,7 +69,7 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
     gambar_opsi_c: body.gambar_opsi_c || null,
     gambar_opsi_d: body.gambar_opsi_d || null,
     gambar_opsi_e: body.gambar_opsi_e || null,
-    kunci: body.kunci,
+    kunci: String(body.kunci).trim().toUpperCase(),
     pembahasan: body.pembahasan ? stripHtmlTags(body.pembahasan) : null,
     tingkat: body.tingkat,
     jumlah_opsi: parseInt(body.jumlah_opsi) || 4,
