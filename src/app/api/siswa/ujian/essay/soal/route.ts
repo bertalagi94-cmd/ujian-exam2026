@@ -19,9 +19,18 @@ export async function GET(req: NextRequest) {
   const sesiId = searchParams.get('sesiId')
   if (!sesiId) return NextResponse.json({ error: 'sesiId diperlukan' }, { status: 400 })
 
+  // FIX BUG P0 (soal yang dikerjakan siswa bisa beda dengan soal yang
+  // dinilai guru): sebelumnya endpoint ini TIDAK membaca `paket_essay_id`
+  // sama sekali, jadi soal diambil ulang dari mapel+kelas+DISETUJUI setiap
+  // request. Kalau ada >1 paket essay DISETUJUI untuk mapel+kelas yang sama,
+  // atau guru mengubah status paket SETELAH ujian dimulai, siswa bisa
+  // mengerjakan soal yang berbeda dari paket yang sudah di-snapshot ke sesi
+  // ini oleh essay/mulai/route.ts — dan guru/koreksi-essay/route.ts sudah
+  // lebih dulu memakai snapshot itu. Sekarang disamakan: WAJIB pakai
+  // paket_essay_id sesi ini kalau sudah ada.
   const { data: sesi } = await db
     .from('sesi_ujian')
-    .select('id, jadwal_id, mapel_id, kelas, info_json, status')
+    .select('id, jadwal_id, mapel_id, kelas, info_json, status, paket_essay_id')
     .eq('id', sesiId)
     .single()
 
@@ -41,15 +50,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Sesi ujian sudah tidak berjalan.' }, { status: 409 })
   }
 
-  // Soal essay sekarang berupa bank per mapel+kelas (paket_essay), sama
-  // seperti soal PG — bukan lagi melekat ke jadwal_id. Lihat 08_paket_essay.sql.
-  const { data: kelasRow } = await db
-    .from('kelas')
-    .select('id')
-    .eq('nama', String(sesi.kelas))
-    .maybeSingle()
-  const kelasId = kelasRow?.id ?? String(sesi.kelas)
-
   const { data: siswaUjian } = await db
     .from('siswa_ujian')
     .select('status, status_essay')
@@ -65,21 +65,28 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Sesi essay belum dimulai. Tekan tombol Mulai terlebih dahulu.' }, { status: 403 })
   }
 
-  // FIX BUG (fitur essay): sebelumnya query ini TIDAK memfilter status,
-  // sehingga soal essay yang masih 'DRAFT' (belum disetujui/difinalisasi
-  // guru) ikut ditampilkan ke siswa. Ini tidak konsisten dengan tabel `soal`
-  // (PG) yang SELALU difilter `status = 'DISETUJUI'` sebelum ditampilkan ke
-  // siswa (lihat validasi/route.ts) — dan bertentangan dengan desain yang
-  // didokumentasikan di 07_essay.sql ("status ... mengikuti konvensi status
-  // di 'soal'"). Sekarang disamakan: hanya soal essay DISETUJUI yang boleh
-  // dikerjakan siswa.
-  const { data: soalList, error } = await db
-    .from('soal_essay')
-    .select('id, teks, gambar_url, urutan')
-    .eq('mapel_id', sesi.mapel_id)
-    .eq('kelas_id', kelasId)
-    .eq('status', 'DISETUJUI')
-    .order('urutan', { ascending: true })
+  // FIX BUG P0 (lanjutan): resolusi kelasId HANYA dibutuhkan untuk jalur
+  // fallback (sesi lama yang belum punya paket_essay_id ter-snapshot).
+  // Kalau sesi sudah punya paket_essay_id, kelasId tidak perlu dihitung
+  // sama sekali — query langsung difilter ke paket itu.
+  const { data: kelasRow } = sesi.paket_essay_id
+    ? { data: null }
+    : await db.from('kelas').select('id').eq('nama', String(sesi.kelas)).maybeSingle()
+  const kelasId = kelasRow?.id ?? String(sesi.kelas)
+
+  // FIX BUG P0: soal essay yang ditampilkan ke siswa SEKARANG WAJIB berasal
+  // dari paket_essay_id yang sudah di-snapshot ke sesi ini (sama persis
+  // dengan query yang dipakai essay/mulai/route.ts saat menghitung
+  // jumlahSoalEssay, dan guru/koreksi-essay/route.ts saat menilai). Fallback
+  // ke mapel_id+kelas_id HANYA untuk sesi lama yang paket_essay_id-nya masih
+  // NULL (belum pernah ada siswa yang memulai essay di sesi tsb) — begitu
+  // ada satu siswa yang memulai, essay/mulai akan mengunci paket_essay_id-
+  // nya, dan siswa berikutnya otomatis lewat jalur snapshot ini juga.
+  const soalQuery = sesi.paket_essay_id
+    ? db.from('soal_essay').select('id, teks, gambar_url, urutan').eq('paket_essay_id', sesi.paket_essay_id).eq('status', 'DISETUJUI')
+    : db.from('soal_essay').select('id, teks, gambar_url, urutan').eq('mapel_id', sesi.mapel_id).eq('kelas_id', kelasId).eq('status', 'DISETUJUI')
+
+  const { data: soalList, error } = await soalQuery.order('urutan', { ascending: true })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
