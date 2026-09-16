@@ -364,7 +364,16 @@ export default function MonitoringPanel() {
                   <div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, alignItems: 'center' }}>
                       <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', display: 'flex', alignItems: 'center', gap: 5 }}>
-                        <Activity size={11} /> Beban Sistem
+                        {/* FIX (label menyesatkan): skor ini dihitung dari
+                            gabungan sesi aktif + aktivitas 5 menit terakhir +
+                            pelanggaran hari ini — BUKAN dari CPU/RAM/beban
+                            server. Nama "Beban Sistem" membuat admin bisa
+                            mengira server sedang kelebihan beban (mis. saat
+                            skor KRITIS) padahal itu murni banyak aktivitas
+                            ujian & pelanggaran, server bisa saja baik-baik
+                            saja. Diganti ke istilah yang menggambarkan apa
+                            yang benar-benar diukur. */}
+                        <Activity size={11} /> Indeks Aktivitas Ujian
                       </span>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         {/* Poin 4: Score sparkline */}
@@ -382,11 +391,21 @@ export default function MonitoringPanel() {
                   {/* Metric cards */}
                   <div style={{ display: 'grid', gridTemplateColumns: fullscreen ? '1fr 1fr' : '1fr', gap: 8 }}>
                     {[
-                      { icon: <Database size={13} />, label: 'Response DB', value: `${data.server.dbResponseMs} ms`, ok: data.server.dbResponseMs < 500 },
+                      // FIX (label kurang presisi): angka ini adalah waktu
+                      // SELURUH batch query monitoring (banyak query
+                      // paralel), bukan waktu satu query database tunggal —
+                      // "Response DB" menyiratkan itu ukuran kecepatan DB,
+                      // padahal lebih tepat disebut waktu endpoint
+                      // monitoring ini sendiri.
+                      { icon: <Database size={13} />, label: 'Waktu Query Monitoring', value: `${data.server.dbResponseMs} ms`, ok: data.server.dbResponseMs < 500 },
                       { icon: <Wifi size={13} />, label: 'Sesi Ujian Aktif', value: `${data.aktivitas.sesiUjianAktif} sesi`, ok: data.aktivitas.sesiUjianAktif < 10 },
-                      // Poin 5: Siswa aktif mengerjakan
+                      // Poin 5: Siswa aktif mengerjakan — sekarang sudah
+                      // difilter ke sesi yang benar-benar BERJALAN, lihat FIX
+                      // di /api/admin/monitoring/route.ts
                       { icon: <Users size={13} />, label: 'Siswa Mengerjakan', value: `${data.aktivitas.siswaAktifMengerjakan} siswa`, ok: true },
-                      // Poin 6: Submit hari ini
+                      // Poin 6: Submit hari ini — sumbernya sekarang sama
+                      // dengan daftar Submit (tabel `nilai`), lihat FIX di
+                      // /api/admin/monitoring/route.ts
                       { icon: <CheckCircle size={13} />, label: 'Submit Hari Ini', value: `${data.aktivitas.submitHariIni} siswa`, ok: true },
                       { icon: <Zap size={13} />, label: 'Aktivitas 5 Menit', value: `${data.aktivitas.aktifitas5MenitTerakhir} aksi`, ok: data.aktivitas.aktifitas5MenitTerakhir < 50 },
                       { icon: <Shield size={13} />, label: 'Pelanggaran Hari Ini', value: `${data.aktivitas.pelanggaranHariIni} kasus`, ok: data.aktivitas.pelanggaranHariIni === 0 },
@@ -479,7 +498,16 @@ export default function MonitoringPanel() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10, flex: 1, overflow: 'auto' }} className="mon-scroll">
                   <div style={{ display: 'grid', gridTemplateColumns: fullscreen ? '1fr 1fr' : '1fr', gap: 10 }}>
                     {[
-                      { icon: <TrendingUp size={14} />, label: 'Login Hari Ini', value: data.aktivitas.loginHariIni, color: '#6366f1' },
+                      // FIX (label ambigu vs daftar Login): angka ini adalah
+                      // jumlah EVENT login dari log_aktivitas (satu orang
+                      // login 3x = 3), sedangkan daftar Login (saat diklik)
+                      // sengaja menampilkan satu baris per ORANG dengan login
+                      // TERAKHIR-nya saja. Bukan bug data, tapi kalau admin
+                      // mengharapkan angka & jumlah baris daftar sama, ini
+                      // bisa membingungkan — label diperjelas jadi "Total
+                      // Percobaan Login" supaya tidak disalahartikan sebagai
+                      // jumlah pengguna unik.
+                      { icon: <TrendingUp size={14} />, label: 'Login Hari Ini (Total Percobaan)', value: data.aktivitas.loginHariIni, color: '#6366f1' },
                       { icon: <Activity size={14} />, label: 'Aktivitas 5 Menit Terakhir', value: data.aktivitas.aktifitas5MenitTerakhir, color: '#10b981' },
                       { icon: <Users size={14} />, label: 'Sesi Ujian Aktif', value: data.aktivitas.sesiUjianAktif, color: '#3b82f6' },
                       // Poin 5
