@@ -19,6 +19,12 @@ interface JadwalHariIni {
   sesi: number
   status: string
   sudah_ikut: boolean
+  // FIX BUG (siswa yang sudah selesai ujian hari ini melihat "Tidak Ada
+  // Ujian Hari Ini" tanpa keterangan): dipakai untuk menampilkan mapel yang
+  // sudah dikerjakan + link ke menu Nilai. Field ini sudah lama dikirim
+  // oleh /api/siswa/jadwal/route.ts, tapi sebelumnya tidak pernah dibaca
+  // sama sekali di halaman ini.
+  nilai_id?: string | null
   // FIX (fitur essay): lihat komentar di src/app/api/siswa/jadwal/route.ts —
   // dipakai untuk mengarahkan siswa langsung ke fase essay setelah refresh
   // browser, tanpa perlu memasukkan kode ujian lagi.
@@ -157,6 +163,17 @@ export default function SiswaUjianPage() {
   const [loadingJadwal, setLoadingJadwal] = useState(true)
   const [jadwalTerdekat, setJadwalTerdekat] = useState<JadwalHariIni | null>(null)
   const [sesiSudahTutup, setSesiSudahTutup] = useState<JadwalHariIni[]>([])
+  // FIX BUG (siswa yang sudah selesai ujian hari ini melihat "Tidak Ada
+  // Ujian Hari Ini" tanpa keterangan relevan): sebelumnya jadwal yang
+  // `sudah_ikut === true` dibuang begitu saja dari SEMUA daftar (baik
+  // `jadwalHariIni` maupun `sesiSudahTutup`), jadi begitu siswa sudah
+  // menyelesaikan satu-satunya ujian hari itu, dia tidak masuk kategori
+  // manapun dan halaman jatuh ke pesan generik seolah memang tidak ada
+  // jadwal sama sekali — padahal jadwalnya ADA, cuma sudah dikerjakan.
+  // State ini menampung jadwal hari ini yang sudah diikuti siswa, supaya
+  // bisa ditampilkan dengan keterangan yang relevan (lihat cekJadwal() &
+  // handleRefreshJadwal()).
+  const [sudahDiselesaikanHariIni, setSudahDiselesaikanHariIni] = useState<JadwalHariIni[]>([])
   const [kode, setKode] = useState('')
   const [sesiInfo, setSesiInfo] = useState<SesiInfo | null>(null)
   const [jawaban, setJawaban] = useState<JawabanMap>({})
@@ -377,10 +394,17 @@ export default function SiswaUjianPage() {
         const hariIni = semuaHariIni.filter(j => !j.sudah_ikut && j.status !== 'SELESAI')
         // Yang sudah ditutup tapi siswa belum sempat ikut
         const sudahTutup = semuaHariIni.filter(j => !j.sudah_ikut && j.status === 'SELESAI')
+        // FIX BUG: sebelumnya jadwal dengan sudah_ikut === true tidak pernah
+        // ditangkap ke state manapun — lihat catatan panjang di deklarasi
+        // sudahDiselesaikanHariIni di atas.
+        const sudahSelesaiDikerjakan = semuaHariIni.filter(j => j.sudah_ikut)
         setJadwalHariIni(hariIni)
+        setSudahDiselesaikanHariIni(sudahSelesaiDikerjakan)
         if (sudahTutup.length > 0 && hariIni.length === 0) {
           // Semua jadwal hari ini sudah tutup dan siswa belum ikut satupun
           setSesiSudahTutup(sudahTutup)
+        } else {
+          setSesiSudahTutup([])
         }
 
         // Cari jadwal terdekat (mendatang) untuk ditampilkan kalau tidak ada hari ini
@@ -982,7 +1006,11 @@ export default function SiswaUjianPage() {
       const semuaHariIni2 = (res.data ?? []).filter(j => j.tanggal?.slice(0, 10) === today || j.status === 'BERJALAN')
       const hariIni = semuaHariIni2.filter(j => !j.sudah_ikut && j.status !== 'SELESAI')
       const sudahTutup2 = semuaHariIni2.filter(j => !j.sudah_ikut && j.status === 'SELESAI')
+      // FIX BUG: sama seperti di cekJadwal() — lihat catatan panjang di
+      // deklarasi sudahDiselesaikanHariIni.
+      const sudahSelesaiDikerjakan2 = semuaHariIni2.filter(j => j.sudah_ikut)
       setJadwalHariIni(hariIni)
+      setSudahDiselesaikanHariIni(sudahSelesaiDikerjakan2)
       if (sudahTutup2.length > 0 && hariIni.length === 0) {
         setSesiSudahTutup(sudahTutup2)
       } else {
@@ -2159,6 +2187,61 @@ export default function SiswaUjianPage() {
                   {loadingJadwal ? <Spinner size="sm" /> : <><RefreshCw className="w-4 h-4" /> Cek Ulang Sesi</>}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )
+    }
+
+    // FIX BUG (siswa yang sudah selesai ujian hari ini melihat "Tidak Ada
+    // Ujian Hari Ini" tanpa keterangan relevan): sebelumnya, kalau satu-
+    // satunya jadwal hari ini sudah dikerjakan siswa (`sudah_ikut === true`),
+    // jadwal itu hilang begitu saja dari `jadwalHariIni` DAN `sesiSudahTutup`
+    // (keduanya sama-sama mensyaratkan `!sudah_ikut`), sehingga kode jatuh
+    // ke blok generik di bawah seolah memang tidak ada jadwal ujian sama
+    // sekali. Sekarang, sebelum jatuh ke pesan generik, dicek dulu apakah
+    // ada jadwal hari ini yang sebenarnya SUDAH diselesaikan siswa — kalau
+    // ada, tampilkan mapelnya beserta keterangan bahwa ujian tsb sudah
+    // dikerjakan, plus link ke menu Nilai, bukan pesan "tidak ada ujian".
+    if (jadwalHariIni.length === 0 && sesiSudahTutup.length === 0 && sudahDiselesaikanHariIni.length > 0) {
+      return (
+        <div className="max-w-md mx-auto animate-fade-in">
+          <div className="card text-center">
+            <div className="w-16 h-16 bg-emerald-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+              <CheckCircle2 className="w-8 h-8 text-emerald-500" />
+            </div>
+            <h1 className="text-xl font-bold text-slate-900 mb-2">
+              {sudahDiselesaikanHariIni.length > 1 ? 'Semua Ujian Hari Ini Sudah Selesai' : 'Ujian Hari Ini Sudah Selesai'}
+            </h1>
+            <p className="text-sm text-slate-500 mb-4">
+              {sudahDiselesaikanHariIni.length > 1
+                ? 'Kamu sudah mengerjakan semua ujian yang dijadwalkan hari ini. Terima kasih!'
+                : 'Kamu sudah mengerjakan ujian berikut hari ini. Terima kasih!'}
+            </p>
+            <div className="space-y-2 mb-5 text-left">
+              {sudahDiselesaikanHariIni.map(j => (
+                <div key={j.id} className="bg-emerald-50 border border-emerald-100 rounded-xl px-4 py-3">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle className="w-4 h-4 text-emerald-500 shrink-0" />
+                    <div className="font-semibold text-slate-800 text-sm">{j.nama_mapel}</div>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-xs text-slate-500 mt-1 ml-6">
+                    <Clock className="w-3 h-3" />
+                    {j.jam_mulai} – {j.jam_selesai} · {j.durasi} menit
+                  </div>
+                  <p className="text-xs text-emerald-600 font-medium mt-1.5 ml-6">Sudah dikerjakan</p>
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => window.location.href = '/siswa'}
+                className="btn-secondary flex-1 justify-center gap-2">
+                Kembali ke Beranda
+              </button>
+              <button onClick={() => window.location.href = '/siswa/nilai'}
+                className="btn-primary flex-1 justify-center gap-2">
+                Lihat Nilai
+              </button>
             </div>
           </div>
         </div>
