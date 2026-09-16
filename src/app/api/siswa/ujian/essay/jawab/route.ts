@@ -16,7 +16,12 @@ export async function POST(req: NextRequest) {
   const { sesiId, jawaban, deviceId } = await req.json()
   if (!sesiId) return NextResponse.json({ error: 'sesiId diperlukan' }, { status: 400 })
 
-  const { data: sesi } = await db.from('sesi_ujian').select('status, info_json, mapel_id, kelas').eq('id', sesiId).single()
+  // FIX BUG P0: sertakan paket_essay_id — sama seperti essay/soal/route.ts &
+  // essay/mulai/route.ts. Autosave HARUS memvalidasi jawaban terhadap paket
+  // yang sudah di-snapshot ke sesi ini, bukan mapel+kelas+DISETUJUI secara
+  // umum, atau jawaban siswa bisa tersimpan untuk soal yang berasal dari
+  // paket yang berbeda dari yang dinilai guru saat koreksi.
+  const { data: sesi } = await db.from('sesi_ujian').select('status, info_json, mapel_id, kelas, paket_essay_id').eq('id', sesiId).single()
   if (!sesi) return NextResponse.json({ error: 'Sesi tidak ditemukan' }, { status: 404 })
   if (sesi.status !== 'BERJALAN') {
     return NextResponse.json({ error: 'Sesi ujian sudah ditutup, jawaban tidak bisa disimpan lagi.' }, { status: 409 })
@@ -65,32 +70,29 @@ export async function POST(req: NextRequest) {
     // FIX BUG (soal_essay_id tidak divalidasi terhadap bank soal sesi ini):
     // sebelumnya endpoint ini langsung meng-upsert `soal_essay_id` apa pun
     // yang dikirim client tanpa memeriksa apakah ID tersebut memang bagian
-    // dari bank soal essay (mapel+kelas) untuk sesi ini — `jawaban_essay`
-    // di schema (07_essay.sql) memang TIDAK punya FOREIGN KEY ke
-    // `soal_essay(id)`, jadi tidak ada apa pun di level database yang
-    // mencegahnya. Client seharusnya tidak pernah jadi sumber kebenaran
-    // untuk daftar ID yang valid. Sekarang daftar ID yang sah diambil dulu
-    // dari bank soal DISETUJUI untuk mapel+kelas sesi ini (pola resolusi
-    // kelasId disamakan dengan essay/info & essay/mulai), lalu jawaban yang
-    // soal_essay_id-nya TIDAK ada di daftar itu di-drop diam-diam sebelum
-    // upsert — TIDAK mengubah perilaku untuk siswa yang sah (ID mereka
-    // selalu berasal dari /essay/soal, jadi selalu ada di daftar ini), dan
-    // TIDAK mengubah kontrak response (`totalTersimpan` tetap menghitung
-    // baris jawaban_essay yang benar-benar tersimpan, sekarang malah lebih
-    // akurat karena tidak lagi bisa "digelembungkan" oleh ID palsu).
-    const { data: kelasRow } = await db
-      .from('kelas')
-      .select('id')
-      .eq('nama', String(sesi.kelas))
-      .maybeSingle()
+    // dari bank soal essay untuk sesi ini — `jawaban_essay` di schema
+    // (07_essay.sql) memang TIDAK punya FOREIGN KEY ke `soal_essay(id)`,
+    // jadi tidak ada apa pun di level database yang mencegahnya.
+    //
+    // FIX BUG P0 (lanjutan, ini bagian yang paling penting): daftar ID yang
+    // sah SEKARANG diambil dari paket_essay_id yang sudah di-snapshot ke
+    // sesi ini kalau tersedia — SAMA PERSIS dengan query yang dipakai
+    // essay/soal/route.ts dan guru/koreksi-essay/route.ts. Sebelumnya di
+    // sini selalu memakai mapel+kelas+DISETUJUI walau sesi sudah punya
+    // paket_essay_id, sehingga (kalau ada >1 paket DISETUJUI untuk mapel+
+    // kelas yang sama) jawaban untuk soal DI LUAR paket yang dinilai guru
+    // tetap bisa lolos tersimpan alih-alih di-drop. Fallback ke mapel+kelas
+    // hanya untuk sesi lama yang paket_essay_id-nya masih NULL.
+    const { data: kelasRow } = sesi.paket_essay_id
+      ? { data: null }
+      : await db.from('kelas').select('id').eq('nama', String(sesi.kelas)).maybeSingle()
     const kelasId = kelasRow?.id ?? String(sesi.kelas)
 
-    const { data: soalSahList } = await db
-      .from('soal_essay')
-      .select('id')
-      .eq('mapel_id', sesi.mapel_id)
-      .eq('kelas_id', kelasId)
-      .eq('status', 'DISETUJUI')
+    const soalSahQuery = sesi.paket_essay_id
+      ? db.from('soal_essay').select('id').eq('paket_essay_id', sesi.paket_essay_id).eq('status', 'DISETUJUI')
+      : db.from('soal_essay').select('id').eq('mapel_id', sesi.mapel_id).eq('kelas_id', kelasId).eq('status', 'DISETUJUI')
+
+    const { data: soalSahList } = await soalSahQuery
     const idSoalSah = new Set((soalSahList ?? []).map(s => s.id))
 
     const jawabanValid = jawaban.filter(
@@ -144,7 +146,7 @@ export async function GET(req: NextRequest) {
   // menyimpan sesiId lama tetap bisa menarik kembali jawaban essay-nya dari
   // sesi yang sudah tidak relevan lagi (sesi ditutup / essay sudah
   // dikirim), padahal endpoint terkait lain (mulai, soal, autosave POST di
-  // bawah) semuanya sudah menolak pada kondisi itu. Sekarang disamakan:
+  // atas) semuanya sudah menolak pada kondisi itu. Sekarang disamakan:
   // GET ini hanya boleh dipakai untuk memulihkan draft SELAGI benar-benar
   // sedang mengerjakan (sesi BERJALAN & status_essay MENGERJAKAN).
   const { data: sesi } = await db.from('sesi_ujian').select('status').eq('id', sesiId).single()
