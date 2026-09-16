@@ -44,38 +44,80 @@ export async function ambilDataSesiUntukPenilaian(
     // selesai/route.ts) bisa tahu apakah sesi ini punya essay
     // (info_json.essay_aktif) tanpa query terpisah — data ini statis untuk
     // sesi yang sama jadi aman ikut di-cache 5 menit bersama field lain.
+    //
+    // FIX ARSITEKTUR KRITIS (soal yang dikerjakan siswa != kunci yang dipakai
+    // menilai): sebelumnya fungsi ini SELALU mencari ulang paket_soal
+    // berstatus DISETUJUI pada saat endpoint /selesai atau finalisasi paksa
+    // dipanggil — bukan paket yang BENAR-BENAR diberikan ke siswa saat mulai
+    // ujian (lihat validasi/route.ts). Kalau status paket berubah di antara
+    // "siswa mulai ujian" dan "nilai dihitung" (mis. admin membatalkan
+    // approval, atau — walau sudah dicegah cekSesiMapelKelasSudahMulai() di
+    // hampir semua jalur — ada celah lain), kunci yang dipakai menilai bisa
+    // berasal dari paket yang BERBEDA dari soal yang dikerjakan siswa,
+    // sehingga soal_id tidak pernah cocok dan nilai siswa salah total
+    // (biasanya jadi 0 walau jawabannya benar).
+    //
+    // FIX: sekarang membaca paket_soal_id yang SUDAH DI-SNAPSHOT ke
+    // sesi_ujian oleh /api/siswa/ujian/validasi (lihat FIX di sana) saat
+    // siswa pertama masuk sesi ini, dan SELALU memakai ID itu sepanjang
+    // sesi — tidak pernah mencari ulang berdasarkan status DISETUJUI untuk
+    // sesi yang sudah punya snapshot ini.
+    //
+    // FALLBACK KOMPATIBILITAS: sesi yang dibuat SEBELUM migrasi
+    // 14_snapshot_paket_dan_transaksi_atomik.sql belum punya paket_soal_id
+    // tersimpan (kolom masih NULL) — untuk sesi seperti itu (seharusnya
+    // sudah SELESAI semua per saat migrasi dijalankan), tetap dipakai
+    // resolusi lama supaya nilai yang sudah ada tidak rusak. Sesi BARU tidak
+    // akan pernah lewat jalur fallback ini karena /validasi selalu mengisi
+    // paket_soal_id begitu siswa pertama masuk.
     const { data: sesi } = await db
       .from('sesi_ujian')
-      .select('mapel_id, kelas, durasi, info_json')
+      .select('mapel_id, kelas, durasi, info_json, paket_soal_id')
       .eq('id', sesiId)
       .single()
     if (!sesi) return null
 
-    // FIX: sesi.kelas = nama kelas, tapi paket_soal.kelas_id = ID dari tabel kelas
-    const { data: kelasRow } = await db
-      .from('kelas')
-      .select('id')
-      .eq('nama', String(sesi.kelas))
-      .maybeSingle()
-    const kelasId = kelasRow?.id ?? String(sesi.kelas)
+    let paketId: string | null = sesi.paket_soal_id ?? null
+    let jumlahSoalPaket: number | null = null
 
-    const [{ data: mapel }, { data: paketData }] = await Promise.all([
-      db.from('mapel').select('kkm').eq('id', sesi.mapel_id).single(),
-      db.from('paket_soal')
+    if (paketId) {
+      const { data: paketRow } = await db
+        .from('paket_soal')
+        .select('jumlah_soal')
+        .eq('id', paketId)
+        .maybeSingle()
+      jumlahSoalPaket = paketRow?.jumlah_soal ?? null
+    } else {
+      // FALLBACK (sesi lama tanpa snapshot) — resolusi lama berdasarkan
+      // status DISETUJUI saat ini. FIX: sesi.kelas = nama kelas, tapi
+      // paket_soal.kelas_id = ID dari tabel kelas.
+      const { data: kelasRow } = await db
+        .from('kelas')
+        .select('id')
+        .eq('nama', String(sesi.kelas))
+        .maybeSingle()
+      const kelasId = kelasRow?.id ?? String(sesi.kelas)
+
+      const { data: paketData } = await db
+        .from('paket_soal')
         .select('id, jumlah_soal')
         .eq('mapel_id', sesi.mapel_id)
-        .eq('kelas_id', kelasId)   // ← FIX: pakai kelasId bukan sesi.kelas
+        .eq('kelas_id', kelasId)
         .eq('status', 'DISETUJUI')
         .limit(1)
-        .single(),
-    ])
+        .single()
 
-    const [{ count: totalSoalCount }, { data: soalList }] = await Promise.all([
+      paketId = paketData?.id ?? null
+      jumlahSoalPaket = paketData?.jumlah_soal ?? null
+    }
+
+    const [{ data: mapel }, { count: totalSoalCount }, { data: soalList }] = await Promise.all([
+      db.from('mapel').select('kkm').eq('id', sesi.mapel_id).single(),
       db.from('soal')
         .select('*', { count: 'exact', head: true })
         .eq('mapel_id', sesi.mapel_id)
         .eq('status', 'DISETUJUI')
-        .eq('paket_id', paketData?.id ?? ''),
+        .eq('paket_id', paketId ?? ''),
       // Ambil kunci SEMUA soal di paket ini sekaligus (bukan per-siswa
       // berdasarkan soal yang dia jawab) — supaya satu hasil cache ini bisa
       // dipakai untuk menghitung nilai siswa MANAPUN di sesi ini, bukan cuma
@@ -83,14 +125,14 @@ export async function ambilDataSesiUntukPenilaian(
       db.from('soal')
         .select('id, kunci')
         .eq('mapel_id', sesi.mapel_id)
-        .eq('paket_id', paketData?.id ?? '')
+        .eq('paket_id', paketId ?? '')
         .eq('status', 'DISETUJUI'),
     ])
 
     return {
       sesi,
       kkm: mapel?.kkm ?? 75,
-      totalSoal: totalSoalCount ?? paketData?.jumlah_soal ?? 0,
+      totalSoal: totalSoalCount ?? jumlahSoalPaket ?? 0,
       kunciMap: Object.fromEntries((soalList ?? []).map((s: { id: string; kunci: string }) => [s.id, s.kunci])) as Record<string, string>,
     }
   })
