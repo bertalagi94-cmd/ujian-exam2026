@@ -14,9 +14,15 @@ export async function GET(req: NextRequest) {
   const sesiId = searchParams.get('sesiId')
   if (!sesiId) return NextResponse.json({ error: 'sesiId diperlukan' }, { status: 400 })
 
+  // FIX BUG P0: sertakan paket_essay_id — lihat FIX di essay/soal/route.ts &
+  // essay/jawab/route.ts. "Jumlah soal" yang ditampilkan di halaman info ini
+  // harus dihitung dari paket yang sama dengan yang benar-benar akan
+  // dikerjakan siswa di halaman soal, bukan dihitung ulang dari
+  // mapel+kelas+DISETUJUI setiap kali (yang bisa berbeda kalau ada >1 paket
+  // DISETUJUI, atau status paket berubah setelah ujian dimulai).
   const { data: sesi } = await db
     .from('sesi_ujian')
-    .select('id, jadwal_id, mapel_id, kelas, status, info_json, akses_mulai_essay_dibuka')
+    .select('id, jadwal_id, mapel_id, kelas, status, info_json, akses_mulai_essay_dibuka, paket_essay_id')
     .eq('id', sesiId)
     .single()
 
@@ -70,23 +76,31 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Selesaikan soal pilihan ganda terlebih dahulu' }, { status: 403 })
   }
 
-  // Soal essay sekarang berupa bank per mapel+kelas (paket_essay), sama
-  // seperti soal PG — bukan lagi melekat ke jadwal_id. Lihat 08_paket_essay.sql.
-  const { data: kelasRow } = await db
-    .from('kelas')
-    .select('id')
-    .eq('nama', String(sesi.kelas))
-    .maybeSingle()
+  // FIX BUG P0 (lanjutan): resolusi kelasId hanya dibutuhkan untuk jalur
+  // fallback (sesi lama yang belum punya paket_essay_id ter-snapshot).
+  const { data: kelasRow } = sesi.paket_essay_id
+    ? { data: null }
+    : await db.from('kelas').select('id').eq('nama', String(sesi.kelas)).maybeSingle()
   const kelasId = kelasRow?.id ?? String(sesi.kelas)
+
+  // FIX BUG P0: jumlah soal SEKARANG dihitung dari paket_essay_id yang
+  // sudah di-snapshot ke sesi ini kalau tersedia — sama persis dengan query
+  // yang dipakai essay/soal/route.ts untuk mengambil daftar soalnya, dan
+  // essay/mulai/route.ts untuk menghitung jumlahSoalEssay. Sebelumnya di
+  // sini SELALU memakai mapel+kelas+DISETUJUI, sehingga kalau ada >1 paket
+  // DISETUJUI untuk mapel+kelas yang sama, angka yang ditampilkan di
+  // halaman info bisa berbeda dari jumlah soal yang sebenarnya siswa
+  // kerjakan (mis. "Jumlah soal: 10" padahal yang benar-benar ditampilkan
+  // di halaman soal cuma 5, karena essay/soal sudah membaca paket yang
+  // lebih spesifik).
+  const jumlahSoalQuery = sesi.paket_essay_id
+    ? db.from('soal_essay').select('id', { count: 'exact', head: true }).eq('paket_essay_id', sesi.paket_essay_id).eq('status', 'DISETUJUI')
+    : db.from('soal_essay').select('id', { count: 'exact', head: true }).eq('mapel_id', sesi.mapel_id).eq('kelas_id', kelasId).eq('status', 'DISETUJUI')
 
   const [{ data: jadwal }, { data: mapel }, { count: jumlahSoal }] = await Promise.all([
     db.from('jadwal').select('pengawas').eq('id', sesi.jadwal_id).single(),
     db.from('mapel').select('nama').eq('id', sesi.mapel_id).single(),
-    // FIX BUG (fitur essay): hitung hanya soal essay yang sudah DISETUJUI —
-    // sebelumnya soal DRAFT ikut terhitung, sehingga "jumlah soal" yang
-    // ditampilkan di halaman info bisa lebih besar dari jumlah soal yang
-    // sebenarnya akan diberikan ke siswa di /essay/soal (lihat FIX di sana).
-    db.from('soal_essay').select('id', { count: 'exact', head: true }).eq('mapel_id', sesi.mapel_id).eq('kelas_id', kelasId).eq('status', 'DISETUJUI'),
+    jumlahSoalQuery,
   ])
 
   let namaGuru: string | null = null
