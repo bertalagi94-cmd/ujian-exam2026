@@ -4,6 +4,41 @@ import { requireRole } from '@/lib/auth'
 import { generateId } from '@/lib/utils'
 import { pastikanLokasiSekolahLengkap } from '@/lib/pengaturan-waktu'
 
+// FIX (cegah jadwal baru untuk ujian yang sudah pernah dilaksanakan dan
+// sudah dinilai): sebelumnya, cek duplikat saat membuat/mengedit jadwal
+// HANYA melihat tabel `jadwal`. Padahal saat jadwal berstatus SELESAI
+// dihapus (lihat DELETE di bawah), baris jadwal-nya betul-betul hilang —
+// sementara riwayat ujian & nilai siswa TETAP ada di `sesi_ujian` +
+// `nilai` (keduanya tidak terhubung ke `jadwal` yang sudah terhapus).
+// Akibatnya admin bisa membuat jadwal baru untuk kombinasi mapel+kelas
+// yang sebenarnya sudah pernah diujikan dan sudah punya nilai, seolah-olah
+// itu jadwal ujian yang benar-benar baru.
+//
+// Fungsi ini mengecek riwayat tsb secara langsung dari sesi_ujian + nilai,
+// terlepas dari ada/tidaknya baris jadwal yang bersangkutan saat ini.
+async function cekSudahPernahDinilai(
+  db: ReturnType<typeof createAdminClient>,
+  mapelId: string,
+  kelas: string
+): Promise<{ sudahAda: boolean; jumlahSiswa: number }> {
+  const { data: sesiList } = await (db as any)
+    .from('sesi_ujian')
+    .select('id')
+    .eq('mapel_id', mapelId)
+    .eq('kelas', kelas)
+
+  const sesiIds = ((sesiList ?? []) as { id: string }[]).map(s => s.id)
+  if (sesiIds.length === 0) return { sudahAda: false, jumlahSiswa: 0 }
+
+  const { data: nilaiList } = await (db as any)
+    .from('nilai')
+    .select('nis')
+    .in('sesi_id', sesiIds)
+
+  const nisUnik = new Set(((nilaiList ?? []) as { nis: string }[]).map(n => n.nis))
+  return { sudahAda: nisUnik.size > 0, jumlahSiswa: nisUnik.size }
+}
+
 export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['ADMIN', 'GURU', 'KEPSEK', 'SISWA'])
   if ('error' in auth) return auth.error
@@ -269,6 +304,23 @@ export async function POST(req: NextRequest) {
     )
   }
 
+  // FIX: cegah pembuatan jadwal baru untuk mapel+kelas yang ujiannya sudah
+  // pernah dilaksanakan dan sudah punya nilai (lihat cekSudahPernahDinilai
+  // di atas). Ini menutup celah "hapus jadwal SELESAI -> buat jadwal baru
+  // untuk kombinasi yang sama" karena baris jadwal lama sudah tidak ada
+  // sehingga cek duplikat di atas tidak mendeteksinya.
+  if (body.mapel_id && body.kelas) {
+    const riwayat = await cekSudahPernahDinilai(db, body.mapel_id, String(body.kelas))
+    if (riwayat.sudahAda) {
+      return NextResponse.json(
+        {
+          error: `Ujian untuk mata pelajaran ini di kelas ${body.kelas} sudah pernah dilaksanakan dan sudah ada nilai ${riwayat.jumlahSiswa} siswa. Tidak bisa membuat jadwal baru untuk kombinasi yang sama. Jika ada siswa yang perlu ujian ulang/susulan, gunakan fitur ujian susulan pada jadwal yang bersangkutan, bukan membuat jadwal baru.`,
+        },
+        { status: 409 }
+      )
+    }
+  }
+
   // Cegah bentrok pengawas: pengawas yang sama di hari yang sama dengan jam yang bertabrakan
   if (body.pengawas && body.tanggal && body.jam_mulai && body.jam_selesai) {
     const { data: jadwalPengawas } = await db
@@ -376,6 +428,39 @@ export async function PUT(req: NextRequest) {
         { error: 'Jadwal untuk mata pelajaran dan kelas yang sama sudah ada.' },
         { status: 409 }
       )
+    }
+  }
+
+  // FIX: cegah edit jadwal ini menjadi kombinasi mapel+kelas yang sudah
+  // pernah diujikan dan sudah punya nilai milik jadwal LAIN (celah yang
+  // sama seperti di POST). Hanya dicek kalau kombinasi mapel+kelas hasil
+  // edit benar-benar BERBEDA dari kombinasi jadwal ini saat ini — supaya
+  // admin tetap bisa mengedit field lain (jam, pengawas, dst.) pada jadwal
+  // yang mapel+kelas-nya memang sudah punya nilai (itu histori miliknya
+  // sendiri, bukan bentrok).
+  if (update.mapel_id || update.kelas) {
+    const { data: jadwalSekarang } = await db
+      .from('jadwal')
+      .select('mapel_id, kelas')
+      .eq('id', id)
+      .single()
+
+    const mapelIdTujuan = update.mapel_id ?? jadwalSekarang?.mapel_id
+    const kelasTujuan = String(update.kelas ?? jadwalSekarang?.kelas ?? '')
+    const kombinasiBerubah =
+      jadwalSekarang &&
+      (mapelIdTujuan !== jadwalSekarang.mapel_id || kelasTujuan !== String(jadwalSekarang.kelas))
+
+    if (kombinasiBerubah && mapelIdTujuan && kelasTujuan) {
+      const riwayat = await cekSudahPernahDinilai(db, mapelIdTujuan, kelasTujuan)
+      if (riwayat.sudahAda) {
+        return NextResponse.json(
+          {
+            error: `Ujian untuk mata pelajaran ini di kelas ${kelasTujuan} sudah pernah dilaksanakan dan sudah ada nilai ${riwayat.jumlahSiswa} siswa. Tidak bisa mengubah jadwal ini menjadi kombinasi yang sama. Jika ada siswa yang perlu ujian ulang/susulan, gunakan fitur ujian susulan pada jadwal yang bersangkutan, bukan mengubah jadwal ini.`,
+          },
+          { status: 409 }
+        )
+      }
     }
   }
 
