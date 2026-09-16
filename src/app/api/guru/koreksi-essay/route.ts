@@ -15,9 +15,13 @@ export async function GET(req: NextRequest) {
   const sesiId = searchParams.get('sesiId')
   if (!sesiId) return NextResponse.json({ error: 'sesiId diperlukan' }, { status: 400 })
 
+  // FIX ARSITEKTUR KRITIS: sertakan paket_essay_id — koreksi WAJIB memakai
+  // paket yang benar-benar dikerjakan siswa (di-snapshot oleh
+  // /api/siswa/ujian/essay/mulai), bukan resolusi ulang berdasarkan status
+  // DISETUJUI saat ini (lihat FIX lengkap di essay/mulai/route.ts).
   const { data: sesi } = await db
     .from('sesi_ujian')
-    .select('id, jadwal_id, mapel_id, kelas, info_json, is_darurat, siswa_diizinkan')
+    .select('id, jadwal_id, mapel_id, kelas, info_json, is_darurat, siswa_diizinkan, paket_essay_id')
     .eq('id', sesiId)
     .single()
   if (!sesi) return NextResponse.json({ error: 'Sesi tidak ditemukan' }, { status: 404 })
@@ -45,15 +49,6 @@ export async function GET(req: NextRequest) {
 
   const modeJawaban = sesi.info_json?.essay_mode_jawaban
 
-  // Soal essay sekarang berupa bank per mapel+kelas (paket_essay), sama
-  // seperti soal PG — bukan lagi melekat ke jadwal_id. Lihat 08_paket_essay.sql.
-  const { data: kelasRow } = await db
-    .from('kelas')
-    .select('id')
-    .eq('nama', String(sesi.kelas))
-    .maybeSingle()
-  const kelasId = kelasRow?.id ?? String(sesi.kelas)
-
   // FIX BUG (fitur essay): filter status = 'DISETUJUI' — sebelumnya soal
   // DRAFT ikut dihitung di totalBobotMaks, padahal soal DRAFT itu TIDAK
   // pernah benar-benar dikerjakan siswa (lihat FIX di essay/soal/route.ts).
@@ -61,13 +56,27 @@ export async function GET(req: NextRequest) {
   // menghitung nilai_essay (lihat PUT di bawah & 12_skor_per_soal_essay.sql)
   // — bukan cuma panduan visual. totalBobotMaks di sini tetap dikirim untuk
   // ditampilkan sebagai konteks di UI.
-  const { data: soalEssayList } = await db
-    .from('soal_essay')
-    .select('id, teks, bobot_maks, urutan')
-    .eq('mapel_id', sesi.mapel_id)
-    .eq('kelas_id', kelasId)
-    .eq('status', 'DISETUJUI')
-    .order('urutan', { ascending: true })
+  //
+  // FIX ARSITEKTUR KRITIS: kalau sesi sudah punya snapshot paket_essay_id,
+  // pakai ITU LANGSUNG (bank soal yang benar-benar dikerjakan siswa) —
+  // JANGAN cari ulang berdasarkan mapel+kelas+status DISETUJUI, karena bank
+  // yang disetujui SEKARANG bisa saja sudah berbeda dari yang dikerjakan
+  // siswa dulu. Fallback ke resolusi lama hanya untuk sesi lama yang belum
+  // punya snapshot (dibuat sebelum migrasi 14_snapshot_paket_dan_transaksi_atomik.sql).
+  const soalEssayQuery = sesi.paket_essay_id
+    ? db.from('soal_essay').select('id, teks, bobot_maks, urutan').eq('paket_essay_id', sesi.paket_essay_id).eq('status', 'DISETUJUI').order('urutan', { ascending: true })
+    : (async () => {
+        // Soal essay sekarang berupa bank per mapel+kelas (paket_essay),
+        // sama seperti soal PG — bukan lagi melekat ke jadwal_id. Lihat
+        // 08_paket_essay.sql.
+        const { data: kelasRow } = await db.from('kelas').select('id').eq('nama', String(sesi.kelas)).maybeSingle()
+        const kelasId = kelasRow?.id ?? String(sesi.kelas)
+        return db.from('soal_essay').select('id, teks, bobot_maks, urutan')
+          .eq('mapel_id', sesi.mapel_id).eq('kelas_id', kelasId).eq('status', 'DISETUJUI')
+          .order('urutan', { ascending: true })
+      })()
+
+  const { data: soalEssayList } = await soalEssayQuery
 
   const totalBobotMaks = (soalEssayList ?? []).reduce((sum, s) => sum + Number(s.bobot_maks), 0)
 
@@ -248,9 +257,10 @@ export async function PUT(req: NextRequest) {
   const { sesiId, nis, skorPerSoal, tidakMengerjakan } = await req.json()
   if (!sesiId || !nis) return NextResponse.json({ error: 'sesiId dan nis diperlukan' }, { status: 400 })
 
+  // FIX ARSITEKTUR KRITIS: sertakan paket_essay_id, sama seperti GET di atas.
   const { data: sesi } = await db
     .from('sesi_ujian')
-    .select('id, jadwal_id, mapel_id, kelas, info_json')
+    .select('id, jadwal_id, mapel_id, kelas, info_json, paket_essay_id')
     .eq('id', sesiId)
     .single()
   if (!sesi) return NextResponse.json({ error: 'Sesi tidak ditemukan' }, { status: 404 })
@@ -293,23 +303,37 @@ export async function PUT(req: NextRequest) {
     finalNilaiEssay = 0
     statusEssayUpdate = 'TIDAK_MENGERJAKAN'
   } else {
-    // Ambil soal essay DISETUJUI untuk mapel+kelas ini — jadi acuan
-    // bobot_maks per soal, sama seperti dipakai GET. Pola resolusi kelasId
-    // sengaja disamakan persis dengan GET (kelas.nama → kelas.id, fallback
-    // ke sesi.kelas mentah) supaya soal yang diambil konsisten.
-    const { data: kelasRow } = await db
-      .from('kelas')
-      .select('id')
-      .eq('nama', String(sesi.kelas))
-      .maybeSingle()
-    const kelasId = kelasRow?.id ?? String(sesi.kelas)
+    // FIX ARSITEKTUR KRITIS: ambil soal essay dari paket yang SUDAH DI-
+    // SNAPSHOT ke sesi ini (paket_essay_id), bukan resolusi ulang
+    // berdasarkan mapel+kelas+status DISETUJUI — jadi acuan bobot_maks yang
+    // dipakai menghitung nilai_essay selalu konsisten dengan soal yang
+    // benar-benar dikerjakan siswa, sama seperti dipakai GET di atas.
+    // Fallback ke resolusi lama hanya untuk sesi tanpa snapshot (dibuat
+    // sebelum migrasi 14_snapshot_paket_dan_transaksi_atomik.sql).
+    let soalEssayList: { id: string; bobot_maks: number }[] | null = null
+    if (sesi.paket_essay_id) {
+      const { data } = await db
+        .from('soal_essay')
+        .select('id, bobot_maks')
+        .eq('paket_essay_id', sesi.paket_essay_id)
+        .eq('status', 'DISETUJUI')
+      soalEssayList = data
+    } else {
+      const { data: kelasRow } = await db
+        .from('kelas')
+        .select('id')
+        .eq('nama', String(sesi.kelas))
+        .maybeSingle()
+      const kelasId = kelasRow?.id ?? String(sesi.kelas)
 
-    const { data: soalEssayList } = await db
-      .from('soal_essay')
-      .select('id, bobot_maks')
-      .eq('mapel_id', sesi.mapel_id)
-      .eq('kelas_id', kelasId)
-      .eq('status', 'DISETUJUI')
+      const { data } = await db
+        .from('soal_essay')
+        .select('id, bobot_maks')
+        .eq('mapel_id', sesi.mapel_id)
+        .eq('kelas_id', kelasId)
+        .eq('status', 'DISETUJUI')
+      soalEssayList = data
+    }
 
     if (!soalEssayList || soalEssayList.length === 0) {
       return NextResponse.json({ error: 'Tidak ada soal essay disetujui untuk mapel & kelas ini' }, { status: 400 })
