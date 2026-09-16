@@ -10,12 +10,12 @@ export async function POST(req: NextRequest) {
   const { user } = auth
 
   const db = createAdminClient()
-  const { sesiId } = await req.json()
+  const { sesiId, deviceId } = await req.json()
   if (!sesiId) return NextResponse.json({ error: 'sesiId diperlukan' }, { status: 400 })
 
   const { data: siswaUjian } = await db
     .from('siswa_ujian')
-    .select('status, status_essay, waktu_mulai_essay')
+    .select('status, status_essay, waktu_mulai_essay, device_id')
     .eq('sesi_id', sesiId)
     .eq('nis', user.nis!)
     .single()
@@ -26,6 +26,23 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       { error: 'Akses ujian Anda sedang dikunci/menunggu reset.' },
       { status: 403 }
+    )
+  }
+
+  // FIX BUG (essay/mulai tidak memeriksa deviceId): kebijakan "satu siswa
+  // satu perangkat" sudah ditegakkan di essay/jawab dan essay/kirim, tapi
+  // titik masuk fase essay ini (yang menetapkan waktu_mulai_essay pertama
+  // kali) sebelumnya tidak mengecek device_id sama sekali. Akibatnya Device
+  // B (NIS sama) bisa memanggil endpoint ini langsung dan menjadi yang
+  // "menang" menetapkan waktu_mulai_essay/status_essay=MENGERJAKAN duluan,
+  // mencuri start timer essay dari Device A tanpa sepengetahuannya — bahkan
+  // sebelum Device A sempat menekan "Mulai". Pola guard sama persis dengan
+  // essay/jawab & essay/kirim: kalau device_id belum pernah tercatat (data
+  // lama), lewati pengecekan supaya tidak memblokir siswa yang sah.
+  if (siswaUjian.device_id && siswaUjian.device_id !== deviceId) {
+    return NextResponse.json(
+      { error: 'Sesi ujian Anda sedang aktif di perangkat lain. Essay tidak bisa dimulai dari perangkat ini.' },
+      { status: 409 }
     )
   }
 
