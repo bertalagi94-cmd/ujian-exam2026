@@ -61,9 +61,13 @@ export async function POST(req: NextRequest) {
   // dicek ULANG di server (bukan cuma disabled di tombol UI) supaya tidak
   // bisa di-bypass dengan memanggil endpoint ini langsung sebelum pengawas
   // menyalakan aksesnya.
+  // FIX ARSITEKTUR KRITIS: sertakan paket_essay_id — sama seperti paket PG
+  // (lihat FIX di validasi/route.ts & penilaian-ujian.ts), koreksi essay
+  // WAJIB memakai paket yang benar-benar dikerjakan siswa, bukan resolusi
+  // ulang berdasarkan status DISETUJUI saat guru mengoreksi.
   const { data: sesi } = await db
     .from('sesi_ujian')
-    .select('status, akses_mulai_essay_dibuka, mapel_id, kelas')
+    .select('status, akses_mulai_essay_dibuka, mapel_id, kelas, paket_essay_id')
     .eq('id', sesiId)
     .single()
 
@@ -106,25 +110,41 @@ export async function POST(req: NextRequest) {
   // jumlah soal DISETUJUI persis sebelum mengizinkan status MENGERJAKAN,
   // sama seperti resolusi kelasId di endpoint essay lain (info/soal/
   // koreksi-essay).
-  const { data: kelasRow } = await db
-    .from('kelas')
-    .select('id')
-    .eq('nama', String(sesi.kelas))
-    .maybeSingle()
+  const { data: kelasRow } = sesi.paket_essay_id
+    ? { data: null }
+    : await db.from('kelas').select('id').eq('nama', String(sesi.kelas)).maybeSingle()
   const kelasId = kelasRow?.id ?? String(sesi.kelas)
 
-  const { count: jumlahSoalEssay } = await db
-    .from('soal_essay')
-    .select('id', { count: 'exact', head: true })
-    .eq('mapel_id', sesi.mapel_id)
-    .eq('kelas_id', kelasId)
-    .eq('status', 'DISETUJUI')
+  // FIX ARSITEKTUR KRITIS (snapshot paket essay ke sesi): kalau sesi ini
+  // sudah punya paket_essay_id (siswa lain sudah pernah mulai essay
+  // duluan), hitung soal HANYA dari paket itu — jangan dari mapel+kelas+
+  // status DISETUJUI secara umum, supaya siswa yang mulai belakangan tetap
+  // mendapat bank soal yang SAMA persis dengan siswa pertama walau paket
+  // yang disetujui berubah setelahnya.
+  const soalEssaySnapshotQuery = sesi.paket_essay_id
+    ? db.from('soal_essay').select('id, paket_essay_id').eq('paket_essay_id', sesi.paket_essay_id).eq('status', 'DISETUJUI')
+    : db.from('soal_essay').select('id, paket_essay_id').eq('mapel_id', sesi.mapel_id).eq('kelas_id', kelasId).eq('status', 'DISETUJUI')
 
-  if (!jumlahSoalEssay || jumlahSoalEssay === 0) {
+  const { data: soalEssayUntukSnapshot } = await soalEssaySnapshotQuery
+  const jumlahSoalEssay = soalEssayUntukSnapshot?.length ?? 0
+
+  if (!jumlahSoalEssay) {
     return NextResponse.json(
       { error: 'Belum ada soal essay yang disetujui untuk mapel ini. Hubungi guru/pengawas Anda.' },
       { status: 409 }
     )
+  }
+
+  // Kunci paket_essay_id ke sesi SEKALI, hanya kalau kolomnya masih NULL —
+  // pola & alasan identik dengan snapshot paket_soal_id di validasi/route.ts.
+  if (!sesi.paket_essay_id) {
+    const paketEssayIdTerdeteksi = soalEssayUntukSnapshot?.[0]?.paket_essay_id ?? null
+    if (paketEssayIdTerdeteksi) {
+      await db.from('sesi_ujian')
+        .update({ paket_essay_id: paketEssayIdTerdeteksi })
+        .eq('id', sesiId)
+        .is('paket_essay_id', null)
+    }
   }
 
   // FIX (race condition kecil): tambahkan guard .eq('status_essay', ...) yang
