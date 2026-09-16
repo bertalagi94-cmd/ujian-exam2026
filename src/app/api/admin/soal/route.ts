@@ -71,18 +71,13 @@ export async function POST(req: NextRequest) {
   // membuat/mengubah/menghapus paket_soal/soal (lihat doc-comment fungsi ini
   // di sesi-kelas.ts), tapi endpoint admin INI — yang mengubah status paket
   // lewat SETUJUI/TOLAK/BATAL_SETUJUI (otomatis ikut mengubah status semua
-  // soal di dalamnya) — tidak pernah memeriksa guard yang sama. Ini bolong
-  // yang berbahaya: soal yang ditampilkan ke siswa (siswa/ujian/validasi)
-  // dan kunci jawaban untuk menilai (ambilDataSesiUntukPenilaian) SELALU
-  // mengambil paket yang SEDANG DISETUJUI saat itu juga (bukan snapshot yang
-  // dikunci ke sesi). Kalau admin BATAL_SETUJUI/TOLAK paket yang sedang/
-  // sudah dipakai sesi BERJALAN/SELESAI, siswa yang belum submit bisa gagal
-  // total (tidak ada paket disetujui), dan siswa yang dinilai belakangan
-  // (cache kedaluwarsa / finalisasi paksa) bisa mendapat nilai 0 walau
-  // jawabannya benar karena kunci jawaban jadi kosong (paketData undefined
-  // → query .eq('paket_id', '') → kunciMap kosong). FIX: tolak SETUJUI/
-  // TOLAK/BATAL_SETUJUI begitu sesi ujian untuk mapel+kelas paket ini sudah
-  // BERJALAN atau SELESAI — persis pola guard yang sama dengan sisi Guru.
+  // soal di dalamnya) — tidak pernah memeriksa guard yang sama sebelum fix
+  // ini. FIX: tolak SETUJUI/TOLAK/BATAL_SETUJUI begitu sesi ujian untuk
+  // mapel+kelas paket ini sudah BERJALAN atau SELESAI — persis pola guard
+  // yang sama dengan sisi Guru. (Catatan: ini lapisan pertahanan tambahan —
+  // pertahanan UTAMA terhadap "kunci berubah setelah siswa mulai" sekarang
+  // ada di snapshot paket_soal_id pada sesi_ujian, lihat
+  // src/lib/penilaian-ujian.ts & validasi/route.ts.)
   const { data: paketUntukGuard } = await db
     .from('paket_soal')
     .select('mapel_id, kelas_id')
@@ -99,66 +94,44 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // FIX BUG KRITIS: cegah lebih dari satu paket_soal berstatus DISETUJUI untuk
-  // kombinasi mapel_id + kelas_id yang sama. Sebelumnya tidak ada pengecekan
-  // sama sekali, sehingga kalau ada 2 paket DISETUJUI sekaligus (misal team-
-  // teaching, atau guru membuat ulang paket), endpoint /validasi (saat siswa
-  // mulai ujian), /selesai, dan /tutup (saat menilai) masing-masing mengambil
-  // paket DISETUJUI secara independen TANPA urutan yang pasti — bisa-bisa soal
-  // yang dikerjakan siswa berasal dari paket A, tapi kunci jawaban yang dipakai
-  // untuk menilai berasal dari paket B → soal_id tidak match → nilai siswa
-  // salah total (biasanya jadi 0) walau jawabannya benar.
+  // FIX ARSITEKTUR KRITIS (transaksi + race condition): sebelumnya bagian
+  // ini melakukan (a) cari & demote paket DISETUJUI lain, (b) update
+  // paket_soal.status, (c) update soal.status — sebagai 3+ panggilan
+  // Supabase TERPISAH, tidak atomik. Kalau salah satu gagal di tengah
+  // (network blip dsb.), paket dan soal bisa berakhir dengan status yang
+  // berbeda (lihat temuan audit #3). Selain itu check-then-act di JS ini
+  // rawan race condition kalau dua admin menyetujui DUA PAKET BERBEDA untuk
+  // mapel+kelas yang sama nyaris bersamaan (temuan audit #2) — keduanya bisa
+  // lolos sebelum salah satu sempat menulis.
   //
-  // Solusinya: begitu admin menyetujui satu paket (action SETUJUI), paket LAIN
-  // yang sudah DISETUJUI untuk mapel+kelas yang sama otomatis dikembalikan ke
-  // DRAFT (beserta soal-soal di dalamnya) — supaya pada satu waktu HANYA ADA
-  // SATU paket DISETUJUI per kombinasi mapel+kelas.
-  if (newStatus === 'DISETUJUI') {
-    const { data: paketAkanDisetujui } = await db
-      .from('paket_soal')
-      .select('mapel_id, kelas_id')
-      .eq('id', paket_id)
-      .single()
+  // FIX: seluruh logika di atas sekarang dijalankan lewat satu fungsi
+  // Postgres (set_status_paket_soal, lihat
+  // supabase/14_snapshot_paket_dan_transaksi_atomik.sql) yang atomik (satu
+  // transaksi database) DAN memakai row lock (FOR UPDATE) untuk menyerialkan
+  // approval yang bertabrakan pada mapel+kelas yang sama. Unique partial
+  // index pada (mapel_id, kelas_id) WHERE status='DISETUJUI' di migrasi yang
+  // sama jadi penjaga terakhir kalau toh ada bug lain yang mencoba melewati
+  // ini — Postgres akan menolak dengan error unique_violation, bukan diam-
+  // diam membuat 2 baris DISETUJUI.
+  const { error: rpcError } = await db.rpc('set_status_paket_soal', {
+    p_paket_id: paket_id,
+    p_new_status: newStatus,
+    p_catatan: catatan || null,
+  })
 
-    if (paketAkanDisetujui) {
-      const { data: paketLainDisetujui } = await db
-        .from('paket_soal')
-        .select('id')
-        .eq('mapel_id', paketAkanDisetujui.mapel_id)
-        .eq('kelas_id', paketAkanDisetujui.kelas_id)
-        .eq('status', 'DISETUJUI')
-        .neq('id', paket_id)
-
-      const idPaketLain = (paketLainDisetujui ?? []).map(p => p.id)
-      if (idPaketLain.length > 0) {
-        await Promise.all([
-          db.from('paket_soal')
-            .update({ status: 'DRAFT', notif_dibaca: false, catatan: 'Otomatis dikembalikan ke draft karena paket lain untuk mapel+kelas ini disetujui.' })
-            .in('id', idPaketLain),
-          db.from('soal')
-            .update({ status: 'DRAFT' })
-            .in('paket_id', idPaketLain)
-            .eq('status', 'DISETUJUI'),
-        ])
-      }
+  if (rpcError) {
+    // unique_violation dari uq_paket_soal_disetujui_per_kelas — seharusnya
+    // nyaris tidak pernah terjadi berkat row lock di dalam fungsi, tapi kalau
+    // toh terjadi, admin diberi pesan yang jelas (bukan error 500 generik)
+    // untuk mencoba lagi.
+    if (rpcError.code === '23505') {
+      return NextResponse.json(
+        { error: 'Ada paket lain yang baru saja disetujui untuk mapel & kelas yang sama. Muat ulang halaman dan coba lagi.' },
+        { status: 409 }
+      )
     }
+    return NextResponse.json({ error: rpcError.message }, { status: 500 })
   }
-
-  // Update paket + set notif_dibaca=false agar guru dapat badge notifikasi
-  const { error: paketErr } = await db
-    .from('paket_soal')
-    .update({ status: newStatus, catatan: catatan || null, notif_dibaca: false })
-    .eq('id', paket_id)
-
-  if (paketErr) return NextResponse.json({ error: paketErr.message }, { status: 500 })
-
-  // Update semua soal dalam paket
-  const { error: soalErr } = await db
-    .from('soal')
-    .update({ status: newStatus })
-    .eq('paket_id', paket_id)
-
-  if (soalErr) return NextResponse.json({ error: soalErr.message }, { status: 500 })
 
   const pesanStatus = newStatus === 'DISETUJUI' ? 'disetujui' : newStatus === 'DITOLAK' ? 'ditolak' : 'dikembalikan ke draft'
   return NextResponse.json({ message: `Paket berhasil ${pesanStatus}` })
