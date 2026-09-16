@@ -12,21 +12,64 @@ export async function GET(req: NextRequest) {
   const fiveMinsAgo = new Date(now.getTime() - 5 * 60 * 1000)
 
   const dbStart = Date.now()
+
+  // FIX (siswa "Mengerjakan" tidak diverifikasi terhadap sesi yang masih
+  // BERJALAN): sebelumnya siswaAktifMengerjakan dihitung murni dari
+  // `siswa_ujian.status = 'AKTIF'` TANPA pernah menghubungkan ke
+  // sesi_ujian.status. Dalam kondisi normal kedua penutupan sesi yang ada
+  // (guru/mode-pengawas/tutup & admin/sesi/[id]/tutup-paksa) SELALU mengubah
+  // siswa_ujian AKTIF/RESET → SELESAI di baris yang sama saat sesi ditutup,
+  // jadi biasanya konsisten — TAPI kalau salah satu update itu gagal (lihat
+  // FIX di tutup-paksa/route.ts & finalisasi-nilai.ts, yang sebelumnya
+  // tidak memeriksa error sama sekali), siswa_ujian bisa tertinggal
+  // berstatus AKTIF selamanya walau sesinya sudah SELESAI — dan angka ini
+  // akan diam-diam ikut menghitungnya sebagai "sedang mengerjakan".
+  // Sekarang sesi BERJALAN diambil LEBIH DULU (sequential, di luar
+  // Promise.all di bawah), lalu id-nya dipakai sebagai filter eksplisit
+  // (`in('sesi_id', ...)`) untuk siswaAktifMengerjakan, supaya angka ini
+  // benar-benar berarti "siswa AKTIF pada sesi yang BENAR-BENAR masih
+  // BERJALAN", bukan cuma "baris AKTIF di tabel siswa_ujian".
+  const { data: sesiAktifRaw } = await db
+    .from('sesi_ujian')
+    // FIX: tambahkan kolom `durasi` (durasi normal ujian dalam menit) —
+    // dipakai front-end untuk menandai sesi yang sudah BERJALAN jauh lebih
+    // lama dari durasi seharusnya (kemungkinan lupa/tidak ditutup pengawas),
+    // supaya admin tahu sesi mana yang perlu ditutup paksa.
+    .select('id, kelas, mapel_id, waktu_mulai, jumlah_peserta, durasi')
+    .eq('status', 'BERJALAN')
+    .order('waktu_mulai', { ascending: false })
+
+  const sesiIdsBerjalan = (sesiAktifRaw ?? []).map((s: { id: string }) => s.id)
+
+  const siswaAktifQuery = sesiIdsBerjalan.length
+    ? db.from('siswa_ujian')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'AKTIF')
+        .in('sesi_id', sesiIdsBerjalan)
+    : Promise.resolve({ count: 0, data: null, error: null })
+
   const [
     { data: logs },
-    { data: sesiAktifRaw },
     { data: pelanggaranRaw },
     { count: loginHariIni },
     { count: aktifitas5Menit },
-    { count: sesiUjianAktif },
     { count: pelanggaranHariIni },
     // Poin 1: Nama mapel
     { data: mapelList },
     // Poin 3: Nama siswa di pelanggaran
     { data: siswaList },
-    // Poin 5: Jumlah siswa sedang aktif mengerjakan
+    // Poin 5: Jumlah siswa sedang aktif mengerjakan (sudah difilter ke sesi
+    // BERJALAN — lihat komentar FIX di atas)
     { count: siswaAktifMengerjakan },
     // Poin 6: Submit hari ini
+    // FIX (sumber data beda dengan daftar Submit): sebelumnya dihitung dari
+    // `siswa_ujian.waktu_selesai`, sedangkan endpoint daftar
+    // (/api/admin/monitoring/daftar?jenis=submit) mengambil dari tabel
+    // `nilai.timestamp` — dua sumber berbeda yang bisa memberi angka
+    // berbeda (mis. untuk sesi ber-essay, waktu_selesai baru terisi saat
+    // essay dikirim, padahal baris `nilai` sudah ada lebih dulu sejak PG
+    // selesai). Disamakan: keduanya sekarang dari `nilai.timestamp`, supaya
+    // angka ringkasan dan daftar yang muncul saat diklik selalu konsisten.
     { count: submitHariIni },
     // Poin 8: Maintenance mode
     { data: maintenanceRow },
@@ -35,14 +78,6 @@ export async function GET(req: NextRequest) {
       .select('id, user_id, aksi, detail, created_at')
       .order('created_at', { ascending: false })
       .limit(30),
-    // FIX: tambahkan kolom `durasi` (durasi normal ujian dalam menit) —
-    // dipakai front-end untuk menandai sesi yang sudah BERJALAN jauh lebih
-    // lama dari durasi seharusnya (kemungkinan lupa/tidak ditutup pengawas),
-    // supaya admin tahu sesi mana yang perlu ditutup paksa.
-    db.from('sesi_ujian')
-      .select('id, kelas, mapel_id, waktu_mulai, jumlah_peserta, durasi')
-      .eq('status', 'BERJALAN')
-      .order('waktu_mulai', { ascending: false }),
     db.from('pelanggaran')
       .select('id, nis, jenis, created_at')
       .gte('created_at', startOfDay.toISOString())
@@ -55,25 +90,15 @@ export async function GET(req: NextRequest) {
     db.from('log_aktivitas')
       .select('id', { count: 'exact', head: true })
       .gte('created_at', fiveMinsAgo.toISOString()),
-    db.from('sesi_ujian')
-      .select('id', { count: 'exact', head: true })
-      .eq('status', 'BERJALAN'),
     db.from('pelanggaran')
       .select('id', { count: 'exact', head: true })
       .gte('created_at', startOfDay.toISOString()),
-    // Ambil semua nama mapel (ringan, data kecil)
     db.from('mapel').select('id, nama'),
-    // Ambil nama siswa untuk NIS yang ada di pelanggaran hari ini
     db.from('siswa').select('nis, nama'),
-    // Count siswa yang sedang AKTIF mengerjakan (dari sesi yang BERJALAN)
-    db.from('siswa_ujian')
+    siswaAktifQuery,
+    db.from('nilai')
       .select('id', { count: 'exact', head: true })
-      .eq('status', 'AKTIF'),
-    // Count submit hari ini (waktu_selesai != null dan >= startOfDay)
-    db.from('siswa_ujian')
-      .select('id', { count: 'exact', head: true })
-      .gte('waktu_selesai', startOfDay.toISOString()),
-    // Maintenance mode
+      .gte('timestamp', startOfDay.toISOString()),
     db.from('pengaturan')
       .select('value')
       .eq('key', 'maintenanceAktif')
@@ -117,7 +142,13 @@ export async function GET(req: NextRequest) {
     nama_siswa: siswaMap[p.nis] ?? p.nis,
   }))
 
-  const sesiCount = sesiUjianAktif ?? 0
+  // FIX: sesiUjianAktif sekarang diturunkan dari sesiAktifRaw yang sudah
+  // diambil di atas (bukan query `count` terpisah lagi) — data sumbernya
+  // identik (sama-sama `sesi_ujian.status = 'BERJALAN'`), jadi menghitung
+  // ulang dengan query kedua hanya menambah round-trip tanpa manfaat, dan
+  // berisiko sedikit tidak sinkron kalau ada sesi yang berubah status
+  // PERSIS di antara kedua query (walau jendelanya sangat kecil).
+  const sesiCount = sesiIdsBerjalan.length
   const score = Math.min(
     100,
     Math.round(
