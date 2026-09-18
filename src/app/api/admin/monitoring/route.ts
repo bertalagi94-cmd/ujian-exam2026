@@ -2,6 +2,138 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 
+// ── Status "Server" NYATA ────────────────────────────────────────────────
+// FIX ARSITEKTUR (pemisahan "Status Server" vs "Beban Ujian"): sebelumnya
+// SATU angka `score` dipakai untuk status AMAN/NORMAL/WASPADA/BERAT/KRITIS,
+// dihitung dari jumlah sesi aktif + aktivitas 5 menit + pelanggaran hari ini
+// — itu skor KESIBUKAN ujian, bukan KESEHATAN server. Server bisa saja
+// benar-benar down/lambat sementara skor itu tetap rendah kalau kebetulan
+// sedang sepi sesi ujian, dan sebaliknya bisa "KRITIS" padahal server
+// sehat-sehat saja, cuma lagi banyak sesi.
+//
+// Sekarang dipisah jadi dua hal berbeda di response:
+//   - `server` : status NYATA dari error rate & latensi endpoint kritis
+//                (login, validasi_ujian, sync_jawaban) dalam 5 menit
+//                terakhir — lihat metrik_sistem (src/lib/metrik.ts) — PLUS
+//                live DB ping (dbResponseMs) dari request admin ini sendiri.
+//                Inilah yang harus dicek admin saat pengawas lapor
+//                "siswa tidak bisa masuk" / "jawaban lambat".
+//   - `bebanUjian` : skor lama (jumlah sesi aktif dkk), sekarang dilabeli
+//                eksplisit sebagai ukuran KESIBUKAN, bukan kesehatan.
+const WINDOW_MENIT = 5
+const JENDELA_HISTORI_MENIT = 60
+const UKURAN_BUCKET_MENIT = 5
+
+interface Baris { endpoint: string; status: string; durasi_ms: number; created_at: string }
+
+function hitungP95(nilai: number[]): number {
+  if (nilai.length === 0) return 0
+  const sorted = [...nilai].sort((a, b) => a - b)
+  const idx = Math.min(sorted.length - 1, Math.ceil(0.95 * sorted.length) - 1)
+  return sorted[Math.max(0, idx)]
+}
+
+// Hitung status server NYATA dari baris metrik_sistem dalam window terakhir,
+// plus latensi live DB ping request admin ini sendiri.
+function hitungStatusServer(barisWindow: Baris[], dbResponseMs: number) {
+  const total = barisWindow.length
+  const errorCount = barisWindow.filter(b => b.status === 'error').length
+  const errorRate = total > 0 ? errorCount / total : 0
+  const durasiList = barisWindow.map(b => b.durasi_ms)
+  const avgLatency = total > 0 ? Math.round(durasiList.reduce((a, b) => a + b, 0) / total) : 0
+  const p95Latency = hitungP95(durasiList)
+
+  // Breakdown per endpoint — supaya admin bisa lihat PERSIS mana yang
+  // bermasalah (mis. cuma sync_jawaban yang error, login normal).
+  const perEndpoint: Record<string, { total: number; error: number; avgMs: number; p95Ms: number }> = {}
+  for (const ep of ['login', 'validasi_ujian', 'sync_jawaban']) {
+    const barisEp = barisWindow.filter(b => b.endpoint === ep)
+    const durasiEp = barisEp.map(b => b.durasi_ms)
+    perEndpoint[ep] = {
+      total: barisEp.length,
+      error: barisEp.filter(b => b.status === 'error').length,
+      avgMs: barisEp.length ? Math.round(durasiEp.reduce((a, b) => a + b, 0) / barisEp.length) : 0,
+      p95Ms: hitungP95(durasiEp),
+    }
+  }
+
+  // Thresholds disusun dari yang PALING parah dulu. `dbResponseMs` (live
+  // ping saat request admin ini diproses) dicek terpisah supaya walau
+  // TIDAK ADA traffic siswa sama sekali (mis. di luar jam ujian), admin
+  // tetap tahu kalau koneksi ke Supabase sendiri sedang lambat/putus.
+  let status: 'AMAN' | 'NORMAL' | 'WASPADA' | 'BERAT' | 'KRITIS' = 'AMAN'
+  const alasan: string[] = []
+
+  if (dbResponseMs > 5000) {
+    status = 'KRITIS'; alasan.push(`Koneksi database sangat lambat (${dbResponseMs}ms)`)
+  } else if (total >= 3 && errorRate >= 0.2) {
+    status = 'KRITIS'; alasan.push(`${errorCount} dari ${total} request ke server gagal (${Math.round(errorRate * 100)}%) dalam ${WINDOW_MENIT} menit terakhir`)
+  } else if (p95Latency > 8000) {
+    status = 'KRITIS'; alasan.push(`Respons server sangat lambat (p95: ${p95Latency}ms)`)
+  } else if (dbResponseMs > 2000) {
+    status = 'BERAT'; alasan.push(`Koneksi database lambat (${dbResponseMs}ms)`)
+  } else if (total >= 3 && errorRate >= 0.08) {
+    status = 'BERAT'; alasan.push(`${errorCount} dari ${total} request gagal (${Math.round(errorRate * 100)}%)`)
+  } else if (p95Latency > 4000) {
+    status = 'BERAT'; alasan.push(`Respons server lambat (p95: ${p95Latency}ms)`)
+  } else if (dbResponseMs > 800) {
+    status = 'WASPADA'; alasan.push(`Koneksi database mulai lambat (${dbResponseMs}ms)`)
+  } else if (total > 0 && errorCount > 0) {
+    status = 'WASPADA'; alasan.push(`Ada ${errorCount} request gagal dalam ${WINDOW_MENIT} menit terakhir`)
+  } else if (p95Latency > 1500) {
+    status = 'WASPADA'; alasan.push(`Respons server mulai lambat (p95: ${p95Latency}ms)`)
+  } else if (total > 0) {
+    status = 'NORMAL'
+  }
+  // else: tidak ada traffic sama sekali & DB ping cepat → tetap AMAN
+
+  return {
+    status,
+    alasan,
+    totalRequest: total,
+    errorCount,
+    errorRatePersen: Math.round(errorRate * 1000) / 10,
+    avgLatencyMs: avgLatency,
+    p95LatencyMs: p95Latency,
+    dbResponseMs,
+    perEndpoint,
+  }
+}
+
+// Kelompokkan baris metrik_sistem jadi bucket per N menit untuk grafik
+// riwayat yang PERSISTEN (tersimpan di database, bukan cuma di memori
+// browser admin — jadi tidak hilang saat panel di-refresh/ditutup).
+function bucketHistori(barisSemua: Baris[], now: number) {
+  const jumlahBucket = Math.floor(JENDELA_HISTORI_MENIT / UKURAN_BUCKET_MENIT)
+  const bucketMs = UKURAN_BUCKET_MENIT * 60 * 1000
+  const awalJendela = now - JENDELA_HISTORI_MENIT * 60 * 1000
+
+  const buckets = Array.from({ length: jumlahBucket }, (_, i) => ({
+    mulai: new Date(awalJendela + i * bucketMs).toISOString(),
+    total: 0,
+    error: 0,
+    durasiList: [] as number[],
+  }))
+
+  for (const b of barisSemua) {
+    const t = new Date(b.created_at).getTime()
+    if (t < awalJendela) continue
+    const idx = Math.min(jumlahBucket - 1, Math.floor((t - awalJendela) / bucketMs))
+    if (idx < 0) continue
+    buckets[idx].total += 1
+    if (b.status === 'error') buckets[idx].error += 1
+    buckets[idx].durasiList.push(b.durasi_ms)
+  }
+
+  return buckets.map(bk => ({
+    mulai: bk.mulai,
+    total: bk.total,
+    errorRatePersen: bk.total ? Math.round((bk.error / bk.total) * 1000) / 10 : 0,
+    avgLatencyMs: bk.durasiList.length ? Math.round(bk.durasiList.reduce((a, b2) => a + b2, 0) / bk.durasiList.length) : 0,
+  }))
+}
+// ─────────────────────────────────────────────────────────────────────────
+
 export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['ADMIN'])
   if ('error' in auth) return auth.error
@@ -10,6 +142,8 @@ export async function GET(req: NextRequest) {
   const now = new Date()
   const startOfDay = new Date(now); startOfDay.setHours(0, 0, 0, 0)
   const fiveMinsAgo = new Date(now.getTime() - 5 * 60 * 1000)
+  const windowServerAwal = new Date(now.getTime() - WINDOW_MENIT * 60 * 1000)
+  const historiAwal = new Date(now.getTime() - JENDELA_HISTORI_MENIT * 60 * 1000)
 
   const dbStart = Date.now()
 
@@ -73,6 +207,11 @@ export async function GET(req: NextRequest) {
     { count: submitHariIni },
     // Poin 8: Maintenance mode
     { data: maintenanceRow },
+    // FIX (status Server nyata): baris metrik_sistem 60 menit terakhir —
+    // dipakai untuk hitung status window 5-menit terakhir (subset dari data
+    // ini, difilter di JS, bukan query terpisah) SEKALIGUS untuk bucket
+    // histori grafik, jadi cukup satu query.
+    { data: metrikRaw },
   ] = await Promise.all([
     db.from('log_aktivitas')
       .select('id, user_id, aksi, detail, created_at')
@@ -103,9 +242,21 @@ export async function GET(req: NextRequest) {
       .select('value')
       .eq('key', 'maintenanceAktif')
       .maybeSingle(),
+    db.from('metrik_sistem')
+      .select('endpoint, status, durasi_ms, created_at')
+      .gte('created_at', historiAwal.toISOString())
+      .order('created_at', { ascending: false })
+      .limit(5000),
   ])
 
   const dbResponseMs = Date.now() - dbStart
+
+  // Status server NYATA: subset metrikRaw yang jatuh di window 5 menit
+  // terakhir (WINDOW_MENIT), dihitung di JS supaya tidak perlu query kedua.
+  const metrikSemua: Baris[] = metrikRaw ?? []
+  const metrikWindow = metrikSemua.filter(b => new Date(b.created_at).getTime() >= windowServerAwal.getTime())
+  const statusServer = hitungStatusServer(metrikWindow, dbResponseMs)
+  const historiServer = bucketHistori(metrikSemua, now.getTime())
 
   // Map mapel_id → nama mapel
   const mapelMap: Record<string, string> = {}
@@ -149,7 +300,12 @@ export async function GET(req: NextRequest) {
   // berisiko sedikit tidak sinkron kalau ada sesi yang berubah status
   // PERSIS di antara kedua query (walau jendelanya sangat kecil).
   const sesiCount = sesiIdsBerjalan.length
-  const score = Math.min(
+
+  // FIX (dipisah dari status Server): ini skor KESIBUKAN ujian (jumlah sesi,
+  // aktivitas, pelanggaran) — BUKAN kesehatan server. Dulu dipakai sebagai
+  // status "Server" yang menyesatkan; sekarang eksplisit dinamai bebanUjian.
+  // Label AMAN..KRITIS di sini artinya "seberapa sibuk", bukan "seberapa sehat".
+  const skorBebanUjian = Math.min(
     100,
     Math.round(
       (sesiCount / 20) * 40 +
@@ -158,21 +314,33 @@ export async function GET(req: NextRequest) {
     )
   )
 
-  const status =
-    score >= 80 ? 'KRITIS' :
-    score >= 60 ? 'BERAT' :
-    score >= 40 ? 'WASPADA' :
-    score >= 20 ? 'NORMAL' : 'AMAN'
+  const labelBebanUjian =
+    skorBebanUjian >= 80 ? 'SANGAT_SIBUK' :
+    skorBebanUjian >= 60 ? 'SIBUK' :
+    skorBebanUjian >= 40 ? 'RAMAI' :
+    skorBebanUjian >= 20 ? 'NORMAL' : 'SEPI'
 
   const maintenanceAktif =
     maintenanceRow?.value === 'true' || maintenanceRow?.value === '1'
 
   return NextResponse.json({
+    // FIX: status Server sekarang NYATA — dari error rate & latensi
+    // endpoint kritis (login, validasi_ujian, sync_jawaban) dalam
+    // WINDOW_MENIT terakhir + live DB ping. Inilah yang dicek admin saat
+    // pengawas lapor "siswa tidak bisa masuk" / "jawaban lambat".
     server: {
-      status,
-      score,
-      dbResponseMs,
+      ...statusServer,
+      windowMenit: WINDOW_MENIT,
       timestamp: now.toISOString(),
+    },
+    // Riwayat status server per 5 menit, 1 jam terakhir — tersimpan di
+    // database (metrik_sistem), jadi TIDAK hilang saat panel di-refresh.
+    historiServer,
+    // Skor kesibukan ujian (dulu bernama "server"/"score") — dipisah biar
+    // tidak lagi bercampur dengan kesehatan server.
+    bebanUjian: {
+      skor: skorBebanUjian,
+      label: labelBebanUjian,
     },
     aktivitas: {
       loginHariIni: loginHariIni ?? 0,
