@@ -1,13 +1,24 @@
 // GET /api/guru/sesi-terlupa
 //
 // Dipanggil sekali saat guru masuk ke area Guru (lihat src/app/guru/layout.tsx),
-// untuk mendeteksi sesi ujian yang KEMUNGKINAN lupa ditutup oleh guru tersebut:
-// status sesi masih BERJALAN, TAPI sudah tidak ada siswa yang sedang aktif
-// mengerjakan (semua sudah SELESAI/TERKUNCI, atau tidak ada peserta sama sekali).
+// untuk mendeteksi sesi ujian yang statusnya masih BERJALAN tapi sudah tidak
+// ada siswa yang sedang aktif mengerjakan (semua sudah SELESAI/TERKUNCI, atau
+// tidak ada peserta sama sekali). Ada 2 tingkat hasil:
+//   - 'lupa'  → waktu seharusnya sesi ini selesai (waktu_mulai + durasi) SUDAH
+//               LEWAT. Kemungkinan besar guru memang lupa menutup → popup tegas,
+//               menawarkan aksi langsung "Tutup Sesi Ini".
+//   - 'info'  → belum ada siswa aktif TAPI waktu seharusnya selesai BELUM
+//               lewat (mis. sesi baru dibuka, siswa belum sempat login, atau
+//               semua siswa sudah submit lebih cepat dari waktu yang
+//               dijadwalkan). Bukan indikasi lupa — cuma info ringan
+//               "Ada sesi yang sedang aktif", dengan tombol "Lihat" yang
+//               mengarahkan ke halaman Mode Pengawas, TANPA menawarkan aksi
+//               tutup langsung dari sini (supaya guru tidak tergesa menutup
+//               sesi yang mungkin masih dipakai siswa).
 //
 // PENTING — tidak menganggu fitur lain:
 // - Hanya mengecek, TIDAK menutup sesi apa pun secara otomatis. Keputusan
-//   menutup tetap di tangan guru lewat popup di frontend.
+//   menutup tetap di tangan guru lewat popup/menu Mode Pengawas.
 // - Sesi yang dihitung HANYA sesi di mana guru ini adalah pengawas yang
 //   AKTIF BERTUGAS sekarang — baik sebagai pengawas asli (jadwal.pengawas)
 //   ATAU sebagai pengawas susulan yang ditugaskan ADMIN (info_json.pengawas_susulan).
@@ -17,6 +28,19 @@
 // - Siswa berstatus RESET (menunggu kode reset dari pengawas setelah
 //   pelanggaran) dianggap MASIH dalam proses ujian — bukan indikasi sesi
 //   terlupa, karena siswa tersebut sebenarnya masih butuh tindakan pengawas.
+//
+// FIX (false-positif di menit-menit awal sesi): sebelumnya sesi langsung
+// dianggap "terlupa" begitu tidak ada siswa AKTIF/RESET — termasuk kalau sesi
+// BARU SAJA dibuka dan belum ada satu siswa pun yang sempat login. Akibatnya
+// guru bisa langsung disambut popup tegas "Anda lupa menutup sesi ini" untuk
+// sesi yang justru baru dia buka sendiri — berisiko guru buru-buru menutup
+// sesi yang belum sempat dipakai siswa. Sekarang dibedakan berdasarkan waktu
+// SEHARUSNYA sesi ini selesai — dihitung dari `sesi_ujian.waktu_mulai +
+// sesi_ujian.durasi menit`, rumus yang SAMA dipakai untuk batas waktu ujian
+// siswa di src/app/api/siswa/ujian/selesai/route.ts (bukan angka ambang yang
+// dikarang baru). Dipakai di level SESI (bukan jadwal.jam_selesai), supaya
+// otomatis benar juga untuk sesi SUSULAN — yang punya waktu_mulai & durasi
+// sendiri, berbeda dari jadwal aslinya (lihat admin/susulan/route.ts).
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
@@ -54,7 +78,7 @@ export async function GET(req: NextRequest) {
   // ── 3. Ambil semua sesi BERJALAN untuk jadwal-jadwal tersebut ────────────
   const { data: sesiBerjalan } = await db
     .from('sesi_ujian')
-    .select('id, jadwal_id, mapel_id, kelas, kode_sesi, waktu_mulai, info_json')
+    .select('id, jadwal_id, mapel_id, kelas, kode_sesi, waktu_mulai, durasi, info_json')
     .in('jadwal_id', semuaJadwalId)
     .eq('status', 'BERJALAN')
 
@@ -99,14 +123,25 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  const sesiTerlupa = sesiRelevan.filter(s => !adaAktivitasMap[s.id])
-  if (!sesiTerlupa.length) {
+  // Sesi kandidat: tidak ada siswa AKTIF/RESET. Tingkatnya ('lupa' vs 'info')
+  // ditentukan dari apakah waktu_mulai + durasi sudah lewat — lihat komentar
+  // FIX di atas.
+  const now = Date.now()
+  const sesiKandidat = sesiRelevan
+    .filter(s => !adaAktivitasMap[s.id])
+    .map(s => {
+      const durasiMenit = s.durasi ?? 90
+      const batasWaktu = new Date(s.waktu_mulai).getTime() + durasiMenit * 60 * 1000
+      return { ...s, tingkat: now >= batasWaktu ? 'lupa' as const : 'info' as const }
+    })
+
+  if (!sesiKandidat.length) {
     return NextResponse.json({ data: [] })
   }
 
   // ── 5. Enrich nama mapel & kelas untuk ditampilkan di popup ──────────────
-  const mapelIds = [...new Set(sesiTerlupa.map(s => s.mapel_id).filter(Boolean))]
-  const kelasIds = [...new Set(sesiTerlupa.map(s => s.kelas).filter(Boolean))]
+  const mapelIds = [...new Set(sesiKandidat.map(s => s.mapel_id).filter(Boolean))]
+  const kelasIds = [...new Set(sesiKandidat.map(s => s.kelas).filter(Boolean))]
   const [{ data: mapelList }, { data: kelasList }] = await Promise.all([
     mapelIds.length > 0 ? db.from('mapel').select('id, nama').in('id', mapelIds) : Promise.resolve({ data: [] as { id: string; nama: string }[] }),
     kelasIds.length > 0 ? db.from('kelas').select('id, nama').in('id', kelasIds) : Promise.resolve({ data: [] as { id: string; nama: string }[] }),
@@ -122,7 +157,7 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  const data = sesiTerlupa.map(s => ({
+  const data = sesiKandidat.map(s => ({
     sesiId: s.id,
     jadwalId: s.jadwal_id,
     kodeSesi: s.kode_sesi,
@@ -131,6 +166,7 @@ export async function GET(req: NextRequest) {
     namaKelas: kelasMap[s.kelas] ?? s.kelas,
     isSusulan: !!s.info_json?.dibuka_oleh_admin,
     jumlahSudahSelesai: selesaiCountMap[s.id] ?? 0,
+    tingkat: s.tingkat, // 'lupa' | 'info'
   }))
 
   return NextResponse.json({ data })
