@@ -4,6 +4,7 @@ import { createAdminClient } from '@/lib/supabase'
 import { signToken } from '@/lib/auth'
 import { cachedFetch, cacheGet, cacheSet } from '@/lib/cache'
 import { generateId } from '@/lib/utils'
+import { instrumented } from '@/lib/metrik'
 
 // FIX BUG: catat setiap login sukses ke `log_aktivitas` (aksi='LOGIN').
 // Sebelumnya endpoint ini hanya meng-update kolom `last_login` di tabel
@@ -109,6 +110,13 @@ async function getPengaturan(): Promise<Record<string, string>> {
 }
 
 export async function POST(req: NextRequest) {
+  // FIX (status "Server" panel Monitoring sekarang NYATA, bukan cuma skor
+  // kesibukan ujian): seluruh body handler dibungkus instrumented('login', ...)
+  // supaya setiap login sukses/gagal-karena-server tercatat ke metrik_sistem
+  // dengan durasinya — lihat src/lib/metrik.ts. Kesalahan PENGGUNA (password
+  // salah, rate limit) tetap dicatat 'ok' (server merespons benar); hanya
+  // error 500 atau exception (mis. Supabase down) yang dicatat 'error'.
+  return instrumented('login', async () => {
   try {
     const { username, password } = await req.json()
     if (!username || !password) {
@@ -187,4 +195,5 @@ export async function POST(req: NextRequest) {
     console.error('Login error:', err)
     return NextResponse.json({ error: 'Terjadi kesalahan server' }, { status: 500 })
   }
+  })
 }
