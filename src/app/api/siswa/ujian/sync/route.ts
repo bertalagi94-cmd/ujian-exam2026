@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
   // mengecek status sesi — siswa tetap bisa sync jawaban walau sesi sudah
   // ditutup pengawas (status SELESAI). Ditemukan otomatis oleh load test
   // (skenario "sync setelah sesi ditutup seharusnya ditolak").
-  const { data: sesi } = await db.from('sesi_ujian').select('status').eq('id', sesiId).single()
+  const { data: sesi } = await db.from('sesi_ujian').select('status, paket_soal_id').eq('id', sesiId).single()
   if (!sesi) return NextResponse.json({ error: 'Sesi tidak ditemukan' }, { status: 404 })
   if (sesi.status !== 'BERJALAN') {
     return NextResponse.json({ error: 'Sesi ujian sudah ditutup, jawaban tidak bisa disimpan lagi.' }, { status: 409 })
@@ -69,21 +69,57 @@ export async function POST(req: NextRequest) {
   // ─────────────────────────────────────────────────────────────────────────
 
   if (Array.isArray(jawaban) && jawaban.length > 0) {
-    const records = jawaban.map((j: { soal_id: string; jawaban: string }) => ({
-      sesi_id: sesiId,
-      nis: user.nis!,
-      soal_id: j.soal_id,
-      jawaban: j.jawaban,
-      updated_at: new Date().toISOString(),
-      sync_status: 'SYNCED',
-      local_timestamp: Date.now(),
-    }))
+    // FIX (integritas data): sebelumnya soal_id yang dikirim client langsung
+    // di-upsert tanpa pernah divalidasi bahwa soal itu memang bagian dari
+    // paket_soal_id yang di-snapshot untuk sesi ini. Client yang dimodifikasi
+    // (mis. lewat devtools) bisa mengirim soal_id dari paket/mapel lain, dan
+    // baris itu tetap tersimpan di tabel `jawaban`. Ini tidak mengubah nilai
+    // (hitungHasilPenilaian hanya mencocokkan ke kunciMap paket yang benar),
+    // tapi mencemari data jawaban & bisa mengacaukan rekap/audit. Sekarang:
+    // ambil daftar soal_id yang SAH untuk paket sesi ini, lalu buang
+    // (bukan tolak seluruh request) baris jawaban yang soal_id-nya tidak ada
+    // di daftar itu, supaya autosave jawaban yang sah tetap jalan mulus.
+    const soalIdUnik = Array.from(new Set(jawaban.map((j: { soal_id: string }) => j.soal_id)))
 
-    const { error } = await db
-      .from('jawaban')
-      .upsert(records, { onConflict: 'sesi_id,nis,soal_id' })
+    let soalIdValid = new Set<string>()
+    if (sesi.paket_soal_id && soalIdUnik.length > 0) {
+      const { data: soalSah, error: errSoalSah } = await db
+        .from('soal')
+        .select('id')
+        .eq('paket_id', sesi.paket_soal_id)
+        .in('id', soalIdUnik)
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+      if (errSoalSah) return NextResponse.json({ error: errSoalSah.message }, { status: 500 })
+      soalIdValid = new Set((soalSah ?? []).map(s => s.id))
+    }
+
+    const jawabanValid = sesi.paket_soal_id
+      ? jawaban.filter((j: { soal_id: string }) => soalIdValid.has(j.soal_id))
+      : jawaban // fallback: kalau sesi belum punya snapshot paket (seharusnya jarang), jangan blokir autosave
+
+    const jawabanDitolak = jawaban.length - jawabanValid.length
+
+    if (jawabanValid.length > 0) {
+      const records = jawabanValid.map((j: { soal_id: string; jawaban: string }) => ({
+        sesi_id: sesiId,
+        nis: user.nis!,
+        soal_id: j.soal_id,
+        jawaban: j.jawaban,
+        updated_at: new Date().toISOString(),
+        sync_status: 'SYNCED',
+        local_timestamp: Date.now(),
+      }))
+
+      const { error } = await db
+        .from('jawaban')
+        .upsert(records, { onConflict: 'sesi_id,nis,soal_id' })
+
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    }
+
+    if (jawabanDitolak > 0) {
+      console.warn(`[sync] ${jawabanDitolak} jawaban ditolak untuk sesi ${sesiId}, nis ${user.nis}: soal_id tidak termasuk paket sesi ini.`)
+    }
   }
 
   // Hitung ground-truth: berapa baris jawaban yang benar-benar tersimpan di DB
