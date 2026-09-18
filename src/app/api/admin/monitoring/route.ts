@@ -64,19 +64,19 @@ function hitungStatusServer(barisWindow: Baris[], dbResponseMs: number) {
   let status: 'AMAN' | 'NORMAL' | 'WASPADA' | 'BERAT' | 'KRITIS' = 'AMAN'
   const alasan: string[] = []
 
-  if (dbResponseMs > 5000) {
+  if (dbResponseMs > 6000) {
     status = 'KRITIS'; alasan.push(`Koneksi database sangat lambat (${dbResponseMs}ms)`)
   } else if (total >= 3 && errorRate >= 0.2) {
     status = 'KRITIS'; alasan.push(`${errorCount} dari ${total} request ke server gagal (${Math.round(errorRate * 100)}%) dalam ${WINDOW_MENIT} menit terakhir`)
   } else if (p95Latency > 8000) {
     status = 'KRITIS'; alasan.push(`Respons server sangat lambat (p95: ${p95Latency}ms)`)
-  } else if (dbResponseMs > 2000) {
+  } else if (dbResponseMs > 3000) {
     status = 'BERAT'; alasan.push(`Koneksi database lambat (${dbResponseMs}ms)`)
   } else if (total >= 3 && errorRate >= 0.08) {
     status = 'BERAT'; alasan.push(`${errorCount} dari ${total} request gagal (${Math.round(errorRate * 100)}%)`)
   } else if (p95Latency > 4000) {
     status = 'BERAT'; alasan.push(`Respons server lambat (p95: ${p95Latency}ms)`)
-  } else if (dbResponseMs > 800) {
+  } else if (dbResponseMs > 1500) {
     status = 'WASPADA'; alasan.push(`Koneksi database mulai lambat (${dbResponseMs}ms)`)
   } else if (total > 0 && errorCount > 0) {
     status = 'WASPADA'; alasan.push(`Ada ${errorCount} request gagal dalam ${WINDOW_MENIT} menit terakhir`)
