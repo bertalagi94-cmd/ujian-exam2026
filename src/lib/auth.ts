@@ -1,7 +1,25 @@
 import jwt from 'jsonwebtoken'
 import { NextRequest } from 'next/server'
 
-const SECRET = process.env.JWT_SECRET!
+// FIX (keamanan): sebelumnya `process.env.JWT_SECRET!` memakai non-null
+// assertion tanpa validasi apapun. Kalau env var ini tidak ter-set di
+// deployment, `SECRET` menjadi `undefined` — TypeScript tetap menganggapnya
+// `string` karena `!`, tapi runtime-nya `jsonwebtoken` akan mengubah
+// `undefined` menjadi string literal "undefined" saat sign/verify.
+// Akibatnya SEMUA token ditandatangani dengan secret yang sama & bisa
+// ditebak ("undefined") — ini bukan cuma "auth gagal total", tapi celah
+// keamanan nyata (siapa pun bisa memalsukan token ADMIN/GURU/SISWA).
+// Sekarang: gagal cepat (throw) saat modul pertama kali dimuat kalau
+// JWT_SECRET tidak ada atau terlalu pendek, supaya deployment yang salah
+// konfigurasi langsung ketahuan di log, bukan diam-diam membuka celah.
+const SECRET = process.env.JWT_SECRET
+
+if (!SECRET || SECRET.length < 16) {
+  throw new Error(
+    'JWT_SECRET tidak diset atau terlalu pendek (minimal 16 karakter). ' +
+    'Set environment variable JWT_SECRET di Vercel/deployment sebelum aplikasi berjalan.'
+  )
+}
 
 export interface JWTPayload {
   username: string
