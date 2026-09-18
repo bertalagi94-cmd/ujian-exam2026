@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 import { catatAktivitas } from '@/lib/aktivitas'
+import { instrumented } from '@/lib/metrik'
 
 // Threshold: kalau last_heartbeat device lama lebih muda dari ini,
 // anggap device lama masih aktif → tolak login device baru.
@@ -13,6 +14,12 @@ export async function POST(req: NextRequest) {
   const auth = requireRole(req, ['SISWA'])
   if ('error' in auth) return auth.error
   const { user } = auth
+
+  // FIX (status "Server" panel Monitoring sekarang NYATA): endpoint ini
+  // adalah titik utama keluhan "siswa tidak bisa masuk/mulai ujian", jadi
+  // hasil & durasinya dicatat ke metrik_sistem — lihat src/lib/metrik.ts
+  // dan komentar serupa di api/auth/login/route.ts.
+  return instrumented('validasi_ujian', async () => {
 
   const db = createAdminClient()
   const { kodeSesi, nis, deviceId } = await req.json()
@@ -283,5 +290,6 @@ export async function POST(req: NextRequest) {
     waktu_mulai: waktuMulaiRef,
     soalList: finalSoal,
     minSubmitMenit,
+  })
   })
 }
