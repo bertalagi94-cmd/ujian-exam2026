@@ -69,9 +69,19 @@ export async function POST(req: NextRequest) {
   // status DISETUJUI, supaya siswa yang masuk belakangan (refresh halaman,
   // device baru, dst.) selalu mendapat paket yang SAMA dengan siswa
   // pertama, apa pun yang terjadi pada status approval paket setelah itu.
+  // FIX (pemilihan paket tidak deterministik): sebelumnya query ini TIDAK
+  // punya .order() sebelum .limit(1).single(), jadi kalau ada LEBIH DARI
+  // SATU paket_soal berstatus DISETUJUI untuk mapel+kelas yang sama, paket
+  // mana yang jadi snapshot PERTAMA kali tidak bisa diprediksi — bergantung
+  // urutan hasil yang dikembalikan Postgres, yang tidak dijamin stabil tanpa
+  // ORDER BY eksplisit (bisa beda antar restart/deploy). Sekarang diurutkan
+  // berdasarkan `created_at` (paket yang paling DULU dibuat yang menang) —
+  // deterministik dan bisa diprediksi/diuji. Ini HANYA memengaruhi resolusi
+  // PERTAMA KALI; siswa berikutnya tetap selalu memakai paket_soal_id yang
+  // sudah ter-snapshot (baris `sesi.paket_soal_id ?` di atas), tidak berubah.
   const paketQuery = sesi.paket_soal_id
     ? db.from('paket_soal').select('id, acak').eq('id', sesi.paket_soal_id).eq('status', 'DISETUJUI').maybeSingle()
-    : db.from('paket_soal').select('id, acak').eq('mapel_id', sesi.mapel_id).eq('kelas_id', kelasId).eq('status', 'DISETUJUI').limit(1).single()
+    : db.from('paket_soal').select('id, acak').eq('mapel_id', sesi.mapel_id).eq('kelas_id', kelasId).eq('status', 'DISETUJUI').order('created_at', { ascending: true }).order('id', { ascending: true }).limit(1).single()
 
   const [
     { data: nilaiAda },
