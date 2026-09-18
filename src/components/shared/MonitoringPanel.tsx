@@ -28,12 +28,34 @@ interface Pelanggaran {
   created_at: string
 }
 
+// FIX (status Server sekarang NYATA, bukan skor kesibukan ujian): server
+// berisi hasil hitung error rate & latensi endpoint kritis (login,
+// validasi_ujian, sync_jawaban) dalam windowMenit terakhir + live DB ping.
+// bebanUjian menampung skor lama (jumlah sesi/aktivitas/pelanggaran),
+// sekarang dipisah & dilabeli eksplisit sebagai ukuran KESIBUKAN, bukan
+// kesehatan. historiServer persisten di database (metrik_sistem) — tidak
+// hilang saat panel di-refresh/ditutup, beda dari scoreHistory client-side
+// lama. Lihat src/app/api/admin/monitoring/route.ts.
+interface EndpointStat { total: number; error: number; avgMs: number; p95Ms: number }
+
 interface MonitoringData {
   server: {
     status: 'AMAN' | 'NORMAL' | 'WASPADA' | 'BERAT' | 'KRITIS'
-    score: number
+    alasan: string[]
+    totalRequest: number
+    errorCount: number
+    errorRatePersen: number
+    avgLatencyMs: number
+    p95LatencyMs: number
     dbResponseMs: number
+    perEndpoint: { login: EndpointStat; validasi_ujian: EndpointStat; sync_jawaban: EndpointStat }
+    windowMenit: number
     timestamp: string
+  }
+  historiServer: Array<{ mulai: string; total: number; errorRatePersen: number; avgLatencyMs: number }>
+  bebanUjian: {
+    skor: number
+    label: 'SANGAT_SIBUK' | 'SIBUK' | 'RAMAI' | 'NORMAL' | 'SEPI'
   }
   aktivitas: {
     loginHariIni: number
@@ -47,6 +69,20 @@ interface MonitoringData {
   sesiAktif: SesiAktif[]
   pelanggaran: Pelanggaran[]
   maintenanceAktif: boolean
+}
+
+const ENDPOINT_LABEL: Record<'login' | 'validasi_ujian' | 'sync_jawaban', string> = {
+  login: 'Login',
+  validasi_ujian: 'Masuk Ujian',
+  sync_jawaban: 'Sync Jawaban',
+}
+
+const BEBAN_UJIAN_CONFIG: Record<MonitoringData['bebanUjian']['label'], { color: string; label: string }> = {
+  SEPI:         { color: '#64748b', label: 'Sepi' },
+  NORMAL:       { color: '#3b82f6', label: 'Normal' },
+  RAMAI:        { color: '#8b5cf6', label: 'Ramai' },
+  SIBUK:        { color: '#f59e0b', label: 'Sibuk' },
+  SANGAT_SIBUK: { color: '#f97316', label: 'Sangat Sibuk' },
 }
 
 const STATUS_CONFIG = {
@@ -131,9 +167,11 @@ export default function MonitoringPanel() {
   const [closingId, setClosingId] = useState<string | null>(null)
   const [closeMsg, setCloseMsg] = useState<string | null>(null)
 
-  // Poin 4: Score history (client-side, max 12 titik)
-  const scoreHistory = useRef<number[]>([])
-  // Poin 4b: DB response time history
+  // FIX: scoreHistory (client-side, hilang tiap refresh panel) DIHAPUS —
+  // riwayat status server sekarang pakai `data.historiServer` yang persisten
+  // di database (metrik_sistem), lihat section "Kesehatan Server" di render.
+  // dbResponseMs live-ping tetap dipertahankan client-side karena memang
+  // nilainya spesifik per-request admin ini, bukan riwayat siswa/guru.
   const dbHistory = useRef<number[]>([])
   // Poin 7: Uptime panel
   const openedAt = useRef<number>(0)
@@ -156,8 +194,8 @@ export default function MonitoringPanel() {
         const json: MonitoringData = await r.json()
         setData(json)
         setLastRefresh(new Date())
-        // Simpan history score & db (max 12)
-        scoreHistory.current = [...scoreHistory.current, json.server.score].slice(-12)
+        // Simpan history live DB ping (max 12) — riwayat status server
+        // lengkap sudah datang dari server via json.historiServer.
         dbHistory.current = [...dbHistory.current, json.server.dbResponseMs].slice(-12)
       } else {
         setError('Gagal memuat data server')
@@ -218,7 +256,6 @@ export default function MonitoringPanel() {
     } else {
       if (intervalRef.current) clearInterval(intervalRef.current)
       setFullscreen(false)
-      scoreHistory.current = []
       dbHistory.current = []
     }
   }, [open, fetch_])
@@ -309,15 +346,27 @@ export default function MonitoringPanel() {
               </div>
             )}
 
-            {/* Status Bar */}
+            {/* Status Bar — sekarang status NYATA (error rate + latensi endpoint
+                kritis + live DB ping), bukan skor kesibukan ujian. Kalau status
+                bukan AMAN, tampilkan alasan spesifiknya di baris kedua supaya
+                admin langsung tahu APA yang bermasalah, tanpa perlu menebak. */}
             {data && (
-              <div style={{ padding: '10px 16px', background: cfg.bg, borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-                <span className="mon-pulse" style={{ width: 8, height: 8, borderRadius: '50%', background: cfg.color, display: 'inline-block', flexShrink: 0 }} />
-                <span style={{ fontSize: 12, fontWeight: 800, color: cfg.color, letterSpacing: '0.08em' }}>{cfg.label}</span>
-                <span style={{ marginLeft: 'auto', fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>DB {data.server.dbResponseMs}ms</span>
-                {/* Poin 4b: DB sparkline mini */}
-                {dbHistory.current.length >= 2 && (
-                  <Sparkline values={dbHistory.current} color={data.server.dbResponseMs > 500 ? '#ef4444' : '#10b981'} height={20} />
+              <div style={{ padding: '10px 16px', background: cfg.bg, borderBottom: '1px solid rgba(255,255,255,0.06)', flexShrink: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span className="mon-pulse" style={{ width: 8, height: 8, borderRadius: '50%', background: cfg.color, display: 'inline-block', flexShrink: 0 }} />
+                  <span style={{ fontSize: 12, fontWeight: 800, color: cfg.color, letterSpacing: '0.08em' }}>{cfg.label}</span>
+                  <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)' }}>Status Server ({data.server.windowMenit} mnt terakhir)</span>
+                  <span style={{ marginLeft: 'auto', fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>DB {data.server.dbResponseMs}ms</span>
+                  {dbHistory.current.length >= 2 && (
+                    <Sparkline values={dbHistory.current} color={data.server.dbResponseMs > 500 ? '#ef4444' : '#10b981'} height={20} />
+                  )}
+                </div>
+                {data.server.alasan.length > 0 && (
+                  <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    {data.server.alasan.map((a, i) => (
+                      <span key={i} style={{ fontSize: 10.5, color: cfg.color }}>⚠ {a}</span>
+                    ))}
+                  </div>
                 )}
               </div>
             )}
@@ -360,31 +409,91 @@ export default function MonitoringPanel() {
               {tab === 'server' && data && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12, flex: 1, overflow: 'auto' }} className="mon-scroll">
 
-                  {/* Score bar + sparkline */}
+                  {/* FIX (Kesehatan Server — NYATA): sebelumnya panel ini tidak
+                      punya cara mengukur kesehatan server sungguhan, hanya
+                      skor kesibukan. Sekarang: error rate & latensi dari
+                      request SUNGGUHAN siswa/guru ke 3 endpoint yang paling
+                      sering dikeluhkan saat ujian ("tidak bisa masuk",
+                      "jawaban lambat"). Ini yang harus dicek admin saat
+                      pengawas lapor masalah — lihat metrik_sistem &
+                      src/lib/metrik.ts. */}
+                  <div>
+                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <Zap size={11} /> Kesehatan Server ({data.server.windowMenit} menit terakhir)
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, marginBottom: 8 }}>
+                      <div style={{ padding: '7px 8px', borderRadius: 8, background: 'rgba(255,255,255,0.05)', textAlign: 'center' }}>
+                        <div style={{ fontSize: 15, fontWeight: 800, color: data.server.errorRatePersen > 0 ? '#ef4444' : '#10b981' }}>{data.server.errorRatePersen}%</div>
+                        <div style={{ fontSize: 9.5, color: 'rgba(255,255,255,0.4)' }}>Error Rate</div>
+                      </div>
+                      <div style={{ padding: '7px 8px', borderRadius: 8, background: 'rgba(255,255,255,0.05)', textAlign: 'center' }}>
+                        <div style={{ fontSize: 15, fontWeight: 800, color: '#fff' }}>{data.server.avgLatencyMs}ms</div>
+                        <div style={{ fontSize: 9.5, color: 'rgba(255,255,255,0.4)' }}>Rata-rata</div>
+                      </div>
+                      <div style={{ padding: '7px 8px', borderRadius: 8, background: 'rgba(255,255,255,0.05)', textAlign: 'center' }}>
+                        <div style={{ fontSize: 15, fontWeight: 800, color: '#fff' }}>{data.server.p95LatencyMs}ms</div>
+                        <div style={{ fontSize: 9.5, color: 'rgba(255,255,255,0.4)' }}>p95</div>
+                      </div>
+                    </div>
+
+                    {/* Riwayat error rate persisten — dari database, TIDAK
+                        hilang saat panel di-refresh/ditutup (beda dari
+                        sparkline lama yang cuma nyimpen di memori browser). */}
+                    {data.historiServer.some(h => h.total > 0) && (
+                      <div style={{ marginBottom: 8 }}>
+                        <div style={{ fontSize: 9.5, color: 'rgba(255,255,255,0.3)', marginBottom: 3 }}>Riwayat 1 jam terakhir</div>
+                        <Sparkline
+                          values={data.historiServer.map(h => h.errorRatePersen || 0.01)}
+                          color={data.server.errorRatePersen > 0 ? '#ef4444' : '#10b981'}
+                          height={24}
+                        />
+                      </div>
+                    )}
+
+                    {data.server.totalRequest === 0 && (
+                      <div style={{ fontSize: 10.5, color: 'rgba(255,255,255,0.3)', fontStyle: 'italic', marginBottom: 4 }}>
+                        Belum ada aktivitas login/masuk-ujian/sync jawaban dalam {data.server.windowMenit} menit terakhir untuk dianalisis.
+                      </div>
+                    )}
+
+                    {/* Breakdown per endpoint — supaya admin tahu PERSIS mana
+                        yang bermasalah kalau ada keluhan spesifik. */}
+                    {data.server.totalRequest > 0 && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        {(['login', 'validasi_ujian', 'sync_jawaban'] as const).map(ep => {
+                          const st = data.server.perEndpoint[ep]
+                          if (st.total === 0) return null
+                          const bermasalah = st.error > 0
+                          return (
+                            <div key={ep} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 8px', borderRadius: 6, background: bermasalah ? 'rgba(239,68,68,0.1)' : 'rgba(255,255,255,0.03)' }}>
+                              <span style={{ fontSize: 10.5, color: bermasalah ? '#fca5a5' : 'rgba(255,255,255,0.6)', flex: 1 }}>{ENDPOINT_LABEL[ep]}</span>
+                              {bermasalah && <span style={{ fontSize: 10, color: '#ef4444', fontWeight: 700 }}>{st.error}/{st.total} gagal</span>}
+                              <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)' }}>{st.avgMs}ms rata²</span>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Beban Ujian (dulu bernama "Indeks Aktivitas Ujian" /
+                      "server.score") — skor KESIBUKAN dari jumlah sesi
+                      aktif + aktivitas 5 menit + pelanggaran hari ini. Sengaja
+                      dipisah & pakai skala warna sendiri (bukan cfg.color)
+                      supaya TIDAK tercampur secara visual dengan status
+                      Kesehatan Server di atas — sibuk itu wajar & bukan
+                      indikasi server bermasalah. */}
                   <div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, alignItems: 'center' }}>
                       <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', display: 'flex', alignItems: 'center', gap: 5 }}>
-                        {/* FIX (label menyesatkan): skor ini dihitung dari
-                            gabungan sesi aktif + aktivitas 5 menit terakhir +
-                            pelanggaran hari ini — BUKAN dari CPU/RAM/beban
-                            server. Nama "Beban Sistem" membuat admin bisa
-                            mengira server sedang kelebihan beban (mis. saat
-                            skor KRITIS) padahal itu murni banyak aktivitas
-                            ujian & pelanggaran, server bisa saja baik-baik
-                            saja. Diganti ke istilah yang menggambarkan apa
-                            yang benar-benar diukur. */}
-                        <Activity size={11} /> Indeks Aktivitas Ujian
+                        <Activity size={11} /> Beban Ujian (kesibukan, bukan kesehatan)
                       </span>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        {/* Poin 4: Score sparkline */}
-                        {scoreHistory.current.length >= 2 && (
-                          <Sparkline values={scoreHistory.current} color={cfg.color} />
-                        )}
-                        <span style={{ fontSize: 11, fontWeight: 700, color: cfg.color }}>{data.server.score}%</span>
-                      </div>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: BEBAN_UJIAN_CONFIG[data.bebanUjian.label].color }}>
+                        {BEBAN_UJIAN_CONFIG[data.bebanUjian.label].label} · {data.bebanUjian.skor}%
+                      </span>
                     </div>
                     <div className="mon-bar">
-                      <div className="mon-bar-fill" style={{ width: `${data.server.score}%`, background: cfg.color }} />
+                      <div className="mon-bar-fill" style={{ width: `${data.bebanUjian.skor}%`, background: BEBAN_UJIAN_CONFIG[data.bebanUjian.label].color }} />
                     </div>
                   </div>
 
