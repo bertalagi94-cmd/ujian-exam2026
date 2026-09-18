@@ -454,6 +454,11 @@ const state = {
   endpointErrorMap: {},
   endpointCallCount: {},
   responseSignatures: {},
+  // FIX: endpoint yang sudah pernah dilaporkan sebagai "Latensi Tinggi" —
+  // dipakai supaya pengecekan latency kritis di api() (lihat di bawah) tidak
+  // membanjiri daftar bug saat satu endpoint dipanggil berkali-kali secara
+  // sah dalam mode massal (mis. bikin 200 soal berurutan di phaseSoal).
+  slowEndpointsFlagged: new Set(),
   raceConditionLog: [],
   tokenLeakageLog: [],
   syncRetryLog: [],
@@ -574,6 +579,24 @@ async function api(method, path, body, token) {
   state.latencies.push(latency);
   if (!state.endpointLatencyMap[endpointKey]) state.endpointLatencyMap[endpointKey] = [];
   state.endpointLatencyMap[endpointKey].push(latency);
+
+  // FIX: sebelumnya pengecekan ambang latensi kritis (LATENCY_CRITICAL_MS)
+  // HANYA dijalankan di checkEndpoint() — yang cuma dipakai di fase
+  // smart-detection, BUKAN di pemanggilan massal lewat runBatched (mis.
+  // phaseSoal bikin 200 soal langsung lewat api()). Akibatnya outlier
+  // latency di fase-fase itu ikut masuk ke rata-rata/maksimal laporan
+  // tapi endpoint penyebabnya tidak pernah tercatat sebagai bug. Sekarang
+  // dicek di sini juga (satu kali per endpoint via slowEndpointsFlagged,
+  // supaya tidak membanjiri daftar bug saat memang wajar dipanggil berkali-kali).
+  if (latency >= LATENCY_CRITICAL_MS && !state.slowEndpointsFlagged.has(endpointKey)) {
+    state.slowEndpointsFlagged.add(endpointKey);
+    recordBugCat(
+      BUG_CATEGORIES.LATENSI,
+      `${endpointKey} → ditemukan respons sangat lambat (${latency.toFixed(0)}ms)`,
+      `Setidaknya satu panggilan ke endpoint ini butuh ${latency.toFixed(0)}ms — jauh di atas ambang kritis ${LATENCY_CRITICAL_MS}ms. Ini bisa menyebabkan timeout di Vercel (max 10–60 detik) dan pengalaman buruk bagi pengguna. Lihat tabel "Endpoint Paling Lambat" di laporan untuk detail per-endpoint.`,
+      endpointKey
+    );
+  }
 
   try { json = await res.json(); } catch { json = null; }
 
@@ -2887,6 +2910,22 @@ function buildReportData() {
     status: rampStatusPill(r),
   }));
 
+  // FIX: sebelumnya rata-rata/maksimal keseluruhan (avgLatency/maxLatency di
+  // atas) bisa memuat outlier tanpa ada cara untuk tahu endpoint mana
+  // penyebabnya (lihat komentar FIX di api()). Sekarang dihitung 5 endpoint
+  // dengan latency MAKSIMAL tertinggi dari endpointLatencyMap (data yang
+  // sudah direkam untuk SEMUA panggilan, bukan cuma yang lewat checkEndpoint),
+  // supaya laporan bisa langsung menunjuk endpoint yang perlu diselidiki.
+  const slowestEndpoints = Object.entries(state.endpointLatencyMap)
+    .map(([endpoint, list]) => ({
+      endpoint,
+      calls: list.length,
+      avgMs: (list.reduce((a, b) => a + b, 0) / list.length).toFixed(0),
+      maxMs: Math.max(...list).toFixed(0),
+    }))
+    .sort((a, b) => b.maxMs - a.maxMs)
+    .slice(0, 5);
+
   return {
     tanggal: new Date().toLocaleString('id-ID', { dateStyle: 'full', timeStyle: 'short' }),
     baseUrl: state.baseUrl,
@@ -2897,6 +2936,7 @@ function buildReportData() {
     counts,
     sortedCats,
     rampResults,
+    slowestEndpoints,
   };
 }
 
@@ -2915,6 +2955,15 @@ function buildReportMarkdown(d) {
     md += `|---|---|---|---|---|---|---|\n`;
     d.rampResults.forEach(r => {
       md += `| ${r.label || ''} | ${r.total ?? ''} | ${r.success ?? ''} | ${r.failed ?? ''} | ${r.avgMs ?? ''}ms | ${r.maxMs ?? ''}ms | ${r.status ?? ''} |\n`;
+    });
+    md += `\n`;
+  }
+
+  if (d.slowestEndpoints.length) {
+    md += `## Endpoint Paling Lambat (top 5, dari seluruh request)\n\n`;
+    md += `| Endpoint | Jumlah Panggilan | Rata² Respons | Respons Terlama |\n|---|---|---|---|\n`;
+    d.slowestEndpoints.forEach(e => {
+      md += `| ${e.endpoint} | ${e.calls} | ${e.avgMs}ms | ${e.maxMs}ms |\n`;
     });
     md += `\n`;
   }
@@ -2984,6 +3033,16 @@ function buildReportHtml(d) {
     </tr></thead><tbody>`;
     d.rampResults.forEach(r => {
       html += `<tr><td>${escapeHtmlReport(r.label)}</td><td>${r.total ?? ''}</td><td>${r.success ?? ''}</td><td>${r.failed ?? ''}</td><td>${r.avgMs ?? ''}ms</td><td>${r.maxMs ?? ''}ms</td><td>${escapeHtmlReport(r.status)}</td></tr>`;
+    });
+    html += `</tbody></table>`;
+  }
+
+  if (d.slowestEndpoints.length) {
+    html += `<h2>Endpoint Paling Lambat (top 5, dari seluruh request)</h2><table><thead><tr>
+      <th>Endpoint</th><th>Jumlah Panggilan</th><th>Rata² Respons</th><th>Respons Terlama</th>
+    </tr></thead><tbody>`;
+    d.slowestEndpoints.forEach(e => {
+      html += `<tr><td>${escapeHtmlReport(e.endpoint)}</td><td>${e.calls}</td><td>${e.avgMs}ms</td><td>${e.maxMs}ms</td></tr>`;
     });
     html += `</tbody></table>`;
   }
