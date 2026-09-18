@@ -64,9 +64,9 @@ const ROLES = [
         detail: 'Login menggunakan username dan password admin. Dashboard menampilkan statistik total siswa, guru, soal, jadwal aktif, dan rata-rata nilai ujian.',
       },
       {
-        title: 'Pengaturan Sistem',
+        title: 'Informasi Sekolah',
         icon: <Settings className="w-4 h-4" />,
-        detail: 'Isi nama sekolah, NPSN, nama kepala sekolah, alamat, dan upload logo di tab Informasi Sekolah. Atur batas pelanggaran dan jumlah opsi jawaban di tab Pengaturan Ujian.',
+        detail: 'Isi nama sekolah, NPSN, nama kepala sekolah, alamat, dan upload logo di halaman Informasi Sekolah (dibuka lewat kartu di atas tab Pengaturan). Sistem mendukung lebih dari satu sekolah.',
       },
       {
         title: 'Kelola Kelas & Mata Pelajaran',
@@ -74,19 +74,19 @@ const ROLES = [
         detail: 'Buat kelas (contoh: VII-A, VIII-B) dan mata pelajaran terlebih dahulu sebelum menambahkan data lainnya. Ini menjadi fondasi data siswa dan jadwal ujian.',
       },
       {
-        title: 'Kelola Siswa & User',
+        title: 'Kelola Siswa & Data Pengguna',
         icon: <GraduationCap className="w-4 h-4" />,
-        detail: 'Tambah siswa satu per satu atau via import Excel. Buat akun guru dan kepala sekolah di menu Users. Password default bisa di-reset kapan saja.',
+        detail: 'Tambah siswa satu per satu atau via import Excel (tombol import + template Excel ada di halaman Data Siswa). Buat akun guru dan kepala sekolah di menu Data Pengguna. Password default bisa di-reset kapan saja.',
       },
       {
-        title: 'Jadwal & Monitoring Ujian',
+        title: 'Jadwal, Validasi Soal & Pelanggaran',
         icon: <ClipboardList className="w-4 h-4" />,
-        detail: 'Buat jadwal ujian dan tentukan paket soal yang digunakan. Monitor sesi ujian berlangsung secara real-time. Lihat nilai dan analisis hasil ujian di menu Nilai & Analisis.',
+        detail: 'Buat jadwal ujian dan tentukan paket soal yang digunakan. Validasi paket soal yang diajukan guru di menu Validasi Soal sebelum bisa dipakai. Pantau daftar pelanggaran siswa di menu Pelanggaran, dan lihat rekap nilai di menu Rekap Nilai / Analisis Ujian / Laporan Lengkap.',
       },
       {
-        title: 'Backup & Reset',
+        title: 'Pengaturan Ujian, Maintenance & Backup',
         icon: <BarChart2 className="w-4 h-4" />,
-        detail: 'Lakukan backup rutin sebelum tahun ajaran baru atau sebelum reset. Reset data bisa dilakukan per kategori (jawaban saja, siswa, jadwal, dll) atau semua sekaligus.',
+        detail: 'Tab Pengaturan Ujian mengatur batas pelanggaran dan jumlah opsi jawaban. Tab Maintenance mengaktifkan mode perbaikan. Lakukan backup rutin di tab Backup & Restore sebelum tahun ajaran baru atau sebelum reset. Reset data per kategori dilakukan di tab Reset Data.',
       },
     ],
   },
@@ -112,7 +112,7 @@ const ROLES = [
         detail: 'Pantau sesi ujian yang sedang berlangsung secara real-time — siapa yang sudah mengerjakan, siapa yang belum, dan siapa yang terkena pelanggaran.',
       },
       {
-        title: 'Laporan Nilai',
+        title: 'Hasil Ujian',
         icon: <BarChart2 className="w-4 h-4" />,
         detail: 'Akses rekap nilai per kelas, per mata pelajaran, dan per siswa. Lihat analisis distribusi nilai dan persentase kelulusan untuk pengambilan keputusan.',
       },
@@ -120,6 +120,11 @@ const ROLES = [
         title: 'Jadwal Ujian',
         icon: <BookMarked className="w-4 h-4" />,
         detail: 'Lihat daftar jadwal ujian yang telah dibuat — tanggal, mata pelajaran, kelas yang terlibat, dan status (belum dimulai / sedang berlangsung / selesai).',
+      },
+      {
+        title: 'Data Kelas, Guru & Mapel, Kisi-kisi',
+        icon: <BookMarked className="w-4 h-4" />,
+        detail: 'Lihat daftar kelas, daftar guru beserta mata pelajaran yang diampu, dan kisi-kisi soal yang sudah dibuat guru untuk setiap mata pelajaran.',
       },
     ],
   },
@@ -135,29 +140,34 @@ const ROLES = [
     desc: 'Membuat soal, paket soal, dan memantau ujian mata pelajaran yang diampu.',
     steps: [
       {
-        title: 'Bank Soal',
-        icon: <BookMarked className="w-4 h-4" />,
-        detail: 'Buat soal pilihan ganda untuk mata pelajaran yang Anda ampu. Soal bisa diisi teks, ditambah gambar, dan ditentukan kunci jawaban. Soal dapat digunakan ulang di banyak paket.',
-      },
-      {
-        title: 'Paket Soal',
-        icon: <ClipboardList className="w-4 h-4" />,
-        detail: 'Kumpulkan soal menjadi satu paket ujian. Tentukan jumlah soal, urutan tampil (acak/berurutan), dan waktu pengerjaan. Paket perlu divalidasi admin sebelum bisa dipakai.',
-      },
-      {
         title: 'Kisi-Kisi',
         icon: <BarChart2 className="w-4 h-4" />,
         detail: 'Buat dan kelola kisi-kisi soal sebagai panduan pembuatan soal sesuai kompetensi dasar. Kisi-kisi juga bisa diakses siswa sebagai bahan belajar.',
       },
       {
-        title: 'Mode Pengawas',
-        icon: <Shield className="w-4 h-4" />,
-        detail: 'Guru yang ditugaskan sebagai pengawas dapat membuka sesi ujian, memantau peserta secara real-time, mencatat pelanggaran, dan menutup sesi.',
+        title: 'Buat Soal',
+        icon: <ClipboardList className="w-4 h-4" />,
+        detail: 'Menu "Buat Soal" menggantikan Bank Soal + Paket Soal yang terpisah — sekarang jadi satu tempat. Buat soal pilihan ganda dan soal essay langsung di dalam paket, tentukan jumlah soal, urutan tampil, dan waktu pengerjaan, lalu kirim, tarik, atau duplikasi paket dari halaman yang sama. Paket perlu divalidasi admin sebelum bisa dipakai.',
       },
       {
-        title: 'Nilai & Analisis',
+        title: 'Penilaian',
         icon: <BarChart2 className="w-4 h-4" />,
-        detail: 'Lihat nilai hasil ujian dan analisis butir soal — soal mana yang mudah atau sulit, dan distribusi pilihan jawaban siswa untuk evaluasi kualitas soal.',
+        detail: 'Satu menu dengan tiga tab: Periksa Jawaban Essay (koreksi manual jawaban essay), Rekap Nilai (nilai gabungan PG + essay per siswa), dan Kirim Nilai ke Wali Kelas.',
+      },
+      {
+        title: 'Analisis Ujian',
+        icon: <BarChart2 className="w-4 h-4" />,
+        detail: 'Lihat analisis butir soal — soal mana yang mudah atau sulit, dan distribusi pilihan jawaban siswa — untuk evaluasi kualitas soal.',
+      },
+      {
+        title: 'Wali Kelas',
+        icon: <Users className="w-4 h-4" />,
+        detail: 'Muncul di sidebar hanya untuk guru yang ditugaskan sebagai wali kelas. Digunakan untuk memantau dan menerima kiriman nilai siswa di kelas yang diampu.',
+      },
+      {
+        title: 'Jadwal Pengawasan & Mode Pengawas',
+        icon: <Shield className="w-4 h-4" />,
+        detail: 'Muncul di sidebar hanya untuk guru yang punya jadwal jaga. "Jadwal Pengawasan" menampilkan sesi yang akan diawasi. "Mode Pengawas" dipakai untuk membuka sesi, memantau peserta secara real-time, mereset siswa yang kena pelanggaran (memberi kode lanjut), membuka/menutup akses mulai soal essay, dan menutup sesi.',
       },
     ],
   },
@@ -185,12 +195,17 @@ const ROLES = [
       {
         title: 'Mengerjakan Ujian',
         icon: <ClipboardList className="w-4 h-4" />,
-        detail: 'Klik "Mulai Ujian" saat jadwal aktif. Kerjakan semua soal dalam waktu yang tersedia. Jawaban tersimpan otomatis. Jangan menutup tab atau berpindah aplikasi karena bisa tercatat sebagai pelanggaran.',
+        detail: 'Klik "Mulai Ujian" saat jadwal aktif. Kerjakan soal pilihan ganda dalam waktu yang tersedia — jawaban tersimpan otomatis. Jangan menutup tab atau berpindah aplikasi karena bisa tercatat sebagai pelanggaran.',
+      },
+      {
+        title: 'Soal Essay (jika ada)',
+        icon: <ClipboardList className="w-4 h-4" />,
+        detail: 'Setelah soal pilihan ganda selesai, jika mata pelajaran punya soal essay akan ada tahap info essay terlebih dulu, lalu tahap mengerjakan essay. Essay bisa dalam mode digital (diketik di sistem) atau kertas, tergantung pengaturan guru. Mengerjakan essay baru bisa dimulai setelah pengawas membuka akses.',
       },
       {
         title: 'Melihat Nilai',
         icon: <BarChart2 className="w-4 h-4" />,
-        detail: 'Setelah ujian selesai dan nilai diproses, Anda bisa melihat nilai dan status kelulusan di menu Nilai. Kisi-kisi soal juga tersedia sebagai panduan belajar.',
+        detail: 'Setelah ujian selesai dan nilai diproses, Anda bisa melihat nilai dan status kelulusan di menu Nilai. Jika mata pelajaran punya soal essay, nilai total baru muncul setelah guru selesai memeriksa essay dan merilis nilainya. Kisi-kisi soal juga tersedia sebagai panduan belajar.',
       },
     ],
   },
@@ -226,15 +241,15 @@ const QA_ITEMS = [
     items: [
       {
         q: 'Saya lupa password, bagaimana cara reset?',
-        a: 'Siswa: minta guru atau admin untuk reset password. Guru/Pengawas/Kepala Sekolah: minta admin untuk reset di menu Users. Admin: hubungi pengelola sistem atau reset melalui database Supabase.',
+        a: 'Siswa: minta guru atau admin untuk reset password. Guru dan Kepala Sekolah: minta admin untuk reset di menu Data Pengguna. Admin: hubungi pengelola sistem atau reset melalui database Supabase.',
       },
       {
         q: 'Username saya apa?',
-        a: 'Siswa menggunakan NIS (Nomor Induk Siswa). Guru, Pengawas, dan Kepala Sekolah menggunakan username yang dibuat oleh Admin saat pembuatan akun.',
+        a: 'Siswa menggunakan NIS (Nomor Induk Siswa). Guru dan Kepala Sekolah menggunakan username yang dibuat oleh Admin saat pembuatan akun. Tidak ada peran "Pengawas" tersendiri — pengawas adalah guru yang ditugaskan menjaga sesi ujian tertentu.',
       },
       {
-        q: 'Akun saya terkunci, apa yang harus dilakukan?',
-        a: 'Akun siswa dapat terkunci jika melebihi batas pelanggaran saat ujian (berpindah tab, keluar layar, dll). Hubungi pengawas ruangan atau admin untuk membuka kunci akun.',
+        q: 'Status ujian saya "RESET" / saya diminta kode, apa yang harus dilakukan?',
+        a: 'Setiap pelanggaran (berpindah tab, keluar layar, dll) langsung menghentikan ujian sementara sampai Anda meminta kode 7 karakter ke pengawas ruangan. Kalau jumlah pelanggaran sudah melebihi batas yang ditentukan sekolah, pengawas bisa memilih mengunci akun secara permanen untuk sesi itu — hubungi pengawas atau admin jika ini terjadi.',
       },
     ],
   },
@@ -250,7 +265,7 @@ const QA_ITEMS = [
       },
       {
         q: 'Apa yang dimaksud dengan pelanggaran?',
-        a: 'Sistem mendeteksi jika siswa berpindah tab, meminimalkan jendela browser, atau mencoba membuka aplikasi lain. Setiap deteksi dihitung sebagai satu pelanggaran. Jika melebihi batas yang ditentukan, akun dikunci otomatis.',
+        a: 'Sistem mendeteksi jika siswa berpindah tab, meminimalkan jendela browser, atau mencoba membuka aplikasi lain. Setiap deteksi langsung menghentikan ujian Anda sementara (status RESET) — bukan menunggu sampai batas terlampaui. Untuk lanjut, Anda perlu kode 7 karakter dari pengawas. Batas jumlah pelanggaran yang ditentukan sekolah dipakai pengawas untuk memutuskan apakah akun perlu dikunci permanen.',
       },
       {
         q: 'Internet saya putus saat ujian, bagaimana?',
@@ -258,7 +273,7 @@ const QA_ITEMS = [
       },
       {
         q: 'Saya tidak sengaja menutup tab saat ujian, bagaimana?',
-        a: 'Buka kembali browser dan login ulang, lalu akses kembali halaman ujian. Jika sesi masih aktif, Anda bisa melanjutkan dari soal terakhir. Hal ini akan tercatat sebagai pelanggaran — beritahu pengawas untuk penjelasan.',
+        a: 'Buka kembali browser dan login ulang, lalu akses kembali halaman ujian. Ini akan tercatat sebagai pelanggaran dan ujian Anda dihentikan sementara — minta kode 7 karakter ke pengawas untuk melanjutkan dari soal terakhir.',
       },
     ],
   },
@@ -270,7 +285,7 @@ const QA_ITEMS = [
     items: [
       {
         q: 'Listrik mati di tengah ujian, apa yang harus dilakukan?',
-        a: 'Beritahu pengawas segera. Pengawas dapat mencatat kejadian dan melaporkan ke admin. Admin bisa memberikan ujian susulan melalui fitur Susulan di menu pengawas/guru. Jawaban sebelum listrik mati tetap tersimpan.',
+        a: 'Beritahu pengawas segera. Pengawas dapat mencatat kejadian dan melaporkan ke admin. Admin atau guru bisa memberikan ujian susulan dengan kode akses baru melalui fitur Susulan. Jawaban sebelum listrik mati tetap tersimpan.',
       },
       {
         q: 'Server error / halaman tidak bisa diakses',
@@ -282,11 +297,11 @@ const QA_ITEMS = [
       },
       {
         q: 'Nilai tidak muncul setelah ujian selesai',
-        a: 'Pastikan siswa benar-benar mengklik "Selesai Ujian", bukan hanya menutup browser. Jika sudah selesai namun nilai belum muncul, coba refresh halaman. Admin atau guru bisa cek di menu Nilai apakah data sudah masuk.',
+        a: 'Pastikan siswa benar-benar mengklik "Selesai Ujian", bukan hanya menutup browser. Jika sudah selesai namun nilai belum muncul, coba refresh halaman. Untuk mata pelajaran yang punya soal essay, nilai total memang baru tampil setelah guru memeriksa essay dan merilis nilainya di menu Penilaian. Admin atau guru bisa cek di menu Rekap Nilai apakah data sudah masuk.',
       },
       {
         q: 'Data sekolah hilang setelah reset',
-        a: 'Jika reset "Semua Data" dilakukan, semua pengaturan termasuk nama sekolah dan logo akan terhapus. Isi kembali pengaturan di menu Pengaturan > tab Informasi Sekolah. Selalu lakukan backup sebelum melakukan reset apapun.',
+        a: 'Jika reset "Semua Data" dilakukan, semua pengaturan termasuk nama sekolah dan logo akan terhapus. Isi kembali di halaman Informasi Sekolah (dibuka lewat kartu di atas tab Pengaturan). Selalu lakukan backup di tab Backup & Restore sebelum melakukan reset apapun.',
       },
     ],
   },
@@ -302,11 +317,11 @@ const QA_ITEMS = [
       },
       {
         q: 'Bagaimana cara import data siswa massal?',
-        a: 'Gunakan menu Admin > Import. Unduh template Excel yang tersedia, isi data siswa sesuai format (NIS, nama, kelas, dll), lalu upload kembali. Sistem akan memvalidasi dan memasukkan data secara otomatis.',
+        a: 'Gunakan tombol import di halaman Data Siswa (bukan menu Import terpisah). Unduh template Excel yang tersedia di sana, isi data siswa sesuai format (NIS, nama, kelas, dll), lalu upload kembali. Sistem akan memvalidasi dan memasukkan data secara otomatis.',
       },
       {
         q: 'Apakah soal bisa digunakan ulang untuk ujian berikutnya?',
-        a: 'Ya, soal yang sudah dibuat di Bank Soal bisa digunakan di banyak paket ujian berbeda. Paket soal juga bisa diduplikasi untuk ujian susulan atau ujian semester berikutnya.',
+        a: 'Soal PG dan essay dibuat langsung di dalam satu paket lewat menu Buat Soal, jadi tidak ada bank soal terpisah yang bisa dipakai lintas paket. Yang bisa dilakukan adalah menduplikasi paket soal yang sudah ada untuk ujian susulan atau semester berikutnya.',
       },
     ],
   },
