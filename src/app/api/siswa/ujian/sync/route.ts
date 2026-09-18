@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
+import { instrumented } from '@/lib/metrik'
 
 // POST /api/siswa/ujian/sync
 // PENTING: setelah upsert, kita selalu hitung ulang jumlah baris jawaban yang
@@ -9,10 +10,16 @@ import { requireRole } from '@/lib/auth'
 // sebelum mengizinkan siswa menyelesaikan ujian — supaya kasus "sebagian jawaban
 // tidak sampai ke server karena koneksi lambat tapi tetap dianggap selesai" tidak
 // terulang.
+//
+// FIX (status "Server" panel Monitoring sekarang NYATA): ini titik utama
+// keluhan "jawaban lambat/tidak tersimpan", jadi hasil & durasinya dicatat
+// ke metrik_sistem — lihat src/lib/metrik.ts.
 export async function POST(req: NextRequest) {
   const auth = requireRole(req, ['SISWA'])
   if ('error' in auth) return auth.error
   const { user } = auth
+
+  return instrumented('sync_jawaban', async () => {
 
   const db = createAdminClient()
   const { sesiId, jawaban, deviceId } = await req.json()
@@ -135,6 +142,7 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({
     message: `${Array.isArray(jawaban) ? jawaban.length : 0} jawaban diproses`,
     totalSynced: count ?? 0,
+  })
   })
 }
 
