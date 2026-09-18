@@ -121,9 +121,19 @@ export async function POST(req: NextRequest) {
   // status DISETUJUI secara umum, supaya siswa yang mulai belakangan tetap
   // mendapat bank soal yang SAMA persis dengan siswa pertama walau paket
   // yang disetujui berubah setelahnya.
+  // FIX (pemilihan paket essay tidak deterministik): sebelumnya query ini
+  // TIDAK punya .order() sebelum diambil elemen [0]-nya untuk dijadikan
+  // snapshot paket pertama kali — sama persis dengan celah yang sudah
+  // diperbaiki di validasi/route.ts untuk paket PG (lihat komentar FIX di
+  // sana). Kalau ada LEBIH DARI SATU paket_essay DISETUJUI untuk mapel+kelas
+  // yang sama, paket mana yang menang tidak bisa diprediksi. Sekarang
+  // diurutkan berdasarkan `paket_essay_id` — ID dibuat lewat generateId()
+  // berformat PREFIX_timestamp_random (lihat src/lib/utils.ts), jadi urutan
+  // ID menaik = urutan waktu paket dibuat menaik → paket yang paling DULU
+  // dibuat yang menang, deterministik dan bisa diprediksi/diuji.
   const soalEssaySnapshotQuery = sesi.paket_essay_id
     ? db.from('soal_essay').select('id, paket_essay_id').eq('paket_essay_id', sesi.paket_essay_id).eq('status', 'DISETUJUI')
-    : db.from('soal_essay').select('id, paket_essay_id').eq('mapel_id', sesi.mapel_id).eq('kelas_id', kelasId).eq('status', 'DISETUJUI')
+    : db.from('soal_essay').select('id, paket_essay_id').eq('mapel_id', sesi.mapel_id).eq('kelas_id', kelasId).eq('status', 'DISETUJUI').order('paket_essay_id', { ascending: true }).order('id', { ascending: true })
 
   const { data: soalEssayUntukSnapshot } = await soalEssaySnapshotQuery
   const jumlahSoalEssay = soalEssayUntukSnapshot?.length ?? 0
