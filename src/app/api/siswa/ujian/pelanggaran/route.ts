@@ -56,7 +56,8 @@ export async function POST(req: NextRequest) {
     db.from('pelanggaran')
       .select('*', { count: 'exact', head: true })
       .eq('sesi_id', sesiId)
-      .eq('nis', user.nis!),
+      .eq('nis', user.nis!)
+      .neq('status', 'DIABAIKAN'),
   ])
 
   const level = (count ?? 0) + 1
