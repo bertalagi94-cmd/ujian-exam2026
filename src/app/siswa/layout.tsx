@@ -3,6 +3,8 @@
 import { useEffect } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { SiswaSidebar } from '@/components/shared/Sidebar'
+import { ViewAsBanner } from '@/components/shared/ViewAsBanner'
+import { DipantauBanner } from '@/components/shared/DipantauBanner'
 
 export default function SiswaLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter()
@@ -20,6 +22,8 @@ export default function SiswaLayout({ children }: { children: React.ReactNode })
 
   return (
     <div className="flex min-h-screen bg-surface-50">
+      <ViewAsBanner />
+      <DipantauBanner />
       {!isUjian && <SiswaSidebar />}
       <main className={`flex-1 min-w-0 ${isUjian ? 'p-0' : 'p-6 lg:p-8 pt-16 lg:pt-8'}`}>
         {children}
