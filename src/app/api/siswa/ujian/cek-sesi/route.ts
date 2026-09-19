@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
+import { sidDipantauUntuk } from '@/lib/dipantau'
 
 // GET /api/siswa/ujian/cek-sesi?sesiId=xxx&deviceId=yyy
 // Digunakan siswa untuk polling apakah sesi masih BERJALAN atau sudah SELESAI.
@@ -46,8 +47,14 @@ export async function GET(req: NextRequest) {
   }
   // ─────────────────────────────────────────────────────────────────────────
 
-  // Perbarui heartbeat — bukti device ini masih aktif mengerjakan ujian
-  if (deviceId && siswaUjian?.status === 'AKTIF') {
+  // Perbarui heartbeat — bukti device ini masih aktif mengerjakan ujian.
+  //
+  // PENGECUALIAN mode "Lihat sebagai": ini SATU-SATUNYA GET dengan efek
+  // samping tulis. Kalau admin yang sedang "melihat sebagai" siswa ikut
+  // meng-update last_heartbeat, siswa asli yang sedang ujian di device-nya
+  // bisa salah dianggap tidak aktif / device berganti. Jadi untuk token
+  // viewAs: baca boleh, tulis heartbeat dilewati.
+  if (!user.viewAs && deviceId && siswaUjian?.status === 'AKTIF') {
     await db
       .from('siswa_ujian')
       .update({ last_heartbeat: new Date().toISOString() })
@@ -55,8 +62,15 @@ export async function GET(req: NextRequest) {
       .eq('nis', user.nis!)
   }
 
+  // Status "sedang dipantau admin" dititipkan di respons polling yang SUDAH ada
+  // (tiap 10 detik selama ujian) — banner di halaman ujian tidak perlu request
+  // tambahan. Sesi Lihat-sebagai itu sendiri tidak pernah ditandai dipantau.
+  const sidDipantau = user.viewAs ? null : await sidDipantauUntuk(db, user.nis!)
+
   return NextResponse.json({
     sesi_status: sesi.status,
     siswa_status: siswaUjian?.status ?? 'TIDAK_TERDAFTAR',
+    dipantau: !!sidDipantau,
+    dipantau_sid: sidDipantau ?? undefined,
   })
 }
