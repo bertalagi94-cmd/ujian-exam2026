@@ -177,9 +177,11 @@ export async function GET(req: NextRequest) {
     )
   }
 
+  // FIX BUG (P1-01, padanan essay): sertakan `updated_at` — lihat catatan
+  // yang sama di src/app/api/siswa/ujian/sync/route.ts GET.
   const { data, error } = await db
     .from('jawaban_essay')
-    .select('soal_essay_id, jawaban_teks')
+    .select('soal_essay_id, jawaban_teks, updated_at')
     .eq('sesi_id', sesiId)
     .eq('nis', user.nis!)
 
