@@ -126,6 +126,7 @@ export async function POST(req: NextRequest) {
       .select('*', { count: 'exact', head: true })
       .eq('sesi_id', sesi.id)
       .eq('nis', nis)
+      .neq('status', 'DIABAIKAN')
     return NextResponse.json({
       valid: false,
       terkunci_permanen: true,
