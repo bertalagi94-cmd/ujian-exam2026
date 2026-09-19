@@ -110,13 +110,18 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
   const [setupAcak, setSetupAcak] = useState('YA')
 
   // Jumlah opsi jawaban (4/5) default & status kunci ditentukan admin lewat
-  // Pengaturan Ujian. Kalau admin MENGUNCI, guru wajib pakai globalJumlahOpsi
-  // apa adanya. Kalau TIDAK dikunci, guru boleh memilih sendiri per soal lewat
-  // pilihanJumlahOpsi (lihat jumlahOpsiAktif di bawah).
+  // Pengaturan Ujian.
+  // - kunciJumlahOpsi TRUE  → guru tidak pernah melihat pilihan; semua paket
+  //   otomatis pakai globalJumlahOpsi.
+  // - kunciJumlahOpsi FALSE → guru memilih 4/5 SATU KALI di layar Setup
+  //   (setupJumlahOpsi), sebelum soal pertama dibuat. Nilai itu lalu berlaku
+  //   untuk SEMUA soal dalam paket tsb (paketJumlahOpsi) — tidak ditanya lagi
+  //   di form tambah soal satu-satu, dan tetap dipertahankan kalau guru
+  //   melanjutkan paket yang sudah punya soal (lihat lanjutkanPaket).
   const [globalJumlahOpsi, setGlobalJumlahOpsi] = useState(4)
   const [kunciJumlahOpsi, setKunciJumlahOpsi] = useState(true)
-  const [pilihanJumlahOpsi, setPilihanJumlahOpsi] = useState(4)
-  const jumlahOpsiAktif = kunciJumlahOpsi ? globalJumlahOpsi : pilihanJumlahOpsi
+  const [setupJumlahOpsi, setSetupJumlahOpsi] = useState(4)
+  const [paketJumlahOpsi, setPaketJumlahOpsi] = useState(4)
 
   // Soal form state
   const [imgPertanyaan, setImgPertanyaan] = useState('')
@@ -164,13 +169,20 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
   }, [])
 
   // ── Fetch jumlah opsi jawaban default + status kunci (ditentukan admin) ──
+  // FIX: endpoint ini dicache CDN (Cache-Control s-maxage=60 + SWR 300 dtk)
+  // untuk data seperti nama sekolah/logo yang jarang berubah. Tapi
+  // kunciJumlahOpsi harus langsung berlaku begitu admin ubah — kalau kena
+  // cache CDN yang basi, guru bisa tetap melihat status kunci lama sampai
+  // beberapa menit. Tambahkan query unik supaya request ini selalu tembus
+  // ke server (bypass cache CDN by-URL), tanpa mengubah cache endpoint ini
+  // untuk pemakai lain.
   useEffect(() => {
-    apiRequest<{ data: Record<string, string> }>('/api/public/pengaturan')
+    apiRequest<{ data: Record<string, string> }>(`/api/public/pengaturan?_t=${Date.now()}`)
       .then(r => {
         const n = Number(r.data?.jumlahOpsi)
         if (n === 3 || n === 4 || n === 5) {
           setGlobalJumlahOpsi(n)
-          setPilihanJumlahOpsi(n)
+          setSetupJumlahOpsi(n)
         }
         setKunciJumlahOpsi(r.data?.kunciJumlahOpsi === 'true')
       })
@@ -241,6 +253,9 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
       }
       setActivePaket(pendingPaket)
       setSoalDibuat([])
+      // Paket baru, soal pertama belum ada: pakai pilihan guru di layar Setup
+      // kalau tidak dikunci, atau default admin kalau dikunci.
+      setPaketJumlahOpsi(kunciJumlahOpsi ? globalJumlahOpsi : setupJumlahOpsi)
       setStep('buat')
       resetSoalForm()
     } catch (err: unknown) {
@@ -257,6 +272,17 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
     // agar soalDibuat.length sudah benar saat pertama render
     const existing = await loadSoalPaket(p.id)
     setSoalDibuat(existing)
+    // Kalau paket ini sudah punya soal, jumlah opsi WAJIB ikut soal yang
+    // sudah ada (supaya semua soal dalam satu paket konsisten) — tidak boleh
+    // diganti guru lagi meski status kunci admin sedang nonaktif. Kalau paket
+    // masih kosong (baru dibuat lalu ditinggal sebelum sempat isi soal),
+    // perlakukan seperti paket baru: ikut pilihan/​default terkini.
+    const opsiSoalPertama = Number(existing[0]?.jumlah_opsi)
+    if (opsiSoalPertama === 4 || opsiSoalPertama === 5) {
+      setPaketJumlahOpsi(opsiSoalPertama)
+    } else {
+      setPaketJumlahOpsi(kunciJumlahOpsi ? globalJumlahOpsi : setupJumlahOpsi)
+    }
     setStep('buat')
   }
 
@@ -321,7 +347,7 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
     if (!activePaket) return false
     const fd = new FormData(formEl)
     const payload: Record<string, unknown> = Object.fromEntries(fd.entries())
-    payload.jumlah_opsi = String(jumlahOpsiAktif)
+    payload.jumlah_opsi = String(paketJumlahOpsi)
     payload.mapel_id = activePaket.mapel_id
     payload.kelas_id = activePaket.kelas_id
     payload.gambar_pertanyaan = imgPertanyaan || null
@@ -661,30 +687,17 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
               </div>
             </div>
 
-            {/* Dropdown "Jumlah Opsi" hanya muncul kalau admin TIDAK mengunci
-                jumlah opsi di Pengaturan Ujian. Kalau dikunci, jumlah opsi
-                otomatis ikut default admin (globalJumlahOpsi) dan guru tidak
-                bisa mengubahnya. */}
-            {!kunciJumlahOpsi && (
-              <div>
-                <label className="label">Jumlah Opsi Jawaban</label>
-                <select
-                  className="select"
-                  value={pilihanJumlahOpsi}
-                  onChange={e => setPilihanJumlahOpsi(Number(e.target.value))}
-                >
-                  <option value={4}>4 Opsi (A–D)</option>
-                  <option value={5}>5 Opsi (A–E)</option>
-                </select>
-              </div>
-            )}
+            {/* Jumlah opsi jawaban SUDAH ditentukan di layar Setup (sebelum
+                soal pertama dibuat) dan berlaku untuk semua soal dalam paket
+                ini — lihat paketJumlahOpsi. Tidak ditanya lagi di sini supaya
+                satu paket tidak punya soal dengan jumlah opsi yang beda-beda. */}
             {/* FIX: dropdown "Tingkat Kesulitan" dihapus — tidak dipakai di mana
                 pun (tidak ditampilkan di halaman Analisis Ujian), jadi hanya
                 menambah langkah tanpa manfaat bagi guru saat membuat soal. */}
 
             <div className="space-y-2">
               <label className="label">Pilihan Jawaban</label>
-              {opsiLabels.slice(0, jumlahOpsiAktif).map(label => {
+              {opsiLabels.slice(0, paketJumlahOpsi).map(label => {
                 const lk = label.toLowerCase()
                 // Teks opsi wajib diisi KECUALI opsi ini sudah punya gambar —
                 // guru boleh membuat pilihan jawaban berupa gambar saja tanpa teks.
@@ -722,7 +735,7 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
               <label className="label">Kunci Jawaban *</label>
               <select name="kunci" className="select" required defaultValue="">
                 <option value="" disabled>Pilih Kunci Jawaban</option>
-                {opsiLabels.slice(0, jumlahOpsiAktif).map(l => <option key={l} value={l}>{l}</option>)}
+                {opsiLabels.slice(0, paketJumlahOpsi).map(l => <option key={l} value={l}>{l}</option>)}
               </select>
             </div>
 
@@ -817,6 +830,26 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
                 <option value="TIDAK">Tidak — urutan soal tetap sesuai input</option>
               </select>
             </div>
+            {/* Hanya tampil kalau admin TIDAK mengunci jumlah opsi di
+                Pengaturan Ujian. Dipilih di sini (sekali, sebelum soal
+                pertama) supaya berlaku konsisten untuk semua soal PG dalam
+                paket ini — lihat startBuatSoal/lanjutkanPaket. */}
+            {!kunciJumlahOpsi && (
+              <div>
+                <label className="label">Jumlah Opsi Jawaban</label>
+                <select
+                  className="select"
+                  value={setupJumlahOpsi}
+                  onChange={e => setSetupJumlahOpsi(Number(e.target.value))}
+                >
+                  <option value={4}>4 Opsi (A–D)</option>
+                  <option value={5}>5 Opsi (A–E)</option>
+                </select>
+                <p className="text-xs text-slate-400 mt-1">
+                  Berlaku untuk semua soal PG dalam paket ini. Default dari admin: {globalJumlahOpsi} opsi — boleh diubah karena admin tidak mengunci pengaturan ini.
+                </p>
+              </div>
+            )}
             <div className="alert-info text-xs">
               Pengaturan ini hanya perlu diisi sekali. Setelah itu Anda bisa langsung membuat soal satu per satu.
             </div>
