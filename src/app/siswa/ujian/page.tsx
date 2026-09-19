@@ -131,20 +131,101 @@ function isFullscreenSupported() {
 // Cadangan di localStorage (selain di server) supaya kalau tab/browser ter-reload
 // tiba-tiba di tengah ujian, jawaban yang BELUM sempat sync ke server tidak hilang
 // total dari sisi siswa — bisa direkonsiliasi ulang saat sesi dibuka kembali.
+//
+// FIX BUG (P1-01 — backup lokal SELALU menang saat resume, walau sudah basi):
+// sebelumnya backup ini cuma menyimpan {soal_id: jawaban} TANPA jam berapa
+// jawaban itu terakhir diubah. resumeJawaban() lalu selalu melakukan
+// `{...dariServer, ...dariBackupLokal}` — backup lokal MENANG mutlak untuk
+// setiap soal yang ada di dalamnya, apa pun isinya. Ini benar untuk kasus
+// "reload di device yang sama" (backup memang representasi pilihan TERAKHIR
+// siswa yang belum sempat ke server), tapi SALAH untuk kasus lintas-device:
+//   1. Device A jawab No.10 = A, sudah ter-sync ke server.
+//   2. Device A idle/mati >2 menit → device lain (B) diizinkan mengambil alih
+//      (lihat DEVICE_STALE_MS di validasi/route.ts).
+//   3. Di Device B, siswa ubah No.10 jadi C, ter-sync (server sekarang = C).
+//   4. Siswa balik pakai Device A. localStorage Device A MASIH menyimpan
+//      backup lama (No.10 = A) — tidak pernah tahu server sudah berubah.
+//   5. resumeJawaban() di Device A: {...server(C), ...backupLama(A)} → hasil
+//      A, MENIMPA BALIK jawaban C yang sebenarnya paling baru & sudah benar.
+//
+// FIX: backup sekarang menyimpan JAM setiap jawaban terakhir diubah DI
+// DEVICE INI (`t`), bukan cuma nilainya (`v`). Server juga sudah punya
+// `updated_at` per baris jawaban (kolom yang sudah ada, sekarang ikut
+// dikembalikan oleh GET /api/siswa/ujian/sync — lihat route.ts). Saat resume,
+// untuk tiap soal yang backup DAN server sama-sama punya, yang dipakai
+// adalah yang JAMNYA LEBIH BARU (lihat mergeJawabanDenganWaktu di bawah),
+// bukan otomatis backup lokal. Format lama (flat map tanpa `t`) tetap bisa
+// dibaca (dianggap jam 0 — paling lama) supaya backup yang sudah lebih dulu
+// tersimpan di browser siswa (dari sebelum fix ini) tidak hilang percuma.
+interface BackupJawaban<T extends Record<string, string> = JawabanMap> {
+  v: T
+  t: Record<string, number>
+}
 function backupKey(sesiId: string, nis: string) {
   return `ujian_backup_${sesiId}_${nis}`
 }
-function saveBackup(sesiId: string, nis: string, jawaban: JawabanMap) {
-  try { localStorage.setItem(backupKey(sesiId, nis), JSON.stringify(jawaban)) } catch { /* abaikan */ }
+function saveBackup(sesiId: string, nis: string, jawaban: JawabanMap, ts: Record<string, number>) {
+  try {
+    const payload: BackupJawaban = { v: jawaban, t: ts }
+    localStorage.setItem(backupKey(sesiId, nis), JSON.stringify(payload))
+  } catch { /* abaikan */ }
 }
-function loadBackup(sesiId: string, nis: string): JawabanMap {
+function loadBackup(sesiId: string, nis: string): BackupJawaban {
   try {
     const raw = localStorage.getItem(backupKey(sesiId, nis))
-    return raw ? JSON.parse(raw) : {}
-  } catch { return {} }
+    if (!raw) return { v: {}, t: {} }
+    const parsed = JSON.parse(raw)
+    // Backward-compat: format lama adalah flat map {soal_id: jawaban} tanpa
+    // pembungkus {v, t}. Kalau field `v` tidak ada, anggap seluruh objek itu
+    // sendiri adalah peta jawaban lama, dengan jam 0 (paling lama, supaya
+    // versi manapun dari server yang punya jam asli akan menang).
+    if (parsed && typeof parsed === 'object' && 'v' in parsed) {
+      return { v: parsed.v ?? {}, t: parsed.t ?? {} }
+    }
+    return { v: parsed ?? {}, t: {} }
+  } catch { return { v: {}, t: {} } }
 }
 function clearBackup(sesiId: string, nis: string) {
   try { localStorage.removeItem(backupKey(sesiId, nis)) } catch { /* abaikan */ }
+}
+
+// ── Merge jawaban server vs lokal berdasarkan JAM, bukan "lokal selalu menang" ──
+// Dipakai untuk PG (resumeJawaban) dan Essay (masukKeHalamanEssay) — pola
+// yang identik untuk keduanya. Untuk soal yang HANYA ada di satu sisi, sisi
+// itu langsung dipakai (tidak ada yang perlu dibandingkan). Untuk soal yang
+// ada di KEDUA sisi, yang jamnya lebih baru yang menang; kalau seri, server
+// yang dipakai (ground truth kalau tidak ada info tambahan).
+function mergeJawabanDenganWaktu<T extends Record<string, string>>(
+  server: T,
+  serverTs: Record<string, number>,
+  lokal: T,
+  lokalTs: Record<string, number>,
+): { merged: T; ts: Record<string, number> } {
+  const merged = {} as T
+  const ts: Record<string, number> = {}
+  const semuaKey = new Set([...Object.keys(server), ...Object.keys(lokal)])
+  semuaKey.forEach(k => {
+    const adaServer = Object.prototype.hasOwnProperty.call(server, k)
+    const adaLokal = Object.prototype.hasOwnProperty.call(lokal, k)
+    if (adaServer && adaLokal) {
+      const tServer = serverTs[k] ?? 0
+      const tLokal = lokalTs[k] ?? 0
+      if (tLokal > tServer) {
+        ;(merged as Record<string, string>)[k] = lokal[k]
+        ts[k] = tLokal
+      } else {
+        ;(merged as Record<string, string>)[k] = server[k]
+        ts[k] = tServer
+      }
+    } else if (adaLokal) {
+      ;(merged as Record<string, string>)[k] = lokal[k]
+      ts[k] = lokalTs[k] ?? Date.now()
+    } else {
+      ;(merged as Record<string, string>)[k] = server[k]
+      ts[k] = serverTs[k] ?? 0
+    }
+  })
+  return { merged, ts }
 }
 
 // ── Device ID — identitas unik per browser/device ────────────────────────
@@ -294,12 +375,18 @@ export default function SiswaUjianPage() {
   const pelanggRef = useRef(0)
   const pelanggaranActiveRef = useRef(false)
   const jawabanRef = useRef<JawabanMap>({})
+  // FIX BUG (P1-01): jam (ms epoch) terakhir tiap soal_id diubah DI DEVICE
+  // INI. Diisi lewat setJawabanDenganWaktu() di bawah — lihat penjelasan
+  // lengkap di komentar BackupJawaban/mergeJawabanDenganWaktu di atas.
+  const jawabanTsRef = useRef<Record<string, number>>({})
   const sesiInfoRef = useRef<SesiInfo | null>(null)
   const phaseRef = useRef<Phase>('CEK_JADWAL')
 
   // ── Refs fase ESSAY ────────────────────────────────────────────────────────
   const essayInfoRef = useRef<EssayInfo | null>(null)
   const jawabanEssayRef = useRef<JawabanEssayMap>({})
+  // FIX BUG (P1-01, padanan essay): sama seperti jawabanTsRef untuk PG.
+  const jawabanEssayTsRef = useRef<Record<string, number>>({})
   const essayTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const essaySyncRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const essayAksesMulaiPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -375,21 +462,43 @@ export default function SiswaUjianPage() {
   // ── Backup lokal jawaban essay (mode DIGITAL) ─────────────────────────────
   // Sama seperti backup jawaban PG — jaga-jaga kalau tab reload di tengah
   // fase essay sebelum sempat sync ke server.
+  // FIX BUG (P1-01, padanan essay): sekarang ikut menyimpan jam per-soal
+  // (`t`) dalam format {v, t} yang sama seperti saveBackup() PG, supaya
+  // masukKeHalamanEssay() bisa membandingkan dengan updated_at server alih-
+  // alih backup lokal selalu menang mutlak. loadEssayBackup() di bawah tetap
+  // bisa membaca format lama (flat map) untuk kompatibilitas mundur.
   useEffect(() => {
     if (phase !== 'ESSAY_KERJAKAN' || essayInfo?.modeJawaban !== 'DIGITAL') return
     const currentSesi = sesiInfoRef.current
     if (!currentSesi) return
     const user = JSON.parse(localStorage.getItem('user') ?? '{}')
     if (user?.nis) {
-      try { localStorage.setItem(`ujian_essay_backup_${currentSesi.sesiId}_${user.nis}`, JSON.stringify(jawabanEssay)) } catch { /* abaikan */ }
+      try {
+        const payload: BackupJawaban<JawabanEssayMap> = { v: jawabanEssay, t: jawabanEssayTsRef.current }
+        localStorage.setItem(`ujian_essay_backup_${currentSesi.sesiId}_${user.nis}`, JSON.stringify(payload))
+      } catch { /* abaikan */ }
     }
   }, [jawabanEssay, phase, essayInfo])
+
+  // Baca backup essay dari localStorage, kompatibel dengan format lama
+  // (flat map) maupun format baru ({v, t}) — lihat catatan di atas.
+  function loadEssayBackup(sesiId: string, nis: string): BackupJawaban<JawabanEssayMap> {
+    try {
+      const raw = localStorage.getItem(`ujian_essay_backup_${sesiId}_${nis}`)
+      if (!raw) return { v: {}, t: {} }
+      const parsed = JSON.parse(raw)
+      if (parsed && typeof parsed === 'object' && 'v' in parsed) {
+        return { v: parsed.v ?? {}, t: parsed.t ?? {} }
+      }
+      return { v: parsed ?? {}, t: {} }
+    } catch { return { v: {}, t: {} } }
+  }
 
   // ── Backup tiap kali jawaban berubah (lihat catatan di backupKey/saveBackup) ──
   useEffect(() => {
     if (phase !== 'UJIAN' || !sesiInfo) return
     const user = JSON.parse(localStorage.getItem('user') ?? '{}')
-    if (user?.nis) saveBackup(sesiInfo.sesiId, user.nis, jawaban)
+    if (user?.nis) saveBackup(sesiInfo.sesiId, user.nis, jawaban, jawabanTsRef.current)
   }, [jawaban, phase, sesiInfo])
 
   // ── Peringatkan siswa jika mencoba menutup/refresh tab saat masih ada
@@ -917,7 +1026,7 @@ export default function SiswaUjianPage() {
   // bukan asumsi "fetch tidak error = semua tersimpan". Pemanggil (terutama
   // handleSelesai) WAJIB memeriksa nilai ini sebelum menganggap ujian selesai.
   const MAX_SYNC_RETRY = 4
-  const syncJawaban = useCallback(async (): Promise<{ ok: boolean; totalSynced: number; sesiClosed?: boolean; locked?: boolean }> => {
+  const syncJawabanInternal = useCallback(async (): Promise<{ ok: boolean; totalSynced: number; sesiClosed?: boolean; locked?: boolean }> => {
     const currentSesi = sesiInfoRef.current
     const currentJawaban = jawabanRef.current
     if (!currentSesi) return { ok: true, totalSynced: 0 }
@@ -978,29 +1087,83 @@ export default function SiswaUjianPage() {
     return { ok: false, totalSynced: 0 }
   }, [])
 
+  // FIX BUG (P1-02 — autosync & submit manual bisa berjalan BERSAMAAN, race
+  // condition): sebelumnya autosync (setInterval 30 detik) dan verifikasi
+  // submit (handleSelesai, yang memanggil syncJawaban() sampai 4x) sama-sama
+  // memanggil fungsi sync yang sama tanpa penguncian apa pun. Skenario nyata:
+  //   1. Autosync mulai mengirim, membawa snapshot jawaban SAAT ITU (mis.
+  //      No.10 masih = A).
+  //   2. Sepersekian detik kemudian siswa ubah No.10 jadi C, lalu langsung
+  //      klik "Selesai" — memicu syncJawaban() KEDUA (membawa No.10 = C).
+  //   3. Kalau request KEDUA (isi C, lebih baru) selesai & ter-commit ke DB
+  //      LEBIH DULU, lalu request PERTAMA (isi A, snapshot lebih lama)
+  //      baru selesai belakangan (jaringan tidak menjamin urutan selesai =
+  //      urutan mulai) → request pertama MENIMPA BALIK C menjadi A lagi,
+  //      tanpa ada error apa pun yang terlihat siswa. Ini sangat berbahaya
+  //      karena terjadi tepat di detik-detik terakhir sebelum submit.
+  //
+  // FIX: serialisasi semua pemanggilan lewat satu antrean (`syncChainRef`).
+  // Setiap panggilan syncJawaban() BARU dijalankan setelah panggilan
+  // sebelumnya (dari sumber manapun — autosync, retry manual, atau
+  // handleSelesai) benar-benar SELESAI, dan setiap eksekusi selalu membaca
+  // jawabanRef.current TERBARU saat itu (bukan snapshot lama) — jadi tidak
+  // akan pernah ada dua request jawaban PG untuk sesi yang sama diproses
+  // tumpang-tindih, dan urutan selesai selalu sama dengan urutan dipanggil.
+  const syncChainRef = useRef<Promise<unknown>>(Promise.resolve())
+  const syncJawaban = useCallback((): Promise<{ ok: boolean; totalSynced: number; sesiClosed?: boolean; locked?: boolean }> => {
+    const next = syncChainRef.current.then(syncJawabanInternal, syncJawabanInternal)
+    // .catch(() => {}) di sini HANYA supaya rantai promise tidak "macet"
+    // kalau satu panggilan reject — syncJawabanInternal sendiri praktis
+    // tidak pernah reject (semua kegagalan ditangkap & dikembalikan sebagai
+    // {ok:false}), ini murni jaga-jaga.
+    syncChainRef.current = next.catch(() => {})
+    return next
+  }, [syncJawabanInternal])
+
+  // Ubah satu jawaban PG + catat JAM perubahannya di device ini (dipakai
+  // mergeJawabanDenganWaktu saat resume — lihat FIX BUG P1-01 di atas).
+  function pilihJawaban(soalId: string, label: string) {
+    jawabanTsRef.current = { ...jawabanTsRef.current, [soalId]: Date.now() }
+    setJawaban(prev => ({ ...prev, [soalId]: label }))
+  }
+
+  // Padanan pilihJawaban() untuk essay mode DIGITAL.
+  function tulisJawabanEssay(soalEssayId: string, teks: string) {
+    jawabanEssayTsRef.current = { ...jawabanEssayTsRef.current, [soalEssayId]: Date.now() }
+    setJawabanEssay(prev => ({ ...prev, [soalEssayId]: teks }))
+  }
+
   // ── Pulihkan jawaban saat masuk/membuka ulang ujian ───────────────────────
-  // Diambil dari server (ground truth) lalu ditimpa dengan backup lokal (kalau ada),
-  // karena backup lokal merepresentasikan pilihan terakhir siswa yang mungkin
-  // belum sempat terkonfirmasi ke server saat tab/koneksi sempat bermasalah.
-  // Ini mencegah siswa "kehilangan" jawaban yang sudah dipilih kalau halaman
-  // ter-reload di tengah ujian.
+  // FIX BUG (P1-01 — lihat penjelasan lengkap di komentar BackupJawaban /
+  // mergeJawabanDenganWaktu di atas file ini): SEBELUMNYA backup lokal
+  // selalu menang mutlak (`{...server, ...backup}`) tanpa peduli mana yang
+  // sebenarnya lebih baru — berbahaya khusus di skenario lintas-device
+  // (device lama yang sempat idle/mati lalu dipakai lagi bisa menimpa balik
+  // jawaban yang sudah diperbarui dari device lain). Sekarang jawaban server
+  // (dengan `updated_at` aslinya) dan backup lokal (dengan jam `t` per soal)
+  // dibandingkan PER SOAL — yang jamnya lebih baru yang dipakai.
   const resumeJawaban = useCallback(async (sesiId: string, nis: string) => {
     const backup = loadBackup(sesiId, nis)
     let serverJawaban: JawabanMap = {}
+    let serverTs: Record<string, number> = {}
     try {
       // FIX BUG #9: sertakan deviceId supaya backend bisa menolak device yang
       // sudah diambil alih saat memulihkan jawaban (lihat guard di
       // src/app/api/siswa/ujian/sync/route.ts GET).
-      const res = await apiRequest<{ jawaban: { soal_id: string; jawaban: string }[] }>(
+      const res = await apiRequest<{ jawaban: { soal_id: string; jawaban: string; updated_at?: string }[] }>(
         `/api/siswa/ujian/sync?sesiId=${sesiId}&deviceId=${getDeviceId()}`
       )
       serverJawaban = Object.fromEntries((res.jawaban ?? []).map(j => [j.soal_id, j.jawaban]))
+      serverTs = Object.fromEntries(
+        (res.jawaban ?? []).map(j => [j.soal_id, j.updated_at ? new Date(j.updated_at).getTime() : 0])
+      )
     } catch (e) {
       console.warn('Gagal mengambil jawaban tersimpan dari server, pakai backup lokal saja:', e)
     }
-    const merged: JawabanMap = { ...serverJawaban, ...backup }
+    const { merged, ts } = mergeJawabanDenganWaktu(serverJawaban, serverTs, backup.v, backup.t)
     if (Object.keys(merged).length > 0) {
       jawabanRef.current = merged
+      jawabanTsRef.current = ts
       setJawaban(merged)
     }
   }, [])
@@ -1525,26 +1688,28 @@ export default function SiswaUjianPage() {
       const terpakai = Math.floor((Date.now() - new Date(mulaiRes.waktuMulaiEssay).getTime()) / 1000)
       setSisaWaktuEssay(Math.max(0, durasiDetik - terpakai))
 
-      // Pulihkan draft jawaban (mode DIGITAL): dari server dulu, lalu ditimpa
-      // backup lokal — pola sama seperti resumeJawaban() untuk PG.
+      // Pulihkan draft jawaban (mode DIGITAL): dari server dulu, digabung
+      // dengan backup lokal berdasarkan JAM masing-masing — pola sama seperti
+      // resumeJawaban() untuk PG (lihat FIX BUG P1-01 di komentar atas file).
       if (info?.modeJawaban === 'DIGITAL') {
         const user = JSON.parse(localStorage.getItem('user') ?? '{}')
         let serverJawaban: JawabanEssayMap = {}
+        let serverTs: Record<string, number> = {}
         try {
           // FIX BUG #10: sertakan deviceId supaya backend bisa menegakkan
           // guard anti multi-device di fase essay (lihat essay/jawab/route.ts GET).
-          const jr = await apiRequest<{ jawaban: { soal_essay_id: string; jawaban_teks: string }[] }>(
+          const jr = await apiRequest<{ jawaban: { soal_essay_id: string; jawaban_teks: string; updated_at?: string }[] }>(
             `/api/siswa/ujian/essay/jawab?sesiId=${sesiId}&deviceId=${getDeviceId()}`
           )
           serverJawaban = Object.fromEntries((jr.jawaban ?? []).map(j => [j.soal_essay_id, j.jawaban_teks]))
+          serverTs = Object.fromEntries(
+            (jr.jawaban ?? []).map(j => [j.soal_essay_id, j.updated_at ? new Date(j.updated_at).getTime() : 0])
+          )
         } catch { /* pakai backup lokal saja kalau gagal */ }
-        let backup: JawabanEssayMap = {}
-        try {
-          const raw = localStorage.getItem(`ujian_essay_backup_${sesiId}_${user.nis}`)
-          backup = raw ? JSON.parse(raw) : {}
-        } catch { /* abaikan */ }
-        const merged = { ...serverJawaban, ...backup }
+        const backup = loadEssayBackup(sesiId, user.nis)
+        const { merged, ts } = mergeJawabanDenganWaktu(serverJawaban, serverTs, backup.v, backup.t)
         jawabanEssayRef.current = merged
+        jawabanEssayTsRef.current = ts
         setJawabanEssay(merged)
       }
 
@@ -1578,14 +1743,11 @@ export default function SiswaUjianPage() {
 
     // Draft jawaban: hanya backup lokal (server tidak terjangkau).
     if (info.modeJawaban === 'DIGITAL') {
-      let backup: JawabanEssayMap = {}
-      try {
-        const user = JSON.parse(localStorage.getItem('user') ?? '{}')
-        const raw = localStorage.getItem(`ujian_essay_backup_${sesiId}_${user.nis}`)
-        backup = raw ? JSON.parse(raw) : {}
-      } catch { /* abaikan */ }
-      jawabanEssayRef.current = backup
-      setJawabanEssay(backup)
+      const user = JSON.parse(localStorage.getItem('user') ?? '{}')
+      const backup = loadEssayBackup(sesiId, user.nis)
+      jawabanEssayRef.current = backup.v
+      jawabanEssayTsRef.current = backup.t
+      setJawabanEssay(backup.v)
     }
 
     setErrorEssay('')
@@ -1755,7 +1917,7 @@ export default function SiswaUjianPage() {
   // ── Autosave jawaban essay (mode DIGITAL), dengan retry pola sama seperti
   // syncJawaban() untuk PG. ─────────────────────────────────────────────────
   const MAX_ESSAY_SYNC_RETRY = 4
-  const syncJawabanEssay = useCallback(async (): Promise<{ ok: boolean }> => {
+  const syncJawabanEssayInternal = useCallback(async (): Promise<{ ok: boolean }> => {
     const currentSesi = sesiInfoRef.current
     const currentJawaban = jawabanEssayRef.current
     if (!currentSesi) return { ok: true }
@@ -1793,6 +1955,17 @@ export default function SiswaUjianPage() {
     setEssaySyncStatus('error')
     return { ok: false }
   }, [])
+
+  // FIX BUG (P1-02, padanan essay): sama seperti syncJawaban() untuk PG —
+  // serialisasi autosave essay (interval 30 detik) dengan panggilan manual
+  // dari handleKirimEssay(), supaya ketikan terakhir siswa tidak pernah
+  // ditimpa balik oleh request autosave lama yang kebetulan selesai belakangan.
+  const essaySyncChainRef = useRef<Promise<unknown>>(Promise.resolve())
+  const syncJawabanEssay = useCallback((): Promise<{ ok: boolean }> => {
+    const next = essaySyncChainRef.current.then(syncJawabanEssayInternal, syncJawabanEssayInternal)
+    essaySyncChainRef.current = next.catch(() => {})
+    return next
+  }, [syncJawabanEssayInternal])
 
   // ── Timer fase essay — SEKARANG benar-benar dihitung ulang tiap tick dari
   // referensi absolut (waktuMulaiEssayRef), sama seperti timer PG. ─────────
@@ -2428,7 +2601,7 @@ export default function SiswaUjianPage() {
                   className="input w-full min-h-[220px] resize-y"
                   placeholder="Ketik jawaban Anda di sini..."
                   value={jawabanEssay[soalEssayCurrent.id] ?? ''}
-                  onChange={e => setJawabanEssay(prev => ({ ...prev, [soalEssayCurrent.id]: e.target.value }))}
+                  onChange={e => tulisJawabanEssay(soalEssayCurrent.id, e.target.value)}
                 />
               ) : (
                 <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-500">
@@ -3296,7 +3469,7 @@ export default function SiswaUjianPage() {
               return (
                 <button
                   key={label}
-                  onClick={() => setJawaban(prev => ({ ...prev, [soalCurrent.id]: label }))}
+                  onClick={() => pilihJawaban(soalCurrent.id, label)}
                   className={`soal-opsi w-full text-left ${isSelected ? 'soal-opsi-selected' : 'soal-opsi-default'}`}
                 >
                   <span className={`w-7 h-7 rounded-lg text-xs font-bold flex items-center justify-center flex-shrink-0 transition-colors ${
