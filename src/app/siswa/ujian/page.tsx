@@ -6,6 +6,12 @@ import { apiRequest } from '@/lib/utils'
 import { startExamLock, endExamLock } from '@/lib/exam-lock'
 import { Soal } from '@/types'
 import { Confirm, Spinner } from '@/components/ui'
+import {
+  simpanAmplop, ambilAmplop, bukaAmplop,
+  ambilStatusOffline, simpanStatusOffline, hapusStatusOffline,
+  EnkripsiTidakDidukungError,
+} from '@/lib/essay-amplop-client'
+import { PANJANG_KODE_DARURAT, type EssayAmplop } from '@/lib/essay-amplop-shared'
 
 type Phase = 'CEK_JADWAL' | 'PERSIAPAN' | 'KODE' | 'UJIAN' | 'ESSAY_INFO' | 'ESSAY_KERJAKAN' | 'SELESAI' | 'RESET_KODE'
 
@@ -215,6 +221,21 @@ export default function SiswaUjianPage() {
   // dihentikan lebih dulu (siswa diminta coba kirim ulang, belum SELESAI).
   const [essaySyncGagalSaatTimeout, setEssaySyncGagalSaatTimeout] = useState(false)
 
+  // ── Jalur essay OFFLINE (amplop terenkripsi + kode darurat dari pengawas) ──
+  // Lihat src/lib/essay-amplop-client.ts. Gerbang izin essay TETAP dipertahankan:
+  // kode darurat hanya berlaku kalau internet benar-benar bermasalah, dan
+  // hanya bisa membuka soal yang sudah terkirim (terenkripsi) sebelumnya.
+  const [jaringanBermasalah, setJaringanBermasalah] = useState(false)
+  const [amplopTersedia, setAmplopTersedia] = useState(false)
+  const [kodeDarurat, setKodeDarurat] = useState('')
+  const [kodeDaruratError, setKodeDaruratError] = useState('')
+  const [kodeDaruratLoading, setKodeDaruratLoading] = useState(false)
+  // Kunci UI sementara setelah beberapa kali salah — hanya kosmetik (anti
+  // salah pencet), BUKAN pengaman: penyerang yang tahu cara memanggil
+  // fungsi dekripsi langsung tidak melewati UI ini. Pengaman sebenarnya ada
+  // di kelambatan PBKDF2 + panjang kode (lihat essay-amplop-shared.ts).
+  const [kodeDaruratKunciSampai, setKodeDaruratKunciSampai] = useState(0)
+
   // ── Status sinkronisasi jawaban ke server ─────────────────────────────────
   // 'idle' = belum ada perubahan yang perlu disinkron
   // 'syncing' = sedang mencoba kirim ke server
@@ -288,12 +309,62 @@ export default function SiswaUjianPage() {
   // kebenaran akhir seperti sebelumnya, ini murni memperbaiki akurasi
   // tampilan & ketepatan waktu pemicu auto-submit di client.
   const waktuMulaiEssayRef = useRef<string | null>(null)
+  const rekonsiliasiBerjalanRef = useRef(false)
 
   useEffect(() => { jawabanRef.current = jawaban }, [jawaban])
   useEffect(() => { sesiInfoRef.current = sesiInfo }, [sesiInfo])
   useEffect(() => { phaseRef.current = phase }, [phase])
   useEffect(() => { essayInfoRef.current = essayInfo }, [essayInfo])
   useEffect(() => { jawabanEssayRef.current = jawabanEssay }, [jawabanEssay])
+
+  // ── Status jaringan untuk gerbang essay offline ───────────────────────────
+  // navigator.onLine hanya petunjuk awal (bisa true walau internet mati di
+  // belakang Wi-Fi). Sumber kebenaran utama: gagal/berhasilnya request ke
+  // server (lihat fetchEssayInfo & polling akses essay).
+  useEffect(() => {
+    const off = () => setJaringanBermasalah(true)
+    const on = () => setJaringanBermasalah(false)
+    window.addEventListener('offline', off)
+    window.addEventListener('online', on)
+    return () => { window.removeEventListener('offline', off); window.removeEventListener('online', on) }
+  }, [])
+
+  // ── Ambil "amplop" soal essay terenkripsi SEDINI mungkin ──────────────────
+  // Begitu siswa mulai PG (phase UJIAN) — jauh sebelum internet sempat mati di
+  // fase essay. Isinya tidak terbaca tanpa kode darurat, jadi aman ada di
+  // perangkat. Diulang tiap 20 dtk sampai berhasil (atau server bilang tidak
+  // perlu), karena siswa bisa saja baru online belakangan.
+  useEffect(() => {
+    const sesiId = sesiInfo?.sesiId
+    if (!sesiId || (phase !== 'UJIAN' && phase !== 'ESSAY_INFO')) return
+    let nis: string | undefined
+    try { nis = JSON.parse(localStorage.getItem('user') ?? '{}').nis } catch { /* abaikan */ }
+    if (!nis) return
+    if (ambilAmplop(sesiId, nis)) { setAmplopTersedia(true); return }
+
+    let batal = false
+    const ambil = async () => {
+      try {
+        const res = await apiRequest<{ ada: boolean; alasan?: string; amplop?: EssayAmplop }>(
+          `/api/siswa/ujian/essay/amplop?sesiId=${sesiId}&deviceId=${encodeURIComponent(getDeviceId())}`
+        )
+        if (batal) return
+        if (res.ada && res.amplop) {
+          simpanAmplop(sesiId, nis!, res.amplop)
+          setAmplopTersedia(true)
+          clearInterval(id)
+        } else if (res.alasan === 'TANPA_ESSAY' || res.alasan === 'SUDAH_LEWAT') {
+          clearInterval(id)
+        }
+      } catch (e) {
+        const status = (e as { status?: number } | undefined)?.status
+        if (status === 403 || status === 404 || status === 409) clearInterval(id) // terkunci/ganti perangkat/sesi tutup: tidak ada gunanya mengulang
+      }
+    }
+    const id = setInterval(ambil, 20000)
+    void ambil()
+    return () => { batal = true; clearInterval(id) }
+  }, [sesiInfo?.sesiId, phase])
 
   // ── Backup lokal jawaban essay (mode DIGITAL) ─────────────────────────────
   // Sama seperti backup jawaban PG — jaga-jaga kalau tab reload di tengah
@@ -1313,6 +1384,7 @@ export default function SiswaUjianPage() {
     setErrorEssay('')
     try {
       const res = await apiRequest<EssayInfo>(`/api/siswa/ujian/essay/info?sesiId=${currentSesiId}`)
+      setJaringanBermasalah(false)
       setEssayInfo(res)
       essayInfoRef.current = res
       // Idempotent: kalau siswa sudah pernah menekan "Mulai" sebelumnya (mis.
@@ -1320,6 +1392,16 @@ export default function SiswaUjianPage() {
       // halaman soal — jangan tampilkan lagi halaman info + tombol "Mulai".
       if (res.statusEssay === 'MENGERJAKAN') {
         await masukKeHalamanEssay(currentSesiId)
+      } else {
+        // Siswa sempat membuka essay OFFLINE (kode darurat) lalu halaman
+        // di-refresh sebelum sempat melapor ke server. Internet sudah pulih
+        // (request info berhasil) → laporkan sekarang, lalu lanjut seperti biasa.
+        let nisUser: string | undefined
+        try { nisUser = JSON.parse(localStorage.getItem('user') ?? '{}').nis } catch { /* abaikan */ }
+        if (nisUser && ambilStatusOffline(currentSesiId, nisUser).kode) {
+          const hasil = await laporkanBukaOffline(currentSesiId)
+          if (hasil === 'ok') await masukKeHalamanEssay(currentSesiId)
+        }
       }
     } catch (err: unknown) {
       // Catatan: kalau siswa TERKUNCI/RESET (lihat guard baru di
@@ -1330,6 +1412,7 @@ export default function SiswaUjianPage() {
       // dipakai phase UJIAN, tapi setidaknya siswa melihat PESAN yang jelas
       // alih-alih halaman kosong — perbaikan intinya ada di parameter
       // sesiIdOverride di atas, bukan di sini.
+      if (!(err as { status?: number } | undefined)?.status) setJaringanBermasalah(true)
       setErrorEssay(err instanceof Error ? err.message : 'Gagal memuat info essay')
     } finally {
       setLoadingEssayInfo(false)
@@ -1405,10 +1488,191 @@ export default function SiswaUjianPage() {
       setPhase('ESSAY_KERJAKAN')
       setTimeout(() => requestFullscreen(document.documentElement).catch(() => {}), 100)
     } catch (err: unknown) {
+      if (!(err as { status?: number } | undefined)?.status) setJaringanBermasalah(true)
       setErrorEssay(err instanceof Error ? err.message : 'Gagal memulai essay')
     } finally {
       setLoadingEssaySoal(false)
     }
+  }
+
+  // ── Jalur OFFLINE: buka essay dari amplop yang sudah didekripsi ───────────
+  // Padanan masukKeHalamanEssay() tapi TANPA request ke server: soal & info
+  // datang dari dalam amplop, waktu mulai dari jam perangkat. Server baru
+  // diberi tahu belakangan lewat laporkanBukaOffline() (rekonsiliasi).
+  async function masukKeHalamanEssayOffline(
+    isi: { info: Omit<EssayInfo, 'statusEssay' | 'aksesMulaiDibuka'>; soal: SoalEssay[] },
+    sesiId: string,
+    waktuMulaiIso: string
+  ) {
+    const info: EssayInfo = { ...isi.info, statusEssay: 'MENGERJAKAN', aksesMulaiDibuka: true }
+    setEssayInfo(info)
+    essayInfoRef.current = info
+    setEssayList([...isi.soal].sort((a, b) => a.urutan - b.urutan))
+
+    waktuMulaiEssayRef.current = waktuMulaiIso
+    const terpakai = Math.floor((Date.now() - new Date(waktuMulaiIso).getTime()) / 1000)
+    setSisaWaktuEssay(Math.max(0, info.durasiMenit * 60 - terpakai))
+
+    // Draft jawaban: hanya backup lokal (server tidak terjangkau).
+    if (info.modeJawaban === 'DIGITAL') {
+      let backup: JawabanEssayMap = {}
+      try {
+        const user = JSON.parse(localStorage.getItem('user') ?? '{}')
+        const raw = localStorage.getItem(`ujian_essay_backup_${sesiId}_${user.nis}`)
+        backup = raw ? JSON.parse(raw) : {}
+      } catch { /* abaikan */ }
+      jawabanEssayRef.current = backup
+      setJawabanEssay(backup)
+    }
+
+    setErrorEssay('')
+    setPhase('ESSAY_KERJAKAN')
+    setTimeout(() => requestFullscreen(document.documentElement).catch(() => {}), 100)
+  }
+
+  // Dipanggil dari tombol "Buka Soal Essay" di kotak kode darurat.
+  async function handleBukaKodeDarurat() {
+    const currentSesi = sesiInfoRef.current
+    if (!currentSesi) return
+    const kodeBersih = kodeDarurat.trim()
+    if (kodeBersih.length !== PANJANG_KODE_DARURAT) {
+      setKodeDaruratError(`Kode darurat terdiri dari ${PANJANG_KODE_DARURAT} angka.`)
+      return
+    }
+    const sisaKunci = Math.ceil((kodeDaruratKunciSampai - Date.now()) / 1000)
+    if (sisaKunci > 0) {
+      setKodeDaruratError(`Terlalu banyak salah. Tunggu ${sisaKunci} detik.`)
+      return
+    }
+    let nis: string | undefined
+    try { nis = JSON.parse(localStorage.getItem('user') ?? '{}').nis } catch { /* abaikan */ }
+    if (!nis) { setKodeDaruratError('Data siswa tidak ditemukan. Login ulang.'); return }
+    const amplop = ambilAmplop(currentSesi.sesiId, nis)
+    if (!amplop) {
+      setKodeDaruratError('Soal essay terenkripsi belum ada di perangkat ini. Hubungi pengawas.')
+      return
+    }
+
+    setKodeDaruratLoading(true)
+    setKodeDaruratError('')
+    try {
+      const isi = await bukaAmplop(amplop, currentSesi.sesiId, kodeBersih)
+      const status = ambilStatusOffline(currentSesi.sesiId, nis)
+      if (!isi) {
+        const salah = status.salah + 1
+        simpanStatusOffline(currentSesi.sesiId, nis, { ...status, salah })
+        if (salah % 5 === 0) setKodeDaruratKunciSampai(Date.now() + 30_000)
+        setKodeDaruratError('Kode salah. Periksa kembali kode dari pengawas.')
+        return
+      }
+      // Kalau siswa sudah pernah membuka offline sebelumnya (mis. refresh
+      // halaman), PERTAHANKAN waktu mulai pertama — jangan diulang dari nol.
+      const waktuMulai = status.waktuMulaiClient ?? new Date().toISOString()
+      simpanStatusOffline(currentSesi.sesiId, nis, { ...status, waktuMulaiClient: waktuMulai, kode: kodeBersih })
+      setKodeDarurat('')
+      await masukKeHalamanEssayOffline(
+        isi as unknown as Parameters<typeof masukKeHalamanEssayOffline>[0],
+        currentSesi.sesiId,
+        waktuMulai
+      )
+    } catch (err) {
+      setKodeDaruratError(
+        err instanceof EnkripsiTidakDidukungError
+          ? err.message
+          : 'Gagal membuka soal. Coba lagi atau hubungi pengawas.'
+      )
+    } finally {
+      setKodeDaruratLoading(false)
+    }
+  }
+
+  // Rekonsiliasi: beri tahu server bahwa essay sudah dibuka offline. Server
+  // memverifikasi kode (yang hanya diketahui siswa yang benar-benar diberi
+  // pengawas), lalu mengunci status_essay=MENGERJAKAN + waktu_mulai_essay.
+  //   'ok'      → tercatat di server, status lokal dihapus
+  //   'retry'   → masalah jaringan/server sementara, coba lagi nanti
+  //   'ditolak' → server menolak permanen (kode/perangkat/sesi) — berhenti
+  //               mencoba supaya tidak menghabiskan jatah percobaan
+  async function laporkanBukaOffline(sesiId: string): Promise<'ok' | 'retry' | 'ditolak'> {
+    let nis: string | undefined
+    try { nis = JSON.parse(localStorage.getItem('user') ?? '{}').nis } catch { /* abaikan */ }
+    if (!nis) return 'ditolak'
+    const status = ambilStatusOffline(sesiId, nis)
+    if (!status.kode) return 'ok'
+    try {
+      const res = await apiRequest<{ waktuMulaiEssay: string }>('/api/siswa/ujian/essay/mulai', {
+        method: 'POST',
+        body: JSON.stringify({
+          sesiId,
+          deviceId: getDeviceId(),
+          kodeDarurat: status.kode,
+          waktuMulaiClient: status.waktuMulaiClient,
+          percobaanSalah: status.salah,
+        }),
+      })
+      // Server adalah sumber kebenaran waktu mulai (sudah di-clamp).
+      waktuMulaiEssayRef.current = res.waktuMulaiEssay
+      hapusStatusOffline(sesiId, nis)
+      setJaringanBermasalah(false)
+      return 'ok'
+    } catch (e) {
+      const st = (e as { status?: number } | undefined)?.status
+      if (st === 403 || st === 409 || st === 429) {
+        hapusStatusOffline(sesiId, nis)
+        setErrorEssay(e instanceof Error ? e.message : 'Server menolak pembukaan essay offline.')
+        return 'ditolak'
+      }
+      return 'retry'
+    }
+  }
+
+  // Kotak input kode darurat — tampil hanya saat jaringan bermasalah.
+  function renderGerbangKodeDarurat() {
+    if (!jaringanBermasalah) return null
+    return (
+      <div className="border border-amber-200 bg-amber-50 rounded-xl px-4 py-3 mt-4 text-left">
+        <div className="flex items-center gap-2 mb-1">
+          <KeyRound className="w-4 h-4 text-amber-700 flex-shrink-0" />
+          <p className="text-sm font-semibold text-amber-800">Koneksi internet terputus?</p>
+        </div>
+        {amplopTersedia ? (
+          <>
+            <p className="text-xs text-amber-700 mb-3">
+              Minta kode darurat kepada pengawas, lalu masukkan di bawah untuk membuka soal essay tanpa internet.
+            </p>
+            <input
+              type="text"
+              inputMode="numeric"
+              autoComplete="off"
+              className={`input text-center text-xl font-mono tracking-widest mb-2 ${kodeDaruratError ? 'input-error' : ''}`}
+              placeholder={'•'.repeat(PANJANG_KODE_DARURAT)}
+              maxLength={PANJANG_KODE_DARURAT}
+              value={kodeDarurat}
+              onChange={e => { setKodeDarurat(e.target.value.replace(/\D/g, '')); setKodeDaruratError('') }}
+              onKeyDown={e => e.key === 'Enter' && handleBukaKodeDarurat()}
+            />
+            {kodeDaruratError && (
+              <div className="alert-error mb-2 text-left">
+                <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                <span>{kodeDaruratError}</span>
+              </div>
+            )}
+            <button
+              onClick={handleBukaKodeDarurat}
+              disabled={kodeDaruratLoading || kodeDarurat.length !== PANJANG_KODE_DARURAT}
+              className="btn-primary w-full justify-center py-2.5"
+            >
+              {kodeDaruratLoading ? <Spinner size="sm" /> : 'Buka Soal Essay'}
+            </button>
+          </>
+        ) : (
+          <p className="text-xs text-amber-700">
+            Soal essay terenkripsi belum sempat tersimpan di perangkat ini (perangkat belum terhubung
+            ke internet saat ujian dimulai), sehingga kode darurat tidak dapat dipakai. Beri tahu pengawas.
+          </p>
+        )}
+      </div>
+    )
   }
 
   async function handleMulaiEssay() {
@@ -1558,13 +1822,49 @@ export default function SiswaUjianPage() {
         // timpa info dengan data stale — cukup diamkan, biar fetchEssayInfo
         // yang sudah dipanggil sebelumnya yang menangani transisi phase.
         if (res.statusEssay === 'MENGERJAKAN') return
+        setJaringanBermasalah(false)
         setEssayInfo(res)
         essayInfoRef.current = res
-      } catch { /* silent, dicoba lagi di interval berikutnya */ }
+      } catch (e) {
+        // Tidak ada status HTTP = request tidak sampai ke server (internet
+        // mati/timeout) → munculkan jalur kode darurat. Error dengan status
+        // (403/409/dst) berarti server terjangkau, bukan masalah jaringan.
+        if (!(e as { status?: number } | undefined)?.status) setJaringanBermasalah(true)
+      }
     }
     essayAksesMulaiPollRef.current = setInterval(cek, 8000)
     return () => clearInterval(essayAksesMulaiPollRef.current!)
   }, [phase])
+
+  // ── Rekonsiliasi essay yang dibuka OFFLINE (kode darurat) ─────────────────
+  // Selama siswa mengerjakan essay dari amplop, server belum tahu apa-apa
+  // (status_essay masih BELUM_MULAI). Coba lapor tiap 10 dtk sampai berhasil;
+  // baru setelah itu autosave/kirim (yang mensyaratkan status MENGERJAKAN di
+  // server) bisa berjalan normal.
+  useEffect(() => {
+    if (phase !== 'ESSAY_KERJAKAN') return
+    const sesi = sesiInfoRef.current
+    if (!sesi) return
+    let selesai = false
+    const coba = async () => {
+      if (selesai || rekonsiliasiBerjalanRef.current) return
+      rekonsiliasiBerjalanRef.current = true
+      try {
+        const hasil = await laporkanBukaOffline(sesi.sesiId)
+        if (hasil !== 'retry') {
+          selesai = true
+          clearInterval(id)
+          if (hasil === 'ok') void syncJawabanEssay()
+        }
+      } finally {
+        rekonsiliasiBerjalanRef.current = false
+      }
+    }
+    const id = setInterval(coba, 10000)
+    void coba()
+    return () => { selesai = true; clearInterval(id) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, syncJawabanEssay])
 
   // ── Kirim essay (titik akhir alur) — membuka nilai PG & melepas fullscreen ─
   async function handleKirimEssay(isTimeout = false) {
@@ -1836,6 +2136,7 @@ export default function SiswaUjianPage() {
                 <button onClick={() => fetchEssayInfo()} className="btn-primary w-full justify-center py-3">
                   <RefreshCw className="w-4 h-4" /> Coba Lagi
                 </button>
+                {renderGerbangKodeDarurat()}
               </>
             ) : essayInfo ? (
               <>
@@ -1901,6 +2202,7 @@ export default function SiswaUjianPage() {
                     </p>
                   </div>
                 )}
+                {!essayInfo.aksesMulaiDibuka && renderGerbangKodeDarurat()}
 
                 <button
                   onClick={handleMulaiEssay}
