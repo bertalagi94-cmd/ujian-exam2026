@@ -1649,7 +1649,15 @@ export default function SiswaUjianPage() {
       setJaringanBermasalah(false)
       return 'ok'
     } catch (e) {
-      const st = (e as { status?: number } | undefined)?.status
+      const err = e as { status?: number; data?: { sementara?: boolean } } | undefined
+      const st = err?.status
+      // FIX: TERKUNCI/RESET bersifat sementara (recoverable) — JANGAN hapus
+      // bukti offline, cukup coba lagi nanti (loop 10 detik yang sudah ada
+      // akan otomatis mengulang begitu status siswa pulih).
+      if (st === 403 && err?.data?.sementara) {
+        setErrorEssay(e instanceof Error ? e.message : 'Akses ujian Anda sedang dikunci/menunggu reset.')
+        return 'retry'
+      }
       if (st === 403 || st === 409 || st === 429) {
         hapusStatusOffline(sesiId, nis)
         setErrorEssay(e instanceof Error ? e.message : 'Server menolak pembukaan essay offline.')
