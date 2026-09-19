@@ -109,9 +109,14 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
   const [setupKelas, setSetupKelas] = useState('')
   const [setupAcak, setSetupAcak] = useState('YA')
 
-  // FIX: jumlah opsi jawaban (4/5) tidak lagi dipilih manual oleh guru —
-  // sekarang otomatis mengikuti Pengaturan Ujian yang ditentukan admin.
+  // Jumlah opsi jawaban (4/5) default & status kunci ditentukan admin lewat
+  // Pengaturan Ujian. Kalau admin MENGUNCI, guru wajib pakai globalJumlahOpsi
+  // apa adanya. Kalau TIDAK dikunci, guru boleh memilih sendiri per soal lewat
+  // pilihanJumlahOpsi (lihat jumlahOpsiAktif di bawah).
   const [globalJumlahOpsi, setGlobalJumlahOpsi] = useState(4)
+  const [kunciJumlahOpsi, setKunciJumlahOpsi] = useState(true)
+  const [pilihanJumlahOpsi, setPilihanJumlahOpsi] = useState(4)
+  const jumlahOpsiAktif = kunciJumlahOpsi ? globalJumlahOpsi : pilihanJumlahOpsi
 
   // Soal form state
   const [imgPertanyaan, setImgPertanyaan] = useState('')
@@ -158,12 +163,16 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
     })
   }, [])
 
-  // ── Fetch jumlah opsi jawaban (ditentukan admin) ───────────────
+  // ── Fetch jumlah opsi jawaban default + status kunci (ditentukan admin) ──
   useEffect(() => {
     apiRequest<{ data: Record<string, string> }>('/api/public/pengaturan')
       .then(r => {
         const n = Number(r.data?.jumlahOpsi)
-        if (n === 3 || n === 4 || n === 5) setGlobalJumlahOpsi(n)
+        if (n === 3 || n === 4 || n === 5) {
+          setGlobalJumlahOpsi(n)
+          setPilihanJumlahOpsi(n)
+        }
+        setKunciJumlahOpsi(r.data?.kunciJumlahOpsi === 'true')
       })
       .catch(() => { })
   }, [])
@@ -312,7 +321,7 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
     if (!activePaket) return false
     const fd = new FormData(formEl)
     const payload: Record<string, unknown> = Object.fromEntries(fd.entries())
-    payload.jumlah_opsi = String(globalJumlahOpsi)
+    payload.jumlah_opsi = String(jumlahOpsiAktif)
     payload.mapel_id = activePaket.mapel_id
     payload.kelas_id = activePaket.kelas_id
     payload.gambar_pertanyaan = imgPertanyaan || null
@@ -652,16 +661,30 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
               </div>
             </div>
 
-            {/* FIX: dropdown "Jumlah Opsi" dihilangkan — jumlah opsi jawaban
-                (4 atau 5) sekarang otomatis mengikuti Pengaturan Ujian di
-                akun Admin, bukan dipilih manual oleh guru per soal. */}
+            {/* Dropdown "Jumlah Opsi" hanya muncul kalau admin TIDAK mengunci
+                jumlah opsi di Pengaturan Ujian. Kalau dikunci, jumlah opsi
+                otomatis ikut default admin (globalJumlahOpsi) dan guru tidak
+                bisa mengubahnya. */}
+            {!kunciJumlahOpsi && (
+              <div>
+                <label className="label">Jumlah Opsi Jawaban</label>
+                <select
+                  className="select"
+                  value={pilihanJumlahOpsi}
+                  onChange={e => setPilihanJumlahOpsi(Number(e.target.value))}
+                >
+                  <option value={4}>4 Opsi (A–D)</option>
+                  <option value={5}>5 Opsi (A–E)</option>
+                </select>
+              </div>
+            )}
             {/* FIX: dropdown "Tingkat Kesulitan" dihapus — tidak dipakai di mana
                 pun (tidak ditampilkan di halaman Analisis Ujian), jadi hanya
                 menambah langkah tanpa manfaat bagi guru saat membuat soal. */}
 
             <div className="space-y-2">
               <label className="label">Pilihan Jawaban</label>
-              {opsiLabels.slice(0, globalJumlahOpsi).map(label => {
+              {opsiLabels.slice(0, jumlahOpsiAktif).map(label => {
                 const lk = label.toLowerCase()
                 // Teks opsi wajib diisi KECUALI opsi ini sudah punya gambar —
                 // guru boleh membuat pilihan jawaban berupa gambar saja tanpa teks.
@@ -699,7 +722,7 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
               <label className="label">Kunci Jawaban *</label>
               <select name="kunci" className="select" required defaultValue="">
                 <option value="" disabled>Pilih Kunci Jawaban</option>
-                {opsiLabels.slice(0, globalJumlahOpsi).map(l => <option key={l} value={l}>{l}</option>)}
+                {opsiLabels.slice(0, jumlahOpsiAktif).map(l => <option key={l} value={l}>{l}</option>)}
               </select>
             </div>
 
