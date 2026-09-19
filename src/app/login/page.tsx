@@ -583,6 +583,8 @@ export default function LoginPage() {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Login gagal')
+      localStorage.removeItem('admin_token_backup')
+      localStorage.removeItem('admin_user_backup')
       localStorage.setItem('token', data.token)
       localStorage.setItem('user', JSON.stringify({ username: data.username, nama: data.nama, role: data.role, nis: data.nis, kelas: data.kelas }))
       const roleRoutes: Record<string, string> = { ADMIN: '/admin', GURU: '/guru', KEPSEK: '/kepsek', SISWA: '/siswa' }
