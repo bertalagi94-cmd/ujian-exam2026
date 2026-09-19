@@ -659,6 +659,15 @@ export default function SiswaUjianPage() {
       )
       if (!res) return
 
+      // Teruskan status "sedang dipantau admin" ke DipantauBanner (layout siswa)
+      // tanpa request tambahan — datanya ikut di respons cek-sesi ini.
+      window.dispatchEvent(new CustomEvent('dipantau-status', {
+        detail: {
+          dipantau: !!(res as { dipantau?: boolean }).dipantau,
+          sid: (res as { dipantau_sid?: string }).dipantau_sid,
+        },
+      }))
+
       // Deteksi takeover oleh device lain — hentikan semua interval, tampilkan overlay
       if ((res as { diambil_alih_device_lain?: boolean }).diambil_alih_device_lain) {
         clearInterval(timerRef.current!)
