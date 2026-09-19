@@ -277,6 +277,12 @@ export default function SiswaUjianPage() {
   const [diambilAlihDevice, setDiambilAlihDevice] = useState(false)
   const [dikeluarkan, setDikeluarkan] = useState(false)
   const [batasPelanggaran, setBatasPelanggaran] = useState(3)
+  // FIX BUG (layar "Ujian Dihentikan" selalu bunyi "melanggar {batas} kali"
+  // walau siswa baru melanggar 1x): simpan jumlah pelanggaran ASLI siswa
+  // (dari server) di sini, dipakai sebagai pengganti batasPelanggaran saat
+  // menampilkan pesan di layar dikeluarkan. null berarti belum diketahui —
+  // fallback ke batasPelanggaran seperti perilaku lama.
+  const [jumlahPelanggaran, setJumlahPelanggaran] = useState<number | null>(null)
 
   // Waktu terpakai (detik) — diupdate tiap detik bersama countdown,
   // digunakan untuk menegakkan batas minimal waktu sebelum submit.
@@ -762,6 +768,11 @@ export default function SiswaUjianPage() {
         clearInterval(essayTimerRef.current!)
         clearInterval(essaySyncRef.current!)
         clearInterval(essayAksesMulaiPollRef.current!)
+        // FIX BUG (jumlah pelanggaran ASLI, bukan angka batas): server
+        // sekarang menyertakan jumlah pelanggaran sungguhan saat TERKUNCI —
+        // pakai ini di layar "Ujian Dihentikan" alih-alih batasPelanggaran.
+        const jp = (res as { jumlah_pelanggaran?: number }).jumlah_pelanggaran
+        if (typeof jp === 'number') setJumlahPelanggaran(jp)
         setDikeluarkan(true)
         return
       }
@@ -824,10 +835,11 @@ export default function SiswaUjianPage() {
     if (phase !== 'RESET_KODE' || !pendingResetSesiId) return
     const cekStatusResetKode = async () => {
       try {
-        const res = await apiRequest<{ siswa_status?: string }>(
+        const res = await apiRequest<{ siswa_status?: string; jumlah_pelanggaran?: number }>(
           `/api/siswa/ujian/cek-sesi?sesiId=${pendingResetSesiId}&deviceId=${getDeviceId()}`
         )
         if (res?.siswa_status === 'TERKUNCI') {
+          if (typeof res.jumlah_pelanggaran === 'number') setJumlahPelanggaran(res.jumlah_pelanggaran)
           setDikeluarkan(true)
         }
       } catch { /* silent — dicoba lagi 10 detik berikutnya */ }
@@ -1004,6 +1016,11 @@ export default function SiswaUjianPage() {
       // FIX BUG A: simpan batasPelanggaran dari response supaya halaman
       // "Ujian Dihentikan" menampilkan angka yang benar.
       if (res?.batasPelanggaran) setBatasPelanggaran(res.batasPelanggaran)
+      // FIX BUG (jumlah pelanggaran ASLI, bukan angka batas): simpan level
+      // pelanggaran sungguhan yang baru saja dicatat server, supaya kalau
+      // siswa ini nanti benar-benar dikunci, layar "Ujian Dihentikan" bisa
+      // menampilkan angka yang sesuai riwayat asli, bukan sekadar batas.
+      if (typeof res?.level === 'number') setJumlahPelanggaran(res.level)
 
       // Catatan: setDikeluarkan(true) TIDAK dipanggil di sini karena endpoint
       // pelanggaran siswa hanya mencatat kejadian — keputusan kunci/dikeluarkan
@@ -1022,6 +1039,8 @@ export default function SiswaUjianPage() {
         message?: string
         perlu_kode_reset?: boolean
         sesiId?: string
+        terkunci_permanen?: boolean
+        jumlah_pelanggaran?: number
       } & SesiInfo>('/api/siswa/ujian/validasi', {
         method: 'POST',
         body: JSON.stringify({ kodeSesi: kode.trim().toUpperCase(), nis: user.nis, deviceId: getDeviceId() }),
@@ -1031,6 +1050,20 @@ export default function SiswaUjianPage() {
       if (!res.valid && res.perlu_kode_reset && res.sesiId) {
         setPendingResetSesiId(res.sesiId)
         setPhase('RESET_KODE')
+        return
+      }
+
+      // FIX BUG (tidak ada tombol "Kembali ke Beranda" setelah terkunci
+      // permanen): sebelumnya kasus ini jatuh ke `setError(...)` di bawah
+      // dan siswa tetap di layar input kode (phase 'KODE') yang cuma
+      // punya tombol "Kembali" ke phase 'PERSIAPAN' — dan 'PERSIAPAN'
+      // sendiri tidak punya link ke halaman beranda sama sekali, jadi
+      // siswa terjebak bolak-balik tanpa jalan keluar. Sekarang: arahkan
+      // langsung ke layar "Ujian Dihentikan" yang sudah punya tombol
+      // Kembali ke Beranda, sama seperti jalur deteksi lewat polling.
+      if (!res.valid && res.terkunci_permanen) {
+        if (typeof res.jumlah_pelanggaran === 'number') setJumlahPelanggaran(res.jumlah_pelanggaran)
+        setDikeluarkan(true)
         return
       }
 
@@ -2095,7 +2128,13 @@ export default function SiswaUjianPage() {
           </div>
           <h2 className="text-xl font-bold text-slate-900 mb-2">Ujian Dihentikan</h2>
           <p className="text-sm text-slate-500 mb-4">
-            Anda telah melanggar aturan ujian sebanyak {batasPelanggaran} kali. Sistem secara otomatis menghentikan ujian Anda.
+            {/* FIX BUG: sebelumnya selalu menampilkan batasPelanggaran (angka
+                setting), bukan jumlah pelanggaran ASLI siswa — sehingga
+                siswa yang dikunci setelah 1x pelanggaran (mis. dikunci
+                manual oleh admin) tetap melihat "melanggar 3 kali". Sekarang
+                pakai jumlahPelanggaran (dari server) kalau tersedia, dan
+                baru jatuh ke batasPelanggaran sebagai fallback. */}
+            Anda telah melanggar aturan ujian sebanyak {jumlahPelanggaran ?? batasPelanggaran} kali. Sistem secara otomatis menghentikan ujian Anda.
           </p>
           <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 mb-6">
             <p className="text-sm font-semibold text-red-700">Nilai Anda: 0</p>
@@ -2794,6 +2833,15 @@ export default function SiswaUjianPage() {
               ← Pilih ujian lain
             </button>
           )}
+          {/* FIX BUG (tidak ada jalan ke beranda setelah terkunci permanen):
+              layar ini sebelumnya tidak punya link apa pun ke '/siswa',
+              jadi kalau ada siswa yang nyasar ke sini setelah dikunci
+              (mis. lewat jalur yang belum tercakup fix di handleMasukUjian),
+              tidak ada jalan keluar selain mengubah URL manual. */}
+          <button onClick={() => window.location.href = '/siswa'}
+            className="btn-ghost w-full justify-center mt-1 text-xs text-slate-300">
+            Kembali ke Beranda
+          </button>
         </div>
       </div>
     )
@@ -2845,6 +2893,16 @@ export default function SiswaUjianPage() {
           <button onClick={() => { setError(''); setKode(''); setPhase('PERSIAPAN') }}
             className="btn-ghost w-full justify-center mt-2 text-sm text-slate-400">
             ← Kembali
+          </button>
+          {/* FIX BUG (tidak ada jalan ke beranda setelah terkunci permanen):
+              jalur utama sekarang mengarahkan langsung ke layar "Ujian
+              Dihentikan" (lihat handleMasukUjian). Tombol ini sengaja tetap
+              ditambahkan di sini sebagai jalan keluar cadangan untuk kasus
+              error lain di layar ini, supaya siswa tidak pernah terjebak
+              tanpa akses ke beranda. */}
+          <button onClick={() => window.location.href = '/siswa'}
+            className="btn-ghost w-full justify-center mt-1 text-xs text-slate-300">
+            Kembali ke Beranda
           </button>
         </div>
       </div>
