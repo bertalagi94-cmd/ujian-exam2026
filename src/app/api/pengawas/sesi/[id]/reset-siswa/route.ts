@@ -53,30 +53,40 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const { data: siswa } = await db.from('siswa').select('nama').eq('nis', nis).single()
   if (!siswa) return NextResponse.json({ error: 'Siswa tidak ditemukan' }, { status: 404 })
 
-  // Cek jumlah reset yang sudah dilakukan untuk siswa ini dalam sesi ini
-  const { count: resetCount } = await db
-    .from('log_reset')
-    .select('*', { count: 'exact', head: true })
-    .eq('nis', nis)
-    .like('alasan', `sesi:${sesiId}%`)
-
-  // Jika pelanggaran KE INI SEKARANG (reset yang sudah diberikan + 1) sudah
-  // mencapai batasPelanggaran → langsung kunci permanen / nilai 0.
+  // FIX BUG (kunci permanen prematur — siswa baru 1x melanggar tapi
+  // langsung dikunci & diklaim "sudah 3 kali"): sebelumnya baris di bawah
+  // ini menghitung `resetCount` dari tabel `log_reset`, memfilter lewat
+  // `alasan LIKE 'sesi:${sesiId}%'`. Masalahnya, `log_reset` BUKAN tabel
+  // khusus riwayat pelanggaran — tabel ini juga ketambahan baris dari aksi
+  // admin lain di sesi yang sama (bypass_reset, reset_semua, kunci_permanen
+  // — lihat src/app/api/admin/pelanggaran/route.ts), yang semuanya memakai
+  // pola `alasan` yang sama sehingga ikut ke-hitung oleh LIKE di atas
+  // walau BUKAN pelanggaran sungguhan. Akibatnya: kalau pengawas/admin
+  // pernah pakai "Reset Semua Pelanggaran" 1-2 kali di sesi itu (misalnya
+  // untuk membatalkan pelanggaran yang salah deteksi), riwayat di tabel
+  // `pelanggaran` sudah bersih (0 baris) tapi `log_reset` tetap menyimpan
+  // jejaknya — sehingga pelanggaran PERTAMA yang benar-benar terjadi
+  // setelah itu bisa langsung membuat hitungan mencapai batasPelanggaran
+  // dan mengunci siswa permanen di pelanggaran ke-1 yang sesungguhnya.
   //
-  // FIX BUG (off-by-one): sebelumnya kondisi ini membandingkan `resetCount`
-  // (jumlah reset yang SUDAH diberikan SEBELUM pelanggaran saat ini) apa
-  // adanya terhadap batasPelanggaran. Karena resetCount baru bertambah
-  // SETELAH endpoint ini memberi kode reset, siswa dengan batasPelanggaran=3
-  // baru benar-benar dikunci pada pelanggaran ke-4 (resetCount sempat 0,1,2
-  // — ketiganya < 3 — baru terkunci saat resetCount=3), padahal deskripsi
-  // pengaturan admin ("Batas Pelanggaran ... Sebelum siswa dikunci") dan
-  // pesan di halaman siswa menjanjikan siswa dikunci TEPAT pada pelanggaran
-  // ke-batasPelanggaran (mis. ke-3 kalau batasnya 3). Sekarang dihitung
-  // dengan menyertakan pelanggaran saat ini (`resetCount + 1`), sehingga
-  // reset ke-(batasPelanggaran-1) tetap diberi kode reset seperti biasa, dan
-  // pelanggaran ke-batasPelanggaran langsung mengunci permanen — konsisten
-  // dengan janji di UI.
-  if ((resetCount ?? 0) + 1 >= batasPelanggaran) {
+  // Sekarang: hitung LANGSUNG dari tabel `pelanggaran` (sumber kebenaran
+  // satu-satunya untuk "berapa kali siswa ini benar-benar melanggar di
+  // sesi ini"), bukan dari log_reset. Endpoint /api/siswa/ujian/pelanggaran
+  // sudah menetapkan `level` = urutan pelanggaran saat insert, jadi begitu
+  // pengawas menindaklanjuti pelanggaran TERBARU, count baris pelanggaran
+  // untuk sesi+nis ini SUDAH SAMA DENGAN level pelanggaran itu sendiri —
+  // tidak perlu +1 lagi seperti perhitungan resetCount yang lama.
+  const { count: jumlahPelanggaran } = await db
+    .from('pelanggaran')
+    .select('*', { count: 'exact', head: true })
+    .eq('sesi_id', sesiId)
+    .eq('nis', nis)
+
+  const levelPelanggaranSaatIni = jumlahPelanggaran ?? 0
+
+  // Jika jumlah pelanggaran ASLI siswa ini di sesi ini sudah mencapai
+  // batasPelanggaran → langsung kunci permanen / nilai 0.
+  if (levelPelanggaranSaatIni >= batasPelanggaran) {
     // Set status TERKUNCI permanen + tandai pelanggaran sudah ditindak (FIX BUG #1)
     await Promise.all([
       db.from('siswa_ujian')
@@ -146,7 +156,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
     return NextResponse.json({
       dikunci_permanen: true,
-      message: `${siswa.nama} telah melanggar ${batasPelanggaran} kali. Siswa di-logout permanen dan nilai menjadi 0.`,
+      jumlah_pelanggaran: levelPelanggaranSaatIni,
+      message: `${siswa.nama} telah melanggar ${levelPelanggaranSaatIni} kali. Siswa di-logout permanen dan nilai menjadi 0.`,
     })
   }
 
@@ -189,8 +200,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     dikunci_permanen: false,
     kode_reset: kodeReset,
     nama_siswa: siswa.nama,
-    reset_ke: (resetCount ?? 0) + 1,
+    reset_ke: levelPelanggaranSaatIni,
     batasPelanggaran,
-    message: `Siswa ${siswa.nama} di-reset (${(resetCount ?? 0) + 1}/${batasPelanggaran}). Berikan kode ${kodeReset} kepada siswa untuk melanjutkan ujian.`,
+    message: `Siswa ${siswa.nama} di-reset (${levelPelanggaranSaatIni}/${batasPelanggaran}). Berikan kode ${kodeReset} kepada siswa untuk melanjutkan ujian.`,
   })
 }
