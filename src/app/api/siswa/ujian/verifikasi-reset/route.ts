@@ -50,8 +50,28 @@ export async function POST(req: NextRequest) {
     .eq('nis', user.nis!)
     .single()
 
+  // FIX BUG (siswa terjebak tanpa jalan keluar): sebelumnya endpoint ini
+  // hanya mengembalikan `message` teks saat status TERKUNCI, tanpa flag
+  // eksplisit. Client (layar RESET_KODE dan overlay pelanggaran di tengah
+  // ujian) hanya menampilkan pesan itu sebagai error kecil dan MENUNGGU
+  // polling status terpisah (tiap 10 detik) untuk baru mengalihkan ke
+  // layar "Ujian Dihentikan" yang punya tombol Kembali ke Beranda — kalau
+  // polling telat atau gagal diam-diam, siswa tampak terjebak. Sekarang
+  // kirim `terkunci_permanen: true` + jumlah pelanggaran ASLI supaya
+  // client bisa langsung pindah ke layar itu tanpa menunggu poll berikutnya.
   if (siswaUjian?.status === 'TERKUNCI') {
-    return NextResponse.json({ valid: false, message: 'Akun Anda dikunci permanen. Hubungi pengawas.' })
+    const { count } = await db
+      .from('pelanggaran')
+      .select('*', { count: 'exact', head: true })
+      .eq('sesi_id', sesiId)
+      .eq('nis', user.nis!)
+      .neq('status', 'DIABAIKAN')
+    return NextResponse.json({
+      valid: false,
+      terkunci_permanen: true,
+      jumlah_pelanggaran: count ?? undefined,
+      message: 'Akun Anda dikunci permanen. Hubungi pengawas.',
+    })
   }
 
   // Cari kode reset yang valid (belum digunakan) untuk siswa ini
