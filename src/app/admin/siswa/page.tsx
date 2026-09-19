@@ -1,10 +1,11 @@
 'use client'
 import * as XLSX from 'xlsx'
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Plus, Upload, Download, Pencil, Trash2, RotateCcw, Search, FileDown } from 'lucide-react'
+import { Plus, Upload, Download, Pencil, Trash2, RotateCcw, Search, FileDown, Eye } from 'lucide-react'
 import { Modal, Confirm, StatusBadge, SearchInput, Pagination, EmptyState, Spinner, Toast } from '@/components/ui'
 import { apiRequest, formatDate } from '@/lib/utils'
 import { Siswa, Kelas } from '@/types'
+import { mulaiLihatSebagai } from '@/lib/lihat-sebagai'
 
 const PER_PAGE = 20
 
@@ -75,6 +76,7 @@ export default function AdminSiswaPage() {
   const [formIsTester, setFormIsTester] = useState(false)
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [resetId, setResetId] = useState<string | null>(null)
+  const [viewAsSiswa, setViewAsSiswa] = useState<Siswa | null>(null)
   const [saving, setSaving] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
   const [importData, setImportData] = useState<Partial<Siswa>[]>([])
@@ -191,6 +193,17 @@ export default function AdminSiswaPage() {
     } catch (err: unknown) {
       showToast(err instanceof Error ? err.message : 'Gagal reset', 'error')
     } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleLihatSebagai() {
+    if (!viewAsSiswa) return
+    setSaving(true)
+    try {
+      await mulaiLihatSebagai({ tipe: 'SISWA', id: viewAsSiswa.nis })
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Gagal memulai mode Lihat-sebagai', 'error')
       setSaving(false)
     }
   }
@@ -596,6 +609,13 @@ export default function AdminSiswaPage() {
                           <Pencil className="w-3.5 h-3.5" />
                         </button>
                         <button
+                          onClick={() => setViewAsSiswa(s)}
+                          className="btn-ghost btn-icon btn-sm text-emerald-600 hover:bg-emerald-50"
+                          title="Lihat sebagai (hanya-baca)"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                        </button>
+                        <button
                           onClick={() => setResetId(s.nis)}
                           className="btn-ghost btn-icon btn-sm text-amber-600 hover:bg-amber-50"
                           title="Reset Password"
@@ -971,6 +991,16 @@ export default function AdminSiswaPage() {
       />
 
       {/* Confirm Reset */}
+      <Confirm
+        open={!!viewAsSiswa}
+        onClose={() => setViewAsSiswa(null)}
+        onConfirm={handleLihatSebagai}
+        title="Lihat sebagai"
+        message={`Anda akan melihat aplikasi sebagai ${viewAsSiswa?.nama ?? ''} (hanya-baca, maksimal 2 jam, tercatat di log). Lanjutkan?`}
+        confirmLabel="Lihat"
+        variant="primary"
+        loading={saving}
+      />
       <Confirm
         open={!!resetId}
         onClose={() => setResetId(null)}
