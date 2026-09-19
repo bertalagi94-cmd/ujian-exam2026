@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { cn, apiRequest } from '@/lib/utils'
 import { AuthUser } from '@/types'
+import { hapusCadanganLihatSebagai } from '@/lib/lihat-sebagai'
 
 interface NavItem {
   label: string
@@ -206,6 +207,7 @@ export function Sidebar({ navItems, role, roleColor, roleLabel, accent = '#0891b
   const logout = useCallback(() => {
     localStorage.removeItem('token')
     localStorage.removeItem('user')
+    hapusCadanganLihatSebagai()
     router.push('/login')
   }, [router])
 
@@ -343,9 +345,18 @@ function useBadgeCounts(role: 'ADMIN' | 'GURU') {
 
     document.addEventListener('visibilitychange', onVisibility)
 
+    // FIX (badge sidebar lambat hilang setelah menyetujui soal): sebelumnya
+    // badge hanya diperbarui oleh polling 30 detik, jadi setelah admin
+    // menyetujui/menolak paket, angka di sidebar baru turun paling lama 30
+    // detik kemudian (sementara badge di toggle Soal PG/Essay pada halaman
+    // langsung berubah). Halaman yang mengubah jumlah tugas menunggu
+    // memancarkan event 'notif-changed' → sidebar langsung fetch ulang.
+    window.addEventListener('notif-changed', fetch_)
+
     return () => {
       if (id !== null) clearInterval(id)
       document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('notif-changed', fetch_)
     }
   }, [fetch_])
 
