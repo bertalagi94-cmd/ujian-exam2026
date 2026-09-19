@@ -107,7 +107,32 @@ export async function POST(req: NextRequest) {
   }
 
   if (nilaiAda) return NextResponse.json({ valid: false, message: 'Anda sudah menyelesaikan ujian ini.' })
-  if (siswaUjian?.status === 'TERKUNCI') return NextResponse.json({ valid: false, message: 'Akun Anda dikunci permanen oleh pengawas karena pelanggaran berulang. Nilai Anda 0.' })
+  // FIX BUG (tidak ada tombol "Kembali ke Beranda" setelah dikunci
+  // permanen): sebelumnya respons ini hanya berupa `message` teks biasa,
+  // yang di client (src/app/siswa/ujian/page.tsx) cuma ditaruh di
+  // `setError(...)` pada layar input kode — layar itu (phase 'KODE') dan
+  // layar sebelumnya (phase 'PERSIAPAN') sama sekali tidak punya link ke
+  // halaman beranda ('/siswa'), beda dengan layar "Ujian Dihentikan"
+  // (dikeluarkan) yang memang sudah punya tombol tsb. Akibatnya siswa yang
+  // sudah terkunci lalu mencoba masuk ulang (refresh/buka lagi) terjebak
+  // bolak-balik PERSIAPAN <-> KODE tanpa jalan keluar ke beranda.
+  // Sekarang: sertakan flag `terkunci_permanen` + jumlah pelanggaran asli
+  // supaya client bisa langsung menampilkan layar "Ujian Dihentikan" yang
+  // sudah lengkap tombolnya, alih-alih hanya menaruh pesan error di layar
+  // input kode.
+  if (siswaUjian?.status === 'TERKUNCI') {
+    const { count: jumlahPelanggaran } = await db
+      .from('pelanggaran')
+      .select('*', { count: 'exact', head: true })
+      .eq('sesi_id', sesi.id)
+      .eq('nis', nis)
+    return NextResponse.json({
+      valid: false,
+      terkunci_permanen: true,
+      jumlah_pelanggaran: jumlahPelanggaran ?? undefined,
+      message: 'Akun Anda dikunci permanen oleh pengawas karena pelanggaran berulang. Nilai Anda 0.',
+    })
+  }
   if (siswaUjian?.status === 'RESET') {
     return NextResponse.json({ valid: false, perlu_kode_reset: true, sesiId: sesi.id, message: 'Akun Anda di-reset oleh pengawas karena pelanggaran. Masukkan kode 7 digit dari pengawas untuk melanjutkan ujian.' })
   }
