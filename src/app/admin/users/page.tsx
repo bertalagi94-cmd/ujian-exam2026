@@ -1,10 +1,11 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, Pencil, Trash2, RotateCcw, Building2 } from 'lucide-react'
+import { Plus, Pencil, Trash2, RotateCcw, Building2, Eye } from 'lucide-react'
 import { Modal, Confirm, StatusBadge, SearchInput, EmptyState, Spinner, Toast } from '@/components/ui'
 import { apiRequest, formatDateTime } from '@/lib/utils'
 import { User, Mapel, Sekolah } from '@/types'
+import { mulaiLihatSebagai } from '@/lib/lihat-sebagai'
 
 // Role "Pengawas" SENGAJA tidak ada di sini. Pengawas bukan role akun yang
 // berdiri sendiri — kapabilitas mengawasi ujian otomatis aktif di akun GURU
@@ -41,6 +42,7 @@ export default function AdminUsersPage() {
   const [formIsTester, setFormIsTester] = useState(false)
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [resetId, setResetId] = useState<string | null>(null)
+  const [viewAsUser, setViewAsUser] = useState<User | null>(null)
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
 
@@ -139,6 +141,17 @@ export default function AdminUsersPage() {
     } catch (err: unknown) {
       showToast(err instanceof Error ? err.message : 'Gagal reset', 'error')
     } finally { setSaving(false) }
+  }
+
+  async function handleLihatSebagai() {
+    if (!viewAsUser) return
+    setSaving(true)
+    try {
+      await mulaiLihatSebagai({ tipe: 'USER', id: viewAsUser.username })
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Gagal memulai mode Lihat-sebagai', 'error')
+      setSaving(false)
+    }
   }
 
   return (
@@ -262,6 +275,12 @@ export default function AdminUsersPage() {
                           className="btn-ghost btn-icon btn-sm text-blue-600 hover:bg-blue-50">
                           <Pencil className="w-3.5 h-3.5" />
                         </button>
+                        {(u.role === 'GURU' || u.role === 'KEPSEK') && (
+                          <button onClick={() => setViewAsUser(u)} title="Lihat sebagai (hanya-baca)"
+                            className="btn-ghost btn-icon btn-sm text-emerald-600 hover:bg-emerald-50">
+                            <Eye className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                         <button onClick={() => setResetId(u.username)}
                           className="btn-ghost btn-icon btn-sm text-amber-600 hover:bg-amber-50">
                           <RotateCcw className="w-3.5 h-3.5" />
@@ -432,6 +451,9 @@ export default function AdminUsersPage() {
       <Confirm open={!!deleteId} onClose={() => setDeleteId(null)} onConfirm={handleDelete}
         title="Hapus Pengguna" message="Pengguna ini akan dihapus permanen. Lanjutkan?"
         confirmLabel="Ya, Hapus" loading={saving} />
+      <Confirm open={!!viewAsUser} onClose={() => setViewAsUser(null)} onConfirm={handleLihatSebagai}
+        title="Lihat sebagai" message={`Anda akan melihat aplikasi sebagai ${viewAsUser?.nama ?? ''} (hanya-baca, maksimal 2 jam, tercatat di log). Lanjutkan?`}
+        confirmLabel="Lihat" variant="primary" loading={saving} />
       <Confirm open={!!resetId} onClose={() => setResetId(null)} onConfirm={handleReset}
         title="Reset Password" message="Password akan direset ke username. Lanjutkan?"
         confirmLabel="Reset" variant="primary" loading={saving} />
