@@ -37,12 +37,47 @@ export interface JWTPayload {
   role: 'ADMIN' | 'GURU' | 'KEPSEK' | 'SISWA'
   nis?: string
   kelas?: string
+  // ── Mode "Lihat sebagai" (view-as) ────────────────────────────────────────
+  // Token khusus yang diterbitkan ADMIN untuk melihat aplikasi persis seperti
+  // GURU/KEPSEK/SISWA tertentu. `role`/`username`/`nis` berisi identitas
+  // TARGET (supaya semua endpoint lama otomatis menampilkan data target),
+  // sedangkan `impersonator*` mencatat admin aslinya untuk audit.
+  // Token ini HANYA-BACA: requireRole() menolak semua method selain GET/HEAD.
+  viewAs?: boolean
+  impersonatorUsername?: string
+  impersonatorNama?: string
+  // ID sesi Lihat-sebagai (khusus target SISWA) — dipakai menandai siswa
+  // "sedang dipantau" (lihat src/lib/dipantau.ts).
+  viewAsSid?: string
   iat?: number
   exp?: number
 }
 
 export function signToken(payload: Omit<JWTPayload, 'iat' | 'exp'>): string {
   return jwt.sign(payload, SECRET, { expiresIn: '10h' })
+}
+
+// Batas keras umur token "Lihat sebagai". Bukan untuk UX normal (admin
+// menutup sesi manual lewat tombol "Kembali ke Admin"), melainkan jaring
+// pengaman kalau tab admin tertutup sebelum sempat kembali.
+export const VIEW_AS_MAX_SECONDS = 2 * 60 * 60
+
+export function signViewAsToken(
+  payload: Omit<JWTPayload, 'iat' | 'exp' | 'viewAs'>
+): string {
+  return jwt.sign({ ...payload, viewAs: true }, SECRET, { expiresIn: VIEW_AS_MAX_SECONDS })
+}
+
+// Khusus untuk mencatat AKHIR sesi "Lihat sebagai" ke log audit: token yang
+// sudah kedaluwarsa tetap diterima (signature tetap divalidasi), asalkan
+// memang token viewAs. JANGAN dipakai untuk otorisasi endpoint lain.
+export function verifyViewAsTokenAllowExpired(token: string): JWTPayload | null {
+  try {
+    const p = jwt.verify(token, SECRET, { ignoreExpiration: true }) as JWTPayload
+    return p.viewAs === true && p.impersonatorUsername ? p : null
+  } catch {
+    return null
+  }
 }
 
 export function verifyToken(token: string): JWTPayload | null {
@@ -78,6 +113,20 @@ export function requireRole(
         status: 403,
         headers: { 'Content-Type': 'application/json' },
       }),
+    }
+  }
+  // ── Penegakan read-only untuk mode "Lihat sebagai" ────────────────────────
+  // SATU titik untuk semua endpoint yang memakai requireRole(): token viewAs
+  // hanya boleh GET/HEAD. Semua POST/PUT/PATCH/DELETE (submit jawaban, ganti
+  // password, kirim pelanggaran, dst) otomatis ditolak tanpa mengubah
+  // endpoint satu per satu. Catatan: GET yang punya efek samping (mis.
+  // cek-sesi → last_heartbeat) tetap harus mengecek `user.viewAs` sendiri.
+  if (user.viewAs && !['GET', 'HEAD'].includes(req.method.toUpperCase())) {
+    return {
+      error: new Response(
+        JSON.stringify({ error: 'Mode "Lihat sebagai" bersifat hanya-baca.' }),
+        { status: 403, headers: { 'Content-Type': 'application/json' } }
+      ),
     }
   }
   return { user }
