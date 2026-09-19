@@ -81,6 +81,7 @@ export async function GET(req: NextRequest) {
       .select('*', { count: 'exact', head: true })
       .eq('sesi_id', sesiId)
       .eq('nis', user.nis!)
+      .neq('status', 'DIABAIKAN')
     jumlahPelanggaran = count ?? undefined
   }
 
