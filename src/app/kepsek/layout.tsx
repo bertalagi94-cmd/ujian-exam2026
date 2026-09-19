@@ -4,6 +4,7 @@ import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { KepsekSidebar } from '@/components/shared/Sidebar'
 import { FullscreenButton } from '@/components/shared/FullscreenButton'
+import { ViewAsBanner } from '@/components/shared/ViewAsBanner'
 
 export default function KepsekLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter()
@@ -16,6 +17,7 @@ export default function KepsekLayout({ children }: { children: React.ReactNode }
     <div className="flex min-h-screen" style={{
       background: 'linear-gradient(135deg, #ede9fe 0%, #f5f3ff 35%, #faf5ff 70%, #f5f3ff 100%)',
     }}>
+      <ViewAsBanner />
       {/* Decorative SVG mesh — pure SVG, zero JS, zero server cost */}
       <svg aria-hidden="true" className="pointer-events-none fixed inset-0 w-full h-full" style={{ zIndex: 0, opacity: 0.5 }}
         viewBox="0 0 1440 900" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
