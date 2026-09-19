@@ -79,7 +79,6 @@ export default function AdminMapelPage() {
     e.preventDefault()
     const form = new FormData(e.currentTarget)
     const payload: Record<string, unknown> = Object.fromEntries(form.entries())
-    payload.jumlah_opsi = Number(payload.jumlah_opsi) || 4
     payload.kkm = Number(payload.kkm) || 75
     payload.kelas_list = selectedKelas.join(',')
 
@@ -162,7 +161,6 @@ export default function AdminMapelPage() {
                   <th>Nama Mapel</th>
                   <th>Guru Pengampu</th>
                   <th>Kelas</th>
-                  <th>Jml Opsi</th>
                   <th>KKM</th>
                   <th>Aksi</th>
                 </tr>
@@ -203,7 +201,6 @@ export default function AdminMapelPage() {
                         }
                       </div>
                     </td>
-                    <td className="text-center text-slate-600">{m.jumlah_opsi}</td>
                     <td>
                       <span className={`font-semibold text-sm ${m.kkm >= 75 ? 'text-green-600' : 'text-amber-600'}`}>
                         {m.kkm}
@@ -296,14 +293,12 @@ export default function AdminMapelPage() {
               </div>
             )}
           </div>
+          {/* FIX (konsolidasi jumlah opsi): field "Jumlah Opsi Jawaban" per
+              mapel dihapus dari sini. Jumlah opsi sekarang cuma diatur satu
+              tempat: menu Pengaturan > Pengaturan Ujian > Jumlah Opsi Jawaban
+              Default (bisa dikunci admin supaya guru tidak bisa mengubahnya
+              sendiri saat membuat soal). */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="label">Jumlah Opsi Jawaban</label>
-              <select name="jumlah_opsi" className="select" defaultValue={editData?.jumlah_opsi ?? 4}>
-                <option value={4}>4 Opsi (A–D)</option>
-                <option value={5}>5 Opsi (A–E)</option>
-              </select>
-            </div>
             <div>
               <label className="label">KKM</label>
               <input
