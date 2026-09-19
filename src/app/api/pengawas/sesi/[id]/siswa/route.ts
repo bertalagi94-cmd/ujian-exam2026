@@ -116,6 +116,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     .select('nis, level')
     .eq('sesi_id', sesiId)
     .in('nis', nisList)
+    .neq('status', 'DIABAIKAN')
 
   // Hitung jumlah pelanggaran per siswa (count seluruh entri)
   const pelanggaranMap: Record<string, number> = {}
@@ -212,6 +213,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
           .select('nis, sesi_id')
           .in('sesi_id', sesiLainIds)
           .in('nis', nisLain)
+          .neq('status', 'DIABAIKAN')
         const pelanggaranLainMap: Record<string, number> = {}
         for (const p of pelanggaranLain ?? []) {
           pelanggaranLainMap[p.nis] = (pelanggaranLainMap[p.nis] ?? 0) + 1
