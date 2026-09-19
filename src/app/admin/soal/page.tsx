@@ -92,6 +92,8 @@ export default function AdminSoalPage() {
       setCatatanTolak('')
       load()
       loadPendingCounts()
+      // Beri tahu badge sidebar supaya langsung menyegarkan angkanya.
+      window.dispatchEvent(new Event('notif-changed'))
     } catch (err: unknown) {
       showToast(err instanceof Error ? err.message : 'Gagal memproses', 'error')
     } finally { setSaving(false) }
@@ -138,6 +140,7 @@ export default function AdminSoalPage() {
     }
     load()
     loadPendingCounts()
+    window.dispatchEvent(new Event('notif-changed'))
   }
 
   // Kombinasi mapel+kelas yang muncul lebih dari sekali di antara paket yang
