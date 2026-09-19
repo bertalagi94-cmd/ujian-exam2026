@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { GuruSidebar } from '@/components/shared/Sidebar'
 import { SesiTerlupaPopup } from '@/components/shared/SesiTerlupaPopup'
 import { FullscreenButton } from '@/components/shared/FullscreenButton'
+import { ViewAsBanner } from '@/components/shared/ViewAsBanner'
 
 export default function GuruLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter()
@@ -20,6 +21,7 @@ export default function GuruLayout({ children }: { children: React.ReactNode }) 
     <div className="flex min-h-screen" style={{
       background: 'linear-gradient(135deg, #d1fae5 0%, #ecfdf5 35%, #f0fdf4 70%, #ecfdf5 100%)',
     }}>
+      <ViewAsBanner />
       {/* Decorative SVG mesh — pure SVG, zero JS, zero server cost */}
       <svg aria-hidden="true" className="pointer-events-none fixed inset-0 w-full h-full" style={{ zIndex: 0, opacity: 0.5 }}
         viewBox="0 0 1440 900" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
