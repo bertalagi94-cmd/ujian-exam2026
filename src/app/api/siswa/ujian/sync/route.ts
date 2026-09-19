@@ -196,9 +196,14 @@ export async function GET(req: NextRequest) {
     )
   }
 
+  // FIX BUG (P1-01): sertakan `updated_at` supaya client bisa membandingkan
+  // jam jawaban server dengan jam backup lokalnya sendiri saat resume,
+  // alih-alih backup lokal selalu menang mutlak tanpa peduli mana yang
+  // sebenarnya lebih baru — lihat mergeJawabanDenganWaktu() di
+  // src/app/siswa/ujian/page.tsx untuk detail lengkap kasus yang diperbaiki.
   const { data, error } = await db
     .from('jawaban')
-    .select('soal_id, jawaban')
+    .select('soal_id, jawaban, updated_at')
     .eq('sesi_id', sesiId)
     .eq('nis', user.nis!)
 
