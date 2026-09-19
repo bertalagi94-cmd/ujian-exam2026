@@ -110,6 +110,7 @@ export default function AdminPengaturanPage() {
   const hackerDoneRef = useRef<() => void>()
 
   const [togglingMinSubmit, setTogglingMinSubmit] = useState(false)
+  const [togglingKunciJumlahOpsi, setTogglingKunciJumlahOpsi] = useState(false)
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => setToast({ msg, type })
 
@@ -424,6 +425,28 @@ export default function AdminPengaturanPage() {
 
   const isMaintenance = values.maintenanceAktif === 'true'
   const isMinSubmitAktif = values.minSubmitAktif === 'true'
+  const isKunciJumlahOpsi = values.kunciJumlahOpsi === 'true'
+
+  // Toggle ini tersimpan LANGSUNG (tidak menunggu tombol "Simpan" di bawah),
+  // karena tampilannya berupa saklar on/off — kalau cuma diubah di state lokal
+  // dan admin refresh sebelum klik "Simpan", perubahan hilang begitu saja.
+  async function handleToggleKunciJumlahOpsi() {
+    const target = !isKunciJumlahOpsi
+    setTogglingKunciJumlahOpsi(true)
+    try {
+      await apiRequest('/api/admin/pengaturan', {
+        method: 'PUT',
+        body: JSON.stringify({ settings: [{ key: 'kunciJumlahOpsi', value: String(target) }] }),
+      })
+      set('kunciJumlahOpsi', String(target))
+      showToast(target ? 'Jumlah opsi dikunci — guru tidak bisa mengubahnya' : 'Kunci jumlah opsi dinonaktifkan')
+      window.dispatchEvent(new Event('pengaturan-changed'))
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Gagal menyimpan', 'error')
+    } finally {
+      setTogglingKunciJumlahOpsi(false)
+    }
+  }
 
   async function handleToggleMinSubmit() {
     setTogglingMinSubmit(true)
@@ -597,25 +620,28 @@ export default function AdminPengaturanPage() {
               </div>
             </div>
 
-            <div className={`flex items-center justify-between gap-4 p-3 rounded-lg border ${values.kunciJumlahOpsi === 'true' ? 'border-brand-300 bg-brand-50' : 'border-slate-200'}`}>
+            <div className={`flex items-center justify-between gap-4 p-3 rounded-lg border ${isKunciJumlahOpsi ? 'border-brand-300 bg-brand-50' : 'border-slate-200'}`}>
               <div>
                 <p className="text-sm font-medium text-slate-800">Kunci Jumlah Opsi untuk Guru</p>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  {values.kunciJumlahOpsi === 'true'
+                  {isKunciJumlahOpsi
                     ? 'Aktif — guru tidak bisa mengubah dari 4 opsi menjadi 5 opsi saat membuat soal PG. Semua soal baru mengikuti Jumlah Opsi Default di atas.'
                     : 'Nonaktif — guru bebas memilih 4 opsi (A–D) atau 5 opsi (A–E) sendiri setiap kali membuat soal PG.'}
                 </p>
               </div>
               <button
                 type="button"
-                onClick={() => set('kunciJumlahOpsi', values.kunciJumlahOpsi === 'true' ? 'false' : 'true')}
+                onClick={handleToggleKunciJumlahOpsi}
+                disabled={togglingKunciJumlahOpsi}
                 className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex-shrink-0 ${
-                  values.kunciJumlahOpsi === 'true'
+                  isKunciJumlahOpsi
                     ? 'bg-brand-100 text-brand-700 hover:bg-brand-200'
                     : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                 }`}
               >
-                {values.kunciJumlahOpsi === 'true'
+                {togglingKunciJumlahOpsi
+                  ? <Spinner size="sm" />
+                  : isKunciJumlahOpsi
                   ? <><ToggleRight className="w-4 h-4" /> Terkunci</>
                   : <><ToggleLeft className="w-4 h-4" /> Tidak Terkunci</>}
               </button>
@@ -650,7 +676,7 @@ export default function AdminPengaturanPage() {
             <div className="pt-2 flex justify-end">
               <button
                 type="button"
-                onClick={() => saveSection(['batasPelanggaran', 'jumlahOpsi', 'kunciJumlahOpsi', 'batas_durasi_essay_min_menit', 'batas_durasi_essay_max_menit'], 'Pengaturan Ujian')}
+                onClick={() => saveSection(['batasPelanggaran', 'jumlahOpsi', 'batas_durasi_essay_min_menit', 'batas_durasi_essay_max_menit'], 'Pengaturan Ujian')}
                 className="btn-primary btn-sm"
                 disabled={savingSection === 'Pengaturan Ujian'}
               >
