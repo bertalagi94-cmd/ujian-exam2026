@@ -11,6 +11,17 @@ import { PageLoader, Spinner } from '@/components/ui'
 import { isStatusSoalSiap, labelStatusSoal, pesanStatusSoal } from '@/lib/soal-status-shared'
 import { terjemahJenisPelanggaran } from '@/lib/pelanggaran-shared'
 
+// Respons GET /api/guru/mode-pengawas/kode-darurat-essay — lihat route-nya.
+interface KodeDaruratEssay {
+  kode: string
+  panjangKode: number
+  jumlahLogin: number
+  jumlahPerluAmplop: number
+  jumlahSudahAmplop: number
+  belumAmplop: { nis: string; nama: string }[]
+  jumlahBukaOffline: number
+}
+
 interface SesiUjianInfo {
   id: string
   kode_sesi: string
@@ -180,6 +191,12 @@ export default function ModePengawasPage() {
 
   // FIX (akses mulai essay): loading state khusus toggle "Akses Soal Essay"
   const [toggleAksesMulaiLoading, setToggleAksesMulaiLoading] = useState<string | null>(null)
+
+  // Kode darurat essay (jalur offline). Sengaja TIDAK dimuat otomatis: kode
+  // baru diambil & ditampilkan saat pengawas menekan tombol, supaya tidak
+  // terpampang di layar/proyektor tanpa sengaja.
+  const [kodeDaruratMap, setKodeDaruratMap] = useState<Record<string, KodeDaruratEssay | null>>({})
+  const [kodeDaruratLoading, setKodeDaruratLoading] = useState<string | null>(null)
 
   // Monitor: siswa aktif & pelanggaran per sesi
   const [siswaMap, setSiswaMap] = useState<Record<string, SiswaAktif[]>>({})
@@ -608,6 +625,22 @@ export default function ModePengawasPage() {
     }
   }
 
+  async function handleTampilkanKodeDarurat(sesiId: string) {
+    setKodeDaruratLoading(sesiId)
+    try {
+      const res = await apiRequest<KodeDaruratEssay>(`/api/guru/mode-pengawas/kode-darurat-essay?sesiId=${sesiId}`)
+      setKodeDaruratMap(prev => ({ ...prev, [sesiId]: res }))
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Gagal mengambil kode darurat', 'error')
+    } finally {
+      setKodeDaruratLoading(null)
+    }
+  }
+
+  function handleSembunyikanKodeDarurat(sesiId: string) {
+    setKodeDaruratMap(prev => ({ ...prev, [sesiId]: null }))
+  }
+
   async function handleReset() {
     if (!resetTarget) return
     setResetting(true)
@@ -919,6 +952,87 @@ export default function ModePengawasPage() {
                                 )}
                               </button>
                             </div>
+                          </div>
+                        )
+                      })()}
+
+                      {/* Kode darurat essay (jalur OFFLINE). Hanya untuk dipakai
+                          kalau internet siswa mati total dan pengawas memang
+                          mengizinkan siswa mulai essay: kode dibacakan/ditulis
+                          di papan, siswa mengetiknya di perangkat mereka untuk
+                          membuka soal essay yang sudah tersimpan terenkripsi.
+                          Kode TIDAK pernah dikirim ke perangkat siswa lewat
+                          jaringan. */}
+                      {j.sesi_ujian?.info_json?.essay_aktif && (j.sesi_ujian?.essay_jumlah_soal ?? 0) > 0 && sesiId && (() => {
+                        const kd = kodeDaruratMap[sesiId]
+                        return (
+                          <div className="border-t border-slate-100 px-4 py-3.5 bg-amber-50/40">
+                            <div className="flex items-center justify-between gap-3 flex-wrap">
+                              <div className="flex items-center gap-2 text-xs text-amber-800">
+                                <KeyRound className="w-3.5 h-3.5 flex-shrink-0" />
+                                Kode Darurat Essay — hanya jika internet siswa mati total
+                              </div>
+                              {kd ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleSembunyikanKodeDarurat(sesiId)}
+                                  className="text-xs font-semibold text-amber-700 hover:text-amber-900"
+                                >
+                                  Sembunyikan
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => handleTampilkanKodeDarurat(sesiId)}
+                                  disabled={kodeDaruratLoading === sesiId}
+                                  className="btn-secondary btn-sm disabled:opacity-50"
+                                >
+                                  {kodeDaruratLoading === sesiId ? <Spinner size="sm" /> : <Eye className="w-3.5 h-3.5" />}
+                                  Tampilkan Kode
+                                </button>
+                              )}
+                            </div>
+
+                            {kd && (
+                              <div className="mt-3 space-y-2.5">
+                                <p className="text-center text-3xl font-mono font-bold tracking-[0.3em] text-amber-900 select-all">
+                                  {kd.kode}
+                                </p>
+                                <p className="text-xs text-amber-700">
+                                  Bacakan atau tulis di papan HANYA bila internet siswa mati total dan Anda memang
+                                  mengizinkan mereka memulai essay. Kode ini tetap sama sepanjang sesi dan tidak bisa
+                                  diganti — jangan disebarkan sebelum diperlukan.
+                                </p>
+                                <div className="flex items-center justify-between gap-2 text-xs">
+                                  <span className="text-slate-600">
+                                    Soal terenkripsi sudah ada di{' '}
+                                    <strong>{kd.jumlahSudahAmplop}/{kd.jumlahPerluAmplop}</strong> perangkat siswa
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleTampilkanKodeDarurat(sesiId)}
+                                    disabled={kodeDaruratLoading === sesiId}
+                                    className="flex items-center gap-1 font-semibold text-amber-700 hover:text-amber-900 disabled:opacity-50"
+                                  >
+                                    <RefreshCw className={`w-3 h-3 ${kodeDaruratLoading === sesiId ? 'animate-spin' : ''}`} />
+                                    Perbarui
+                                  </button>
+                                </div>
+                                {kd.belumAmplop.length > 0 && (
+                                  <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                                    <p className="text-xs font-semibold text-red-700 mb-1 flex items-center gap-1.5">
+                                      <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
+                                      Kode TIDAK akan berfungsi untuk {kd.belumAmplop.length} siswa ini
+                                    </p>
+                                    <p className="text-xs text-red-600">
+                                      Perangkat mereka belum pernah menerima soal terenkripsi (belum terhubung ke
+                                      internet sejak ujian dimulai). Tangani secara manual:{' '}
+                                      {kd.belumAmplop.map(s => s.nama).join(', ')}.
+                                    </p>
+                                  </div>
+                                )}
+                              </div>
+                            )}
                           </div>
                         )
                       })()}
