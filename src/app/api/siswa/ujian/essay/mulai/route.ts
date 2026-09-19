@@ -3,6 +3,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
+import { kodeDaruratCocok } from '@/lib/essay-amplop-server'
+import { MAKS_PERCOBAAN_SERVER } from '@/lib/essay-amplop-shared'
 
 export async function POST(req: NextRequest) {
   const auth = requireRole(req, ['SISWA'])
@@ -10,7 +12,11 @@ export async function POST(req: NextRequest) {
   const { user } = auth
 
   const db = createAdminClient()
-  const { sesiId, deviceId } = await req.json()
+  // `kodeDarurat`, `waktuMulaiClient`, `percobaanSalah` HANYA diisi client kalau
+  // siswa membuka essay secara OFFLINE lewat amplop terenkripsi + kode darurat
+  // dari pengawas (lihat src/lib/essay-amplop-server.ts) dan sekarang melapor
+  // setelah internet pulih. Jalur online biasa tidak mengirim ketiganya.
+  const { sesiId, deviceId, kodeDarurat, waktuMulaiClient, percobaanSalah } = await req.json()
   if (!sesiId) return NextResponse.json({ error: 'sesiId diperlukan' }, { status: 400 })
 
   const { data: siswaUjian } = await db
@@ -90,7 +96,52 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  if (!sesi.akses_mulai_essay_dibuka) {
+  // ── JALUR DARURAT (offline → rekonsiliasi) ────────────────────────────────
+  // Siswa yang sudah membuka essay di perangkatnya (dekripsi amplop dengan
+  // kode dari pengawas) melapor ke sini begitu internet pulih. Bukti yang
+  // diminta server: kode darurat yang BENAR untuk sesi ini + siswa ini memang
+  // pernah menerima amplop. Kode tidak pernah dikirim ke client dari server,
+  // jadi hanya siswa yang benar-benar mendapat kode dari pengawas (jalur
+  // manusia) yang bisa lolos — bukan siapa pun yang memanggil endpoint ini.
+  //
+  // Anti tebak-tebakan via API: hitungan percobaan dinaikkan ATOMIK di database
+  // SEBELUM kode dibandingkan (baca-lalu-tulis biasa bisa ditembus request
+  // paralel). Lewat MAKS_PERCOBAAN_SERVER → ditolak permanen untuk siswa ini.
+  let jalurDarurat = false
+  let batasBawahDarurat: number | null = null
+  if (kodeDarurat !== undefined && kodeDarurat !== null && kodeDarurat !== '') {
+    const { data: hitungan, error: hitungErr } = await db.rpc('essay_amplop_hitung_percobaan', {
+      p_sesi_id: sesiId,
+      p_nis: user.nis!,
+    })
+    if (hitungErr) return NextResponse.json({ error: hitungErr.message }, { status: 500 })
+    if (hitungan === null || hitungan === undefined) {
+      return NextResponse.json(
+        { error: 'Perangkat ini tidak pernah menerima soal essay terenkripsi. Kode darurat tidak dapat dipakai — hubungi pengawas.' },
+        { status: 403 }
+      )
+    }
+    if (Number(hitungan) > MAKS_PERCOBAAN_SERVER) {
+      return NextResponse.json(
+        { error: 'Terlalu banyak percobaan kode darurat. Hubungi pengawas.' },
+        { status: 429 }
+      )
+    }
+    if (!kodeDaruratCocok(String(sesiId), kodeDarurat)) {
+      return NextResponse.json({ error: 'Kode darurat tidak valid.' }, { status: 403 })
+    }
+    jalurDarurat = true
+
+    const { data: amplopRow } = await db
+      .from('essay_amplop_offline')
+      .select('dikirim_at')
+      .eq('sesi_id', sesiId)
+      .eq('nis', user.nis!)
+      .single()
+    batasBawahDarurat = amplopRow?.dikirim_at ? new Date(amplopRow.dikirim_at).getTime() : null
+  }
+
+  if (!sesi.akses_mulai_essay_dibuka && !jalurDarurat) {
     return NextResponse.json(
       { error: 'Menunggu pengawas membuka akses mulai essay.' },
       { status: 403 }
@@ -170,7 +221,24 @@ export async function POST(req: NextRequest) {
   // sangat kecil (beda milidetik), tapi sekarang deterministik: request yang
   // kalah akan mengambil ulang waktu_mulai_essay yang sudah tersimpan,
   // bukan menimpanya.
-  const waktuMulaiEssay = new Date().toISOString()
+  // Jalur darurat: pakai waktu mulai yang dilaporkan client (waktu siswa
+  // benar-benar membuka essay saat offline) supaya timer essay tidak "mundur"
+  // hanya karena internet baru pulih belakangan. Klaim client TIDAK dipercaya
+  // mentah-mentah: dibatasi ke rentang [waktu amplop dikirim, sekarang] —
+  // tidak bisa di masa depan, dan tidak bisa lebih awal dari saat siswa
+  // baru memegang amplop. Keterbatasan yang tidak bisa dihindari: server tidak
+  // bisa membuktikan KAPAN persisnya siswa membuka essay saat offline; selisih
+  // antara dibuka_offline_at dan rekonsiliasi_at dicatat di tabel
+  // essay_amplop_offline supaya bisa diaudit pengawas/guru.
+  const sekarangMs = Date.now()
+  let waktuMulaiMs = sekarangMs
+  if (jalurDarurat && typeof waktuMulaiClient === 'string') {
+    const klaim = Date.parse(waktuMulaiClient)
+    if (!Number.isNaN(klaim)) {
+      waktuMulaiMs = Math.min(sekarangMs, Math.max(klaim, batasBawahDarurat ?? klaim))
+    }
+  }
+  const waktuMulaiEssay = new Date(waktuMulaiMs).toISOString()
   const { data: updated, error } = await db
     .from('siswa_ujian')
     .update({ status_essay: 'MENGERJAKAN', waktu_mulai_essay: waktuMulaiEssay })
@@ -194,5 +262,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ waktuMulaiEssay: siswaUjianTerbaru?.waktu_mulai_essay ?? waktuMulaiEssay })
   }
 
-  return NextResponse.json({ waktuMulaiEssay: updated[0].waktu_mulai_essay })
+  if (jalurDarurat) {
+    await db.from('essay_amplop_offline')
+      .update({
+        dibuka_offline_at: waktuMulaiEssay,
+        rekonsiliasi_at: new Date(sekarangMs).toISOString(),
+        percobaan_salah_offline: Math.max(0, Math.min(1000, Number(percobaanSalah) || 0)),
+      })
+      .eq('sesi_id', sesiId)
+      .eq('nis', user.nis!)
+  }
+
+  return NextResponse.json({ waktuMulaiEssay: updated[0].waktu_mulai_essay, viaKodeDarurat: jalurDarurat })
 }
