@@ -36,6 +36,12 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   kabupaten: '',
   batasPelanggaran: '3',
   jumlahOpsi: '4',
+  // FIX (konsolidasi jumlah opsi): sebelumnya jumlah opsi bisa diatur per
+  // mapel di menu Mapel, sekarang cuma satu default global di sini (di
+  // atas). Field ini mengunci default itu supaya guru TIDAK bisa mengganti
+  // 4 opsi jadi 5 opsi sendiri saat membuat soal PG. Kalau dinonaktifkan,
+  // guru bebas memilih 4 atau 5 opsi per soal.
+  kunciJumlahOpsi: 'false',
   minSubmitAktif: 'false',
   minSubmitMenit: '45',
   logoUrl: '',
@@ -591,6 +597,30 @@ export default function AdminPengaturanPage() {
               </div>
             </div>
 
+            <div className={`flex items-center justify-between gap-4 p-3 rounded-lg border ${values.kunciJumlahOpsi === 'true' ? 'border-brand-300 bg-brand-50' : 'border-slate-200'}`}>
+              <div>
+                <p className="text-sm font-medium text-slate-800">Kunci Jumlah Opsi untuk Guru</p>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  {values.kunciJumlahOpsi === 'true'
+                    ? 'Aktif — guru tidak bisa mengubah dari 4 opsi menjadi 5 opsi saat membuat soal PG. Semua soal baru mengikuti Jumlah Opsi Default di atas.'
+                    : 'Nonaktif — guru bebas memilih 4 opsi (A–D) atau 5 opsi (A–E) sendiri setiap kali membuat soal PG.'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => set('kunciJumlahOpsi', values.kunciJumlahOpsi === 'true' ? 'false' : 'true')}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex-shrink-0 ${
+                  values.kunciJumlahOpsi === 'true'
+                    ? 'bg-brand-100 text-brand-700 hover:bg-brand-200'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                {values.kunciJumlahOpsi === 'true'
+                  ? <><ToggleRight className="w-4 h-4" /> Terkunci</>
+                  : <><ToggleLeft className="w-4 h-4" /> Tidak Terkunci</>}
+              </button>
+            </div>
+
             {/* FIX (fitur essay): batas durasi essay yang boleh diatur guru
                 saat mengonfigurasi sesi essay per jadwal (lihat validasi di
                 /api/guru/jadwal/[id]/essay-setting). */}
@@ -620,7 +650,7 @@ export default function AdminPengaturanPage() {
             <div className="pt-2 flex justify-end">
               <button
                 type="button"
-                onClick={() => saveSection(['batasPelanggaran', 'jumlahOpsi', 'batas_durasi_essay_min_menit', 'batas_durasi_essay_max_menit'], 'Pengaturan Ujian')}
+                onClick={() => saveSection(['batasPelanggaran', 'jumlahOpsi', 'kunciJumlahOpsi', 'batas_durasi_essay_min_menit', 'batas_durasi_essay_max_menit'], 'Pengaturan Ujian')}
                 className="btn-primary btn-sm"
                 disabled={savingSection === 'Pengaturan Ujian'}
               >
