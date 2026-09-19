@@ -1151,10 +1151,24 @@ export default function SiswaUjianPage() {
       // FIX Bug #1: tambahkan waktu_mulai ke type agar sisa waktu dihitung
       // dari waktu_mulai_awal yang dikembalikan server, bukan dari /validasi
       // berikutnya yang mungkin memberi waktu berbeda.
-      const res = await apiRequest<{ valid: boolean; message?: string; waktu_mulai?: string }>('/api/siswa/ujian/verifikasi-reset', {
+      const res = await apiRequest<{ valid: boolean; message?: string; waktu_mulai?: string; terkunci_permanen?: boolean; jumlah_pelanggaran?: number }>('/api/siswa/ujian/verifikasi-reset', {
         method: 'POST',
         body: JSON.stringify({ sesiId: pendingResetSesiId, kodeReset: kodeReset.trim().toUpperCase() }),
       })
+
+      // FIX BUG (siswa terjebak di layar RESET_KODE tanpa jalan keluar):
+      // sebelumnya kasus ini jatuh ke `setKodeResetError(...)` di bawah dan
+      // siswa tetap di layar ini yang tidak punya tombol Kembali ke Beranda
+      // sama sekali — hanya mengandalkan polling terpisah (tiap 10 detik)
+      // untuk akhirnya memaksa pindah ke layar "Ujian Dihentikan". Sekarang
+      // pindah SEKETIKA begitu server bilang terkunci permanen, tidak perlu
+      // menunggu poll berikutnya.
+      if (!res.valid && res.terkunci_permanen) {
+        if (typeof res.jumlah_pelanggaran === 'number') setJumlahPelanggaran(res.jumlah_pelanggaran)
+        setDikeluarkan(true)
+        return
+      }
+
       if (!res.valid) { setKodeResetError(res.message ?? 'Kode tidak valid'); return }
 
       setKodeReset('')
@@ -1348,10 +1362,26 @@ export default function SiswaUjianPage() {
     if (!currentSesi) return
     setKodeResetLoading(true); setKodeResetError('')
     try {
-      const res = await apiRequest<{ valid: boolean; waktu_mulai?: string; message?: string }>('/api/siswa/ujian/verifikasi-reset', {
+      const res = await apiRequest<{ valid: boolean; waktu_mulai?: string; message?: string; terkunci_permanen?: boolean; jumlah_pelanggaran?: number }>('/api/siswa/ujian/verifikasi-reset', {
         method: 'POST',
         body: JSON.stringify({ sesiId: currentSesi.sesiId, kodeReset: kodeReset.trim().toUpperCase() }),
       })
+
+      // FIX BUG (siswa terjebak di balik overlay pelanggaran tanpa jalan
+      // keluar): popup ini sendiri tidak punya tombol apa pun selain kirim
+      // kode reset, dan sebelumnya kasus terkunci permanen di sini hanya
+      // menampilkan `kodeResetError` — siswa tetap tertutup overlay
+      // fullscreen sampai polling terpisah (tiap 10 detik) akhirnya
+      // memaksa pindah ke layar "Ujian Dihentikan". Sekarang tutup overlay
+      // dan pindah SEKETIKA begitu server mengonfirmasi terkunci permanen.
+      if (!res.valid && res.terkunci_permanen) {
+        if (typeof res.jumlah_pelanggaran === 'number') setJumlahPelanggaran(res.jumlah_pelanggaran)
+        setShowWarningOverlay(false)
+        setKodeResetError('')
+        setDikeluarkan(true)
+        return
+      }
+
       if (!res.valid) { setKodeResetError(res.message ?? 'Kode tidak valid'); return }
       // FIX: hitung sisa waktu dari waktu_mulai_awal (bukan dari sekarang)
       let sisaSetelahReset = currentSesi.durasi * 60
