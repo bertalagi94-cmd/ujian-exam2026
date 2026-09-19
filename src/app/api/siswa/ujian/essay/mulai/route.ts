@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
 
   if (siswaUjian.status === 'TERKUNCI' || siswaUjian.status === 'RESET') {
     return NextResponse.json(
-      { error: 'Akses ujian Anda sedang dikunci/menunggu reset.' },
+      { error: 'Akses ujian Anda sedang dikunci/menunggu reset.', sementara: true },
       { status: 403 }
     )
   }
