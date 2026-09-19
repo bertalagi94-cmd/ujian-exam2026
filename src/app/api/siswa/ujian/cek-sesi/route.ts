@@ -67,9 +67,27 @@ export async function GET(req: NextRequest) {
   // tambahan. Sesi Lihat-sebagai itu sendiri tidak pernah ditandai dipantau.
   const sidDipantau = user.viewAs ? null : await sidDipantauUntuk(db, user.nis!)
 
+  // FIX BUG (pesan "Ujian Dihentikan" selalu bunyi "melanggar {batas} kali"
+  // walau siswa baru melanggar 1x): sebelumnya layar itu di client cuma
+  // menampilkan angka batasPelanggaran dari pengaturan, bukan jumlah
+  // pelanggaran ASLI siswa. Sertakan jumlah pelanggaran sungguhan di sini
+  // supaya client bisa menampilkan angka yang benar begitu status TERKUNCI
+  // terdeteksi lewat polling ini (siswa sedang aktif mengerjakan saat
+  // dikunci pengawas/admin).
+  let jumlahPelanggaran: number | undefined
+  if (siswaUjian?.status === 'TERKUNCI') {
+    const { count } = await db
+      .from('pelanggaran')
+      .select('*', { count: 'exact', head: true })
+      .eq('sesi_id', sesiId)
+      .eq('nis', user.nis!)
+    jumlahPelanggaran = count ?? undefined
+  }
+
   return NextResponse.json({
     sesi_status: sesi.status,
     siswa_status: siswaUjian?.status ?? 'TIDAK_TERDAFTAR',
+    jumlah_pelanggaran: jumlahPelanggaran,
     dipantau: !!sidDipantau,
     dipantau_sid: sidDipantau ?? undefined,
   })
