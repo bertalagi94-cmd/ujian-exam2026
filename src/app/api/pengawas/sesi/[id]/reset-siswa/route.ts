@@ -81,6 +81,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     .select('*', { count: 'exact', head: true })
     .eq('sesi_id', sesiId)
     .eq('nis', nis)
+    .neq('status', 'DIABAIKAN')
 
   const levelPelanggaranSaatIni = jumlahPelanggaran ?? 0
 
