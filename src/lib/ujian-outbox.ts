@@ -357,13 +357,23 @@ export async function cobaKirimPaketTertunda(
     return 'TERKIRIM'
   } catch (err: unknown) {
     const status = (err as { status?: number } | undefined)?.status
-    if (!status) {
-      // Tidak ada status HTTP = request tidak pernah sampai server (jaringan
-      // mati/timeout) — bukan penolakan sah, tetap layak dicoba lagi nanti.
+    // FIX (audit timeout/offline): sebelumnya HANYA error tanpa status HTTP
+    // yang dianggap sementara. Error server sesaat (500/502/503/504 -- mis.
+    // cold start / kelebihan beban Vercel & Supabase saat ratusan siswa
+    // submit bersamaan, atau 429/408) ikut jatuh ke cabang "penolakan sah"
+    // di bawah dan paket ditandai GAGAL PERMANEN tanpa retry otomatis --
+    // padahal jawabannya sendiri sudah aman dan request yang sama akan
+    // berhasil beberapa detik kemudian. Sekarang daftar status sementara ini
+    // sama dengan yang sudah dipakai pastikanJawabanTersinkron() di atas
+    // (plus 408/429), sehingga dicoba lagi oleh penjaga latar belakang.
+    const sementara = !status || status >= 500 || status === 408 || status === 429
+    if (sementara) {
       await simpanPaketTertunda({
         ...current,
         status: 'MENUNGGU_JARINGAN',
-        pesanTerakhir: 'Tidak ada koneksi ke server.',
+        pesanTerakhir: status
+          ? `Server sedang sibuk (${status}), akan dicoba lagi otomatis.`
+          : 'Tidak ada koneksi ke server.',
       })
       return 'MENUNGGU_JARINGAN'
     }
