@@ -35,8 +35,10 @@ export default function PengirimanTertundaPage() {
   const [mengirimId, setMengirimId] = useState<string | null>(null)
   const [nis, setNis] = useState<string | null>(null)
 
+  // FIX AUDIT P0 #7: ambilSemuaPaketTertunda sekarang async (IndexedDB) —
+  // lihat src/lib/ujian-outbox.ts.
   const muatUlang = useCallback((nisAktif: string) => {
-    setDaftar(ambilSemuaPaketTertunda(nisAktif))
+    ambilSemuaPaketTertunda(nisAktif).then(setDaftar)
   }, [])
 
   useEffect(() => {
