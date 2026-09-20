@@ -338,6 +338,18 @@ export default function SiswaUjianPage() {
   // basi. Ref ini selalu terkini.
   const amplopTersediaRef = useRef(false)
   useEffect(() => { amplopTersediaRef.current = amplopTersedia }, [amplopTersedia])
+  // FIX BUG P0 (audit offline: "PG-only terjebak tanpa jalan keluar"): server
+  // sudah menjawab TANPA_ESSAY (lihat useEffect pengambilan amplop di bawah)
+  // begitu siswa sempat online sebentar setelah mulai PG, tapi sinyal itu
+  // sebelumnya dibuang begitu saja (cuma clearInterval). Akibatnya gerbang
+  // "aman offline" di handleSelesai() HANYA terbuka untuk sesi yang punya
+  // essay (amplopTersediaRef) — sesi PG murni yang jaringannya mati saat
+  // klik "Selesai" jatuh ke modal retry tanpa status LOCAL_COMPLETED sama
+  // sekali. Sekarang konfirmasi TANPA_ESSAY disimpan di sini supaya PG-only
+  // ikut lolos gerbang yang sama (lihat pemakaian di handleSelesai()).
+  const [sesiTanpaEssayKonfirmasi, setSesiTanpaEssayKonfirmasi] = useState(false)
+  const sesiTanpaEssayKonfirmasiRef = useRef(false)
+  useEffect(() => { sesiTanpaEssayKonfirmasiRef.current = sesiTanpaEssayKonfirmasi }, [sesiTanpaEssayKonfirmasi])
   const [kodeDarurat, setKodeDarurat] = useState('')
   const [kodeDaruratError, setKodeDaruratError] = useState('')
   const [kodeDaruratLoading, setKodeDaruratLoading] = useState(false)
@@ -527,7 +539,14 @@ export default function SiswaUjianPage() {
           simpanAmplop(sesiId, nis!, res.amplop)
           setAmplopTersedia(true)
           clearInterval(id)
-        } else if (res.alasan === 'TANPA_ESSAY' || res.alasan === 'SUDAH_LEWAT') {
+        } else if (res.alasan === 'TANPA_ESSAY') {
+          // FIX BUG P0 (lihat komentar di deklarasi sesiTanpaEssayKonfirmasi
+          // di atas): sebelumnya sinyal ini dibuang begitu saja, membuat
+          // PG-only tidak pernah dianggap "boleh aman offline" walau server
+          // sendiri sudah memastikan sesi ini memang tidak punya essay.
+          setSesiTanpaEssayKonfirmasi(true)
+          clearInterval(id)
+        } else if (res.alasan === 'SUDAH_LEWAT') {
           clearInterval(id)
         }
       } catch (e) {
@@ -1798,11 +1817,22 @@ export default function SiswaUjianPage() {
     // offline. Akibatnya siswa hanya bisa menekan "Coba Lagi" tanpa ujung.
     //
     // Sekarang: kalau server memang tidak terjangkau (bukan penolakan sah
-    // 4xx) DAN soal essay terenkripsi sudah ada di perangkat (amplop), jawaban
-    // PG diamankan di perangkat dan siswa dialihkan ke kode darurat. Nilai PG
-    // TETAP baru dibuat server setelah jawaban tersinkron (lihat retry
-    // background: sync dulu, baru /selesai).
-    if (!verified && !dipaksaPengawas && !sesiClosedDuringSync && serverTidakTerjangkau && amplopTersediaRef.current && expectedCount > 0) {
+    // 4xx) DAN (soal essay terenkripsi sudah ada di perangkat (amplop) ATAU
+    // sesi ini sudah dikonfirmasi server TIDAK punya essay sama sekali —
+    // lihat sesiTanpaEssayKonfirmasiRef), jawaban PG diamankan di perangkat.
+    // Kalau ada essay, siswa dialihkan ke kode darurat; kalau PG-only, siswa
+    // cukup diberi tahu jawabannya aman dan akan disinkron otomatis (lihat
+    // render pgSelesaiOfflinePending di bawah, cabang !amplopTersedia sudah
+    // punya pesan yang sesuai untuk kasus ini). Nilai PG TETAP baru dibuat
+    // server setelah jawaban tersinkron (lihat retry background: sync dulu,
+    // baru /selesai).
+    //
+    // FIX BUG P0 (audit offline: sebelumnya syarat DI SINI mewajibkan
+    // amplopTersediaRef — sesi PG murni/tanpa essay tidak pernah lolos
+    // gerbang ini walau jawabannya sendiri sama validnya untuk diamankan
+    // offline, dan jatuh ke modal retry tanpa status LOCAL_COMPLETED sama
+    // sekali).
+    if (!verified && !dipaksaPengawas && !sesiClosedDuringSync && serverTidakTerjangkau && (amplopTersediaRef.current || sesiTanpaEssayKonfirmasiRef.current) && expectedCount > 0) {
       amankanPgOffline(expectedCount, totalSynced, false)
       setSubmitting(false)
       return
@@ -1875,15 +1905,17 @@ export default function SiswaUjianPage() {
         // bukan modal generik "koneksi tidak stabil".
         setSyncFailInfo({ expected: expectedCount, synced: totalSynced })
         setShowSyncFailModal(true)
-      } else if (status === 409 && verified && amplopTersediaRef.current && currentSesiPunyaKlaimOffline()) {
+      } else if (status === 409 && verified && (amplopTersediaRef.current || sesiTanpaEssayKonfirmasiRef.current) && currentSesiPunyaKlaimOffline()) {
         // FIX (terjebak di PG setelah reload): siswa yang sudah punya klaim
         // PG-selesai offline ditolak 409 (jendela waktu PG sudah lewat,
         // dihitung dengan jam server). Semua jawaban SUDAH terverifikasi
         // tersimpan (verified). Jangan biarkan siswa berputar di "Coba
         // Lagi": kalau kode darurat sudah tersimpan langsung lanjut ke Essay,
-        // kalau belum tampilkan kotak kode darurat.
+        // kalau belum (atau memang PG-only, lihat sesiTanpaEssayKonfirmasiRef
+        // — FIX BUG P0 audit offline) tampilkan kotak kode darurat / status
+        // "aman, menunggu penilaian otomatis" sesuai kondisinya.
         const sid = sesiInfoRef.current?.sesiId
-        const lanjut = sid ? await lanjutkanEssayDariKodeTersimpan(sid) : false
+        const lanjut = amplopTersediaRef.current && sid ? await lanjutkanEssayDariKodeTersimpan(sid) : false
         if (!lanjut) {
           amankanPgOffline(expectedCount, totalSynced, true)
           setPgFinalisasiDitolak(true)
@@ -4207,7 +4239,12 @@ export default function SiswaUjianPage() {
                       <p className="text-sm text-slate-600 mb-3">
                         Server menolak penyelesaian otomatis karena waktu pengerjaan PG sudah lewat saat
                         koneksi terputus. Jawaban PG yang sudah tersimpan di server tetap dinilai oleh sistem.
-                        Anda tetap bisa melanjutkan ke essay.
+                        {/* FIX BUG P0 (audit offline): kalimat "lanjut ke essay" hanya
+                            relevan kalau sesi ini memang punya essay — sebelumnya
+                            selalu ditampilkan walau sesi PG-only, membingungkan siswa. */}
+                        {amplopTersedia
+                          ? ' Anda tetap bisa melanjutkan ke essay.'
+                          : ' Anda tidak perlu melakukan apa pun lagi — hasil akan muncul otomatis setelah sistem menilai.'}
                       </p>
                     </>
                   ) : pgOfflineTerkonfirmasi ? (
