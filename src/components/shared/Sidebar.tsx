@@ -543,10 +543,17 @@ export function SiswaSidebar() {
     let nis: string | undefined
     try { nis = JSON.parse(localStorage.getItem('user') ?? '{}').nis } catch { /* abaikan */ }
     if (!nis) return
-    const cek = () => setJumlahTertunda(ambilSemuaPaketTertunda(nis!).length)
+    let batal = false
+    // FIX AUDIT P0 #7: ambilSemuaPaketTertunda sekarang async (IndexedDB) —
+    // lihat src/lib/ujian-outbox.ts.
+    const cek = () => {
+      ambilSemuaPaketTertunda(nis!).then((daftar) => {
+        if (!batal) setJumlahTertunda(daftar.length)
+      })
+    }
     cek()
     const interval = setInterval(cek, 5000)
-    return () => clearInterval(interval)
+    return () => { batal = true; clearInterval(interval) }
   }, [])
 
   const navItems: NavItem[] = [
