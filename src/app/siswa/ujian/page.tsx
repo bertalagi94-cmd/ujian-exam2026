@@ -16,6 +16,12 @@ import { mergeJawabanRevisi, nextRevisi, type EntriServer, type EntriLokal } fro
 import {
   simpanKlaimPgSelesaiOffline, ambilKlaimPgSelesaiOffline, hapusKlaimPgSelesaiOffline,
 } from '@/lib/pg-offline-client'
+// FIX (Essay masih bergantung koneksi saat "Kirim" + belum ada outbox
+// permanen): lihat src/lib/ujian-outbox.ts untuk rasionalnya.
+import { simpanPaketTertunda, cobaKirimPaketTertunda } from '@/lib/ujian-outbox'
+// FIX (gambar soal belum jadi asset offline): lihat src/lib/gambar-offline.ts.
+import { precacheGambarSoal } from '@/lib/gambar-offline'
+import { GambarSoalOffline } from '@/components/ui/GambarSoalOffline'
 
 type Phase = 'CEK_JADWAL' | 'PERSIAPAN' | 'KODE' | 'UJIAN' | 'ESSAY_INFO' | 'ESSAY_KERJAKAN' | 'SELESAI' | 'RESET_KODE'
 
@@ -313,6 +319,13 @@ export default function SiswaUjianPage() {
   // handleKirimEssay(). Kasus non-timeout tidak butuh ini karena sudah
   // dihentikan lebih dulu (siswa diminta coba kirim ulang, belum SELESAI).
   const [essaySyncGagalSaatTimeout, setEssaySyncGagalSaatTimeout] = useState(false)
+  // FIX (Essay masih bergantung koneksi saat "Kirim"): true kalau essay
+  // sudah "dianggap selesai" oleh siswa TAPI belum ter-ACK server karena
+  // jaringan mati persis saat sync/kirim — sudah aman di outbox permanen
+  // (src/lib/ujian-outbox.ts) dan akan otomatis dikirim ulang di latar
+  // belakang begitu koneksi pulih. Beda dengan essaySelesaiDikirim (yang
+  // berarti server SUDAH mengonfirmasi), ini murni status LOKAL sementara.
+  const [essayTertunda, setEssayTertunda] = useState(false)
 
   // ── Jalur essay OFFLINE (amplop terenkripsi + kode darurat dari pengawas) ──
   // Lihat src/lib/essay-amplop-client.ts. Gerbang izin essay TETAP dipertahankan:
@@ -455,6 +468,28 @@ export default function SiswaUjianPage() {
   useEffect(() => { phaseRef.current = phase }, [phase])
   useEffect(() => { essayInfoRef.current = essayInfo }, [essayInfo])
   useEffect(() => { jawabanEssayRef.current = jawabanEssay }, [jawabanEssay])
+
+  // FIX (gambar soal belum diperlakukan sebagai asset offline): begitu paket
+  // soal PG diterima, unduh semua gambar pertanyaan+opsinya ke Cache API
+  // SEDINI mungkin — sebelum siswa sempat kehilangan koneksi. <img> soal PG
+  // di bawah membaca balik dari cache ini (lihat GambarSoalOffline).
+  useEffect(() => {
+    if (!sesiInfo?.soalList?.length) return
+    const urls: (string | null | undefined)[] = []
+    for (const s of sesiInfo.soalList) {
+      const anySoal = s as unknown as Record<string, string | null | undefined>
+      urls.push(anySoal.gambar_pertanyaan)
+      for (const label of ['a', 'b', 'c', 'd', 'e']) urls.push(anySoal[`gambar_opsi_${label}`])
+    }
+    void precacheGambarSoal(urls)
+  }, [sesiInfo])
+
+  // Padanan untuk soal essay (baik yang datang dari server maupun yang
+  // dibuka dari amplop offline — keduanya sama-sama mengisi `essayList`).
+  useEffect(() => {
+    if (!essayList.length) return
+    void precacheGambarSoal(essayList.map(s => s.gambar_url))
+  }, [essayList])
 
   // ── Status jaringan untuk gerbang essay offline ───────────────────────────
   // navigator.onLine hanya petunjuk awal (bisa true walau internet mati di
@@ -2428,7 +2463,14 @@ export default function SiswaUjianPage() {
   // ── Autosave jawaban essay (mode DIGITAL), dengan retry pola sama seperti
   // syncJawaban() untuk PG. ─────────────────────────────────────────────────
   const MAX_ESSAY_SYNC_RETRY = 4
-  const syncJawabanEssayInternal = useCallback(async (): Promise<{ ok: boolean }> => {
+  // FIX (Essay masih bergantung koneksi saat "Kirim"): tambah `networkError`
+  // di hasil balik, sama seperti syncJawaban() untuk PG (lihat
+  // networkError di syncJawabanInternal PG di atas). Dipakai handleKirimEssay
+  // untuk membedakan "server MENOLAK secara sah, tidak ada gunanya
+  // diulang sekarang" vs "koneksi mati, harus tetap dijamin terkirim nanti
+  // lewat outbox" — sebelumnya kedua kasus ini diperlakukan sama-sama
+  // sebagai kegagalan yang menghentikan proses "Kirim".
+  const syncJawabanEssayInternal = useCallback(async (): Promise<{ ok: boolean; networkError?: boolean }> => {
     const currentSesi = sesiInfoRef.current
     const currentJawaban = jawabanEssayRef.current
     if (!currentSesi) return { ok: true }
@@ -2436,6 +2478,7 @@ export default function SiswaUjianPage() {
     if (entries.length === 0) return { ok: true }
 
     setEssaySyncStatus('syncing')
+    let gagalJaringan = false
     for (let attempt = 1; attempt <= MAX_ESSAY_SYNC_RETRY; attempt++) {
       try {
         // FIX BUG #10: sertakan deviceId, sama seperti syncJawaban() untuk PG,
@@ -2453,10 +2496,11 @@ export default function SiswaUjianPage() {
       } catch (e) {
         console.warn(`Sync essay percobaan ke-${attempt} gagal:`, e)
         const status = (e as { status?: number } | undefined)?.status
+        gagalJaringan = !status
         if (status === 409 || status === 403) {
           // Sesi ditutup / akses dikunci — tidak ada gunanya mengulang.
           setEssaySyncStatus('error')
-          return { ok: false }
+          return { ok: false, networkError: false }
         }
         if (attempt < MAX_ESSAY_SYNC_RETRY) {
           await new Promise(r => setTimeout(r, attempt * 1500))
@@ -2464,7 +2508,7 @@ export default function SiswaUjianPage() {
       }
     }
     setEssaySyncStatus('error')
-    return { ok: false }
+    return { ok: false, networkError: gagalJaringan }
   }, [])
 
   // FIX BUG (P1-02, padanan essay): sama seperti syncJawaban() untuk PG —
@@ -2472,7 +2516,7 @@ export default function SiswaUjianPage() {
   // dari handleKirimEssay(), supaya ketikan terakhir siswa tidak pernah
   // ditimpa balik oleh request autosave lama yang kebetulan selesai belakangan.
   const essaySyncChainRef = useRef<Promise<unknown>>(Promise.resolve())
-  const syncJawabanEssay = useCallback((): Promise<{ ok: boolean }> => {
+  const syncJawabanEssay = useCallback((): Promise<{ ok: boolean; networkError?: boolean }> => {
     const next = essaySyncChainRef.current.then(syncJawabanEssayInternal, syncJawabanEssayInternal)
     essaySyncChainRef.current = next.catch(() => {})
     return next
@@ -2621,6 +2665,30 @@ export default function SiswaUjianPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, syncJawabanEssay])
 
+  // FIX (Essay masih bergantung koneksi saat "Kirim" + belum ada outbox
+  // permanen — temuan #1 & #2): daftarkan/perbarui satu paket di outbox
+  // permanen (localStorage, lihat src/lib/ujian-outbox.ts) dan biarkan siswa
+  // keluar dengan status "tertunda" alih-alih terjebak menunggu koneksi.
+  // `butuhFinalisasiPg` ikut disertakan supaya kalau ternyata finalisasi PG
+  // JUGA belum pernah berhasil (klaim offline PG masih ada), outbox akan
+  // menuntaskan KEDUANYA secara berurutan (PG dulu, baru essay) saat retry —
+  // bukan cuma essay-nya saja.
+  function tundaEssayKeOutbox(currentSesi: NonNullable<typeof sesiInfoRef.current>) {
+    let nis: string | undefined
+    try { nis = JSON.parse(localStorage.getItem('user') ?? '{}').nis } catch { /* abaikan */ }
+    if (!nis) return
+    const klaimPg = ambilKlaimPgSelesaiOffline(currentSesi.sesiId, nis)
+    simpanPaketTertunda({
+      sesiId: currentSesi.sesiId,
+      nis,
+      deviceId: getDeviceId(),
+      namaMapel: essayInfoRef.current?.namaMapel ?? currentSesi.namaMapel,
+      butuhFinalisasiPg: !!klaimPg,
+      butuhKirimEssay: true,
+      waktuSelesaiClaimIso: klaimPg,
+    })
+  }
+
   // ── Kirim essay (titik akhir alur) — membuka nilai PG & melepas fullscreen ─
   async function handleKirimEssay(isTimeout = false) {
     if (submittingEssay) return
@@ -2636,22 +2704,42 @@ export default function SiswaUjianPage() {
     // menandai status SUDAH_KIRIM/SELESAI seolah semua beres — padahal
     // ketikan TERAKHIR siswa belum tentu tersimpan di server. Siswa tidak
     // pernah diberi tahu ada kemungkinan jawabannya hilang.
-    // FIX: kalau sync gagal, HENTIKAN proses kirim di sini — beri pesan
-    // eksplisit ke siswa & biarkan dia mencoba lagi (bukan diam-diam
-    // melanjutkan ke status selesai). Auto-submit karena waktu habis
-    // (isTimeout=true) TETAP dilanjutkan walau sync gagal — waktunya sudah
-    // resmi habis di server, essay harus ditutup, jawaban yang SEMPAT
-    // ter-autosave sebelumnya tetap tersimpan dan bisa dinilai guru — hanya
-    // pesan ke siswa yang dibedakan supaya dia tahu ada kemungkinan
-    // ketikan terakhirnya tidak ikut tersimpan.
+    //
+    // FIX (Essay masih bergantung koneksi saat "Kirim" — temuan #1):
+    // sebelumnya SETIAP kegagalan sync (termasuk murni jaringan mati) di sini
+    // menghentikan proses "Kirim" dan menyuruh siswa mencoba lagi manual —
+    // dengan hasil PERSIS seperti laporan Anda: begitu koneksi mati, siswa
+    // terjebak, essay tidak pernah terkirim sampai dia sendiri menekan
+    // tombol lagi (dan tetap gagal kalau koneksi belum pulih). Sekarang
+    // dibedakan: kegagalan karena PENOLAKAN SAH server (409/403 — sesi
+    // ditutup/dikunci) tetap menghentikan proses seperti sebelumnya, karena
+    // mengulang tidak akan pernah berhasil. Kegagalan karena JARINGAN
+    // (networkError) TIDAK LAGI memblokir siswa — jawaban yang SUDAH sempat
+    // ter-autosave sebelumnya tetap aman di server, ketikan yang belum
+    // sempat sinkron ikut didaftarkan sebagai paket tertunda, dan siswa
+    // diizinkan keluar; outbox permanen yang akan menuntaskan pengiriman di
+    // latar belakang begitu koneksi pulih (lihat mulaiPenjagaOutbox di
+    // siswa/layout.tsx), termasuk kalau siswa menutup tab/aplikasi sekalipun.
     if (essayInfoRef.current?.modeJawaban === 'DIGITAL') {
       const syncTerakhir = await syncJawabanEssay()
       if (!syncTerakhir.ok) {
+        if (syncTerakhir.networkError && !isTimeout) {
+          clearInterval(essayTimerRef.current!)
+          clearInterval(essaySyncRef.current!)
+          tundaEssayKeOutbox(currentSesi)
+          setEssayTertunda(true)
+          setEssaySelesaiDikirim(true)
+          setPhase('SELESAI')
+          setSubmittingEssay(false)
+          return
+        }
         if (!isTimeout) {
+          // Penolakan sah dari server (sesi ditutup/dikunci) — mengulang
+          // tidak akan pernah berhasil, tetap hentikan dengan pesan jelas.
           setSubmittingEssay(false)
           setErrorEssay(
-            'Jawaban terakhir Anda GAGAL disimpan ke server (periksa koneksi internet Anda). ' +
-            'Essay BELUM dikirim — silakan coba tekan tombol "Kirim Jawaban Essay" lagi setelah koneksi stabil.'
+            'Sesi ujian Anda tidak bisa menerima jawaban lagi saat ini (sesi ditutup atau akses dikunci). ' +
+            'Hubungi pengawas Anda.'
           )
           return
         }
@@ -2679,12 +2767,27 @@ export default function SiswaUjianPage() {
       setPhase('SELESAI')
     } catch (err: unknown) {
       console.error(err)
-      setErrorEssay(err instanceof Error ? err.message : 'Gagal mengirim essay. Periksa koneksi dan coba lagi.')
+      const status = (err as { status?: number } | undefined)?.status
+      if (!status) {
+        // FIX (Essay masih bergantung koneksi saat "Kirim" — temuan #1):
+        // panggilan essay/kirim itu SENDIRI yang gagal karena jaringan
+        // (bukan sync di atas). Sync jawaban sudah berhasil di titik ini —
+        // essay itu sendiri sudah aman di server — hanya sinyal "kirim
+        // final"-nya yang belum sampai. Perlakukan sama seperti kasus di
+        // atas: daftarkan ke outbox, izinkan siswa keluar.
+        tundaEssayKeOutbox(currentSesi)
+        setEssayTertunda(true)
+        setEssaySelesaiDikirim(true)
+        setPhase('SELESAI')
+      } else {
+        setErrorEssay(err instanceof Error ? err.message : 'Gagal mengirim essay. Periksa koneksi dan coba lagi.')
+      }
     } finally {
       setSubmittingEssay(false)
       void isTimeout
     }
   }
+
 
   const formatWaktu = (detik: number) => {
     const m = Math.floor(detik / 60)
@@ -3098,7 +3201,7 @@ export default function SiswaUjianPage() {
               <p className="text-slate-800 text-base leading-relaxed mb-4 whitespace-pre-wrap">{soalEssayCurrent.teks}</p>
               {soalEssayCurrent.gambar_url && (
                 <div className="mb-6">
-                  <img
+                  <GambarSoalOffline
                     src={soalEssayCurrent.gambar_url}
                     alt="Gambar soal"
                     className="w-full max-w-lg mx-auto rounded-lg border border-slate-200 object-contain block"
@@ -3685,18 +3788,42 @@ export default function SiswaUjianPage() {
     return (
       <div className="max-w-md mx-auto animate-fade-in">
         <div className="card text-center">
-          <div className="w-20 h-20 bg-emerald-100 rounded-3xl flex items-center justify-center mx-auto mb-4">
-            <CheckCircle className="w-10 h-10 text-emerald-600" />
+          <div className={`w-20 h-20 rounded-3xl flex items-center justify-center mx-auto mb-4 ${essayTertunda ? 'bg-amber-100' : 'bg-emerald-100'}`}>
+            {essayTertunda ? (
+              <RefreshCw className="w-10 h-10 text-amber-600" />
+            ) : (
+              <CheckCircle className="w-10 h-10 text-emerald-600" />
+            )}
           </div>
-          <h2 className="text-xl font-bold text-slate-900 mb-1">Ujian Selesai</h2>
+          <h2 className="text-xl font-bold text-slate-900 mb-1">
+            {essayTertunda ? 'Ujian Tersimpan — Menunggu Koneksi' : 'Ujian Selesai'}
+          </h2>
           <p className="text-sm text-slate-500 mb-4">{essayInfo?.namaMapel}</p>
 
-          <div className="bg-brand-50 border border-brand-100 rounded-xl p-3 mb-4 text-sm text-brand-700">
-            Jawaban essay Anda sudah terkirim. Nilai akhir akan tersedia setelah guru mengoreksi
-            dan merilis nilai essay Anda.
-          </div>
+          {/* FIX (Essay masih bergantung koneksi saat "Kirim" — temuan #1 & #2):
+              essayTertunda berarti panggilan terakhir ke server gagal murni
+              karena jaringan. Jawaban sudah aman (tersimpan lokal & di paket
+              outbox permanen, lihat src/lib/ujian-outbox.ts) — siswa TIDAK
+              perlu menunggu di halaman ini, dan pengiriman final akan
+              dituntaskan otomatis di latar belakang begitu koneksi pulih,
+              termasuk kalau aplikasi ditutup sekarang. Statusnya bisa
+              dipantau/dipaksa kirim manual lewat menu "Pengiriman Ujian
+              Tertunda" (lihat src/app/siswa/pengiriman-tertunda). */}
+          {essayTertunda ? (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4 text-sm text-amber-700 text-left">
+              Jawaban essay Anda sudah tersimpan dengan aman, tetapi belum berhasil dikonfirmasi ke
+              server karena koneksi internet sedang bermasalah. Anda BOLEH keluar dari halaman ini —
+              sistem akan otomatis mencoba mengirimkannya kembali begitu koneksi pulih. Pantau
+              statusnya kapan saja lewat menu <strong>Pengiriman Ujian Tertunda</strong> di beranda.
+            </div>
+          ) : (
+            <div className="bg-brand-50 border border-brand-100 rounded-xl p-3 mb-4 text-sm text-brand-700">
+              Jawaban essay Anda sudah terkirim. Nilai akhir akan tersedia setelah guru mengoreksi
+              dan merilis nilai essay Anda.
+            </div>
+          )}
 
-          {essaySyncGagalSaatTimeout && (
+          {essaySyncGagalSaatTimeout && !essayTertunda && (
             <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4 text-sm text-amber-700 text-left">
               Waktu pengerjaan Anda habis dan sistem menutup essay secara otomatis, tetapi jawaban
               TERAKHIR Anda sempat gagal tersimpan karena masalah koneksi. Jawaban yang berhasil
@@ -3729,6 +3856,7 @@ export default function SiswaUjianPage() {
       </div>
     )
   }
+
 
   // ── Phase: SELESAI ────────────────────────────────────────────────────────
   if (phase === 'SELESAI' && hasilNilai) {
@@ -3964,7 +4092,7 @@ export default function SiswaUjianPage() {
           <p className="text-slate-800 text-base leading-relaxed mb-4">{soalCurrent.teks}</p>
           {(soalCurrent as any).gambar_pertanyaan && (
             <div className="mb-6">
-              <img
+              <GambarSoalOffline
                 src={(soalCurrent as any).gambar_pertanyaan}
                 alt="Gambar soal"
                 className="w-full max-w-lg mx-auto rounded-lg border border-slate-200 object-contain block"
@@ -3991,7 +4119,7 @@ export default function SiswaUjianPage() {
                   <span className="text-slate-800 flex flex-col gap-1">
                     {opsiText}
                     {(soalCurrent as any)[`gambar_opsi_${label.toLowerCase()}`] && (
-                      <img
+                      <GambarSoalOffline
                         src={(soalCurrent as any)[`gambar_opsi_${label.toLowerCase()}`]}
                         alt={`Gambar opsi ${label}`}
                         className="w-full max-w-xs rounded-lg border border-slate-200 mt-1 object-contain"
