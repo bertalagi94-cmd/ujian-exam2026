@@ -7,10 +7,13 @@ import {
   LayoutDashboard, Users, BookOpen, Calendar, ClipboardList,
   BarChart3, Settings, LogOut, Menu, X, ChevronRight,
   GraduationCap, School, Bell, User, FileText, Eye, ShieldAlert,
-  FileBarChart, CheckSquare
+  FileBarChart, CheckSquare, Send
 } from 'lucide-react'
 import { cn, apiRequest } from '@/lib/utils'
 import { AuthUser } from '@/types'
+// FIX (belum ada antrean "ujian belum terkirim" yang permanen — temuan #2):
+// dipakai untuk badge jumlah paket tertunda di menu SiswaSidebar.
+import { ambilSemuaPaketTertunda } from '@/lib/ujian-outbox'
 import { hapusCadanganLihatSebagai } from '@/lib/lihat-sebagai'
 
 interface NavItem {
@@ -509,6 +512,13 @@ export function KepsekSidebar() {
 
 export function SiswaSidebar() {
   const [adaJadwalHariIni, setAdaJadwalHariIni] = useState(true) // default true agar tidak kedip saat load
+  // FIX (belum ada antrean "ujian belum terkirim" yang permanen — temuan #2):
+  // badge jumlah paket tertunda di menu, dibaca dari outbox lokal (bukan
+  // state global) — konsisten dengan cara halaman /siswa/pengiriman-tertunda
+  // membacanya. Di-poll ringan supaya badge hilang otomatis begitu penjaga
+  // latar belakang (mulaiPenjagaOutbox, lihat siswa/layout.tsx) berhasil
+  // mengirim ulang paketnya, tanpa siswa perlu me-refresh halaman.
+  const [jumlahTertunda, setJumlahTertunda] = useState(0)
 
   useEffect(() => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
@@ -529,10 +539,23 @@ export function SiswaSidebar() {
       .catch(() => {})
   }, [])
 
+  useEffect(() => {
+    let nis: string | undefined
+    try { nis = JSON.parse(localStorage.getItem('user') ?? '{}').nis } catch { /* abaikan */ }
+    if (!nis) return
+    const cek = () => setJumlahTertunda(ambilSemuaPaketTertunda(nis!).length)
+    cek()
+    const interval = setInterval(cek, 5000)
+    return () => clearInterval(interval)
+  }, [])
+
   const navItems: NavItem[] = [
     { label: 'Beranda', href: '/siswa', icon: LayoutDashboard },
     { label: 'Kisi-kisi', href: '/siswa/kisi-kisi', icon: FileText },
     ...(adaJadwalHariIni ? [{ label: 'Mulai Ujian', href: '/siswa/ujian', icon: BookOpen } as NavItem] : []),
+    ...(jumlahTertunda > 0
+      ? [{ label: 'Pengiriman Tertunda', href: '/siswa/pengiriman-tertunda', icon: Send, badge: jumlahTertunda } as NavItem]
+      : []),
     { label: 'Nilai Saya', href: '/siswa/nilai', icon: BarChart3 },
     { label: 'Jadwal', href: '/siswa/jadwal', icon: Calendar },
     // FITUR (Halaman profil siswa): biodata + ganti password sendiri.
