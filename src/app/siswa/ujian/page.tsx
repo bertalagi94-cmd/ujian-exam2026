@@ -18,7 +18,13 @@ import {
 } from '@/lib/pg-offline-client'
 // FIX (Essay masih bergantung koneksi saat "Kirim" + belum ada outbox
 // permanen): lihat src/lib/ujian-outbox.ts untuk rasionalnya.
-import { simpanPaketTertunda, cobaKirimPaketTertunda } from '@/lib/ujian-outbox'
+import { simpanPaketTertunda, cobaKirimPaketTertunda, ambilPaketTertunda, hapusPaketTertunda } from '@/lib/ujian-outbox'
+import {
+  simpanPaketPgOffline,
+  cariPaketPgOfflineTerbaru,
+  hapusPaketPgOffline,
+} from '@/lib/pg-paket-offline'
+import { healthCheckStorage } from '@/lib/ujian-offline-storage'
 // FIX (gambar soal belum jadi asset offline): lihat src/lib/gambar-offline.ts.
 import { precacheGambarSoal } from '@/lib/gambar-offline'
 import { GambarSoalOffline } from '@/components/ui/GambarSoalOffline'
@@ -746,8 +752,14 @@ export default function SiswaUjianPage() {
         // amplop lokal — alih-alih layar "tidak ada ujian" tanpa jalan kembali.
         const statusHttp = (e as { status?: number } | undefined)?.status
         if (!statusHttp) {
+          // FIX BUG P0 #1 (audit): jangan jadikan /api/siswa/jadwal syarat
+          // resume. Coba pulihkan Essay offline dulu (kalau siswa memang
+          // sudah lewat fase PG), baru PG murni (recoverActiveExam) kalau
+          // tidak ada essay yang sedang dikerjakan offline.
           let dipulihkan = false
           try { dipulihkan = await pulihkanEssayOffline() } catch { /* abaikan */ }
+          if (dipulihkan) return
+          try { dipulihkan = await recoverActiveExam() } catch { /* abaikan */ }
           if (dipulihkan) return
         }
         setPhase('CEK_JADWAL')
@@ -1461,7 +1473,24 @@ export default function SiswaUjianPage() {
 
       if (!res.valid) { setError(res.message ?? 'Kode tidak valid'); return }
       setSesiInfo(res)
+      // FIX BUG P0 #1/#3 (audit): simpan paket soal PG ini secara lokal
+      // SEKARANG, sebelum ada kesempatan internet mati. Ini yang dibaca
+      // recoverActiveExam() kalau siswa refresh browser saat offline.
+      if (user?.nis) simpanPaketPgOffline(user.nis, res)
       await resumeJawaban(res.sesiId, user.nis)
+
+      // FIX BUG P0 #7/#8 (audit): DETECT STORAGE FAILURE sebelum START.
+      // Kalau penyimpanan durable tidak sehat, jangan diam-diam lanjut —
+      // siswa akan mengira jawabannya aman padahal tidak pernah tersimpan.
+      const storageCheck = await healthCheckStorage()
+      if (!storageCheck.ok) {
+        setError(
+          `Perangkat ini tidak dapat menyimpan jawaban secara aman (${storageCheck.error ?? 'penyimpanan lokal bermasalah'}). ` +
+          'Coba nonaktifkan mode privat/incognito atau bersihkan ruang penyimpanan browser, lalu masukkan kode lagi.'
+        )
+        return
+      }
+
       const terpakai1 = Math.floor((Date.now() - new Date(res.waktu_mulai).getTime()) / 1000)
       setSisaWaktu(Math.max(0, res.durasi * 60 - terpakai1))
       setWaktuTerpakai(terpakai1)
@@ -1575,6 +1604,7 @@ export default function SiswaUjianPage() {
         })
         if (!sesiRes.valid) { setError(sesiRes.message ?? 'Gagal masuk ujian'); setPhase('KODE'); return }
         setSesiInfo(sesiRes)
+        if (user?.nis) simpanPaketPgOffline(user.nis, sesiRes)
         await resumeJawaban(sesiRes.sesiId, user.nis)
 
         // FIX Bug #1: pakai waktu_mulai dari response verifikasi reset (waktu_mulai_awal)
@@ -1596,6 +1626,76 @@ export default function SiswaUjianPage() {
     } catch (err: unknown) {
       setKodeResetError(err instanceof Error ? err.message : 'Gagal memverifikasi kode')
     } finally { setKodeResetLoading(false) }
+  }
+
+  // ── FIX BUG P0 #1 (audit): recoverActiveExam() ────────────────────────────
+  // Boot recovery terpusat untuk PG saat /api/siswa/jadwal gagal karena
+  // jaringan mati. SEBELUMNYA jalur ini (lihat catch di cekJadwal()) hanya
+  // memanggil pulihkanEssayOffline() — kalau siswa masih murni di fase PG
+  // (belum sempat membuka essay), tidak ada jalan pulih sama sekali dan
+  // siswa terjebak di layar "Memeriksa jadwal ujian..." / CEK_JADWAL kosong.
+  //
+  // Alur: cari active session lokal (paket PG yang disimpan simpanPaketPgOffline)
+  // → validasi umur/timer → ambil jawaban lokal (backup) → ambil klaim
+  // selesai-offline (kalau ada) → ambil status outbox durable (kalau ada,
+  // artinya sudah pernah coba Selesai offline) → restore ke state React →
+  // resume TANPA server. /api/siswa/jadwal sama sekali tidak jadi syarat.
+  async function recoverActiveExam(): Promise<boolean> {
+    let nis: string | undefined
+    try { nis = JSON.parse(localStorage.getItem('user') ?? '{}').nis } catch { return false }
+    if (!nis) return false
+
+    const paket = cariPaketPgOfflineTerbaru<SesiInfo>(nis)
+    if (!paket) return false
+    const info = paket.sesiInfo
+
+    // ── ambil jawaban lokal + revisi (sumber sama dengan backup autosave) ──
+    const backup = loadBackup(info.sesiId, nis)
+    jawabanRef.current = backup.v
+    jawabanRevisiRef.current = backup.r ?? {}
+    jawabanTsRef.current = { ...backup.t }
+
+    // ── ambil timer metadata: hitung sisa waktu dari waktu_mulai tersimpan.
+    // Server tetap otoritas final saat reconnect (syncJawaban/handleSelesai
+    // akan divalidasi ulang oleh server); ini hanya supaya timer TETAP
+    // berjalan secara lokal selama offline, bukan berhenti/hilang.
+    const terpakai = info.waktu_mulai
+      ? Math.floor((Date.now() - new Date(info.waktu_mulai).getTime()) / 1000)
+      : 0
+    const sisa = info.durasi > 0 ? Math.max(0, info.durasi * 60 - terpakai) : 0
+
+    // ── ambil status sync/outbox: kalau sebelumnya sempat menekan "Selesai"
+    // offline (klaim tersimpan) ATAU sudah terdaftar di outbox durable,
+    // pulihkan status itu supaya modal & retry finalisasi otomatis aktif
+    // lagi (bukan diam-diam kembali ke layar menjawab soal seolah belum
+    // pernah menekan Selesai).
+    const klaim = ambilKlaimPgSelesaiOffline(info.sesiId, nis)
+    const paketOutbox = ambilPaketTertunda(info.sesiId, nis)
+
+    // ── restore PG ke state React, resume tanpa server ─────────────────────
+    sesiInfoRef.current = info
+    setSesiInfo(info)
+    setJawaban(backup.v)
+    setWaktuTerpakai(terpakai)
+    setSisaWaktu(sisa)
+    setJaringanBermasalah(true)
+    setPhase('UJIAN')
+
+    if (klaim || paketOutbox?.butuhFinalisasiPg) {
+      // Siswa sudah sempat menekan "Selesai" sebelum refresh — nyalakan lagi
+      // jalur retry finalisasi (effect pgSelesaiOfflinePending akan otomatis
+      // sync → ACK → /selesai begitu koneksi pulih; outbox global di
+      // layout.tsx juga sudah tahu lewat paketOutbox sebagai jaring pengaman
+      // kedua).
+      if (!klaim) simpanKlaimPgSelesaiOffline(info.sesiId, nis, new Date().toISOString())
+      setPgOfflineTerkonfirmasi(false)
+      setPgSelesaiOfflinePending(true)
+      setSyncFailInfo({ expected: Object.keys(backup.v).length, synced: 0 })
+      setShowSyncFailModal(true)
+    }
+
+    setTimeout(() => { requestFullscreen(document.documentElement).catch(() => {}) }, 100)
+    return true
   }
 
   // ── Pulihkan Essay yang sudah dibuka OFFLINE setelah halaman dimuat ulang ─
@@ -1733,6 +1833,26 @@ export default function SiswaUjianPage() {
     setJaringanBermasalah(true)
     setSyncFailInfo({ expected, synced })
     setShowSyncFailModal(true)
+
+    // FIX BUG P0 #2 (audit): daftarkan juga ke outbox DURABLE global
+    // (bukan cuma effect retry di halaman ini), supaya kalau siswa pindah
+    // halaman/tutup tab sebelum konek lagi, penjaga global di
+    // siswa/layout.tsx (mulaiPenjagaOutbox) TETAP menyelesaikan
+    // sync-jawaban → ACK → finalize untuk sesi ini. cobaKirimPaketTertunda
+    // sekarang sudah menjamin urutan sync-sebelum-finalize (lihat
+    // ujian-outbox.ts), jadi aman didaftarkan kapan pun jawaban lokal belum
+    // pasti tersinkron penuh.
+    if (currentSesi && nis) {
+      simpanPaketTertunda({
+        sesiId: currentSesi.sesiId,
+        nis,
+        deviceId: getDeviceId(),
+        namaMapel: currentSesi.namaMapel,
+        waktuSelesaiClaimIso: ambilKlaimPgSelesaiOffline(currentSesi.sesiId, nis),
+        butuhFinalisasiPg: true,
+        butuhKirimEssay: amplopTersediaRef.current,
+      })
+    }
   }
 
   function currentSesiPunyaKlaimOffline(): boolean {
@@ -1880,6 +2000,10 @@ export default function SiswaUjianPage() {
       // di server tapi baru dibuka ke siswa setelah essay dikirim (lihat
       // .../essay/kirim/route.ts). Backup jawaban PG boleh dibersihkan karena
       // jawaban PG sudah final di titik ini.
+      // PG sudah final di server (baik lanjut essay maupun langsung selesai)
+      // — paket offline PG (soal + konfigurasi lokal) tidak diperlukan lagi.
+      if (currentSesi && user?.nis) hapusPaketPgOffline(currentSesi.sesiId, user.nis)
+
       if (res.lanjutEssay) {
         if (currentSesi && user?.nis) clearBackup(currentSesi.sesiId, user.nis)
         setKkmAwal(res.kkm ?? 75)
@@ -1970,6 +2094,11 @@ export default function SiswaUjianPage() {
     const berhenti = (nis: string) => {
       selesai = true
       hapusKlaimPgSelesaiOffline(currentSesi.sesiId, nis)
+      // Effect lokal ini sudah berhasil — hapus juga entri di outbox durable
+      // global (lihat pendaftaran di amankanPgOffline) supaya penjaga
+      // background di layout.tsx tidak mencoba memanggil /selesai lagi.
+      hapusPaketTertunda(currentSesi.sesiId, nis)
+      hapusPaketPgOffline(currentSesi.sesiId, nis)
       setPgSelesaiOfflinePending(false)
       clearInterval(id)
     }
