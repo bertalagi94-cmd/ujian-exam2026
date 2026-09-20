@@ -186,11 +186,22 @@ interface BackupJawaban<T extends Record<string, string> = JawabanMap> {
 function backupKey(sesiId: string, nis: string) {
   return `ujian_backup_${sesiId}_${nis}`
 }
-function saveBackup(sesiId: string, nis: string, jawaban: JawabanMap, ts: Record<string, number>, revisi?: Record<string, number>) {
+// FIX BUG P0 #8 (audit): dulu kegagalan tulis backup jawaban PG — yang
+// paling kritis di seluruh alur offline — DIAM-DIAM diabaikan
+// (`catch { /* abaikan */ }`). Kalau localStorage penuh/diblokir DI TENGAH
+// ujian (healthCheckStorage() di awal tidak lagi menjamin ini terus sehat
+// sepanjang ujian), siswa akan mengira jawabannya aman padahal tidak pernah
+// tersimpan sama sekali sejak saat itu. Sekarang saveBackup() melaporkan
+// berhasil/tidaknya ke pemanggil, supaya UI bisa menampilkan peringatan
+// eksplisit alih-alih menelan kegagalan begitu saja.
+function saveBackup(sesiId: string, nis: string, jawaban: JawabanMap, ts: Record<string, number>, revisi?: Record<string, number>): boolean {
   try {
     const payload: BackupJawaban = { v: jawaban, t: ts, r: revisi }
     localStorage.setItem(backupKey(sesiId, nis), JSON.stringify(payload))
-  } catch { /* abaikan */ }
+    return true
+  } catch {
+    return false
+  }
 }
 function loadBackup(sesiId: string, nis: string): BackupJawaban {
   try {
@@ -293,6 +304,15 @@ export default function SiswaUjianPage() {
   const [sisaWaktu, setSisaWaktu] = useState(0)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  // FIX BUG P0 #4 (audit): pesan progres saat gambar soal WAJIB diunduh
+  // penuh SEBELUM siswa diizinkan melihat halaman UJIAN (readiness gate),
+  // menggantikan pola lama `void precacheGambarSoal(urls)` yang tidak
+  // pernah ditunggu sama sekali. Kosong berarti tidak sedang menyiapkan aset.
+  const [persiapanAsetPesan, setPersiapanAsetPesan] = useState('')
+  // FIX BUG P0 #8 (audit): ditampilkan sebagai peringatan permanen (bukan
+  // ditelan diam-diam) begitu backup jawaban lokal (PG atau essay) gagal
+  // ditulis — lihat saveBackup() dan useEffect backup essay di bawah.
+  const [backupLokalGagal, setBackupLokalGagal] = useState(false)
   const [confirmSelesai, setConfirmSelesai] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [hasilNilai, setHasilNilai] = useState<HasilAkhir | null>(null)
@@ -608,7 +628,12 @@ export default function SiswaUjianPage() {
       try {
         const payload: BackupJawaban<JawabanEssayMap> = { v: jawabanEssay, t: jawabanEssayTsRef.current }
         localStorage.setItem(`ujian_essay_backup_${currentSesi.sesiId}_${user.nis}`, JSON.stringify(payload))
-      } catch { /* abaikan */ }
+        setBackupLokalGagal(false)
+      } catch {
+        // FIX BUG P0 #8 (audit): jangan diam-diam diabaikan — tampilkan
+        // peringatan eksplisit (lihat banner backupLokalGagal di render).
+        setBackupLokalGagal(true)
+      }
     }
   }, [jawabanEssay, phase, essayInfo])
 
@@ -630,7 +655,12 @@ export default function SiswaUjianPage() {
   useEffect(() => {
     if (phase !== 'UJIAN' || !sesiInfo) return
     const user = JSON.parse(localStorage.getItem('user') ?? '{}')
-    if (user?.nis) saveBackup(sesiInfo.sesiId, user.nis, jawaban, jawabanTsRef.current, jawabanRevisiRef.current)
+    if (user?.nis) {
+      const ok = saveBackup(sesiInfo.sesiId, user.nis, jawaban, jawabanTsRef.current, jawabanRevisiRef.current)
+      // FIX BUG P0 #8 (audit): surface kegagalan backup jawaban PG — ini
+      // data paling kritis di seluruh alur offline.
+      setBackupLokalGagal(!ok)
+    }
   }, [jawaban, phase, sesiInfo])
 
   // ── Peringatkan siswa jika mencoba menutup/refresh tab saat masih ada
@@ -1449,6 +1479,57 @@ export default function SiswaUjianPage() {
     } catch (e) { console.warn(e) }
   }
 
+  // FIX BUG P0 #4 (audit): GERBANG READINESS gambar soal SEBELUM START.
+  // Sebelumnya precacheGambarSoal() dipanggil dengan `void ...` di dalam
+  // useEffect [sesiInfo] — artinya begitu soal diterima, phase langsung
+  // pindah ke 'UJIAN' TANPA menunggu unduhan gambar selesai sama sekali.
+  // Kalau koneksi putus tepat setelah START, gambar yang belum sempat
+  // terunduh jadi hilang (fallback ke internet, lihat BUG P0 #5, sudah
+  // diperbaiki terpisah di gambar-offline.ts/GambarSoalOffline.tsx — tapi
+  // itu cuma jaring pengaman, bukan pengganti readiness gate ini).
+  //
+  // Fungsi ini WAJIB di-`await` oleh pemanggil (handleMasukUjian &
+  // handleVerifikasiReset) SEBELUM setPhase('UJIAN'). Karena titik ini
+  // hanya tercapai lewat respons sukses dari /api/siswa/ujian/validasi
+  // (butuh jaringan), aman diasumsikan online — kalau precache tetap gagal
+  // setelah beberapa percobaan, tampilkan error yang jelas dan JANGAN
+  // lanjut ke fase UJIAN begitu saja (siswa boleh menekan tombol lagi
+  // untuk mencoba ulang, bukan diam-diam kehilangan gambar soal).
+  async function pastikanGambarSiapSebelumMulai(info: SesiInfo): Promise<boolean> {
+    const urls: (string | null | undefined)[] = []
+    for (const s of info.soalList ?? []) {
+      const anySoal = s as unknown as Record<string, string | null | undefined>
+      urls.push(anySoal.gambar_pertanyaan)
+      for (const label of ['a', 'b', 'c', 'd', 'e']) urls.push(anySoal[`gambar_opsi_${label}`])
+    }
+    const unik = urls.filter((u): u is string => !!u)
+    if (unik.length === 0) return true
+
+    const MAKS_PERCOBAAN = 3
+    for (let percobaan = 1; percobaan <= MAKS_PERCOBAAN; percobaan++) {
+      setPersiapanAsetPesan(
+        percobaan === 1
+          ? `Menyiapkan gambar soal (0/${unik.length})…`
+          : `Mencoba lagi mengunduh gambar soal… (percobaan ${percobaan}/${MAKS_PERCOBAAN})`
+      )
+      const hasil = await precacheGambarSoal(unik)
+      if (hasil.siap) {
+        setPersiapanAsetPesan('')
+        return true
+      }
+      if (percobaan < MAKS_PERCOBAAN) {
+        await new Promise((resolve) => setTimeout(resolve, 1500))
+      }
+    }
+    setPersiapanAsetPesan('')
+    setError(
+      'Sebagian gambar soal gagal diunduh dan koneksi tampaknya tidak stabil. ' +
+      'Periksa koneksi internet lalu tekan "Masuk Ujian" lagi — jangan lanjutkan ' +
+      'sebelum semua gambar siap, supaya soal tidak hilang gambarnya saat offline nanti.'
+    )
+    return false
+  }
+
   async function handleMasukUjian() {
     if (!kode.trim()) { setError('Masukkan kode sesi terlebih dahulu'); return }
     setLoading(true); setError('')
@@ -1506,6 +1587,12 @@ export default function SiswaUjianPage() {
         )
         return
       }
+
+      // FIX BUG P0 #4 (audit): WAJIB tunggu gambar soal siap SEBELUM
+      // membuka fase UJIAN. Kalau gagal, jangan lanjut — biarkan siswa
+      // menekan "Masuk Ujian" lagi (state kode/sesi tetap terisi).
+      const gambarSiap = await pastikanGambarSiapSebelumMulai(res)
+      if (!gambarSiap) return
 
       const terpakai1 = Math.floor((trustedNow() - new Date(res.waktu_mulai).getTime()) / 1000)
       setSisaWaktu(Math.max(0, res.durasi * 60 - terpakai1))
@@ -1635,6 +1722,11 @@ export default function SiswaUjianPage() {
         // berikutnya (keluar fullscreen, ganti tab, blur) kembali aktif.
         // Tanpa ini, semua pelanggaran setelah reset tidak akan terdeteksi.
         pelanggaranActiveRef.current = false
+
+        // FIX BUG P0 #4 (audit): sama seperti handleMasukUjian — jangan
+        // buka fase UJIAN sebelum gambar soal ini juga siap.
+        const gambarSiap = await pastikanGambarSiapSebelumMulai(sesiRes)
+        if (!gambarSiap) { setPhase('KODE'); return }
 
         setPhase('UJIAN')
         setTimeout(() => requestFullscreen(document.documentElement).catch(() => {}), 100)
@@ -3338,6 +3430,19 @@ export default function SiswaUjianPage() {
 
           {fsWarningBannerJSX}
 
+          {/* FIX BUG P0 #8 (audit): padanan essay dari banner di fase UJIAN
+              PG — lihat komentar lengkap di sana. */}
+          {backupLokalGagal && modeJawaban === 'DIGITAL' && (
+            <div className="border border-red-200 bg-red-50 rounded-xl px-4 py-3 text-sm text-red-700 flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+              <span>
+                Penyimpanan cadangan lokal di perangkat ini gagal (kemungkinan penuh atau
+                mode privat). Pastikan internet tetap stabil sampai status berubah menjadi
+                &quot;Tersimpan di server&quot;.
+              </span>
+            </div>
+          )}
+
           {errorEssay && (
             <div className="alert-error">
               <AlertTriangle className="w-4 h-4 flex-shrink-0" />
@@ -3892,6 +3997,10 @@ export default function SiswaUjianPage() {
             {loading ? <Spinner size="sm" /> : 'Masuk Ujian'}
           </button>
 
+          {loading && persiapanAsetPesan && (
+            <p className="text-xs text-slate-400 mt-2">{persiapanAsetPesan}</p>
+          )}
+
           <button onClick={() => { setError(''); setKode(''); setPhase('PERSIAPAN') }}
             className="btn-ghost w-full justify-center mt-2 text-sm text-slate-400">
             ← Kembali
@@ -3948,6 +4057,10 @@ export default function SiswaUjianPage() {
           <button onClick={handleVerifikasiReset} disabled={kodeResetLoading} className="btn-primary w-full justify-center py-3">
             {kodeResetLoading ? <Spinner size="sm" /> : 'Lanjutkan Ujian'}
           </button>
+
+          {kodeResetLoading && persiapanAsetPesan && (
+            <p className="text-xs text-slate-400 mt-2">{persiapanAsetPesan}</p>
+          )}
 
           <p className="mt-4 text-xs text-slate-400">
             Hubungi pengawas di ruangan untuk mendapatkan kode reset.
@@ -4226,6 +4339,23 @@ export default function SiswaUjianPage() {
             {syncStatus === 'idle' && 'Belum ada jawaban yang disimpan'}
           </div>
         </div>
+
+        {/* FIX BUG P0 #8 (audit): dulu kegagalan tulis backup jawaban lokal
+            (localStorage penuh/diblokir DI TENGAH ujian) diam-diam diabaikan
+            — siswa mengira jawabannya aman padahal tidak pernah tersimpan
+            sejak saat itu. Sekarang ditampilkan sebagai peringatan permanen
+            selama kegagalan berlanjut (lihat saveBackup()/backupLokalGagal). */}
+        {backupLokalGagal && (
+          <div className="border border-red-200 bg-red-50 rounded-xl px-4 py-3 text-sm text-red-700 flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+            <span>
+              Penyimpanan cadangan lokal di perangkat ini gagal (kemungkinan penuh atau
+              mode privat). Jawaban Anda mungkin tidak tersimpan di perangkat ini jika
+              koneksi terputus — pastikan internet tetap stabil sampai status berubah
+              menjadi &quot;Tersimpan di server&quot;.
+            </span>
+          </div>
+        )}
 
         {/* FIX: banner peringatan mode layar penuh gagal aktif — sebelumnya
             kegagalan requestFullscreen() dibuang diam-diam tanpa jejak apapun
