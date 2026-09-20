@@ -22,6 +22,7 @@ import {
 function labelStatus(status: StatusPaketTertunda): { teks: string; kelas: string } {
   switch (status) {
     case 'MENGIRIM': return { teks: 'Mengirim…', kelas: 'bg-brand-50 text-brand-700 border-brand-100' }
+    case 'MENYINKRONKAN': return { teks: 'Menyinkronkan jawaban…', kelas: 'bg-brand-50 text-brand-700 border-brand-100' }
     case 'MENUNGGU_JARINGAN': return { teks: 'Menunggu koneksi', kelas: 'bg-amber-50 text-amber-700 border-amber-100' }
     case 'GAGAL': return { teks: 'Ditolak server — hubungi pengawas', kelas: 'bg-red-50 text-red-700 border-red-100' }
     case 'TERKIRIM': return { teks: 'Terkirim', kelas: 'bg-emerald-50 text-emerald-700 border-emerald-100' }
