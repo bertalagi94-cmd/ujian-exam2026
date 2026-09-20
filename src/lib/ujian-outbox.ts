@@ -336,6 +336,7 @@ export async function cobaKirimPaketTertunda(
         body: JSON.stringify({
           sesiId: current.sesiId,
           nis: current.nis,
+          deviceId: current.deviceId,
           isTimeout: false,
           ...(current.waktuSelesaiClaimIso ? { waktuSelesaiClient: current.waktuSelesaiClaimIso } : {}),
         }),
