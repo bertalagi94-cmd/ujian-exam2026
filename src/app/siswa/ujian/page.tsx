@@ -1778,7 +1778,9 @@ export default function SiswaUjianPage() {
     // lagi (bukan diam-diam kembali ke layar menjawab soal seolah belum
     // pernah menekan Selesai).
     const klaim = ambilKlaimPgSelesaiOffline(info.sesiId, nis)
-    const paketOutbox = ambilPaketTertunda(info.sesiId, nis)
+    // FIX AUDIT P0 #7: ambilPaketTertunda sekarang async (IndexedDB) — lihat
+    // ujian-outbox.ts. recoverActiveExam() sudah async, jadi tinggal await.
+    const paketOutbox = await ambilPaketTertunda(info.sesiId, nis)
 
     // ── restore PG ke state React, resume tanpa server ─────────────────────
     sesiInfoRef.current = info
@@ -1951,7 +1953,12 @@ export default function SiswaUjianPage() {
     // ujian-outbox.ts), jadi aman didaftarkan kapan pun jawaban lokal belum
     // pasti tersinkron penuh.
     if (currentSesi && nis) {
-      simpanPaketTertunda({
+      // FIX AUDIT P0 #7: simpanPaketTertunda sekarang async (IndexedDB).
+      // amankanPgOffline() sendiri sengaja TETAP sinkron (state setter di
+      // atas harus langsung jalan untuk menampilkan modal), jadi pendaftaran
+      // ke outbox durable ini fire-and-forget — kegagalannya sendiri sudah
+      // ditangani di dalam simpanPaketTertunda (fallback localStorage).
+      void simpanPaketTertunda({
         sesiId: currentSesi.sesiId,
         nis,
         deviceId: getDeviceId(),
@@ -2205,7 +2212,9 @@ export default function SiswaUjianPage() {
       // Effect lokal ini sudah berhasil — hapus juga entri di outbox durable
       // global (lihat pendaftaran di amankanPgOffline) supaya penjaga
       // background di layout.tsx tidak mencoba memanggil /selesai lagi.
-      hapusPaketTertunda(currentSesi.sesiId, nis)
+      // FIX AUDIT P0 #7: hapusPaketTertunda sekarang async (IndexedDB) —
+      // fire-and-forget aman di sini, `berhenti()` sendiri tetap sinkron.
+      void hapusPaketTertunda(currentSesi.sesiId, nis)
       hapusPaketPgOffline(currentSesi.sesiId, nis)
       setPgSelesaiOfflinePending(false)
       clearInterval(id)
@@ -2942,12 +2951,15 @@ export default function SiswaUjianPage() {
   // JUGA belum pernah berhasil (klaim offline PG masih ada), outbox akan
   // menuntaskan KEDUANYA secara berurutan (PG dulu, baru essay) saat retry —
   // bukan cuma essay-nya saja.
+  // FIX AUDIT P0 #7: simpanPaketTertunda sekarang async (IndexedDB);
+  // tundaEssayKeOutbox() sendiri tetap sinkron untuk pemanggilnya, fire-and-
+  // forget di sini aman (kegagalan ditangani di dalam simpanPaketTertunda).
   function tundaEssayKeOutbox(currentSesi: NonNullable<typeof sesiInfoRef.current>) {
     let nis: string | undefined
     try { nis = JSON.parse(localStorage.getItem('user') ?? '{}').nis } catch { /* abaikan */ }
     if (!nis) return
     const klaimPg = ambilKlaimPgSelesaiOffline(currentSesi.sesiId, nis)
-    simpanPaketTertunda({
+    void simpanPaketTertunda({
       sesiId: currentSesi.sesiId,
       nis,
       deviceId: getDeviceId(),
