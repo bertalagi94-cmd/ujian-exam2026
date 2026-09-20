@@ -28,6 +28,7 @@
 // route.ts) — outbox ini murni pembungkus client yang boleh memanggil
 // keduanya berkali-kali dengan aman sampai mendapat ACK.
 
+import { ambilStatusOffline, hapusStatusOffline } from '@/lib/essay-amplop-client'
 import { apiRequest } from '@/lib/utils'
 import { outboxPut, outboxGet, outboxDelete, outboxGetAllValues } from '@/lib/ujian-offline-storage'
 
@@ -306,6 +307,66 @@ function sedangDiprosesAktif(paket: PaketUjianTertunda): boolean {
   return statusSedangBerjalan(paket.status) && !paketMengirimMacet(paket)
 }
 
+// Baca backup jawaban essay lokal yang ditulis halaman ujian (mode DIGITAL) di
+// localStorage. Format baru {v, t} maupun format lama (flat map) didukung.
+function bacaBackupEssayLokal(sesiId: string, nis: string): Record<string, string> {
+  try {
+    const raw = localStorage.getItem(`ujian_essay_backup_${sesiId}_${nis}`)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw)
+    const peta = parsed && typeof parsed === 'object' && 'v' in parsed ? parsed.v : parsed
+    return peta && typeof peta === 'object' ? (peta as Record<string, string>) : {}
+  } catch {
+    return {}
+  }
+}
+
+/**
+ * Langkah WAJIB sebelum /essay/kirim (FIX audit, jalur darurat offline):
+ * saat siswa mengerjakan essay lewat KODE DARURAT tanpa internet, server belum
+ * tahu apa-apa (status_essay masih BELUM_MULAI) dan jawaban essay baru ada di
+ * perangkat. Efek rekonsiliasi di halaman ujian hanya berjalan selama fase
+ * ESSAY_KERJAKAN -- begitu siswa menekan Kirim (offline) dan halaman pindah ke
+ * SELESAI, efek itu berhenti, padahal outbox ini kemudian memanggil
+ * /essay/kirim langsung -> server menolak 409 "Essay belum dimulai" dan paket
+ * jadi GAGAL, sementara jawaban essay lokalnya tidak pernah terkirim.
+ * Urutan yang benar sesudah PG final:
+ *   1) laporkan pembukaan darurat (essay/mulai + kode) -> status MENGERJAKAN
+ *   2) sinkronkan jawaban essay lokal (essay/jawab)
+ *   3) baru /essay/kirim (dipanggil pemanggil fungsi ini)
+ * Langkah 1 dilewati kalau tidak ada bukti pembukaan offline yang tersimpan
+ * (essay dibuka online biasa), langkah 2 dilewati kalau tidak ada jawaban lokal.
+ */
+async function siapkanEssayUntukKirim(paket: PaketUjianTertunda): Promise<void> {
+  const statusOffline = ambilStatusOffline(paket.sesiId, paket.nis)
+  if (statusOffline.kode) {
+    await apiRequest('/api/siswa/ujian/essay/mulai', {
+      method: 'POST',
+      body: JSON.stringify({
+        sesiId: paket.sesiId,
+        deviceId: paket.deviceId,
+        kodeDarurat: statusOffline.kode,
+        waktuMulaiClient: statusOffline.waktuMulaiClient,
+        percobaanSalah: statusOffline.salah,
+      }),
+    })
+    hapusStatusOffline(paket.sesiId, paket.nis)
+  }
+
+  const entries = Object.entries(bacaBackupEssayLokal(paket.sesiId, paket.nis))
+    .filter(([, teks]) => typeof teks === 'string')
+  if (entries.length > 0) {
+    await apiRequest('/api/siswa/ujian/essay/jawab', {
+      method: 'POST',
+      body: JSON.stringify({
+        sesiId: paket.sesiId,
+        jawaban: entries.map(([soal_essay_id, jawaban_teks]) => ({ soal_essay_id, jawaban_teks })),
+        deviceId: paket.deviceId,
+      }),
+    })
+  }
+}
+
 /**
  * Coba kirim SATU paket sampai tuntas: finalisasi PG dulu (kalau masih
  * perlu), baru essay/kirim (kalau sesi ini punya essay). Urutan ini WAJIB —
@@ -367,6 +428,7 @@ export async function cobaKirimPaketTertunda(
     }
 
     if (current.butuhKirimEssay) {
+      await siapkanEssayUntukKirim(current)
       await apiRequest('/api/siswa/ujian/essay/kirim', {
         method: 'POST',
         body: JSON.stringify({ sesiId: current.sesiId, deviceId: current.deviceId }),
@@ -388,7 +450,10 @@ export async function cobaKirimPaketTertunda(
     // berhasil beberapa detik kemudian. Sekarang daftar status sementara ini
     // sama dengan yang sudah dipakai pastikanJawabanTersinkron() di atas
     // (plus 408/429), sehingga dicoba lagi oleh penjaga latar belakang.
-    const sementara = !status || status >= 500 || status === 408 || status === 429
+    // 403 dengan data.sementara = siswa sedang TERKUNCI/RESET (dari essay/mulai),
+    // bisa pulih sendiri setelah pengawas menanganinya -- jangan GAGAL permanen.
+    const sementara403 = (err as { data?: { sementara?: boolean } } | undefined)?.data?.sementara === true
+    const sementara = !status || status >= 500 || status === 408 || status === 429 || sementara403
     if (sementara) {
       await simpanPaketTertunda({
         ...current,
