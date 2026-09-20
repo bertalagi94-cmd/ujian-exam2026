@@ -4,6 +4,7 @@ import { requireRole } from '@/lib/auth'
 import { generateId } from '@/lib/utils'
 import { ambilDataSesiUntukPenilaian, hitungHasilPenilaian } from '@/lib/penilaian-ujian'
 import { catatAktivitas } from '@/lib/aktivitas'
+import { klaimkanWaktu } from '@/lib/klaim-offline'
 
 export async function POST(req: NextRequest) {
   const auth = requireRole(req, ['SISWA'])
@@ -11,7 +12,14 @@ export async function POST(req: NextRequest) {
   const { user } = auth
 
   const db = createAdminClient()
-  const { sesiId, nis } = await req.json()
+  // `waktuSelesaiClient` HANYA diisi ketika client menyelesaikan PG secara
+  // offline (lihat src/lib/ujian-lokal.ts) dan baru berhasil memanggil
+  // endpoint ini setelah koneksi pulih. Nilai PG TIDAK PERNAH dihitung dari
+  // klaim ini -- selalu dari baris `jawaban` yang sebenarnya ada di server
+  // (lihat hitungHasilPenilaian di bawah) -- klaim ini murni untuk jejak
+  // audit ("kapan siswa MENGAKU selesai") dan tidak bisa dipakai untuk
+  // memalsukan nilai.
+  const { sesiId, nis, waktuSelesaiClient } = await req.json()
 
   if (nis !== user.nis) return NextResponse.json({ error: 'NIS tidak sesuai' }, { status: 403 })
 
@@ -197,6 +205,21 @@ export async function POST(req: NextRequest) {
   // akan menandai status = SELESAI (lihat src/app/api/siswa/ujian/essay/kirim/route.ts).
   // Di sini kita hanya menandai status_essay = BELUM_MULAI supaya endpoint
   // .../essay/info tahu siswa sudah boleh melihat halaman info essay.
+  //
+  // FIX BUG P0 (offline PG -> Essay bisa merusak status_essay yang sudah
+  // maju): endpoint ini bisa terlambat sampai ke server -- misalnya siswa
+  // menyelesaikan PG sambil offline, lalu essay/mulai (jalur darurat, lihat
+  // essay/mulai/route.ts) SUDAH sempat dipanggil & berhasil duluan begitu
+  // koneksi baru sebagian pulih (status_essay sudah MENGERJAKAN, bahkan bisa
+  // SUDAH_KIRIM kalau reconnect terjadi belakangan), dan request submit PG
+  // ini baru menyusul setelah itu. Sebelumnya update ini SELALU menimpa
+  // status_essay jadi 'BELUM_MULAI' tanpa syarat -- kalau itu terjadi
+  // setelah essay sudah maju, statusnya mundur lagi padahal siswa sudah
+  // mengerjakan/mengirim essay. Sekarang guard-nya sama seperti pola
+  // idempotent .or(status_essay.eq.BELUM_MULAI,status_essay.is.null) yang
+  // sudah dipakai di essay/mulai/route.ts: hanya tulis status_essay kalau
+  // baris itu MEMANG masih di keadaan awal (belum pernah maju ke fase essay
+  // sama sekali).
   const updateSiswaUjian = essayAktif
     ? { status_essay: 'BELUM_MULAI' }
     : { status: 'SELESAI', waktu_selesai: new Date().toISOString() }
@@ -205,12 +228,34 @@ export async function POST(req: NextRequest) {
   // FIX: pakai upsert+ignoreDuplicates (bukan insert biasa) supaya kalau ada
   // race condition (misal klik 2x atau retry jaringan) tidak menghasilkan
   // error/duplikat baris nilai — konsisten dengan UNIQUE(sesi_id, nis) di skema.
+  // Catat klaim offline sebagai audit trail (kolom ditambahkan di migrasi
+  // 20_pg_offline_dan_revisi_jawaban.sql). Tidak memengaruhi nilai atau
+  // status apa pun -- murni untuk ditinjau guru/pengawas kalau ada keraguan.
+  let updatePayload: Record<string, unknown> = updateSiswaUjian
+  if (typeof waktuSelesaiClient === 'string') {
+    const batasBawahMs = siswaUjianCheck?.waktu_mulai_awal
+      ? new Date(siswaUjianCheck.waktu_mulai_awal).getTime()
+      : null
+    const klaim = klaimkanWaktu(waktuSelesaiClient, batasBawahMs)
+    updatePayload = {
+      ...updateSiswaUjian,
+      pg_selesai_offline: true,
+      pg_waktu_selesai_klaim: new Date(klaim.waktuMs).toISOString(),
+      pg_offline_audit: {
+        klaimMentah: waktuSelesaiClient,
+        anomali: klaim.anomali,
+        alasanAnomali: klaim.alasanAnomali ?? null,
+        direkonsiliasiPada: new Date().toISOString(),
+      },
+    }
+  }
+
+  const updateSiswaUjianQuery = db.from('siswa_ujian').update(updatePayload).eq('sesi_id', sesiId).eq('nis', nis)
   await Promise.all([
     db.from('nilai').upsert(nilaiData, { onConflict: 'sesi_id,nis', ignoreDuplicates: true }),
-    db.from('siswa_ujian')
-      .update(updateSiswaUjian)
-      .eq('sesi_id', sesiId)
-      .eq('nis', nis),
+    essayAktif
+      ? updateSiswaUjianQuery.or('status_essay.eq.BELUM_MULAI,status_essay.is.null')
+      : updateSiswaUjianQuery,
   ])
 
   // Catat "submit ujian" — kode di atas hanya sampai sini kalau ini
