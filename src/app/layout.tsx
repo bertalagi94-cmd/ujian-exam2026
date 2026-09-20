@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next'
 import '../styles/globals.css'
 import { createAdminClient } from '@/lib/supabase'
 import { cachedFetch } from '@/lib/cache'
+import { ServiceWorkerRegister } from '@/components/shared/ServiceWorkerRegister'
 
 // FIX (judul tab tidak generik): sebelumnya title/description di-hardcode ke
 // nama satu sekolah ("MTS Alkhairaat Tatakalai"), padahal aplikasi ini dipakai
@@ -48,7 +49,10 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="id">
-      <body>{children}</body>
+      <body>
+        <ServiceWorkerRegister />
+        {children}
+      </body>
     </html>
   )
 }
