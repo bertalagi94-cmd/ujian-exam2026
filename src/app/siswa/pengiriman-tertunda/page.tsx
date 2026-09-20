@@ -12,10 +12,11 @@
 // interval berikutnya.
 
 import { useEffect, useState, useCallback } from 'react'
-import { RefreshCw, Send, CheckCircle2, AlertTriangle, Inbox } from 'lucide-react'
+import { RefreshCw, Send, CheckCircle2, AlertTriangle, Inbox, Trash2 } from 'lucide-react'
 import { EmptyState } from '@/components/ui'
 import {
-  ambilSemuaPaketTertunda, cobaKirimPaketTertunda,
+  ambilSemuaPaketTertunda, cobaKirimPaketTertunda, hapusPaketTertunda,
+  paketMengirimMacet, statusSedangBerjalan,
   type PaketUjianTertunda, type StatusPaketTertunda,
 } from '@/lib/ujian-outbox'
 
@@ -61,6 +62,19 @@ export default function PengirimanTertundaPage() {
     setMengirimId(null)
   }
 
+  // Hapus paket yang tidak akan pernah berhasil (ditolak server / macet).
+  // Yang dihapus HANYA antrean pengiriman di perangkat ini -- jawaban yang
+  // sudah tersimpan di server tidak tersentuh.
+  async function hapusPaket(paket: PaketUjianTertunda) {
+    const yakin = window.confirm(
+      `Hapus "${paket.namaMapel}" dari daftar pengiriman tertunda?\n\n` +
+      'Ini hanya menghapus antrean di perangkat ini. Jawaban yang sudah tersimpan di server tidak terhapus.'
+    )
+    if (!yakin) return
+    await hapusPaketTertunda(paket.sesiId, paket.nis)
+    if (nis) muatUlang(nis)
+  }
+
   return (
     <div className="max-w-2xl mx-auto animate-fade-in">
       <div className="mb-6">
@@ -81,8 +95,13 @@ export default function PengirimanTertundaPage() {
       ) : (
         <div className="space-y-3">
           {daftar.map((p) => {
-            const status = labelStatus(p.status)
-            const bisaKirimManual = p.status !== 'MENGIRIM'
+            const macet = paketMengirimMacet(p)
+            const status = macet
+              ? { teks: 'Macet — coba kirim ulang atau hapus', kelas: 'bg-amber-50 text-amber-700 border-amber-100' }
+              : labelStatus(p.status)
+            // Tombol manual mati hanya selama percobaan MASIH berjalan sungguhan.
+            const bisaKirimManual = !statusSedangBerjalan(p.status) || macet
+            const bisaHapus = p.status === 'GAGAL' || macet
             return (
               <div key={p.sesiId} className="card flex items-center justify-between gap-4">
                 <div className="min-w-0">
@@ -96,18 +115,30 @@ export default function PengirimanTertundaPage() {
                     <p className="text-xs text-slate-400 mt-1">{p.pesanTerakhir}</p>
                   )}
                 </div>
-                <button
-                  onClick={() => kirimSekarang(p)}
-                  disabled={!bisaKirimManual || mengirimId === p.sesiId}
-                  className="btn-primary shrink-0 !py-2 !px-3 text-sm"
-                >
-                  {mengirimId === p.sesiId ? (
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Send className="w-4 h-4" />
+                <div className="flex items-center gap-2 shrink-0">
+                  {bisaHapus && (
+                    <button
+                      onClick={() => hapusPaket(p)}
+                      className="btn-secondary !py-2 !px-3 text-sm"
+                      title="Hapus dari daftar"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      Hapus
+                    </button>
                   )}
-                  Kirim Sekarang
-                </button>
+                  <button
+                    onClick={() => kirimSekarang(p)}
+                    disabled={!bisaKirimManual || mengirimId === p.sesiId}
+                    className="btn-primary !py-2 !px-3 text-sm"
+                  >
+                    {mengirimId === p.sesiId ? (
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Send className="w-4 h-4" />
+                    )}
+                    Kirim Sekarang
+                  </button>
+                </div>
               </div>
             )
           })}
