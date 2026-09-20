@@ -25,6 +25,7 @@ import {
   hapusPaketPgOffline,
 } from '@/lib/pg-paket-offline'
 import { healthCheckStorage } from '@/lib/ujian-offline-storage'
+import { trustedNow } from '@/lib/clock-offset'
 // FIX (gambar soal belum jadi asset offline): lihat src/lib/gambar-offline.ts.
 import { precacheGambarSoal } from '@/lib/gambar-offline'
 import { GambarSoalOffline } from '@/components/ui/GambarSoalOffline'
@@ -637,14 +638,29 @@ export default function SiswaUjianPage() {
   useEffect(() => {
     if (phase !== 'UJIAN' && phase !== 'ESSAY_INFO' && phase !== 'ESSAY_KERJAKAN') return
     function onBeforeUnload(e: BeforeUnloadEvent) {
-      if (syncStatus === 'error' || syncStatus === 'syncing' || essaySyncStatus === 'error' || essaySyncStatus === 'syncing') {
+      // PERBAIKAN AUDIT P1 #13: sebelumnya hanya mengandalkan syncStatus
+      // ('error'/'syncing'). Skenario yang lolos: jawaban 1 & 2 sudah
+      // 'synced', siswa menjawab soal BARU (localRevision naik) tepat
+      // sebelum autosync 30 detik berikutnya sempat jalan — syncStatus
+      // masih menunjukkan 'synced' padahal ada perubahan pending yang
+      // belum pernah dikirim sama sekali. Sekarang ikut cek
+      // localRevision > lastAckedRevision per soal PG lewat
+      // semuaSoalTerkonfirmasiRevisi() (fungsi yang sama dipakai
+      // handleSelesai untuk verifikasi submit).
+      const pernahDapatAckPg = Object.keys(ackTerakhirRef.current).length > 0
+      const adaPgPending = phase === 'UJIAN' && pernahDapatAckPg && !semuaSoalTerkonfirmasiRevisi()
+      if (
+        syncStatus === 'error' || syncStatus === 'syncing' ||
+        essaySyncStatus === 'error' || essaySyncStatus === 'syncing' ||
+        adaPgPending
+      ) {
         e.preventDefault()
         e.returnValue = ''
       }
     }
     window.addEventListener('beforeunload', onBeforeUnload)
     return () => window.removeEventListener('beforeunload', onBeforeUnload)
-  }, [phase, syncStatus, essaySyncStatus])
+  }, [phase, syncStatus, essaySyncStatus, jawaban])
 
   // ── Ambil batasPelanggaran dari pengaturan saat mount ─────────────────────
   useEffect(() => {
@@ -1132,7 +1148,7 @@ export default function SiswaUjianPage() {
       // dan tidak akan pernah menyimpang dari perhitungan server.
       const currentSesi = sesiInfoRef.current
       if (currentSesi?.waktu_mulai && currentSesi.durasi) {
-        const terpakaiDetik = Math.floor((Date.now() - new Date(currentSesi.waktu_mulai).getTime()) / 1000)
+        const terpakaiDetik = Math.floor((trustedNow() - new Date(currentSesi.waktu_mulai).getTime()) / 1000)
         const sisaBaru = Math.max(0, currentSesi.durasi * 60 - terpakaiDetik)
         setSisaWaktu(sisaBaru)
         setWaktuTerpakai(terpakaiDetik)
@@ -1491,7 +1507,7 @@ export default function SiswaUjianPage() {
         return
       }
 
-      const terpakai1 = Math.floor((Date.now() - new Date(res.waktu_mulai).getTime()) / 1000)
+      const terpakai1 = Math.floor((trustedNow() - new Date(res.waktu_mulai).getTime()) / 1000)
       setSisaWaktu(Math.max(0, res.durasi * 60 - terpakai1))
       setWaktuTerpakai(terpakai1)
       setPhase('UJIAN')
@@ -1611,7 +1627,7 @@ export default function SiswaUjianPage() {
         // jika tersedia, karena itulah ground truth dari server. Fallback ke sesiRes
         // hanya jika tidak ada (misalnya versi API lama).
         const waktuAcuan = res.waktu_mulai ?? sesiRes.waktu_mulai
-        const terpakai2 = Math.floor((Date.now() - new Date(waktuAcuan).getTime()) / 1000)
+        const terpakai2 = Math.floor((trustedNow() - new Date(waktuAcuan).getTime()) / 1000)
         setSisaWaktu(Math.max(0, sesiRes.durasi * 60 - terpakai2))
         setWaktuTerpakai(terpakai2)
 
@@ -1660,7 +1676,7 @@ export default function SiswaUjianPage() {
     // akan divalidasi ulang oleh server); ini hanya supaya timer TETAP
     // berjalan secara lokal selama offline, bukan berhenti/hilang.
     const terpakai = info.waktu_mulai
-      ? Math.floor((Date.now() - new Date(info.waktu_mulai).getTime()) / 1000)
+      ? Math.floor((trustedNow() - new Date(info.waktu_mulai).getTime()) / 1000)
       : 0
     const sisa = info.durasi > 0 ? Math.max(0, info.durasi * 60 - terpakai) : 0
 
@@ -2256,7 +2272,7 @@ export default function SiswaUjianPage() {
       // FIX: hitung sisa waktu dari waktu_mulai_awal (bukan dari sekarang)
       let sisaSetelahReset = currentSesi.durasi * 60
       if (res.waktu_mulai) {
-        const terpakai = Math.floor((Date.now() - new Date(res.waktu_mulai).getTime()) / 1000)
+        const terpakai = Math.floor((trustedNow() - new Date(res.waktu_mulai).getTime()) / 1000)
         sisaSetelahReset = Math.max(0, currentSesi.durasi * 60 - terpakai)
         setSisaWaktu(sisaSetelahReset)
       }
@@ -2392,7 +2408,7 @@ export default function SiswaUjianPage() {
       // dari server ke ref — dipakai timer di bawah untuk menghitung ulang
       // sisa waktu tiap tick, sama seperti sesiInfoRef.waktu_mulai untuk PG.
       waktuMulaiEssayRef.current = mulaiRes.waktuMulaiEssay
-      const terpakai = Math.floor((Date.now() - new Date(mulaiRes.waktuMulaiEssay).getTime()) / 1000)
+      const terpakai = Math.floor((trustedNow() - new Date(mulaiRes.waktuMulaiEssay).getTime()) / 1000)
       setSisaWaktuEssay(Math.max(0, durasiDetik - terpakai))
 
       // Pulihkan draft jawaban (mode DIGITAL): dari server dulu, digabung
@@ -2445,7 +2461,7 @@ export default function SiswaUjianPage() {
     setEssayList([...isi.soal].sort((a, b) => a.urutan - b.urutan))
 
     waktuMulaiEssayRef.current = waktuMulaiIso
-    const terpakai = Math.floor((Date.now() - new Date(waktuMulaiIso).getTime()) / 1000)
+    const terpakai = Math.floor((trustedNow() - new Date(waktuMulaiIso).getTime()) / 1000)
     setSisaWaktuEssay(Math.max(0, info.durasiMenit * 60 - terpakai))
 
     // Draft jawaban: hanya backup lokal (server tidak terjangkau).
@@ -2714,7 +2730,7 @@ export default function SiswaUjianPage() {
       // menerima waktuMulaiEssayRef) tetap tidak berdampak ke penilaian.
       if (waktuMulaiEssayRef.current && info.durasiMenit) {
         const durasiDetik = info.durasiMenit * 60
-        const terpakaiDetik = Math.floor((Date.now() - new Date(waktuMulaiEssayRef.current).getTime()) / 1000)
+        const terpakaiDetik = Math.floor((trustedNow() - new Date(waktuMulaiEssayRef.current).getTime()) / 1000)
         const sisaBaru = Math.max(0, durasiDetik - terpakaiDetik)
         setSisaWaktuEssay(sisaBaru)
         if (sisaBaru <= 0) {
