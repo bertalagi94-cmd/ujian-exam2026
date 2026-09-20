@@ -30,8 +30,88 @@
 
 import { apiRequest } from '@/lib/utils'
 
+// PERBAIKAN AUDIT P0 #2 (outbox bisa finalisasi PG tanpa sync jawaban dulu):
+// cobaKirimPaketTertunda() DULU langsung memanggil POST /selesai begitu
+// `butuhFinalisasiPg` true, tanpa jaminan seluruh jawaban lokal sudah
+// tersinkron. Sekarang outbox INI SENDIRI (bukan cuma halaman ujian yang
+// mounted) membaca backup jawaban lokal (format sama dengan backupKey() di
+// siswa/ujian/page.tsx) dan memanggil /api/siswa/ujian/sync sampai semua
+// jawaban terverifikasi ACK server, BARU memanggil /selesai. Wajib berlaku
+// walau siswa sudah pindah halaman — modul ini berjalan lewat penjaga
+// global (mulaiPenjagaOutbox) di siswa/layout.tsx, bukan hanya di
+// siswa/ujian/page.tsx.
+
+interface BackupJawabanOutbox {
+  v: Record<string, string>
+  t: Record<string, number>
+  r?: Record<string, number>
+}
+
+function backupKeyOutbox(sesiId: string, nis: string): string {
+  return `ujian_backup_${sesiId}_${nis}`
+}
+
+function bacaBackupJawabanLokal(sesiId: string, nis: string): BackupJawabanOutbox {
+  try {
+    const raw = localStorage.getItem(backupKeyOutbox(sesiId, nis))
+    if (!raw) return { v: {}, t: {}, r: {} }
+    const parsed = JSON.parse(raw)
+    if (parsed && typeof parsed === 'object' && 'v' in parsed) {
+      return { v: parsed.v ?? {}, t: parsed.t ?? {}, r: parsed.r ?? {} }
+    }
+    return { v: parsed ?? {}, t: {}, r: {} }
+  } catch {
+    return { v: {}, t: {}, r: {} }
+  }
+}
+
+/**
+ * SYNC ALL ANSWERS → SERVER ACK, dijalankan MANDIRI oleh outbox (tanpa
+ * bergantung pada React state halaman ujian yang mungkin sudah unmount).
+ * Mengembalikan true HANYA kalau semua jawaban lokal berhasil dikonfirmasi
+ * server (`totalSynced` mencakup seluruh jawaban lokal yang ada).
+ * Kalau tidak ada backup jawaban tersimpan sama sekali (mis. sudah
+ * dibersihkan karena sebelumnya sudah tersinkron penuh), dianggap sinkron.
+ */
+async function pastikanJawabanTersinkron(
+  sesiId: string,
+  nis: string,
+  deviceId: string
+): Promise<{ sinkron: boolean; permanentReject?: boolean }> {
+  const backup = bacaBackupJawabanLokal(sesiId, nis)
+  const entries = Object.entries(backup.v)
+  if (entries.length === 0) return { sinkron: true }
+
+  try {
+    const res = await apiRequest<{ totalSynced: number }>('/api/siswa/ujian/sync', {
+      method: 'POST',
+      body: JSON.stringify({
+        sesiId,
+        jawaban: entries.map(([soal_id, jawaban]) => ({
+          soal_id,
+          jawaban,
+          revisi: backup.r?.[soal_id] ?? 1,
+        })),
+        deviceId,
+      }),
+    })
+    return { sinkron: (res.totalSynced ?? 0) >= entries.length }
+  } catch (err: unknown) {
+    const status = (err as { status?: number } | undefined)?.status
+    // 409 (sesi ditutup/diambil alih perangkat lain) tidak akan pernah
+    // berhasil diulang — biarkan pemanggil menandai GAGAL, bukan retry
+    // selamanya. Kegagalan jaringan murni (tanpa status) tetap "belum
+    // sinkron" dan layak dicoba lagi nanti.
+    if (status && status !== 500 && status !== 502 && status !== 503 && status !== 504) {
+      return { sinkron: false, permanentReject: true }
+    }
+    return { sinkron: false }
+  }
+}
+
 export type StatusPaketTertunda =
-  | 'BELUM_TERKIRIM'   // baru dibuat, belum ada percobaan kirim sama sekali
+  | 'BELUM_TERKIRIM'    // baru dibuat, belum ada percobaan kirim sama sekali
+  | 'MENYINKRONKAN'     // sedang mengirim jawaban lokal (SYNC) sebelum boleh /selesai
   | 'MENUNGGU_JARINGAN' // sudah dicoba, gagal murni karena jaringan/timeout
   | 'MENGIRIM'          // percobaan sedang berjalan (dipakai UI untuk spinner)
   | 'GAGAL'             // server MENOLAK secara sah (4xx selain race biasa) — butuh perhatian, tidak di-retry otomatis lagi
@@ -157,6 +237,31 @@ export async function cobaKirimPaketTertunda(
 
   try {
     if (current.butuhFinalisasiPg) {
+      // WAJIB (BUG P0 #2): LOAD LOCAL ANSWERS → SYNC ALL ANSWERS → SERVER ACK
+      // dulu, baru boleh FINALIZE. Tidak boleh lagi langsung /selesai.
+      current = simpanPaketTertunda({ ...current, status: 'MENYINKRONKAN' })
+      const { sinkron, permanentReject } = await pastikanJawabanTersinkron(
+        current.sesiId,
+        current.nis,
+        current.deviceId
+      )
+      if (!sinkron) {
+        if (permanentReject) {
+          simpanPaketTertunda({
+            ...current,
+            status: 'GAGAL',
+            pesanTerakhir: 'Sesi ujian ditolak server saat menyinkronkan jawaban (sesi ditutup/diambil alih).',
+          })
+          return 'GAGAL'
+        }
+        simpanPaketTertunda({
+          ...current,
+          status: 'MENUNGGU_JARINGAN',
+          pesanTerakhir: 'Sebagian jawaban belum berhasil disinkronkan ke server.',
+        })
+        return 'MENUNGGU_JARINGAN'
+      }
+
       await apiRequest('/api/siswa/ujian/selesai', {
         method: 'POST',
         body: JSON.stringify({
