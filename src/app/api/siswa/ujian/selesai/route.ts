@@ -223,9 +223,17 @@ export async function POST(req: NextRequest) {
     const elapsedMs = Date.now() - new Date(siswaUjianCheck.waktu_mulai_awal).getTime()
     if (elapsedMs + toleransiMs < minEfektifMenit * 60 * 1000) {
       const sisaMenit = Math.ceil((minEfektifMenit * 60 * 1000 - elapsedMs) / 60000)
+      // Sengaja 403 (BUKAN 409): di client, 409 dari endpoint ini berarti
+      // penolakan PERMANEN (sesi ditutup / jendela waktu lewat) dan memicu
+      // alur "menunggu penilaian otomatis". Penolakan ini sifatnya SEMENTARA
+      // -- akan lolos begitu batas minimal terlewati -- jadi 403 (yang di
+      // retry background diulang lagi di tick berikutnya) lebih tepat.
       return NextResponse.json(
-        { error: `Ujian belum bisa diselesaikan. Minimal waktu pengerjaan ${minEfektifMenit} menit (sisa sekitar ${sisaMenit} menit).` },
-        { status: 409 }
+        {
+          error: `Ujian belum bisa diselesaikan. Minimal waktu pengerjaan ${minEfektifMenit} menit (sisa sekitar ${sisaMenit} menit).`,
+          kode: 'BELUM_MINIMAL_WAKTU',
+        },
+        { status: 403 }
       )
     }
   }
@@ -275,28 +283,19 @@ export async function POST(req: NextRequest) {
   // sudah dipakai di essay/mulai/route.ts: hanya tulis status_essay kalau
   // baris itu MEMANG masih di keadaan awal (belum pernah maju ke fase essay
   // sama sekali).
-  const updateSiswaUjian = essayAktif
-    ? { status_essay: 'BELUM_MULAI' }
-    : { status: 'SELESAI', waktu_selesai: new Date().toISOString() }
-
-  // Simpan nilai + update status — PARALEL
-  // FIX: pakai upsert+ignoreDuplicates (bukan insert biasa) supaya kalau ada
-  // race condition (misal klik 2x atau retry jaringan) tidak menghasilkan
-  // error/duplikat baris nilai — konsisten dengan UNIQUE(sesi_id, nis) di skema.
-  // Catat klaim offline sebagai audit trail (kolom ditambahkan di migrasi
-  // 20_pg_offline_dan_revisi_jawaban.sql). Tidak memengaruhi nilai atau
-  // status apa pun -- murni untuk ditinjau guru/pengawas kalau ada keraguan.
-  let updatePayload: Record<string, unknown> = updateSiswaUjian
+  // Jejak audit klaim "PG selesai offline" (kolom dari migrasi 20). Tidak
+  // memengaruhi nilai atau status apa pun -- murni untuk ditinjau guru/pengawas
+  // kalau ada keraguan. Waktu yang dikirim client TIDAK dipercaya mentah-mentah
+  // (lihat klaimkanWaktu di src/lib/klaim-offline.ts).
+  let klaimOffline: { waktu_klaim: string; audit: Record<string, unknown> } | null = null
   if (typeof waktuSelesaiClient === 'string') {
     const batasBawahMs = siswaUjianCheck.waktu_mulai_awal
       ? new Date(siswaUjianCheck.waktu_mulai_awal).getTime()
       : null
     const klaim = klaimkanWaktu(waktuSelesaiClient, batasBawahMs)
-    updatePayload = {
-      ...updateSiswaUjian,
-      pg_selesai_offline: true,
-      pg_waktu_selesai_klaim: new Date(klaim.waktuMs).toISOString(),
-      pg_offline_audit: {
+    klaimOffline = {
+      waktu_klaim: new Date(klaim.waktuMs).toISOString(),
+      audit: {
         klaimMentah: waktuSelesaiClient,
         anomali: klaim.anomali,
         alasanAnomali: klaim.alasanAnomali ?? null,
@@ -305,31 +304,111 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const updateSiswaUjianQuery = db.from('siswa_ujian').update(updatePayload).eq('sesi_id', sesiId).eq('nis', nis)
-  await Promise.all([
-    db.from('nilai').upsert(nilaiData, { onConflict: 'sesi_id,nis', ignoreDuplicates: true }),
-    essayAktif
-      ? updateSiswaUjianQuery.or('status_essay.eq.BELUM_MULAI,status_essay.is.null')
-      : updateSiswaUjianQuery,
-  ])
+  // ── FINALISASI ATOMIK ─────────────────────────────────────────────────────
+  // FIX (audit: race condition finalisasi PG): sebelumnya cek status sesi,
+  // upsert nilai, dan update status siswa adalah query TERPISAH. Sekarang
+  // ketiganya dijalankan di dalam SATU transaksi Postgres lewat fungsi
+  // finalisasi_pg_atomik() (lihat supabase/21_finalisasi_pg_atomik.sql):
+  // status sesi dikunci (FOR SHARE) selama transaksi, jadi penutupan sesi oleh
+  // pengawas tidak bisa menyelip di antara "cek BERJALAN" dan "tulis nilai",
+  // dan nilai + status siswa commit bersama atau batal bersama.
+  let nilaiIdFinal: string = nilaiData.id
 
-  // Catat "submit ujian" — kode di atas hanya sampai sini kalau ini
-  // benar-benar submit BARU (kedua early-return "sudah pernah submit" di
-  // atas sudah menangani kasus panggilan ulang), jadi aman dicatat sekali.
+  const { data: rpcHasil, error: rpcError } = await db.rpc('finalisasi_pg_atomik', {
+    p_sesi_id: sesiId,
+    p_nis: nis,
+    p_nilai: nilaiData,
+    p_essay_aktif: essayAktif,
+    p_klaim_offline: klaimOffline,
+  })
+
+  // PGRST202 = fungsi tidak ada di schema cache PostgREST; 42883 = undefined
+  // function di Postgres. Artinya migrasi 21 belum dijalankan.
+  const fungsiBelumAda =
+    !!rpcError && (rpcError.code === 'PGRST202' || rpcError.code === '42883')
+
+  if (!rpcError) {
+    const hasilRpc = rpcHasil as { hasil?: string; nilai_id?: string } | null
+    switch (hasilRpc?.hasil) {
+      case 'OK':
+        nilaiIdFinal = hasilRpc.nilai_id ?? nilaiData.id
+        break
+      case 'SESI_DITUTUP':
+        return NextResponse.json(
+          { error: 'Sesi ujian sudah ditutup, ujian tidak bisa diselesaikan dari sini. Jawaban yang sudah tersimpan akan dinilai secara otomatis oleh sistem.' },
+          { status: 409 }
+        )
+      case 'SESI_TIDAK_ADA':
+        return NextResponse.json({ error: 'Sesi tidak ditemukan' }, { status: 404 })
+      case 'SISWA_TIDAK_TERDAFTAR':
+        return NextResponse.json(
+          { error: 'Anda belum terdaftar sebagai peserta ujian ini.' },
+          { status: 403 }
+        )
+      case 'SISWA_TERKUNCI':
+        return NextResponse.json(
+          { error: 'Akses ujian Anda sedang dikunci/menunggu reset. Ujian tidak bisa diselesaikan sekarang.' },
+          { status: 403 }
+        )
+      default:
+        return NextResponse.json(
+          { error: 'Gagal menyimpan hasil ujian (respons tidak dikenali). Coba lagi.' },
+          { status: 500 }
+        )
+    }
+  } else if (fungsiBelumAda) {
+    // FALLBACK (migrasi 21 belum dijalankan): jalur lama, TIDAK atomik. Tetap
+    // dipakai supaya deploy kode tidak memutus ujian yang sedang berjalan.
+    // Bedanya dengan versi lama: error dari kedua penulisan sekarang DIPERIKSA
+    // (sebelumnya diabaikan sehingga respons 200 tetap dikirim walau nilai
+    // tidak tersimpan sama sekali).
+    const updateSiswaUjian: Record<string, unknown> = essayAktif
+      ? { status_essay: 'BELUM_MULAI' }
+      : { status: 'SELESAI', waktu_selesai: new Date().toISOString() }
+    if (klaimOffline) {
+      updateSiswaUjian.pg_selesai_offline = true
+      updateSiswaUjian.pg_waktu_selesai_klaim = klaimOffline.waktu_klaim
+      updateSiswaUjian.pg_offline_audit = klaimOffline.audit
+    }
+
+    // Guard idempotent (pola sama dengan essay/mulai): hanya majukan
+    // status_essay kalau MASIH di keadaan awal.
+    const updateSiswaUjianQuery = db.from('siswa_ujian').update(updateSiswaUjian).eq('sesi_id', sesiId).eq('nis', nis)
+    const [resNilai, resStatus] = await Promise.all([
+      db.from('nilai').upsert(nilaiData, { onConflict: 'sesi_id,nis', ignoreDuplicates: true }),
+      essayAktif
+        ? updateSiswaUjianQuery.or('status_essay.eq.BELUM_MULAI,status_essay.is.null')
+        : updateSiswaUjianQuery,
+    ])
+    if (resNilai.error || resStatus.error) {
+      console.error('[selesai] gagal menulis hasil ujian:', resNilai.error?.message, resStatus.error?.message)
+      return NextResponse.json(
+        { error: 'Gagal menyimpan hasil ujian ke server. Jawaban Anda aman, silakan coba lagi.' },
+        { status: 500 }
+      )
+    }
+
+    // ignoreDuplicates: kalau request lain menang duluan, id yang kita
+    // generate BUKAN id yang tersimpan -- ambil ulang id sebenarnya.
+    const { data: nilaiTersimpan } = await db
+      .from('nilai')
+      .select('id')
+      .eq('sesi_id', sesiId)
+      .eq('nis', nis)
+      .single()
+    nilaiIdFinal = nilaiTersimpan?.id ?? nilaiData.id
+  } else {
+    console.error('[selesai] finalisasi_pg_atomik gagal:', rpcError.message)
+    return NextResponse.json(
+      { error: 'Gagal menyimpan hasil ujian ke server. Jawaban Anda aman, silakan coba lagi.' },
+      { status: 500 }
+    )
+  }
+
+  // Catat "submit ujian" -- kode di atas hanya sampai sini kalau ini benar-benar
+  // submit BARU (kedua early-return "sudah pernah submit" di atas sudah
+  // menangani panggilan ulang), jadi aman dicatat sekali.
   catatAktivitas(db, nis, 'SUBMIT_UJIAN', `Siswa ${user.nama} submit ujian ${sesi.mapel_id} (${sesi.kelas}), nilai ${nilaiAngka}`)
-
-  // FIX: ignoreDuplicates berarti kalau ada race (klik 2x / retry jaringan)
-  // dan baris untuk (sesi_id, nis) ini SUDAH ada duluan dari request lain,
-  // insert kita di-skip diam-diam — nilaiData.id yang kita generate di atas
-  // BUKAN id yang benar-benar tersimpan di tabel. Ambil ulang id sebenarnya
-  // supaya link "lihat rincian" yang dikirim ke client selalu valid.
-  const { data: nilaiTersimpan } = await db
-    .from('nilai')
-    .select('id')
-    .eq('sesi_id', sesiId)
-    .eq('nis', nis)
-    .single()
-  const nilaiIdFinal = nilaiTersimpan?.id ?? nilaiData.id
 
   // FIX (fitur essay): kalau sesi punya essay, JANGAN kirim nilai/grade/lulus
   // ke client sekarang — sesuai desain, nilai PG baru boleh tampil setelah
