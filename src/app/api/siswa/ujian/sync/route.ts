@@ -106,26 +106,82 @@ export async function POST(req: NextRequest) {
 
     const jawabanDitolak = jawaban.length - jawabanValid.length
 
+    let acked: { soal_id: string; jawaban: string; revisi: number; accepted: boolean }[] | null = null
+
     if (jawabanValid.length > 0) {
-      const records = jawabanValid.map((j: { soal_id: string; jawaban: string }) => ({
+      // FIX BUG P1 (merge timestamp client vs server tidak setara): sebelumnya
+      // baris ini selalu di-upsert mentah-mentah, dan resolusi konflik saat
+      // resume/reload dilakukan di CLIENT dengan membandingkan Date.now()
+      // (waktu client) dengan updated_at (waktu SERVER menerima request) —
+      // dua jam yang berbeda sumber. Jawaban lama yang terlambat sync bisa
+      // "menang" dari jawaban baru kalau requestnya sampai belakangan.
+      // Sekarang: setiap jawaban punya nomor revisi yang dibuat CLIENT saat
+      // siswa mengubah pilihan (naik monoton, lihat pilihJawaban() di
+      // page.tsx), dan fungsi database sync_jawaban_revisi() (lihat
+      // supabase/20_pg_offline_dan_revisi_jawaban.sql) menolak revisi yang
+      // lebih kecil dari yang sudah tersimpan — tidak peduli urutan
+      // kedatangan request atau selisih jam client vs server.
+      const records = jawabanValid.map((j: { soal_id: string; jawaban: string; revisi?: number }) => ({
         sesi_id: sesiId,
         nis: user.nis!,
         soal_id: j.soal_id,
         jawaban: j.jawaban,
-        updated_at: new Date().toISOString(),
-        sync_status: 'SYNCED',
-        local_timestamp: Date.now(),
+        revisi: typeof j.revisi === 'number' ? j.revisi : 0,
       }))
 
-      const { error } = await db
-        .from('jawaban')
-        .upsert(records, { onConflict: 'sesi_id,nis,soal_id' })
+      const { data: rpcData, error: rpcError } = await db.rpc('sync_jawaban_revisi', { p_records: records })
 
-      if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+      if (!rpcError) {
+        acked = (rpcData ?? []).map((r: { out_soal_id: string; out_jawaban: string; out_revisi: number; out_accepted: boolean }) => ({
+          soal_id: r.out_soal_id,
+          jawaban: r.out_jawaban,
+          revisi: r.out_revisi,
+          accepted: r.out_accepted,
+        }))
+      } else {
+        // FALLBACK: migrasi 20_pg_offline_dan_revisi_jawaban.sql belum
+        // dijalankan di database ini (fungsi belum ada — kode Postgres
+        // 42883 "undefined function"). Jatuh ke upsert lama tanpa revisi,
+        // supaya deploy kode baru sebelum migrasi jalan tidak mematikan
+        // autosave siswa. Bug P1 di atas TIDAK diperbaiki selama fallback
+        // ini dipakai — jalankan migrasinya secepatnya.
+        if (rpcError.code !== '42883' && !/function .*sync_jawaban_revisi/i.test(rpcError.message ?? '')) {
+          return NextResponse.json({ error: rpcError.message }, { status: 500 })
+        }
+        console.warn('[sync] sync_jawaban_revisi belum tersedia di database, memakai upsert lama (tanpa proteksi revisi). Jalankan migrasi 20_pg_offline_dan_revisi_jawaban.sql.')
+        const legacyRecords = jawabanValid.map((j: { soal_id: string; jawaban: string }) => ({
+          sesi_id: sesiId,
+          nis: user.nis!,
+          soal_id: j.soal_id,
+          jawaban: j.jawaban,
+          updated_at: new Date().toISOString(),
+          sync_status: 'SYNCED',
+          local_timestamp: Date.now(),
+        }))
+        const { error } = await db.from('jawaban').upsert(legacyRecords, { onConflict: 'sesi_id,nis,soal_id' })
+        if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+      }
     }
 
     if (jawabanDitolak > 0) {
       console.warn(`[sync] ${jawabanDitolak} jawaban ditolak untuk sesi ${sesiId}, nis ${user.nis}: soal_id tidak termasuk paket sesi ini.`)
+    }
+
+    if (acked) {
+      // Ground truth + ACK per jawaban dikembalikan sekaligus supaya client
+      // tidak perlu round-trip GET terpisah untuk tahu mana yang benar2
+      // tersimpan dengan revisi yang benar (lihat catatan totalSynced di
+      // bawah — verifikasi handleSelesai() sekarang bisa memakai `acked`
+      // per-soal, bukan cuma count agregat).
+      const { count, error: countError } = await db
+        .from('jawaban').select('*', { count: 'exact', head: true })
+        .eq('sesi_id', sesiId).eq('nis', user.nis!)
+      if (countError) return NextResponse.json({ error: countError.message }, { status: 500 })
+      return NextResponse.json({
+        message: `${Array.isArray(jawaban) ? jawaban.length : 0} jawaban diproses`,
+        totalSynced: count ?? 0,
+        acked,
+      })
     }
   }
 
@@ -196,16 +252,29 @@ export async function GET(req: NextRequest) {
     )
   }
 
-  // FIX BUG (P1-01): sertakan `updated_at` supaya client bisa membandingkan
-  // jam jawaban server dengan jam backup lokalnya sendiri saat resume,
-  // alih-alih backup lokal selalu menang mutlak tanpa peduli mana yang
-  // sebenarnya lebih baru — lihat mergeJawabanDenganWaktu() di
-  // src/app/siswa/ujian/page.tsx untuk detail lengkap kasus yang diperbaiki.
-  const { data, error } = await db
+  // FIX BUG P1 (merge timestamp client vs server tidak setara — lihat FIX
+  // di POST di atas): dulu hanya `updated_at` yang dikirim, dan client
+  // membandingkannya dengan Date.now() lokal untuk resolusi konflik saat
+  // resume — dua jam yang tidak setara. Sekarang sertakan `revisi`; client
+  // memakai src/lib/jawaban-merge.ts (bandingkan revisi, bukan jam) dan
+  // hanya jatuh ke jam sebagai pemutus kalau kedua revisi sama persis.
+  // `updated_at` tetap disertakan untuk kompatibilitas & sebagai fallback itu.
+  let { data, error } = await db
     .from('jawaban')
-    .select('soal_id, jawaban, updated_at')
+    .select('soal_id, jawaban, updated_at, revisi')
     .eq('sesi_id', sesiId)
-    .eq('nis', user.nis!)
+    .eq('nis', user.nis!) as { data: { soal_id: string; jawaban: string; updated_at: string; revisi?: number }[] | null, error: { message: string } | null }
+
+  if (error && /column .*revisi.* does not exist/i.test(error.message ?? '')) {
+    // FALLBACK: migrasi 20_pg_offline_dan_revisi_jawaban.sql belum jalan di
+    // database ini. Client tetap dapat data, hanya tanpa `revisi` (jatuh ke
+    // perbandingan jam di jawaban-merge.ts, sama seperti perilaku lama).
+    ;({ data, error } = await db
+      .from('jawaban')
+      .select('soal_id, jawaban, updated_at')
+      .eq('sesi_id', sesiId)
+      .eq('nis', user.nis!))
+  }
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ jawaban: data ?? [], totalSynced: data?.length ?? 0 })
