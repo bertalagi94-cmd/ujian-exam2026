@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
   // (lihat hitungHasilPenilaian di bawah) -- klaim ini murni untuk jejak
   // audit ("kapan siswa MENGAKU selesai") dan tidak bisa dipakai untuk
   // memalsukan nilai.
-  const { sesiId, nis, waktuSelesaiClient } = await req.json()
+  const { sesiId, nis, waktuSelesaiClient, deviceId } = await req.json()
 
   if (nis !== user.nis) return NextResponse.json({ error: 'NIS tidak sesuai' }, { status: 403 })
 
@@ -37,12 +37,41 @@ export async function POST(req: NextRequest) {
   // FIX (fitur essay): tambah status_essay ke select supaya kita tahu, di
   // SEMUA jalur (early-return maupun jalur submit baru), apakah siswa ini
   // masih perlu diarahkan ke fase essay sebelum nilai PG-nya boleh dibuka.
-  const { data: siswaUjianCheck } = await db
+  const { data: siswaUjianCheck, error: siswaUjianError } = await db
     .from('siswa_ujian')
-    .select('status, waktu_mulai_awal, status_essay')
+    .select('status, waktu_mulai_awal, status_essay, device_id')
     .eq('sesi_id', sesiId)
     .eq('nis', nis)
     .single()
+
+  // FIX BUG P0 (audit): sebelumnya hasil null dari query di atas tidak
+  // ditolak, jadi user yang tidak pernah membuka/terdaftar di sesi ini
+  // (tidak punya baris siswa_ujian) tetap bisa lanjut ke penghitungan nilai
+  // dan menulis baris `nilai`. Error DB selain "baris tidak ada" (PGRST116)
+  // dibedakan sebagai 500 supaya gangguan sesaat tidak terbaca 403.
+  if (siswaUjianError && siswaUjianError.code !== 'PGRST116') {
+    return NextResponse.json(
+      { error: 'Gagal memeriksa status ujian Anda. Coba lagi beberapa saat.' },
+      { status: 500 }
+    )
+  }
+  if (!siswaUjianCheck) {
+    return NextResponse.json(
+      { error: 'Anda belum terdaftar sebagai peserta ujian ini.' },
+      { status: 403 }
+    )
+  }
+
+  // FIX BUG P0 (audit): validasi device_id, sama seperti /sync, /essay/mulai,
+  // /essay/jawab dan /essay/kirim. Begitu ada device_id terdaftar di DB,
+  // request WAJIB mengirim deviceId yang sama persis -- request tanpa
+  // deviceId atau dengan deviceId lain ditolak.
+  if (siswaUjianCheck.device_id && siswaUjianCheck.device_id !== deviceId) {
+    return NextResponse.json(
+      { error: 'Sesi ujian Anda sedang aktif di perangkat lain. Ujian tidak bisa diselesaikan dari perangkat ini.' },
+      { status: 409 }
+    )
+  }
 
   // FIX (kkm hilang di response duplikat/early-return — ditemukan dari 2 load
   // test terpisah, 56+7 kejadian): sesiCache di bawah sebelumnya baru diambil
@@ -70,7 +99,7 @@ export async function POST(req: NextRequest) {
   const essaySudahSelesai = (statusEssay: string | null | undefined) =>
     statusEssay === 'SUDAH_KIRIM' || statusEssay === 'TIDAK_MENGERJAKAN'
 
-  if (siswaUjianCheck && (siswaUjianCheck.status === 'TERKUNCI' || siswaUjianCheck.status === 'RESET')) {
+  if (siswaUjianCheck.status === 'TERKUNCI' || siswaUjianCheck.status === 'RESET') {
     const { data: nilaiSudahAda } = await db
       .from('nilai')
       .select('id, nilai, grade, benar, total, lulus')
@@ -113,7 +142,7 @@ export async function POST(req: NextRequest) {
   if (nilaiExist) {
     // FIX (fitur essay): sama seperti early-return TERKUNCI/RESET di atas —
     // kalau essay masih menggantung, jangan bocorkan nilai PG di sini.
-    if (essayAktif && !essaySudahSelesai(siswaUjianCheck?.status_essay)) {
+    if (essayAktif && !essaySudahSelesai(siswaUjianCheck.status_essay)) {
       return NextResponse.json({ id: nilaiExist.id, lanjutEssay: true, kkm: kkmUntukEarlyReturn })
     }
     return NextResponse.json({
@@ -147,11 +176,12 @@ export async function POST(req: NextRequest) {
   // Sesuai catatan di ambilDataSesiUntukPenilaian: status sesi TIDAK di-cache
   // (data di sesiCache murni statis), jadi di-query langsung di sini, tanpa
   // cache, supaya tidak ada risiko status basi lintas-instance Vercel.
-  const { data: sesiStatusCheck } = await db
-    .from('sesi_ujian')
-    .select('status')
-    .eq('id', sesiId)
-    .single()
+  // Pengaturan batas minimal submit diambil PARALEL dengan cek status sesi
+  // supaya tidak menambah round-trip serial di jalur submit.
+  const [{ data: sesiStatusCheck }, { data: pengaturanMinSubmit }] = await Promise.all([
+    db.from('sesi_ujian').select('status').eq('id', sesiId).single(),
+    db.from('pengaturan').select('key, value').in('key', ['minSubmitAktif', 'minSubmitMenit']),
+  ])
   if (sesiStatusCheck && sesiStatusCheck.status !== 'BERJALAN') {
     return NextResponse.json(
       { error: 'Sesi ujian sudah ditutup, ujian tidak bisa diselesaikan dari sini. Jawaban yang sudah tersimpan akan dinilai secara otomatis oleh sistem.' },
@@ -164,12 +194,37 @@ export async function POST(req: NextRequest) {
   // waktu_mulai_awal adalah referensi tunggal yang tidak pernah berubah
   // (bahkan setelah reset pelanggaran). Toleransi 60 detik untuk mengakomodasi
   // jeda jaringan wajar saat auto-submit timeout.
-  if (siswaUjianCheck?.waktu_mulai_awal && sesi.durasi) {
+  if (siswaUjianCheck.waktu_mulai_awal && sesi.durasi) {
     const batasWaktu = new Date(siswaUjianCheck.waktu_mulai_awal).getTime() + sesi.durasi * 60 * 1000
     const toleransiMs = 60 * 1000 // 60 detik grace period untuk jeda jaringan
     if (Date.now() > batasWaktu + toleransiMs) {
       return NextResponse.json(
         { error: 'Waktu ujian Anda sudah habis. Jawaban yang sudah tersimpan akan dinilai secara otomatis oleh sistem.' },
+        { status: 409 }
+      )
+    }
+  }
+  // ─────────────────────────────────────────────────────────────────────────
+
+  // ── VALIDASI BATAS MINIMAL SUBMIT (server-side) ───────────────────────────
+  // FIX (audit): /validasi hanya MENGIRIM minSubmitMenit ke frontend; tombol
+  // di UI di-disable, tapi request langsung ke endpoint ini tidak dicek.
+  // Logika parsing sama persis dengan /validasi (default 45 menit).
+  // Batas efektif dibatasi durasi ujian, sehingga auto-submit saat waktu habis
+  // tidak pernah terblokir walau pengaturan minimal > durasi. Sengaja TIDAK
+  // memakai `isTimeout` dari client (bisa dipalsukan).
+  const pengMap = Object.fromEntries(
+    (pengaturanMinSubmit ?? []).map((r: { key: string; value: string }) => [r.key, r.value])
+  )
+  if (pengMap['minSubmitAktif'] === 'true' && siswaUjianCheck.waktu_mulai_awal) {
+    const minMenit = parseInt(pengMap['minSubmitMenit']) || 45
+    const minEfektifMenit = sesi.durasi ? Math.min(minMenit, sesi.durasi) : minMenit
+    const toleransiMs = 5 * 1000 // selisih pembulatan/jam antara client & server
+    const elapsedMs = Date.now() - new Date(siswaUjianCheck.waktu_mulai_awal).getTime()
+    if (elapsedMs + toleransiMs < minEfektifMenit * 60 * 1000) {
+      const sisaMenit = Math.ceil((minEfektifMenit * 60 * 1000 - elapsedMs) / 60000)
+      return NextResponse.json(
+        { error: `Ujian belum bisa diselesaikan. Minimal waktu pengerjaan ${minEfektifMenit} menit (sisa sekitar ${sisaMenit} menit).` },
         { status: 409 }
       )
     }
@@ -233,7 +288,7 @@ export async function POST(req: NextRequest) {
   // status apa pun -- murni untuk ditinjau guru/pengawas kalau ada keraguan.
   let updatePayload: Record<string, unknown> = updateSiswaUjian
   if (typeof waktuSelesaiClient === 'string') {
-    const batasBawahMs = siswaUjianCheck?.waktu_mulai_awal
+    const batasBawahMs = siswaUjianCheck.waktu_mulai_awal
       ? new Date(siswaUjianCheck.waktu_mulai_awal).getTime()
       : null
     const klaim = klaimkanWaktu(waktuSelesaiClient, batasBawahMs)
