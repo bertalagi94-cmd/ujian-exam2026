@@ -1,5 +1,6 @@
 import { clsx, type ClassValue } from 'clsx'
 import { twMerge } from 'tailwind-merge'
+import { registerServerDate } from '@/lib/clock-offset'
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
@@ -188,6 +189,11 @@ export function apiRequest<T = unknown>(
   })
     .then(async (res) => {
       clearTimeout(timerId)
+      // PERBAIKAN AUDIT P1 #14 (timer clock offset): kalibrasi ulang
+      // serverClientOffset dari header Date bawaan HTTP setiap kali ada
+      // response — gratis, tidak perlu endpoint khusus. Lihat
+      // src/lib/clock-offset.ts untuk detail & keterbatasannya.
+      registerServerDate(res.headers.get('date'))
 
       // Safely parse JSON — body bisa kosong (204) atau bukan JSON
       let data: Record<string, unknown> = {}
