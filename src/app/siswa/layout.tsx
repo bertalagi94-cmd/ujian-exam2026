@@ -5,6 +5,12 @@ import { useRouter, usePathname } from 'next/navigation'
 import { SiswaSidebar } from '@/components/shared/Sidebar'
 import { ViewAsBanner } from '@/components/shared/ViewAsBanner'
 import { DipantauBanner } from '@/components/shared/DipantauBanner'
+// FIX (belum ada antrean "ujian belum terkirim" yang permanen — temuan #2):
+// penjaga outbox dipasang di SINI (bukan di halaman ujian) supaya retry
+// pengiriman paket tertunda tetap jalan selama siswa berada di area /siswa
+// manapun (beranda, nilai, dst), bukan cuma persis saat berada di halaman
+// ujian. Lihat src/lib/ujian-outbox.ts untuk detail siklus statusnya.
+import { mulaiPenjagaOutbox } from '@/lib/ujian-outbox'
 
 export default function SiswaLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter()
@@ -19,6 +25,13 @@ export default function SiswaLayout({ children }: { children: React.ReactNode })
     const parsed = JSON.parse(user)
     if (parsed.role !== 'SISWA') router.replace('/login')
   }, [router])
+
+  useEffect(() => {
+    let nis: string | undefined
+    try { nis = JSON.parse(localStorage.getItem('user') ?? '{}').nis } catch { /* abaikan */ }
+    if (!nis) return
+    return mulaiPenjagaOutbox(nis)
+  }, [])
 
   return (
     <div className="flex min-h-screen bg-surface-50">
