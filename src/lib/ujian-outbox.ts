@@ -284,6 +284,28 @@ export async function ambilSemuaPaketTertunda(nis: string): Promise<PaketUjianTe
   return hasil.sort((a, b) => a.dibuatIso.localeCompare(b.dibuatIso))
 }
 
+// Batas waktu sebuah percobaan kirim dianggap MACET (tab ditutup / reload /
+// deploy di tengah percobaan). Satu percobaan normal jauh di bawah ini
+// (tiap request punya timeout 10 detik).
+export const MENGIRIM_BASI_MS = 2 * 60 * 1000
+
+/** Status "sedang berjalan" (MENGIRIM / MENYINKRONKAN), baik masih baru maupun macet. */
+export function statusSedangBerjalan(status: StatusPaketTertunda): boolean {
+  return status === 'MENGIRIM' || status === 'MENYINKRONKAN'
+}
+
+/** True kalau percobaan kirim ini kemungkinan besar sudah mati di tengah jalan. */
+export function paketMengirimMacet(paket: PaketUjianTertunda): boolean {
+  if (!statusSedangBerjalan(paket.status)) return false
+  const t = paket.percobaanTerakhirIso ? Date.parse(paket.percobaanTerakhirIso) : 0
+  return !t || Date.now() - t > MENGIRIM_BASI_MS
+}
+
+/** True kalau ada percobaan yang MASIH berjalan sungguhan (jangan dobel kirim). */
+function sedangDiprosesAktif(paket: PaketUjianTertunda): boolean {
+  return statusSedangBerjalan(paket.status) && !paketMengirimMacet(paket)
+}
+
 /**
  * Coba kirim SATU paket sampai tuntas: finalisasi PG dulu (kalau masih
  * perlu), baru essay/kirim (kalau sesi ini punya essay). Urutan ini WAJIB —
@@ -401,7 +423,21 @@ export function mulaiPenjagaOutbox(nis: string): () => void {
 
   const flushSemua = async () => {
     for (const paket of await ambilSemuaPaketTertunda(nis)) {
-      if (paket.status === 'MENGIRIM') continue // sedang diproses percobaan lain
+      // FIX (paket "Mengirim..." macet selamanya): sebelumnya SETIAP paket
+      // berstatus MENGIRIM dilewati untuk selamanya dengan asumsi "sedang
+      // diproses percobaan lain". Kalau halaman ditutup/di-reload/di-deploy
+      // TEPAT saat percobaan berjalan, status MENGIRIM sudah tersimpan tapi
+      // percobaannya tidak pernah selesai, sehingga paket itu tidak akan
+      // pernah dicoba lagi (dan tombol manual di UI ikut mati). Sekarang
+      // MENGIRIM/MENYINKRONKAN hanya dianggap "sedang berjalan" selama masih
+      // baru; kalau sudah lewat MENGIRIM_BASI_MS dianggap macet dan dicoba lagi.
+      if (sedangDiprosesAktif(paket)) continue
+      // FIX: GAGAL = server MENOLAK secara sah (sesi sudah direset/ditutup,
+      // essay belum dimulai, dst). Komentar di atas selalu menyebut paket
+      // GAGAL "tidak di-retry otomatis lagi", tapi kode lama tetap
+      // mengulangnya tiap 20 detik tanpa henti dan hasilnya sama terus.
+      // Sekarang hanya lewat tombol "Kirim Sekarang" manual.
+      if (paket.status === 'GAGAL') continue
       await cobaKirimPaketTertunda(paket)
     }
   }
