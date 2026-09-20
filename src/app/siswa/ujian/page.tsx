@@ -1958,15 +1958,34 @@ export default function SiswaUjianPage() {
       // atas harus langsung jalan untuk menampilkan modal), jadi pendaftaran
       // ke outbox durable ini fire-and-forget — kegagalannya sendiri sudah
       // ditangani di dalam simpanPaketTertunda (fallback localStorage).
-      void simpanPaketTertunda({
-        sesiId: currentSesi.sesiId,
-        nis,
-        deviceId: getDeviceId(),
-        namaMapel: currentSesi.namaMapel,
-        waktuSelesaiClaimIso: ambilKlaimPgSelesaiOffline(currentSesi.sesiId, nis),
-        butuhFinalisasiPg: true,
-        butuhKirimEssay: amplopTersediaRef.current,
-      })
+      //
+      // FIX BUG P0 (audit, paket "Ditolak server — Essay belum dimulai"):
+      // `butuhKirimEssay` sebelumnya diisi amplopTersediaRef.current. Amplop
+      // tersedia hanya berarti PERANGKAT sudah punya soal essay offline --
+      // BUKAN berarti siswa sudah mulai apalagi menekan "Kirim" essay. Akibatnya
+      // begitu koneksi pulih, penjaga outbox menjalankan /selesai lalu langsung
+      // /essay/kirim:
+      //   - kalau essay belum dimulai di server -> 409 "Essay belum dimulai"
+      //     -> paket GAGAL (kasus di screenshot), dan
+      //   - kalau siswa SEDANG mengerjakan essay lewat jalur darurat (status
+      //     server sudah MENGERJAKAN) -> essay TERKIRIM PAKSA di tengah
+      //     pengerjaan, karena essay/kirim menerima status itu.
+      // Niat "kirim essay" HANYA boleh berasal dari siswa yang menekan tombol
+      // Kirim di halaman essay (tundaEssayKeOutbox di bawah, yang mengisi
+      // true). Di sini cukup finalisasi PG; kalau paket ini sudah pernah
+      // ditandai true oleh tundaEssayKeOutbox, nilainya dipertahankan.
+      void (async () => {
+        const paketAda = await ambilPaketTertunda(currentSesi.sesiId, nis)
+        await simpanPaketTertunda({
+          sesiId: currentSesi.sesiId,
+          nis,
+          deviceId: getDeviceId(),
+          namaMapel: currentSesi.namaMapel,
+          waktuSelesaiClaimIso: ambilKlaimPgSelesaiOffline(currentSesi.sesiId, nis),
+          butuhFinalisasiPg: true,
+          butuhKirimEssay: paketAda?.butuhKirimEssay ?? false,
+        })
+      })()
     }
   }
 
