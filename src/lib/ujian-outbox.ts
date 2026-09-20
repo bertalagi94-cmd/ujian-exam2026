@@ -338,32 +338,56 @@ function bacaBackupEssayLokal(sesiId: string, nis: string): Record<string, strin
  * (essay dibuka online biasa), langkah 2 dilewati kalau tidak ada jawaban lokal.
  */
 async function siapkanEssayUntukKirim(paket: PaketUjianTertunda): Promise<void> {
+  // 409 pada langkah persiapan BUKAN alasan menggagalkan paket: artinya essay di
+  // server sudah selesai (SUDAH_KIRIM/TIDAK_MENGERJAKAN -- mis. sudah terkirim
+  // lewat jalur lain, jawaban sudah masuk ke guru) atau belum dimulai. Yang
+  // berwenang memutuskan adalah /essay/kirim: kalau sudah terkirim ia membalas
+  // sukses (idempotent) sehingga paket bersih; kalau belum dimulai ia membalas
+  // 409 dengan pesan yang tepat. (Versi sebelumnya melempar 409 di sini dan
+  // membuat paket yang SEBENARNYA sudah terkirim tampil "Ditolak server".)
+  const abaikanJika409 = async (fn: () => Promise<unknown>): Promise<boolean> => {
+    try {
+      await fn()
+      return true
+    } catch (err) {
+      if ((err as { status?: number } | undefined)?.status === 409) return false
+      throw err
+    }
+  }
+
   const statusOffline = ambilStatusOffline(paket.sesiId, paket.nis)
   if (statusOffline.kode) {
-    await apiRequest('/api/siswa/ujian/essay/mulai', {
-      method: 'POST',
-      body: JSON.stringify({
-        sesiId: paket.sesiId,
-        deviceId: paket.deviceId,
-        kodeDarurat: statusOffline.kode,
-        waktuMulaiClient: statusOffline.waktuMulaiClient,
-        percobaanSalah: statusOffline.salah,
-      }),
-    })
+    const berhasil = await abaikanJika409(() =>
+      apiRequest('/api/siswa/ujian/essay/mulai', {
+        method: 'POST',
+        body: JSON.stringify({
+          sesiId: paket.sesiId,
+          deviceId: paket.deviceId,
+          kodeDarurat: statusOffline.kode,
+          waktuMulaiClient: statusOffline.waktuMulaiClient,
+          percobaanSalah: statusOffline.salah,
+        }),
+      })
+    )
+    // Berhasil, atau ditolak 409 (essay sudah final): bukti offline ini tidak
+    // berguna lagi -- hapus supaya tidak dikirim ulang terus.
+    void berhasil
     hapusStatusOffline(paket.sesiId, paket.nis)
   }
 
   const entries = Object.entries(bacaBackupEssayLokal(paket.sesiId, paket.nis))
     .filter(([, teks]) => typeof teks === 'string')
   if (entries.length > 0) {
-    await apiRequest('/api/siswa/ujian/essay/jawab', {
-      method: 'POST',
-      body: JSON.stringify({
-        sesiId: paket.sesiId,
-        jawaban: entries.map(([soal_essay_id, jawaban_teks]) => ({ soal_essay_id, jawaban_teks })),
-        deviceId: paket.deviceId,
-      }),
-    })
+    await abaikanJika409(() =>
+      apiRequest('/api/siswa/ujian/essay/jawab', {
+        method: 'POST',
+        body: JSON.stringify({
+          sesiId: paket.sesiId,
+          jawaban: entries.map(([soal_essay_id, jawaban_teks]) => ({ soal_essay_id, jawaban_teks })),
+          deviceId: paket.deviceId,
+        }),
+      })
+    )
   }
 }
 
