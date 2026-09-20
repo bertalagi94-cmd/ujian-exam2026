@@ -22,10 +22,24 @@ const PREFIX = 'pgPaketOffline:v1'
 /** mencegah "membangkitkan" sisa ujian hari lain yang seharusnya sudah usai. */
 const BATAS_USIA_MS = 24 * 60 * 60 * 1000
 
+// PERBAIKAN AUDIT P0 #3 (paket PG masih blob localStorage polos, tanpa
+// checksum/version/readiness formal): envelope sekarang membawa `skema`
+// (versi struktur, supaya perubahan bentuk data di masa depan bisa dideteksi
+// dan tidak dipulihkan buta-buta) dan `checksum` (hash ringan atas isi
+// `sesiInfo` — BUKAN untuk keamanan/anti-tamper, hanya untuk mendeteksi data
+// yang korup/terpotong, mis. localStorage penuh di tengah `setItem`).
+// `paketPgOfflineSiapDipakai()` memformalkan syarat "boleh dipakai untuk
+// recovery": checksum cocok + field wajib (soalList, durasi, waktu_mulai)
+// benar-benar ada, bukan sekadar "JSON.parse tidak melempar error".
+
+const SKEMA_VERSI = 2
+
 export interface PaketPgOfflineEnvelope<TSesiInfo> {
+  skema: number
   sesiId: string
   nis: string
   disimpanIso: string
+  checksum: string
   sesiInfo: TSesiInfo
 }
 
@@ -33,14 +47,52 @@ function key(sesiId: string, nis: string): string {
   return `${PREFIX}:${sesiId}:${nis}`
 }
 
+/** Hash ringan (djb2) — cukup untuk deteksi korupsi, bukan kriptografi. */
+function hitungChecksum(payload: string): string {
+  let h = 5381
+  for (let i = 0; i < payload.length; i++) {
+    h = ((h << 5) + h + payload.charCodeAt(i)) >>> 0
+  }
+  return h.toString(36)
+}
+
+/**
+ * Syarat FORMAL sebuah paket PG offline boleh dipakai recovery:
+ *  1) skema dikenal,
+ *  2) checksum cocok dengan isi sesiInfo saat ini (deteksi korupsi),
+ *  3) field minimal yang recoverActiveExam() BUTUHKAN benar-benar ada.
+ * Sebelumnya "valid" hanya berarti JSON.parse() tidak melempar error —
+ * itu tidak menjamin datanya utuh/lengkap.
+ */
+export function paketPgOfflineSiapDipakai<TSesiInfo>(
+  envelope: PaketPgOfflineEnvelope<TSesiInfo> | null
+): envelope is PaketPgOfflineEnvelope<TSesiInfo> {
+  if (!envelope) return false
+  if (envelope.skema !== SKEMA_VERSI) return false
+  if (hitungChecksum(JSON.stringify(envelope.sesiInfo)) !== envelope.checksum) return false
+  const info = envelope.sesiInfo as unknown as {
+    sesiId?: string
+    durasi?: number
+    waktu_mulai?: string
+    soalList?: unknown[]
+  }
+  if (!info.sesiId || !info.waktu_mulai) return false
+  if (typeof info.durasi !== 'number' || info.durasi <= 0) return false
+  if (!Array.isArray(info.soalList)) return false
+  return true
+}
+
 export function simpanPaketPgOffline<TSesiInfo extends { sesiId: string }>(
   nis: string,
   sesiInfo: TSesiInfo
 ): void {
+  const sesiInfoJson = JSON.stringify(sesiInfo)
   const envelope: PaketPgOfflineEnvelope<TSesiInfo> = {
+    skema: SKEMA_VERSI,
     sesiId: sesiInfo.sesiId,
     nis,
     disimpanIso: new Date().toISOString(),
+    checksum: hitungChecksum(sesiInfoJson),
     sesiInfo,
   }
   try {
@@ -58,7 +110,12 @@ export function ambilPaketPgOffline<TSesiInfo>(
 ): PaketPgOfflineEnvelope<TSesiInfo> | null {
   try {
     const raw = localStorage.getItem(key(sesiId, nis))
-    return raw ? (JSON.parse(raw) as PaketPgOfflineEnvelope<TSesiInfo>) : null
+    if (!raw) return null
+    const envelope = JSON.parse(raw) as PaketPgOfflineEnvelope<TSesiInfo>
+    // FIX AUDIT P0 #3: dulu envelope apa pun yang berhasil di-parse dianggap
+    // valid. Sekarang syarat formal (skema + checksum + field wajib) WAJIB
+    // lolos, kalau tidak dianggap tidak ada (jangan pulihkan data korup).
+    return paketPgOfflineSiapDipakai(envelope) ? envelope : null
   } catch {
     return null
   }
@@ -92,6 +149,10 @@ export function cariPaketPgOfflineTerbaru<TSesiInfo>(
         const raw = localStorage.getItem(k)
         if (!raw) continue
         const parsed = JSON.parse(raw) as PaketPgOfflineEnvelope<TSesiInfo>
+        // FIX AUDIT P0 #3: jangan tawarkan paket yang gagal syarat formal
+        // (skema tidak dikenal / checksum tidak cocok / field wajib hilang)
+        // untuk recovery — sebelumnya cukup "JSON.parse berhasil".
+        if (!paketPgOfflineSiapDipakai(parsed)) continue
         const ms = Date.parse(parsed.disimpanIso)
         if (Number.isNaN(ms) || Date.now() - ms > BATAS_USIA_MS) continue
         if (ms > terbaikMs) { terbaik = parsed; terbaikMs = ms }
