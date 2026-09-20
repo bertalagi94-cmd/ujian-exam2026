@@ -12,9 +12,15 @@
 // serta seluruh state halaman ujian.
 
 const DB_NAME = 'ujian-offline-db'
-const DB_VERSION = 1
+// FIX AUDIT P0 #7 (migrasi bertahap ke IndexedDB, tahap 1: outbox):
+// dinaikkan dari 1 → 2 untuk menambah object store STORE_OUTBOX tanpa
+// mengganggu data assets/healthcheck yang sudah ada di versi 1. IndexedDB
+// akan memanggil onupgradeneeded otomatis untuk browser yang masih di
+// versi lama.
+const DB_VERSION = 2
 export const STORE_ASSETS = 'assets'
 export const STORE_HEALTHCHECK = 'healthcheck'
+export const STORE_OUTBOX = 'outbox'
 
 export type AssetStatus = 'ASSET_LOADING' | 'ASSET_READY' | 'ASSET_FAILED'
 
@@ -45,6 +51,9 @@ function bukaDb(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(STORE_HEALTHCHECK)) {
         db.createObjectStore(STORE_HEALTHCHECK)
+      }
+      if (!db.objectStoreNames.contains(STORE_OUTBOX)) {
+        db.createObjectStore(STORE_OUTBOX)
       }
     }
     req.onsuccess = () => resolve(req.result)
@@ -124,4 +133,66 @@ export async function healthCheckStorage(): Promise<{ ok: boolean; error?: strin
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : 'Penyimpanan lokal tidak dapat diakses.' }
   }
+}
+
+// ── FIX AUDIT P0 #7 (migrasi bertahap ke IndexedDB, tahap 1: outbox) ───────
+// KV generik di atas STORE_OUTBOX. Sengaja generik (bukan mengimpor tipe
+// dari ujian-outbox.ts) supaya modul storage ini tetap berdiri sendiri dan
+// tidak membentuk dependency melingkar; ujian-outbox.ts yang tahu bentuk
+// datanya (PaketUjianTertunda) lewat generic <T> di sini.
+//
+// Key dipakai APA ADANYA dari pemanggil (sama seperti storageKey() lama di
+// ujian-outbox.ts: `${PREFIX}:${sesiId}:${nis}`) supaya data yang sudah
+// bermigrasi dari localStorage tetap konsisten penamaannya.
+
+export async function outboxPut<T>(key: string, value: T): Promise<void> {
+  const db = await bukaDb()
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(STORE_OUTBOX, 'readwrite')
+    tx.objectStore(STORE_OUTBOX).put(value, key)
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error ?? new Error('Gagal menyimpan entri outbox'))
+  })
+}
+
+export async function outboxGet<T>(key: string): Promise<T | null> {
+  const db = await bukaDb()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_OUTBOX, 'readonly')
+    const req = tx.objectStore(STORE_OUTBOX).get(key)
+    req.onsuccess = () => resolve((req.result as T | undefined) ?? null)
+    req.onerror = () => reject(req.error ?? new Error('Gagal membaca entri outbox'))
+  })
+}
+
+export async function outboxDelete(key: string): Promise<void> {
+  const db = await bukaDb()
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(STORE_OUTBOX, 'readwrite')
+    tx.objectStore(STORE_OUTBOX).delete(key)
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error ?? new Error('Gagal menghapus entri outbox'))
+  })
+}
+
+/** Semua key yang tersimpan di store outbox saat ini. */
+export async function outboxGetAllKeys(): Promise<string[]> {
+  const db = await bukaDb()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_OUTBOX, 'readonly')
+    const req = tx.objectStore(STORE_OUTBOX).getAllKeys()
+    req.onsuccess = () => resolve((req.result as IDBValidKey[]).map(String))
+    req.onerror = () => reject(req.error ?? new Error('Gagal membaca daftar key outbox'))
+  })
+}
+
+/** Semua value yang tersimpan di store outbox saat ini. */
+export async function outboxGetAllValues<T>(): Promise<T[]> {
+  const db = await bukaDb()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_OUTBOX, 'readonly')
+    const req = tx.objectStore(STORE_OUTBOX).getAll()
+    req.onsuccess = () => resolve((req.result as T[]) ?? [])
+    req.onerror = () => reject(req.error ?? new Error('Gagal membaca isi outbox'))
+  })
 }
