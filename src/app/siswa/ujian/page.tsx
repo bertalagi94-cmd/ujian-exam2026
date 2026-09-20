@@ -2098,6 +2098,7 @@ export default function SiswaUjianPage() {
         body: JSON.stringify({
           sesiId: currentSesi!.sesiId,
           nis: user.nis,
+          deviceId: getDeviceId(),
           isTimeout,
           ...(klaimTersimpan ? { waktuSelesaiClient: klaimTersimpan } : {}),
         }),
@@ -2251,7 +2252,7 @@ export default function SiswaUjianPage() {
           '/api/siswa/ujian/selesai',
           {
             method: 'POST',
-            body: JSON.stringify({ sesiId: currentSesi.sesiId, nis, isTimeout: false, waktuSelesaiClient: klaim }),
+            body: JSON.stringify({ sesiId: currentSesi.sesiId, nis, deviceId: getDeviceId(), isTimeout: false, waktuSelesaiClient: klaim }),
           }
         )
         if (selesai) return
