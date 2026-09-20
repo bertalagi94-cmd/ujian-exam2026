@@ -320,6 +320,11 @@ export default function SiswaUjianPage() {
   // hanya bisa membuka soal yang sudah terkirim (terenkripsi) sebelumnya.
   const [jaringanBermasalah, setJaringanBermasalah] = useState(false)
   const [amplopTersedia, setAmplopTersedia] = useState(false)
+  // Ref padanan amplopTersedia: handleSelesai() dipanggil dari closure lama
+  // (timer auto-submit via setTimeout) sehingga membaca state langsung bisa
+  // basi. Ref ini selalu terkini.
+  const amplopTersediaRef = useRef(false)
+  useEffect(() => { amplopTersediaRef.current = amplopTersedia }, [amplopTersedia])
   const [kodeDarurat, setKodeDarurat] = useState('')
   const [kodeDaruratError, setKodeDaruratError] = useState('')
   const [kodeDaruratLoading, setKodeDaruratLoading] = useState(false)
@@ -346,6 +351,13 @@ export default function SiswaUjianPage() {
   // /selesai) sendiri gagal murni karena jaringan. Lihat pg-offline-client.ts
   // dan komentar di handleSelesai/renderSyncFailModal di bawah.
   const [pgSelesaiOfflinePending, setPgSelesaiOfflinePending] = useState(false)
+  // FIX (offline PG -> Essay, jalur "Selesai" saat internet SUDAH mati): true =
+  // semua jawaban PG sudah dikonfirmasi server (kasus lama: hanya finalisasi
+  // yang gagal). false = jawaban PG baru DIAMANKAN DI PERANGKAT dan belum
+  // pernah dikonfirmasi server — UI TIDAK BOLEH bilang "sudah tersimpan di
+  // server" pada kondisi ini. Di-set true lagi oleh retry background begitu
+  // syncJawaban() terverifikasi.
+  const [pgOfflineTerkonfirmasi, setPgOfflineTerkonfirmasi] = useState(true)
   const [manualRetrying, setManualRetrying] = useState(false)
 
   // FIX: sebelumnya saat pengawas menutup sesi mendadak, siswa tidak mendapat
@@ -488,9 +500,10 @@ export default function SiswaUjianPage() {
   // menghubungi server (lihat pgSelesaiOfflinePending di atas) tapi SEBELUM
   // retry background sempat berhasil, state React-nya hilang (fresh mount)
   // walau klaimnya sendiri sudah tersimpan di localStorage. Tanpa ini siswa
-  // kembali terjebak di halaman UJIAN biasa tanpa jalur essay offline,
-  // padahal jawabannya sudah pasti lengkap (klaim hanya pernah dibuat kalau
-  // `verified` sempat true).
+  // kembali terjebak di halaman UJIAN biasa tanpa jalur essay offline.
+  // CATATAN: klaim sekarang bisa dibuat SEBELUM server mengonfirmasi jawaban
+  // (lihat amankanPgOffline), jadi setelah reload status konfirmasi tidak
+  // diketahui — dianggap BELUM terkonfirmasi (wording konservatif).
   useEffect(() => {
     const sesiId = sesiInfo?.sesiId
     if (!sesiId || phase !== 'UJIAN') return
@@ -499,6 +512,7 @@ export default function SiswaUjianPage() {
     if (!nis) return
     if (ambilKlaimPgSelesaiOffline(sesiId, nis)) {
       const jumlah = Object.keys(jawabanRef.current).length
+      setPgOfflineTerkonfirmasi(false)
       setPgSelesaiOfflinePending(true)
       setJaringanBermasalah(true)
       setSyncFailInfo({ expected: jumlah, synced: jumlah })
@@ -1102,13 +1116,18 @@ export default function SiswaUjianPage() {
   }
 
   const MAX_SYNC_RETRY = 4
-  const syncJawabanInternal = useCallback(async (): Promise<{ ok: boolean; totalSynced: number; sesiClosed?: boolean; locked?: boolean }> => {
+  const syncJawabanInternal = useCallback(async (): Promise<{ ok: boolean; totalSynced: number; sesiClosed?: boolean; locked?: boolean; networkError?: boolean }> => {
     const currentSesi = sesiInfoRef.current
     const currentJawaban = jawabanRef.current
     if (!currentSesi) return { ok: true, totalSynced: 0 }
     const entries = Object.entries(currentJawaban)
 
     setSyncStatus('syncing')
+    // true kalau kegagalan TERAKHIR murni karena server tidak terjangkau
+    // (tanpa status HTTP = jaringan mati/timeout, atau 5xx) — BUKAN penolakan
+    // sah 4xx. Dipakai handleSelesai() untuk memutuskan apakah jalur PG-selesai
+    // offline boleh dipakai.
+    let gagalJaringan = false
     for (let attempt = 1; attempt <= MAX_SYNC_RETRY; attempt++) {
       try {
         const res = await apiRequest<{
@@ -1194,6 +1213,7 @@ export default function SiswaUjianPage() {
           setSyncErrorMsg('Akses ujian Anda sedang dikunci/menunggu kode reset dari pengawas.')
           return { ok: false, totalSynced: 0, locked: true }
         }
+        gagalJaringan = !status || status >= 500
         if (attempt < MAX_SYNC_RETRY) {
           // Backoff bertahap: 1.5s, 3s, 4.5s — beri waktu jaringan/server pulih
           await new Promise(r => setTimeout(r, attempt * 1500))
@@ -1202,7 +1222,7 @@ export default function SiswaUjianPage() {
     }
     setSyncStatus('error')
     setSyncErrorMsg('Koneksi tidak stabil — sebagian jawaban gagal tersimpan ke server.')
-    return { ok: false, totalSynced: 0 }
+    return { ok: false, totalSynced: 0, networkError: gagalJaringan }
   }, [])
 
   // FIX BUG (P1-02 — autosync & submit manual bisa berjalan BERSAMAAN, race
@@ -1228,7 +1248,7 @@ export default function SiswaUjianPage() {
   // akan pernah ada dua request jawaban PG untuk sesi yang sama diproses
   // tumpang-tindih, dan urutan selesai selalu sama dengan urutan dipanggil.
   const syncChainRef = useRef<Promise<unknown>>(Promise.resolve())
-  const syncJawaban = useCallback((): Promise<{ ok: boolean; totalSynced: number; sesiClosed?: boolean; locked?: boolean }> => {
+  const syncJawaban = useCallback((): Promise<{ ok: boolean; totalSynced: number; sesiClosed?: boolean; locked?: boolean; networkError?: boolean }> => {
     const next = syncChainRef.current.then(syncJawabanInternal, syncJawabanInternal)
     // .catch(() => {}) di sini HANYA supaya rantai promise tidak "macet"
     // kalau satu panggilan reject — syncJawabanInternal sendiri praktis
@@ -1503,6 +1523,34 @@ export default function SiswaUjianPage() {
     } finally { setKodeResetLoading(false) }
   }
 
+  // ── Amankan jawaban PG di perangkat & buka jalur essay darurat ───────────
+  // Dipanggil saat "Selesai" ditekan tapi server TIDAK terjangkau.
+  //   terkonfirmasiServer=true  → semua jawaban sudah diverifikasi server,
+  //                               hanya finalisasi (POST /selesai) yang gagal.
+  //   terkonfirmasiServer=false → server tidak terjangkau SEBELUM verifikasi
+  //                               selesai; jawaban baru aman di localStorage.
+  // Klaim waktu selesai TIDAK ditimpa kalau sudah ada (auto-submit timer atau
+  // "Coba Lagi" bisa memanggil ini berkali-kali) — waktu pertama yang dipakai.
+  // Backup lokal JANGAN dihapus di sini: baru boleh dihapus setelah /selesai
+  // benar-benar sukses (lihat retry background di bawah).
+  function amankanPgOffline(expected: number, synced: number, terkonfirmasiServer: boolean) {
+    let nis: string | undefined
+    try { nis = JSON.parse(localStorage.getItem('user') ?? '{}').nis } catch { /* abaikan */ }
+    const currentSesi = sesiInfoRef.current
+    if (currentSesi && nis) {
+      // Pastikan snapshot lokal paling baru sebelum bergantung padanya.
+      saveBackup(currentSesi.sesiId, nis, jawabanRef.current, jawabanTsRef.current, jawabanRevisiRef.current)
+      if (!ambilKlaimPgSelesaiOffline(currentSesi.sesiId, nis)) {
+        simpanKlaimPgSelesaiOffline(currentSesi.sesiId, nis, new Date().toISOString())
+      }
+    }
+    setPgOfflineTerkonfirmasi(terkonfirmasiServer)
+    setPgSelesaiOfflinePending(true)
+    setJaringanBermasalah(true)
+    setSyncFailInfo({ expected, synced })
+    setShowSyncFailModal(true)
+  }
+
   async function handleSelesai(isTimeout = false, dipaksaPengawas = false) {
     if (submitting) return
     setConfirmSelesai(false)
@@ -1534,9 +1582,11 @@ export default function SiswaUjianPage() {
     let totalSynced = 0
     let sesiClosedDuringSync = false
     let lockedDuringSync = false
+    let serverTidakTerjangkau = false
     for (let round = 1; round <= MAX_VERIFY_ROUNDS; round++) {
       const result = await syncJawaban()
       totalSynced = result.totalSynced
+      serverTidakTerjangkau = !!result.networkError
       // FIX BUG P1: tambahan syarat cocokAck di bawah — lihat komentar
       // lengkap di semuaSoalTerkonfirmasiRevisi(). Kalau server belum pernah
       // mengembalikan `acked` sama sekali di percobaan manapun sejauh ini
@@ -1562,6 +1612,24 @@ export default function SiswaUjianPage() {
     // otomatis mencoba lagi — begitu siswa memasukkan kode reset yang valid,
     // percobaan submit berikutnya akan berhasil seperti biasa.
     if (lockedDuringSync) {
+      setShowSyncFailModal(false)
+      setSubmitting(false)
+      return
+    }
+
+    // FIX BUG P0 (offline PG -> Essay, skenario: internet MATI SEBELUM siswa
+    // menekan "Selesai"). Sebelumnya jalur ini selalu jatuh ke modal "Jawaban
+    // Belum Semua Tersimpan" + return, TANPA membuat klaim pgSelesaiOffline —
+    // padahal klaim itulah yang membuka kotak kode darurat & jalur essay
+    // offline. Akibatnya siswa hanya bisa menekan "Coba Lagi" tanpa ujung.
+    //
+    // Sekarang: kalau server memang tidak terjangkau (bukan penolakan sah
+    // 4xx) DAN soal essay terenkripsi sudah ada di perangkat (amplop), jawaban
+    // PG diamankan di perangkat dan siswa dialihkan ke kode darurat. Nilai PG
+    // TETAP baru dibuat server setelah jawaban tersinkron (lihat retry
+    // background: sync dulu, baru /selesai).
+    if (!verified && !dipaksaPengawas && !sesiClosedDuringSync && serverTidakTerjangkau && amplopTersediaRef.current && expectedCount > 0) {
+      amankanPgOffline(expectedCount, totalSynced, false)
       setSubmitting(false)
       return
     }
@@ -1583,14 +1651,25 @@ export default function SiswaUjianPage() {
     try {
       const user = JSON.parse(localStorage.getItem('user') ?? '{}')
       const currentSesi = sesiInfoRef.current
+      // Kalau ada klaim offline dari percobaan sebelumnya, ikut kirim supaya
+      // jejak audit "kapan siswa menekan Selesai" di server tetap akurat.
+      const klaimTersimpan = currentSesi && user?.nis ? ambilKlaimPgSelesaiOffline(currentSesi.sesiId, user.nis) : null
       const res = await apiRequest<{ id?: string; lanjutEssay?: boolean; kkm?: number } & Partial<HasilAkhir>>('/api/siswa/ujian/selesai', {
         method: 'POST',
         body: JSON.stringify({
           sesiId: currentSesi!.sesiId,
           nis: user.nis,
           isTimeout,
+          ...(klaimTersimpan ? { waktuSelesaiClient: klaimTersimpan } : {}),
         }),
       })
+
+      // Server sudah memfinalisasi PG — klaim offline (kalau ada) tidak
+      // diperlukan lagi, dan modal kegagalan (kalau sedang tampil dari
+      // percobaan sebelumnya) harus ditutup.
+      if (currentSesi && user?.nis) hapusKlaimPgSelesaiOffline(currentSesi.sesiId, user.nis)
+      setPgSelesaiOfflinePending(false)
+      setShowSyncFailModal(false)
 
       // FIX (fitur essay): sesi ini punya essay — JANGAN tampilkan halaman
       // hasil dan JANGAN lepas fullscreen. Nilai PG sudah dihitung & tersimpan
@@ -1641,15 +1720,7 @@ export default function SiswaUjianPage() {
         // ke device — lihat amplopTersedia) izinkan modal di bawah
         // menampilkan kotak kode darurat SEKARANG JUGA, tanpa menunggu
         // koneksi pulih.
-        const user = JSON.parse(localStorage.getItem('user') ?? '{}')
-        const currentSesi = sesiInfoRef.current
-        if (currentSesi && user?.nis) {
-          simpanKlaimPgSelesaiOffline(currentSesi.sesiId, user.nis, new Date().toISOString())
-        }
-        setPgSelesaiOfflinePending(true)
-        setJaringanBermasalah(true)
-        setSyncFailInfo({ expected: expectedCount, synced: totalSynced })
-        setShowSyncFailModal(true)
+        amankanPgOffline(expectedCount, totalSynced, true)
       } else {
         // Gagal memanggil endpoint penilaian (bukan sekadar sync jawaban) —
         // beri kesempatan retry juga, jangan tampilkan layar kosong/diam.
@@ -1660,23 +1731,57 @@ export default function SiswaUjianPage() {
   }
 
   // ── Retry finalisasi PG di background (jalur offline -> essay) ───────────
-  // Selama pgSelesaiOfflinePending true, coba ulang POST /selesai tiap 15
-  // detik dengan `waktuSelesaiClient` = klaim yang tersimpan, TANPA
-  // menghalangi siswa mengerjakan essay lewat jalur darurat sementara ini
-  // berjalan. Berhenti otomatis begitu server berhasil dihubungi.
+  // Selama pgSelesaiOfflinePending true, setiap 15 detik:
+  //   1) syncJawaban() — kirim SEMUA jawaban PG ke server dan tunggu ACK.
+  //      WAJIB sebelum langkah 2: /api/siswa/ujian/selesai menghitung nilai
+  //      dari baris `jawaban` di DATABASE, bukan dari localStorage browser.
+  //      Kalau /selesai dipanggil sebelum jawaban tersinkron, nilai PG dihitung
+  //      dari data kosong/sebagian. Auto-sync 30 detik di fase UJIAN juga
+  //      sudah berhenti begitu siswa masuk ESSAY_KERJAKAN, jadi effect INI
+  //      satu-satunya yang mengirim jawaban PG pada jalur offline.
+  //   2) POST /selesai dengan `waktuSelesaiClient` = klaim yang tersimpan.
+  // TANPA menghalangi siswa mengerjakan essay lewat jalur darurat. Berhenti
+  // otomatis begitu server berhasil, atau menolak secara permanen.
   useEffect(() => {
     if (!pgSelesaiOfflinePending) return
     const currentSesi = sesiInfoRef.current
     if (!currentSesi) return
     let selesai = false
+    let sedangCoba = false
+    const berhenti = (nis: string) => {
+      selesai = true
+      hapusKlaimPgSelesaiOffline(currentSesi.sesiId, nis)
+      setPgSelesaiOfflinePending(false)
+      clearInterval(id)
+    }
     const cobaFinalisasi = async () => {
-      if (selesai) return
-      let nis: string | undefined
-      try { nis = JSON.parse(localStorage.getItem('user') ?? '{}').nis } catch { /* abaikan */ }
-      if (!nis) return
-      const klaim = ambilKlaimPgSelesaiOffline(currentSesi.sesiId, nis)
-      if (!klaim) { selesai = true; setPgSelesaiOfflinePending(false); return }
+      if (selesai || sedangCoba) return
+      sedangCoba = true
       try {
+        let nis: string | undefined
+        try { nis = JSON.parse(localStorage.getItem('user') ?? '{}').nis } catch { /* abaikan */ }
+        if (!nis) return
+        const klaim = ambilKlaimPgSelesaiOffline(currentSesi.sesiId, nis)
+        if (!klaim) { selesai = true; setPgSelesaiOfflinePending(false); return }
+
+        // 1) Sync dulu, pastikan server sudah punya semua jawaban PG.
+        const expected = Object.keys(jawabanRef.current).length
+        const sync = await syncJawaban()
+        if (selesai) return
+        if (sync.sesiClosed) {
+          // Sesi sudah ditutup pengawas: sync/selesai pasti ditolak terus.
+          // Nilai dihitung server dari jawaban yang sempat tersimpan (lihat
+          // finalisasiNilaiPaksa); status essay ditangani cekStatusSesi.
+          berhenti(nis)
+          return
+        }
+        if (sync.locked) return // RESET/TERKUNCI: tunggu tick berikutnya
+        const pernahDapatAck = Object.keys(ackTerakhirRef.current).length > 0
+        const cocokAck = pernahDapatAck ? semuaSoalTerkonfirmasiRevisi() : true
+        if (!(sync.ok && sync.totalSynced >= expected && cocokAck)) return // belum lengkap, coba lagi nanti
+        setPgOfflineTerkonfirmasi(true)
+
+        // 2) Finalisasi.
         const res = await apiRequest<{ id?: string; lanjutEssay?: boolean; kkm?: number } & Partial<HasilAkhir>>(
           '/api/siswa/ujian/selesai',
           {
@@ -1685,35 +1790,44 @@ export default function SiswaUjianPage() {
           }
         )
         if (selesai) return
-        selesai = true
-        hapusKlaimPgSelesaiOffline(currentSesi.sesiId, nis)
-        setPgSelesaiOfflinePending(false)
-        clearInterval(id)
+        berhenti(nis)
         // Kalau siswa SUDAH terlanjur masuk essay lewat kode darurat
         // (phase ESSAY_KERJAKAN), jangan ganggu — server sekarang sudah
         // tahu PG selesai, biarkan siswa lanjut mengerjakan essay seperti
         // biasa. Rekonsiliasi status_essay-nya sendiri ditangani terpisah
         // oleh laporkanBukaOffline().
         if (phaseRef.current === 'ESSAY_KERJAKAN') return
+        clearBackup(currentSesi.sesiId, nis)
         setShowSyncFailModal(false)
         setJaringanBermasalah(false)
         if (res.lanjutEssay) {
-          if (nis) clearBackup(currentSesi.sesiId, nis)
           setKkmAwal(res.kkm ?? 75)
           setPhase('ESSAY_INFO')
           fetchEssayInfo()
         } else {
-          if (nis) clearBackup(currentSesi.sesiId, nis)
           setHasilNilai(res as HasilAkhir)
           setPhase('SELESAI')
         }
-      } catch {
-        // Masih gagal — coba lagi di tick berikutnya (interval tetap jalan).
+      } catch (e) {
+        // Server SEMPAT merespons dengan penolakan sah (mis. 409 waktu PG
+        // habis / sesi ditutup, 403, 404): mengulang tiap 15 detik tidak akan
+        // pernah berhasil — dulu loop ini diam-diam berputar selamanya.
+        // Berhenti; nilai PG akan dihitung server dari jawaban yang sudah
+        // tersinkron saat sesi ditutup. Tanpa status = jaringan: coba lagi.
+        const status = (e as { status?: number } | undefined)?.status
+        if (status === 403 || status === 404 || status === 409) {
+          let nis: string | undefined
+          try { nis = JSON.parse(localStorage.getItem('user') ?? '{}').nis } catch { /* abaikan */ }
+          if (nis && !selesai) berhenti(nis)
+        }
+      } finally {
+        sedangCoba = false
       }
     }
     const id = setInterval(cobaFinalisasi, 15000)
     void cobaFinalisasi()
     return () => { selesai = true; clearInterval(id) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pgSelesaiOfflinePending])
 
   // Dipanggil dari tombol "Coba Lagi" di modal kegagalan sync.
@@ -1722,8 +1836,12 @@ export default function SiswaUjianPage() {
     try {
       await handleSelesai(false, sesiDitutupPaksa)
     } finally {
+      // JANGAN menutup modal di sini: kalau percobaan ini gagal lagi,
+      // handleSelesai() sudah menampilkannya kembali, dan `finally` ini
+      // (berjalan SETELAH itu) dulu langsung menyembunyikannya — modal
+      // "hilang" begitu saja setelah "Coba Lagi" gagal. Penutupan modal saat
+      // BERHASIL sudah dilakukan di dalam handleSelesai().
       setManualRetrying(false)
-      setShowSyncFailModal(false)
     }
   }
 
@@ -3793,13 +3911,27 @@ export default function SiswaUjianPage() {
                       terancam hilang, dan supaya (kalau essay ada & amplopnya
                       sudah terunduh) siswa bisa langsung lanjut lewat kode
                       darurat tanpa menunggu koneksi pulih sama sekali. */}
-                  <h2 className="text-lg font-bold text-slate-900 mb-2">Jawaban PG Sudah Lengkap Tersimpan</h2>
-                  <p className="text-sm text-slate-600 mb-3">
-                    Semua <strong>{syncFailInfo.expected}</strong> jawaban PG Anda sudah terkonfirmasi
-                    tersimpan di server. Hanya proses penyelesaian akhir yang gagal terkirim karena
-                    koneksi — sistem akan otomatis mencoba lagi di latar belakang, Anda tidak perlu
-                    menunggu di sini.
-                  </p>
+                  {pgOfflineTerkonfirmasi ? (
+                    <>
+                      <h2 className="text-lg font-bold text-slate-900 mb-2">Jawaban PG Sudah Lengkap Tersimpan</h2>
+                      <p className="text-sm text-slate-600 mb-3">
+                        Semua <strong>{syncFailInfo.expected}</strong> jawaban PG Anda sudah terkonfirmasi
+                        tersimpan di server. Hanya proses penyelesaian akhir yang gagal terkirim karena
+                        koneksi — sistem akan otomatis mencoba lagi di latar belakang, Anda tidak perlu
+                        menunggu di sini.
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <h2 className="text-lg font-bold text-slate-900 mb-2">Jawaban PG Diamankan di Perangkat</h2>
+                      <p className="text-sm text-slate-600 mb-3">
+                        <strong>{syncFailInfo.expected}</strong> jawaban PG Anda tersimpan aman di perangkat ini,
+                        tetapi <strong>belum terkonfirmasi diterima server</strong> karena koneksi terputus.
+                        Jangan tutup atau muat ulang halaman ini. Begitu koneksi pulih, sistem akan
+                        mengirim jawaban PG lebih dulu, lalu menyelesaikan penilaiannya secara otomatis.
+                      </p>
+                    </>
+                  )}
                   {amplopTersedia ? (
                     <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 mb-4 text-left">
                       <p className="text-xs text-emerald-700">
