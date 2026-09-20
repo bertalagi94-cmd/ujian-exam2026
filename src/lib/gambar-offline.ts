@@ -1,77 +1,128 @@
-// Precache gambar soal (PG & essay) pakai Cache API bawaan browser, supaya
-// gambar tetap tampil walau internet mati SELAMA gambar sudah sempat
-// diunduh saat ujian dimulai (mirip perlakuan paket soal PG offline yang
-// sudah lebih dulu ada, lihat useEffect pengambilan amplop essay di
-// siswa/ujian/page.tsx).
+// Precache gambar soal (PG & essay) ke IndexedDB (lihat ujian-offline-storage.ts),
+// supaya gambar tetap tampil walau internet mati.
 //
-// Latar belakang bug: sebelumnya elemen <img> selalu diberi `src={gambar_url}`
-// mentah-mentah. Teks soal aman karena sudah ikut tersimpan di paket
-// soal/amplop terenkripsi, tapi gambar TIDAK — begitu internet mati, browser
-// tetap harus mengambil gambar itu dari jaringan tiap kali dirender, dan
-// gagal (ikon gambar rusak) walau soalnya sendiri sudah bisa dikerjakan
-// offline.
+// PERBAIKAN AUDIT (P0 #4, #5, #6):
+//  - #4: precacheGambarSoal() DULU dipanggil dengan `void ...` (fire-and-forget),
+//    sekarang mengembalikan Promise yang WAJIB ditunggu (`await`) oleh pemanggil
+//    sebelum mengizinkan siswa mulai mengerjakan. Hasilnya berupa ringkasan
+//    manifest (berapa sukses, berapa gagal) supaya pemanggil bisa memutuskan
+//    START / retry / tampilkan error.
+//  - #5: TIDAK ADA LAGI fallback diam-diam ke internet saat offline. Kalau
+//    aset tidak ada di IndexedDB dan browser sedang offline, pemanggil (lihat
+//    GambarSoalOffline.tsx) akan menampilkan status error eksplisit, bukan
+//    mencoba fetch ke Supabase.
+//  - #6: modul ini tidak pernah "menyembunyikan" kegagalan; setiap kegagalan
+//    per-URL dicatat di `status` (ASSET_FAILED) sehingga terlihat oleh UI.
 //
-// Solusi dipilih: Cache API (bukan Service Worker) — cukup untuk kebutuhan
-// "sudah pasti terlihat sekali online, tetap terlihat walau offline
-// belakangan", tanpa menambah lapisan service-worker/registrasi baru ke
-// aplikasi Next.js yang belum punya satupun.
+// Cache API (versi lama modul ini) sengaja diganti dengan IndexedDB supaya
+// selaras dengan gudang data durable lain (lihat ujian-offline-storage.ts) dan
+// supaya statusnya bisa diperiksa secara sinkron-terhadap-manifest (bukan
+// hanya "ada/tidak ada").
 
-const CACHE_NAME = 'ujian-gambar-soal-v1'
+import { ambilAsset, simpanAsset, type AssetStatus } from './ujian-offline-storage'
 
-function cacheTersedia(): boolean {
-  return typeof window !== 'undefined' && 'caches' in window
+export interface HasilPrecache {
+  total: number
+  berhasil: number
+  gagal: string[]
+  /** true kalau SEMUA url berhasil diunduh & tervalidasi — dipakai sebagai START gate. */
+  siap: boolean
+}
+
+function isOnline(): boolean {
+  return typeof navigator === 'undefined' || navigator.onLine !== false
 }
 
 /**
- * Unduh & simpan semua URL gambar yang diberikan ke Cache API. Dipanggil
- * SEDINI mungkin — begitu paket soal PG atau soal essay diterima dari
- * server/amplop — supaya sempat tersimpan sebelum siswa keburu offline.
- * Aman dipanggil berkali-kali (mis. tiap kali paket soal berganti): URL yang
- * sudah ada di cache dilewati, tidak diunduh ulang.
+ * Unduh & simpan semua URL gambar yang diberikan ke IndexedDB. WAJIB di-`await`
+ * oleh pemanggil sebelum ujian dianggap READY (lihat BUG P0 #3/#4) — jangan
+ * lagi dipanggil dengan `void`.
+ *
+ * URL yang sudah ada di penyimpanan lokal (ASSET_READY) dilewati, tidak
+ * diunduh ulang. Aman dipanggil berkali-kali/retry.
  */
-export async function precacheGambarSoal(urls: (string | null | undefined)[]): Promise<void> {
-  if (!cacheTersedia()) return
+export async function precacheGambarSoal(
+  urls: (string | null | undefined)[]
+): Promise<HasilPrecache> {
   const unik = Array.from(new Set(urls.filter((u): u is string => !!u)))
-  if (unik.length === 0) return
-  try {
-    const cache = await caches.open(CACHE_NAME)
-    await Promise.all(
-      unik.map(async (url) => {
-        try {
-          const sudahAda = await cache.match(url)
-          if (sudahAda) return
-          // no-store: kita yang mengatur sendiri penyimpanannya lewat Cache API,
-          // tidak perlu double-cache lewat HTTP cache browser.
-          const res = await fetch(url, { cache: 'no-store' })
-          if (res.ok) await cache.put(url, res)
-        } catch {
-          // Satu gambar gagal diunduh (mis. memang sedang offline saat
-          // paket soal pertama kali diambil) tidak boleh menggagalkan
-          // gambar lain — abaikan, akan dicoba lagi lain kali fungsi ini
-          // dipanggil selama koneksi tersedia.
-        }
-      })
-    )
-  } catch {
-    // Cache API tidak tersedia/diblokir (mis. mode privat ketat) — biarkan
-    // <img> jatuh ke perilaku normal (langsung ke jaringan).
+  if (unik.length === 0) return { total: 0, berhasil: 0, gagal: [], siap: true }
+
+  if (!isOnline()) {
+    // Offline sejak awal: tidak ada gunanya mencoba fetch, cukup laporkan
+    // mana yang sudah ada di penyimpanan lokal dari sesi sebelumnya.
+    let berhasil = 0
+    const gagal: string[] = []
+    for (const url of unik) {
+      const rec = await ambilAsset(url).catch(() => null)
+      if (rec?.status === 'ASSET_READY') berhasil++
+      else gagal.push(url)
+    }
+    return { total: unik.length, berhasil, gagal, siap: gagal.length === 0 }
   }
+
+  const gagal: string[] = []
+  let berhasil = 0
+
+  await Promise.all(
+    unik.map(async (url) => {
+      try {
+        const existing = await ambilAsset(url).catch(() => null)
+        if (existing?.status === 'ASSET_READY' && existing.blob.size > 0) {
+          berhasil++
+          return
+        }
+        // no-store: kita sendiri yang mengatur penyimpanan durable-nya lewat
+        // IndexedDB, tidak perlu double-cache lewat HTTP cache browser.
+        const res = await fetch(url, { cache: 'no-store' })
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        const blob = await res.blob()
+        if (blob.size === 0) throw new Error('Berkas kosong')
+        await simpanAsset({
+          url,
+          blob,
+          mimeType: blob.type || 'application/octet-stream',
+          size: blob.size,
+          savedAtIso: new Date().toISOString(),
+          status: 'ASSET_READY',
+        })
+        berhasil++
+      } catch {
+        // Satu gambar gagal tidak boleh menggagalkan gambar lain — dicatat
+        // sebagai gagal (BUKAN diam-diam disembunyikan, lihat BUG P0 #6),
+        // pemanggil yang memutuskan apakah ini memblokir START.
+        gagal.push(url)
+      }
+    })
+  )
+
+  return { total: unik.length, berhasil, gagal, siap: gagal.length === 0 }
 }
 
 /**
- * Ambil kembali gambar dari cache sebagai object URL untuk dipakai di
- * elemen <img src=...>. Mengembalikan null kalau tidak ada di cache (elemen
- * pemanggil tinggal jatuh ke `src={url}` biasa sebagai fallback).
+ * Ambil kembali gambar dari IndexedDB sebagai object URL untuk dipakai di
+ * elemen <img src=...>. Mengembalikan null kalau tidak ada di penyimpanan
+ * lokal — pemanggil (GambarSoalOffline.tsx) yang memutuskan apakah boleh
+ * jatuh ke jaringan (HANYA kalau online, lihat BUG P0 #5).
  */
 export async function ambilGambarDariCache(url: string | null | undefined): Promise<string | null> {
-  if (!url || !cacheTersedia()) return null
+  if (!url) return null
   try {
-    const cache = await caches.open(CACHE_NAME)
-    const res = await cache.match(url)
-    if (!res) return null
-    const blob = await res.blob()
-    return URL.createObjectURL(blob)
+    const rec = await ambilAsset(url)
+    if (!rec || rec.status !== 'ASSET_READY') return null
+    return URL.createObjectURL(rec.blob)
   } catch {
     return null
   }
 }
+
+export async function statusGambar(url: string | null | undefined): Promise<AssetStatus | 'UNKNOWN'> {
+  if (!url) return 'UNKNOWN'
+  try {
+    const rec = await ambilAsset(url)
+    return rec?.status ?? 'UNKNOWN'
+  } catch {
+    return 'UNKNOWN'
+  }
+}
+
+export { isOnline as gambarOfflineIsOnline }
