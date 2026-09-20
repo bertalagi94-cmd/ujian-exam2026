@@ -29,6 +29,7 @@
 // keduanya berkali-kali dengan aman sampai mendapat ACK.
 
 import { apiRequest } from '@/lib/utils'
+import { outboxPut, outboxGet, outboxDelete, outboxGetAllValues } from '@/lib/ujian-offline-storage'
 
 // PERBAIKAN AUDIT P0 #2 (outbox bisa finalisasi PG tanpa sync jawaban dulu):
 // cobaKirimPaketTertunda() DULU langsung memanggil POST /selesai begitu
@@ -141,7 +142,22 @@ function storageKey(sesiId: string, nis: string): string {
   return `${PREFIX}:${sesiId}:${nis}`
 }
 
-function bacaSemuaKeyOutbox(): string[] {
+// FIX AUDIT P0 #7 (migrasi bertahap localStorage → IndexedDB, tahap 1:
+// outbox): outbox dulu SELURUHNYA disimpan sebagai string JSON di
+// localStorage. Sekarang IndexedDB (STORE_OUTBOX, lihat
+// ujian-offline-storage.ts) jadi penyimpanan UTAMA — lebih besar
+// kuotanya dan tidak memblokir main thread untuk payload besar (paket bisa
+// menumpuk kalau siswa lama offline). localStorage TETAP dipakai sebagai
+// fallback DARURAT dua arah:
+//   1) kalau IndexedDB gagal/tidak tersedia sama sekali (mis. browser lama,
+//      mode privat sangat ketat) — supaya outbox tidak berhenti total,
+//   2) migrasi SEKALI JALAN: entri lama yang sudah kadung tersimpan di
+//      localStorage (dari versi sebelum patch ini) dipindah ke IndexedDB
+//      begitu pertama kali modul ini dipakai, supaya tidak ada paket ujian
+//      siswa yang "hilang" gara-gara pindah tempat penyimpanan.
+let migrasiOutboxSelesai = false
+
+function bacaSemuaKeyOutboxLocalStorage(): string[] {
   const hasil: string[] = []
   try {
     for (let i = 0; i < localStorage.length; i++) {
@@ -149,17 +165,40 @@ function bacaSemuaKeyOutbox(): string[] {
       if (k && k.startsWith(`${PREFIX}:`)) hasil.push(k)
     }
   } catch {
-    // Private mode / storage tidak tersedia — anggap outbox kosong.
+    // Private mode / storage tidak tersedia — anggap tidak ada yang lama.
   }
   return hasil
 }
 
+async function migrasikanOutboxLamaJikaPerlu(): Promise<void> {
+  if (migrasiOutboxSelesai) return
+  // Ditandai selesai DI AWAL (bukan di akhir): kalaupun migrasi gagal
+  // sebagian di tengah jalan, kita tidak mencoba mengulang di SETIAP
+  // pemanggilan fungsi outbox (yang bisa sangat sering) — fallback baca
+  // localStorage di ambilPaketTertunda/ambilSemuaPaketTertunda tetap
+  // menjaga data lama tetap terbaca walau belum sempat pindah.
+  migrasiOutboxSelesai = true
+  const keysLama = bacaSemuaKeyOutboxLocalStorage()
+  for (const k of keysLama) {
+    try {
+      const raw = localStorage.getItem(k)
+      if (!raw) continue
+      const paket = JSON.parse(raw) as PaketUjianTertunda
+      await outboxPut(k, paket)
+      localStorage.removeItem(k)
+    } catch {
+      // satu entri korup/gagal migrasi tidak boleh menghentikan entri lain
+    }
+  }
+}
+
 /** Buat entri baru atau perbarui entri yang sudah ada untuk sesi ini. */
-export function simpanPaketTertunda(
+export async function simpanPaketTertunda(
   data: Pick<PaketUjianTertunda, 'sesiId' | 'nis' | 'deviceId' | 'namaMapel'> &
     Partial<PaketUjianTertunda>
-): PaketUjianTertunda {
-  const existing = ambilPaketTertunda(data.sesiId, data.nis)
+): Promise<PaketUjianTertunda> {
+  await migrasikanOutboxLamaJikaPerlu()
+  const existing = await ambilPaketTertunda(data.sesiId, data.nis)
   const paket: PaketUjianTertunda = {
     sesiId: data.sesiId,
     nis: data.nis,
@@ -175,14 +214,29 @@ export function simpanPaketTertunda(
     butuhKirimEssay: data.butuhKirimEssay ?? existing?.butuhKirimEssay ?? true,
   }
   try {
-    localStorage.setItem(storageKey(paket.sesiId, paket.nis), JSON.stringify(paket))
+    await outboxPut(storageKey(paket.sesiId, paket.nis), paket)
   } catch {
-    // abaikan — retry berikutnya masih akan mencoba menyimpan ulang
+    // IndexedDB gagal/tidak tersedia — fallback darurat ke localStorage
+    // supaya retry berikutnya masih berpeluang menemukan entri ini, alih-
+    // alih diam-diam kehilangan status paket ini sepenuhnya.
+    try {
+      localStorage.setItem(storageKey(paket.sesiId, paket.nis), JSON.stringify(paket))
+    } catch {
+      // Kedua penyimpanan gagal — sudah di luar kendali modul ini;
+      // healthCheckStorage() sebelum START seharusnya sudah menangkap ini.
+    }
   }
   return paket
 }
 
-export function ambilPaketTertunda(sesiId: string, nis: string): PaketUjianTertunda | null {
+export async function ambilPaketTertunda(sesiId: string, nis: string): Promise<PaketUjianTertunda | null> {
+  await migrasikanOutboxLamaJikaPerlu()
+  try {
+    const dariIdb = await outboxGet<PaketUjianTertunda>(storageKey(sesiId, nis))
+    if (dariIdb) return dariIdb
+  } catch {
+    // IndexedDB tidak tersedia — lanjut ke fallback localStorage di bawah.
+  }
   try {
     const raw = localStorage.getItem(storageKey(sesiId, nis))
     return raw ? (JSON.parse(raw) as PaketUjianTertunda) : null
@@ -191,7 +245,12 @@ export function ambilPaketTertunda(sesiId: string, nis: string): PaketUjianTertu
   }
 }
 
-export function hapusPaketTertunda(sesiId: string, nis: string): void {
+export async function hapusPaketTertunda(sesiId: string, nis: string): Promise<void> {
+  try {
+    await outboxDelete(storageKey(sesiId, nis))
+  } catch {
+    // abaikan — kalau IndexedDB tidak tersedia, tidak ada apa pun di sana
+  }
   try {
     localStorage.removeItem(storageKey(sesiId, nis))
   } catch {
@@ -200,16 +259,26 @@ export function hapusPaketTertunda(sesiId: string, nis: string): void {
 }
 
 /** Semua paket tertunda milik satu NIS, untuk menu "Pengiriman Ujian Tertunda". */
-export function ambilSemuaPaketTertunda(nis: string): PaketUjianTertunda[] {
+export async function ambilSemuaPaketTertunda(nis: string): Promise<PaketUjianTertunda[]> {
+  await migrasikanOutboxLamaJikaPerlu()
   const hasil: PaketUjianTertunda[] = []
-  for (const k of bacaSemuaKeyOutbox()) {
-    try {
-      const raw = localStorage.getItem(k)
-      if (!raw) continue
-      const paket = JSON.parse(raw) as PaketUjianTertunda
+  try {
+    const semua = await outboxGetAllValues<PaketUjianTertunda>()
+    for (const paket of semua) {
       if (paket.nis === nis) hasil.push(paket)
-    } catch {
-      // entri korup — abaikan, jangan sampai mematikan seluruh daftar
+    }
+  } catch {
+    // IndexedDB tidak tersedia sama sekali (browser sangat lama) — fallback
+    // baca langsung dari localStorage, sama seperti perilaku sebelum #7.
+    for (const k of bacaSemuaKeyOutboxLocalStorage()) {
+      try {
+        const raw = localStorage.getItem(k)
+        if (!raw) continue
+        const paket = JSON.parse(raw) as PaketUjianTertunda
+        if (paket.nis === nis) hasil.push(paket)
+      } catch {
+        // entri korup — abaikan, jangan sampai mematikan seluruh daftar
+      }
     }
   }
   return hasil.sort((a, b) => a.dibuatIso.localeCompare(b.dibuatIso))
@@ -228,7 +297,7 @@ export function ambilSemuaPaketTertunda(nis: string): PaketUjianTertunda[] {
 export async function cobaKirimPaketTertunda(
   paket: PaketUjianTertunda
 ): Promise<StatusPaketTertunda> {
-  let current = simpanPaketTertunda({
+  let current = await simpanPaketTertunda({
     ...paket,
     status: 'MENGIRIM',
     percobaanTerakhirIso: new Date().toISOString(),
@@ -239,7 +308,7 @@ export async function cobaKirimPaketTertunda(
     if (current.butuhFinalisasiPg) {
       // WAJIB (BUG P0 #2): LOAD LOCAL ANSWERS → SYNC ALL ANSWERS → SERVER ACK
       // dulu, baru boleh FINALIZE. Tidak boleh lagi langsung /selesai.
-      current = simpanPaketTertunda({ ...current, status: 'MENYINKRONKAN' })
+      current = await simpanPaketTertunda({ ...current, status: 'MENYINKRONKAN' })
       const { sinkron, permanentReject } = await pastikanJawabanTersinkron(
         current.sesiId,
         current.nis,
@@ -247,14 +316,14 @@ export async function cobaKirimPaketTertunda(
       )
       if (!sinkron) {
         if (permanentReject) {
-          simpanPaketTertunda({
+          await simpanPaketTertunda({
             ...current,
             status: 'GAGAL',
             pesanTerakhir: 'Sesi ujian ditolak server saat menyinkronkan jawaban (sesi ditutup/diambil alih).',
           })
           return 'GAGAL'
         }
-        simpanPaketTertunda({
+        await simpanPaketTertunda({
           ...current,
           status: 'MENUNGGU_JARINGAN',
           pesanTerakhir: 'Sebagian jawaban belum berhasil disinkronkan ke server.',
@@ -271,7 +340,7 @@ export async function cobaKirimPaketTertunda(
           ...(current.waktuSelesaiClaimIso ? { waktuSelesaiClient: current.waktuSelesaiClaimIso } : {}),
         }),
       })
-      current = simpanPaketTertunda({ ...current, butuhFinalisasiPg: false })
+      current = await simpanPaketTertunda({ ...current, butuhFinalisasiPg: false })
     }
 
     if (current.butuhKirimEssay) {
@@ -279,18 +348,18 @@ export async function cobaKirimPaketTertunda(
         method: 'POST',
         body: JSON.stringify({ sesiId: current.sesiId, deviceId: current.deviceId }),
       })
-      current = simpanPaketTertunda({ ...current, butuhKirimEssay: false })
+      current = await simpanPaketTertunda({ ...current, butuhKirimEssay: false })
     }
 
     // Kedua tahap (yang relevan) sudah ACK server — paket ini selesai.
-    hapusPaketTertunda(current.sesiId, current.nis)
+    await hapusPaketTertunda(current.sesiId, current.nis)
     return 'TERKIRIM'
   } catch (err: unknown) {
     const status = (err as { status?: number } | undefined)?.status
     if (!status) {
       // Tidak ada status HTTP = request tidak pernah sampai server (jaringan
       // mati/timeout) — bukan penolakan sah, tetap layak dicoba lagi nanti.
-      simpanPaketTertunda({
+      await simpanPaketTertunda({
         ...current,
         status: 'MENUNGGU_JARINGAN',
         pesanTerakhir: 'Tidak ada koneksi ke server.',
@@ -301,7 +370,7 @@ export async function cobaKirimPaketTertunda(
     // supaya tidak diulang otomatis tanpa henti — tetap tampil di menu supaya
     // siswa/guru sadar dan bisa menekan "Kirim Sekarang" manual atau
     // menghubungi pengawas kalau memang perlu ditinjau.
-    simpanPaketTertunda({
+    await simpanPaketTertunda({
       ...current,
       status: 'GAGAL',
       pesanTerakhir: err instanceof Error ? err.message : 'Server menolak pengiriman.',
@@ -320,7 +389,7 @@ export function mulaiPenjagaOutbox(nis: string): () => void {
   penjagaTerpasang = true
 
   const flushSemua = async () => {
-    for (const paket of ambilSemuaPaketTertunda(nis)) {
+    for (const paket of await ambilSemuaPaketTertunda(nis)) {
       if (paket.status === 'MENGIRIM') continue // sedang diproses percobaan lain
       await cobaKirimPaketTertunda(paket)
     }
