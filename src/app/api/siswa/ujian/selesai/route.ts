@@ -332,11 +332,10 @@ export async function POST(req: NextRequest) {
     p_klaim_offline: klaimOffline,
   })
 
-  // PGRST202 = fungsi tidak ada di schema cache PostgREST; 42883 = undefined
-  // function di Postgres. Artinya migrasi 21 belum dijalankan.
-  const fungsiBelumAda =
-    !!rpcError && (rpcError.code === 'PGRST202' || rpcError.code === '42883')
-
+  // FAIL CLOSED (audit P0 #2): tidak ada lagi jalur fallback non-atomik kalau
+  // fungsi belum ada. Migrasi 21 & 23 wajib terpasang; kalau RPC gagal karena
+  // alasan apa pun, siswa mendapat error dan mencoba lagi — jawaban tetap aman
+  // di database dan di perangkat.
   if (!rpcError) {
     const hasilRpc = rpcHasil as { hasil?: string; nilai_id?: string } | null
     switch (hasilRpc?.hasil) {
@@ -366,47 +365,6 @@ export async function POST(req: NextRequest) {
           { status: 500 }
         )
     }
-  } else if (fungsiBelumAda) {
-    // FALLBACK (migrasi 21 belum dijalankan): jalur lama, TIDAK atomik. Tetap
-    // dipakai supaya deploy kode tidak memutus ujian yang sedang berjalan.
-    // Bedanya dengan versi lama: error dari kedua penulisan sekarang DIPERIKSA
-    // (sebelumnya diabaikan sehingga respons 200 tetap dikirim walau nilai
-    // tidak tersimpan sama sekali).
-    const updateSiswaUjian: Record<string, unknown> = essayAktif
-      ? { status_essay: 'BELUM_MULAI' }
-      : { status: 'SELESAI', waktu_selesai: new Date().toISOString() }
-    if (klaimOffline) {
-      updateSiswaUjian.pg_selesai_offline = true
-      updateSiswaUjian.pg_waktu_selesai_klaim = klaimOffline.waktu_klaim
-      updateSiswaUjian.pg_offline_audit = klaimOffline.audit
-    }
-
-    // Guard idempotent (pola sama dengan essay/mulai): hanya majukan
-    // status_essay kalau MASIH di keadaan awal.
-    const updateSiswaUjianQuery = db.from('siswa_ujian').update(updateSiswaUjian).eq('sesi_id', sesiId).eq('nis', nis)
-    const [resNilai, resStatus] = await Promise.all([
-      db.from('nilai').upsert(nilaiData, { onConflict: 'sesi_id,nis', ignoreDuplicates: true }),
-      essayAktif
-        ? updateSiswaUjianQuery.or('status_essay.eq.BELUM_MULAI,status_essay.is.null')
-        : updateSiswaUjianQuery,
-    ])
-    if (resNilai.error || resStatus.error) {
-      console.error('[selesai] gagal menulis hasil ujian:', resNilai.error?.message, resStatus.error?.message)
-      return NextResponse.json(
-        { error: 'Gagal menyimpan hasil ujian ke server. Jawaban Anda aman, silakan coba lagi.' },
-        { status: 500 }
-      )
-    }
-
-    // ignoreDuplicates: kalau request lain menang duluan, id yang kita
-    // generate BUKAN id yang tersimpan -- ambil ulang id sebenarnya.
-    const { data: nilaiTersimpan } = await db
-      .from('nilai')
-      .select('id')
-      .eq('sesi_id', sesiId)
-      .eq('nis', nis)
-      .single()
-    nilaiIdFinal = nilaiTersimpan?.id ?? nilaiData.id
   } else {
     console.error('[selesai] finalisasi_pg_atomik gagal:', rpcError.message)
     return NextResponse.json(
