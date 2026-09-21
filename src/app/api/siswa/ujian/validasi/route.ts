@@ -4,6 +4,8 @@ import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 import { catatAktivitas } from '@/lib/aktivitas'
 import { instrumented } from '@/lib/metrik'
+import { ambilMaksReset } from '@/lib/reset-berurutan'
+import { buatSemuaAmplopReset } from '@/lib/reset-amplop-server'
 
 // Threshold: kalau last_heartbeat device lama lebih muda dari ini,
 // anggap device lama masih aktif → tolak login device baru.
@@ -316,6 +318,24 @@ export async function POST(req: NextRequest) {
   const minSubmitAktif = pgMap['minSubmitAktif'] === 'true'
   const minSubmitMenit = minSubmitAktif ? (parseInt(pgMap['minSubmitMenit']) || 45) : 0
 
+  // P0 (audit offline R1/R2/R3): siapkan material verifikasi reset SEKARANG,
+  // selagi siswa online masuk ujian — persis prinsip yang sama dengan
+  // pre-cache soal/gambar/essay-amplop. Amplop TIDAK berisi kode plaintext
+  // atau rahasia server (lihat reset-amplop-server.ts); kalau pembuatannya
+  // gagal (mis. RESET_PELANGGARAN_SECRET belum diset di env), JANGAN
+  // menggagalkan seluruh masuk-ujian — cukup kirim array kosong, dan client
+  // yang memutuskan fail-closed (reset offline tidak akan tersedia untuk
+  // sesi ini, tapi ujian tetap boleh dimulai; reset tetap bisa dipakai ONLINE
+  // seperti sebelumnya).
+  let resetMaterial: Awaited<ReturnType<typeof buatSemuaAmplopReset>> = []
+  let maksReset = 0
+  try {
+    maksReset = await ambilMaksReset(db)
+    resetMaterial = await buatSemuaAmplopReset(sesi.id, nis, maksReset)
+  } catch (e) {
+    console.error('[validasi] gagal menyiapkan material reset offline:', e instanceof Error ? e.message : e)
+  }
+
   return NextResponse.json({
     valid: true,
     sesiId: sesi.id,
@@ -326,6 +346,8 @@ export async function POST(req: NextRequest) {
     waktu_mulai: waktuMulaiRef,
     soalList: finalSoal,
     minSubmitMenit,
+    resetMaterial,
+    maksReset,
   })
   })
 }
