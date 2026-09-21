@@ -238,27 +238,17 @@ export async function POST(req: NextRequest) {
           accepted: r.out_accepted,
         }))
       } else {
-        // FALLBACK: migrasi 20_pg_offline_dan_revisi_jawaban.sql belum
-        // dijalankan di database ini (fungsi belum ada — kode Postgres
-        // 42883 "undefined function"). Jatuh ke upsert lama tanpa revisi,
-        // supaya deploy kode baru sebelum migrasi jalan tidak mematikan
-        // autosave siswa. Bug P1 di atas TIDAK diperbaiki selama fallback
-        // ini dipakai — jalankan migrasinya secepatnya.
-        if (rpcError.code !== '42883' && !/function .*sync_jawaban_revisi/i.test(rpcError.message ?? '')) {
-          return NextResponse.json({ error: rpcError.message }, { status: 500 })
-        }
-        console.warn('[sync] sync_jawaban_revisi belum tersedia di database, memakai upsert lama (tanpa proteksi revisi). Jalankan migrasi 20_pg_offline_dan_revisi_jawaban.sql.')
-        const legacyRecords = jawabanValid.map((j: { soal_id: string; jawaban: string }) => ({
-          sesi_id: sesiId,
-          nis: user.nis!,
-          soal_id: j.soal_id,
-          jawaban: j.jawaban,
-          updated_at: new Date().toISOString(),
-          sync_status: 'SYNCED',
-          local_timestamp: Date.now(),
-        }))
-        const { error } = await db.from('jawaban').upsert(legacyRecords, { onConflict: 'sesi_id,nis,soal_id' })
-        if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+        // FAIL CLOSED (audit P0 #2). Dulu di sini ada fallback ke upsert lama
+        // tanpa proteksi revisi kalau fungsi belum ada. Fallback itu DIHAPUS:
+        // migrasi 20 & 23 wajib terpasang (23 menolak berjalan tanpa 20/21/22).
+        // Lebih baik client menerima error dan tetap menyimpan jawaban di
+        // outbox lokal untuk dicoba lagi, daripada server diam-diam menulis
+        // jawaban tanpa perlindungan revisi.
+        console.error('[sync] sync_jawaban_revisi gagal:', rpcError.code, rpcError.message)
+        return NextResponse.json(
+          { error: 'Server gagal menyimpan jawaban. Jawaban tetap aman di perangkat dan akan dicoba lagi otomatis.' },
+          { status: 503 }
+        )
       }
     }
 
@@ -379,22 +369,13 @@ export async function GET(req: NextRequest) {
   // memakai src/lib/jawaban-merge.ts (bandingkan revisi, bukan jam) dan
   // hanya jatuh ke jam sebagai pemutus kalau kedua revisi sama persis.
   // `updated_at` tetap disertakan untuk kompatibilitas & sebagai fallback itu.
-  let { data, error } = await db
+  // FAIL CLOSED: kolom `revisi` wajib ada (migrasi 20). Tidak ada fallback
+  // tanpa `revisi` — tanpanya client jatuh ke perbandingan jam yang tidak setara.
+  const { data, error } = await db
     .from('jawaban')
     .select('soal_id, jawaban, updated_at, revisi')
     .eq('sesi_id', sesiId)
-    .eq('nis', user.nis!) as { data: { soal_id: string; jawaban: string; updated_at: string; revisi?: number }[] | null, error: { message: string } | null }
-
-  if (error && /column .*revisi.* does not exist/i.test(error.message ?? '')) {
-    // FALLBACK: migrasi 20_pg_offline_dan_revisi_jawaban.sql belum jalan di
-    // database ini. Client tetap dapat data, hanya tanpa `revisi` (jatuh ke
-    // perbandingan jam di jawaban-merge.ts, sama seperti perilaku lama).
-    ;({ data, error } = await db
-      .from('jawaban')
-      .select('soal_id, jawaban, updated_at')
-      .eq('sesi_id', sesiId)
-      .eq('nis', user.nis!))
-  }
+    .eq('nis', user.nis!) as { data: { soal_id: string; jawaban: string; updated_at: string; revisi: number }[] | null, error: { message: string } | null }
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ jawaban: data ?? [], totalSynced: data?.length ?? 0 })
