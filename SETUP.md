@@ -20,7 +20,7 @@ berikut dari **Project Settings → API** (dibutuhkan di langkah 4):
 
 Buka **SQL Editor** di Supabase Dashboard, jalankan seluruh isi folder
 `supabase/` **sesuai urutan nomor filenya**, dari `01_schema.sql` sampai
-file bernomor terbesar (saat ini `23_hardening_keamanan_db.sql` — cek folder
+file bernomor terbesar (saat ini `24_reset_berurutan.sql` — cek folder
 `supabase/` untuk nomor terbaru kalau ada tambahan setelah checklist ini
 dibuat).
 
@@ -38,6 +38,12 @@ Catatan:
   bernomor 11 tapi saling independen (beda tabel) — urutan di antara
   keduanya tidak masalah.
 - Jalankan migrasi baru di database dulu, **baru** deploy kodenya.
+- `24_reset_berurutan.sql` (sistem reset pelanggaran R1/R2/R3) dijalankan
+  **setelah** 23. Aman: ia hanya menambah kolom + 3 fungsi dan mencabut hak
+  `anon`/`authenticated` untuk fungsi-fungsinya sendiri. Kode aplikasi tidak
+  punya jalur fallback (fail-closed) — tanpa migrasi ini pelanggaran tidak
+  tercatat (503), kode reset tidak bisa diverifikasi (503), dan daftar siswa
+  di Mode Pengawas gagal dimuat.
 - Semua file migrasi ditulis idempotent (`IF NOT EXISTS`, `CREATE OR
   REPLACE`), aman dijalankan ulang kalau ragu sudah jalan atau belum.
 
@@ -74,6 +80,7 @@ berikut:
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | dari langkah 1 |
 | `SUPABASE_SERVICE_ROLE_KEY` | dari langkah 1 (rahasia) |
 | `JWT_SECRET` | nilai bebas Anda sendiri, string acak yang panjang & rahasia |
+| `RESET_PELANGGARAN_SECRET` | (disarankan) string acak ≥ 16 karakter, khusus untuk menurunkan kode reset R1/R2/R3. Kalau tidak diisi, dipakai `ESSAY_DARURAT_SECRET` lalu `JWT_SECRET`. ⚠️ Jangan diganti saat ada ujian berlangsung — kode yang sudah dilihat pengawas jadi tidak cocok lagi. |
 | `CRON_SECRET` | nilai bebas Anda sendiri, untuk otentikasi cron job internal |
 | `FONNTE_TOKEN` | token akun Fonnte Anda (notifikasi WhatsApp) |
 | `ADMIN_WA_NUMBER` | nomor WhatsApp admin tujuan notifikasi |
