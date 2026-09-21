@@ -12,15 +12,18 @@
 // serta seluruh state halaman ujian.
 
 const DB_NAME = 'ujian-offline-db'
-// FIX AUDIT P0 #7 (migrasi bertahap ke IndexedDB, tahap 1: outbox):
-// dinaikkan dari 1 → 2 untuk menambah object store STORE_OUTBOX tanpa
-// mengganggu data assets/healthcheck yang sudah ada di versi 1. IndexedDB
-// akan memanggil onupgradeneeded otomatis untuk browser yang masih di
-// versi lama.
-const DB_VERSION = 2
+// FIX P0 #1 (antrean pelanggaran offline): dinaikkan dari 2 → 3 untuk
+// menambah object store STORE_PELANGGARAN, supaya event anti-cheat yang
+// gagal terkirim (sebelumnya hanya console.warn dan HILANG, lihat
+// pelanggaran-outbox.ts) punya tempat penyimpanan durable sendiri, terpisah
+// dari STORE_OUTBOX (paket PG/Essay) supaya tidak ada campur jenis data saat
+// membaca "semua nilai" dari satu store. IndexedDB akan memanggil
+// onupgradeneeded otomatis untuk browser yang masih di versi lama.
+const DB_VERSION = 3
 export const STORE_ASSETS = 'assets'
 export const STORE_HEALTHCHECK = 'healthcheck'
 export const STORE_OUTBOX = 'outbox'
+export const STORE_PELANGGARAN = 'pelanggaran_outbox'
 
 export type AssetStatus = 'ASSET_LOADING' | 'ASSET_READY' | 'ASSET_FAILED'
 
@@ -54,6 +57,9 @@ function bukaDb(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(STORE_OUTBOX)) {
         db.createObjectStore(STORE_OUTBOX)
+      }
+      if (!db.objectStoreNames.contains(STORE_PELANGGARAN)) {
+        db.createObjectStore(STORE_PELANGGARAN)
       }
     }
     req.onsuccess = () => resolve(req.result)
@@ -194,5 +200,42 @@ export async function outboxGetAllValues<T>(): Promise<T[]> {
     const req = tx.objectStore(STORE_OUTBOX).getAll()
     req.onsuccess = () => resolve((req.result as T[]) ?? [])
     req.onerror = () => reject(req.error ?? new Error('Gagal membaca isi outbox'))
+  })
+}
+
+// ── FIX P0 #1 (antrean pelanggaran offline) ─────────────────────────────────
+// KV generik yang sama persis polanya dengan STORE_OUTBOX di atas, tapi di
+// object store TERPISAH (STORE_PELANGGARAN) supaya pelanggaran-outbox.ts bisa
+// membaca "semua nilai miliknya" tanpa bercampur dengan PaketUjianTertunda.
+// Lihat src/lib/pelanggaran-outbox.ts untuk bentuk datanya.
+
+export async function pelanggaranQueuePut<T>(key: string, value: T): Promise<void> {
+  const db = await bukaDb()
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(STORE_PELANGGARAN, 'readwrite')
+    tx.objectStore(STORE_PELANGGARAN).put(value, key)
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error ?? new Error('Gagal menyimpan antrean pelanggaran'))
+  })
+}
+
+export async function pelanggaranQueueDelete(key: string): Promise<void> {
+  const db = await bukaDb()
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(STORE_PELANGGARAN, 'readwrite')
+    tx.objectStore(STORE_PELANGGARAN).delete(key)
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error ?? new Error('Gagal menghapus antrean pelanggaran'))
+  })
+}
+
+/** Semua value yang tersimpan di antrean pelanggaran saat ini. */
+export async function pelanggaranQueueGetAllValues<T>(): Promise<T[]> {
+  const db = await bukaDb()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_PELANGGARAN, 'readonly')
+    const req = tx.objectStore(STORE_PELANGGARAN).getAll()
+    req.onsuccess = () => resolve((req.result as T[]) ?? [])
+    req.onerror = () => reject(req.error ?? new Error('Gagal membaca antrean pelanggaran'))
   })
 }
