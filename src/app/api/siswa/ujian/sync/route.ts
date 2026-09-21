@@ -4,6 +4,7 @@ import { requireRole } from '@/lib/auth'
 import { instrumented } from '@/lib/metrik'
 import { catatAktivitas } from '@/lib/aktivitas'
 import { hitungBatasWaktuPg, sudahKedaluwarsa, saringJawabanTerlambat } from '@/lib/deadline-pg'
+import { normalisasiJawabanMasuk, MAKS_JAWABAN_PER_REQUEST } from '@/lib/sync-jawaban-input'
 
 // POST /api/siswa/ujian/sync
 // PENTING: setelah upsert, kita selalu hitung ulang jumlah baris jawaban yang
@@ -24,9 +25,23 @@ export async function POST(req: NextRequest) {
   return instrumented('sync_jawaban', async () => {
 
   const db = createAdminClient()
-  const { sesiId, jawaban, deviceId } = await req.json()
+  // FIX (audit /sync): body & isi `jawaban` datang dari client yang tidak
+  // dipercaya. Sebelumnya JSON rusak, elemen null, soal_id kembar, atau revisi
+  // pecahan membuat request jatuh 500 (atau seluruh batch ditolak Postgres).
+  // Lihat src/lib/sync-jawaban-input.ts untuk daftar lengkapnya.
+  const body = await req.json().catch(() => null) as { sesiId?: unknown; jawaban?: unknown; deviceId?: unknown } | null
+  if (!body || typeof body !== 'object') return NextResponse.json({ error: 'Body request tidak valid' }, { status: 400 })
+  const { sesiId, deviceId } = body
 
-  if (!sesiId) return NextResponse.json({ error: 'sesiId diperlukan' }, { status: 400 })
+  if (!sesiId || typeof sesiId !== 'string') return NextResponse.json({ error: 'sesiId diperlukan' }, { status: 400 })
+
+  if (Array.isArray(body.jawaban) && body.jawaban.length > MAKS_JAWABAN_PER_REQUEST) {
+    return NextResponse.json({ error: 'Terlalu banyak jawaban dalam satu request.' }, { status: 413 })
+  }
+  const { records: jawaban, dibuangFormat, digabungKembar } = normalisasiJawabanMasuk(body.jawaban)
+  if (dibuangFormat > 0 || digabungKembar > 0) {
+    console.warn(`[sync] payload dinormalisasi untuk sesi ${sesiId}, nis ${user.nis}: ${dibuangFormat} elemen dibuang (format tidak valid), ${digabungKembar} digabung (soal_id kembar).`)
+  }
 
   // FIX: sebelumnya endpoint ini menerima & menyimpan jawaban TANPA pernah
   // mengecek status sesi — siswa tetap bisa sync jawaban walau sesi sudah
@@ -42,14 +57,29 @@ export async function POST(req: NextRequest) {
   // mengecek status SISWA itu sendiri. Akibatnya siswa yang sudah dikunci/diblokir
   // Admin (status TERKUNCI) atau sedang menunggu kode reset (status RESET) tetap
   // bisa terus mengirim & menyimpan jawaban sampai ujian selesai.
-  const { data: siswaUjian } = await db
+  const { data: siswaUjian, error: siswaUjianError } = await db
     .from('siswa_ujian')
-    .select('status, device_id, waktu_mulai_awal')
+    .select('status, device_id, waktu_mulai_awal, waktu_mulai')
     .eq('sesi_id', sesiId)
     .eq('nis', user.nis!)
     .single()
 
-  if (siswaUjian && (siswaUjian.status === 'TERKUNCI' || siswaUjian.status === 'RESET')) {
+  // FIX P1 (audit /sync, FAIL-OPEN): sebelumnya hasil null dari query di atas
+  // tidak ditolak. Akibatnya user SISWA yang TIDAK terdaftar di sesi ini (tidak
+  // punya baris siswa_ujian) melewati SEMUA pemeriksaan di bawah -- cek
+  // TERKUNCI/RESET, cek device_id, dan cek batas waktu (batasWaktu jadi null) --
+  // lalu jawabannya tetap ditulis ke tabel `jawaban` untuk sesi orang lain.
+  // /selesai sudah menolak kasus ini dengan 403; /sync disamakan. Error DB
+  // selain "baris tidak ada" (PGRST116) dibedakan sebagai 500 supaya gangguan
+  // sesaat tidak terbaca 403.
+  if (siswaUjianError && siswaUjianError.code !== 'PGRST116') {
+    return NextResponse.json({ error: 'Gagal memeriksa status ujian Anda. Coba lagi beberapa saat.' }, { status: 500 })
+  }
+  if (!siswaUjian) {
+    return NextResponse.json({ error: 'Anda belum terdaftar sebagai peserta ujian ini.' }, { status: 403 })
+  }
+
+  if (siswaUjian.status === 'TERKUNCI' || siswaUjian.status === 'RESET') {
     return NextResponse.json(
       { error: 'Akses ujian Anda sedang dikunci/menunggu reset. Jawaban tidak bisa disimpan.' },
       { status: 403 }
@@ -69,7 +99,7 @@ export async function POST(req: NextRequest) {
   // ada device_id terdaftar di DB, request WAJIB mengirim deviceId yang sama
   // persis; request tanpa deviceId (atau dengan deviceId lain) ditolak sama
   // seperti device lain yang mencoba mengambil alih.
-  if (siswaUjian?.device_id && siswaUjian.device_id !== deviceId) {
+  if (siswaUjian.device_id && siswaUjian.device_id !== deviceId) {
     return NextResponse.json(
       { error: 'Sesi ujian Anda sedang aktif di perangkat lain. Jawaban tidak bisa disimpan dari perangkat ini.' },
       { status: 409 }
@@ -117,7 +147,11 @@ export async function POST(req: NextRequest) {
     // yang mengerjakan tepat waktu tidak dirugikan). Sebelum kedaluwarsa jalur ini
     // TIDAK dijalankan sama sekali -- perilaku normal tidak berubah.
     const sekarangMs = Date.now()
-    const batasWaktu = hitungBatasWaktuPg(siswaUjian?.waktu_mulai_awal, sesi.durasi)
+    // FIX (audit /sync): baris lama bisa punya waktu_mulai_awal NULL (kolom itu
+    // ditambahkan belakangan). Sebelumnya hitungBatasWaktuPg(null) = null dan
+    // seluruh penegakan deadline DILEWATI. /validasi & /verifikasi-reset sudah
+    // jatuh ke waktu_mulai untuk kasus ini; disamakan di sini.
+    const batasWaktu = hitungBatasWaktuPg(siswaUjian.waktu_mulai_awal ?? siswaUjian.waktu_mulai, sesi.durasi)
     let jawabanValid = jawabanSahPaket
     let ackTerlambat: { soal_id: string; jawaban: string; revisi: number; accepted: boolean }[] = []
     let ditolakTerlambatTanpaBaris = 0
@@ -139,7 +173,7 @@ export async function POST(req: NextRequest) {
         const ada = adaMap.get(j.soal_id)
         return !!ada && (typeof j.revisi === 'number' ? j.revisi : 0) <= ada.revisi
       })
-      const kandidat = jawabanSahPaket.filter((j: { soal_id: string }) => !tidakBerubah.includes(j))
+      const kandidat = jawabanSahPaket.filter(j => !tidakBerubah.includes(j))
 
       const { diterima, ditolak } = saringJawabanTerlambat(kandidat, batasWaktu, sekarangMs)
       jawabanValid = [...tidakBerubah, ...diterima]
