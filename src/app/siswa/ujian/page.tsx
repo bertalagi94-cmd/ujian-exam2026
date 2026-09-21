@@ -1793,12 +1793,6 @@ export default function SiswaUjianPage() {
     if (!paket) return false
     const info = paket.sesiInfo
 
-    // ── ambil jawaban lokal + revisi (sumber sama dengan backup autosave) ──
-    const backup = loadBackup(info.sesiId, nis)
-    jawabanRef.current = backup.v
-    jawabanRevisiRef.current = backup.r ?? {}
-    jawabanTsRef.current = { ...backup.t }
-
     // ── ambil timer metadata: hitung sisa waktu dari waktu_mulai tersimpan.
     // Server tetap otoritas final saat reconnect (syncJawaban/handleSelesai
     // akan divalidasi ulang oleh server); ini hanya supaya timer TETAP
@@ -1807,6 +1801,38 @@ export default function SiswaUjianPage() {
       ? Math.floor((trustedNow() - new Date(info.waktu_mulai).getTime()) / 1000)
       : 0
     const sisa = info.durasi > 0 ? Math.max(0, info.durasi * 60 - terpakai) : 0
+
+    // FIX BUG (siswa yang SUDAH SELESAI ujian dipaksa fullscreen +
+    // langsung kena "pelanggaran" begitu keluar): sebelumnya fungsi ini
+    // SELALU memulihkan paket PG lokal apa pun umurnya begitu ditemukan,
+    // tanpa mengecek apakah waktu ujiannya sudah habis. Paket lokal ini
+    // seharusnya sudah dihapus lewat hapusPaketPgOffline() begitu siswa
+    // selesai ujian secara normal — tapi kalau sesi ditutup paksa oleh
+    // pengawas SAAT siswa sedang offline/tab tertutup, atau siswa keluar
+    // tanpa sempat submit, paket ini bisa tertinggal selamanya di
+    // localStorage/IndexedDB perangkatnya. Lain hari, begitu siswa buka
+    // /siswa/ujian lagi dan permintaan /api/siswa/jadwal SEMPAT gagal
+    // sesaat (jaringan tidak stabil, bukan berarti benar-benar offline
+    // total), kode di bawah ini akan memulihkan paket BASI itu seolah
+    // ujian masih berlangsung: phase langsung dipaksa 'UJIAN', layar
+    // langsung fullscreen, dan seluruh anti-cheat langsung aktif — padahal
+    // ujiannya sendiri sudah lama berakhir dan tidak ada soal nyata untuk
+    // dikerjakan (server akan menolak semua sync/submit-nya). Begitu siswa
+    // keluar dari fullscreen karena bingung, langsung tercatat sebagai
+    // pelanggaran. Sekarang: kalau waktu ujian pada paket ini sudah benar-
+    // benar habis (sisa <= 0), JANGAN dipulihkan — bersihkan paket basi
+    // ini dan biarkan alur normal (cekJadwal ke server) yang menentukan
+    // status sebenarnya, tanpa memaksa fullscreen/anti-cheat sama sekali.
+    if (info.durasi > 0 && sisa <= 0) {
+      hapusPaketPgOffline(info.sesiId, nis)
+      return false
+    }
+
+    // ── ambil jawaban lokal + revisi (sumber sama dengan backup autosave) ──
+    const backup = loadBackup(info.sesiId, nis)
+    jawabanRef.current = backup.v
+    jawabanRevisiRef.current = backup.r ?? {}
+    jawabanTsRef.current = { ...backup.t }
 
     // ── ambil status sync/outbox: kalau sebelumnya sempat menekan "Selesai"
     // offline (klaim tersimpan) ATAU sudah terdaftar di outbox durable,
