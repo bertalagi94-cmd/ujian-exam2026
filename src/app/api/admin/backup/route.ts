@@ -1,287 +1,214 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
+import {
+  BACKUP_BUCKETS,
+  BACKUP_TABLES,
+  MAX_ASSET_BYTES,
+  cekAktivitasUjian,
+  isKnownBucket,
+  isMissingTableError,
+  isSafeStoragePath,
+  listBucketFiles,
+  pkOf,
+} from '@/lib/backup-restore-shared'
 
-// BUG FIX: tabel `kisi_kisi` sebelumnya dianggap "DIHAPUS - tidak ada di
-// 01_schema.sql", padahal itu cuma tidak pernah tercatat di file schema
-// (schema file-nya yang telat diupdate, bukan tabelnya yang hilang).
-// Tabel ini aktif dipakai di src/app/api/{admin,guru,siswa}/kisi-kisi dan
-// nyata ada datanya di database produksi — sebelum fix ini, data kisi-kisi
-// TIDAK IKUT TER-BACKUP sama sekali. Sudah diverifikasi manual di Supabase
-// (02 Jul 2026): tidak ada FK/trigger/RPC yang bergantung padanya, jadi
-// aman diperlakukan sama seperti tabel lain di sini.
-// BUG FIX (fitur Soal Essay tidak ikut ter-backup): sama persis dengan bug
-// `kisi_kisi` yang sudah pernah diperbaiki di sini — tabel-tabel essay
-// (`paket_essay`, `soal_essay`, `jawaban_essay`, `jawaban_essay_foto`)
-// ditambahkan lewat migrasi terpisah (07_essay.sql, 08_paket_essay.sql,
-// setelah 01_schema.sql) dan TIDAK PERNAH dimasukkan ke daftar ini.
-// Akibatnya: bank soal essay & jawaban essay siswa TIDAK IKUT TER-BACKUP
-// sama sekali, padahal fitur Koreksi Essay sudah aktif dipakai. Kolom essay
-// yang ditambahkan ke tabel yang SUDAH ada di daftar ini (jadwal, siswa_ujian,
-// nilai) tetap ikut terbawa karena backup memakai select('*') — masalahnya
-// murni 4 tabel BARU yang belum pernah didaftarkan.
-// BUG FIX (skor per-soal essay tidak ikut ter-backup): sama persis lagi —
-// tabel `skor_essay_siswa` (lihat supabase/12_skor_per_soal_essay.sql) yang
-// menyimpan skor PER BUTIR soal essay sebagai jejak audit penilaian guru
-// (lihat komentar di guru/koreksi-essay/route.ts) juga ditambahkan lewat
-// migrasi terpisah SETELAH 01_schema.sql dan tidak pernah dimasukkan ke
-// sini. Akibatnya: kalau backup ini dipakai untuk disaster-recovery/restore
-// ke environment lain, `nilai.nilai_essay` (angka gabungan) tetap terbawa
-// lewat tabel `nilai`, tapi rincian skor per soal yang mendasarinya hilang
-// total — guru tidak bisa lagi menelusuri/mengaudit dari mana angka
-// nilai_essay itu berasal per butir soal, dan form koreksi essay yang
-// dibuka ulang setelah restore akan tampil kosong (skorPerSoal={}) padahal
-// nilai_total siswa sudah terisi — status yang tidak konsisten.
-const BACKUP_TABLES = [
-  'pengaturan',
-  'sekolah',
-  'kelas',
-  'mapel',
-  'kelas_mapel',
-  'siswa',
-  'users',
-  'jadwal',
-  'paket_soal',
-  'soal',
-  'kisi_kisi',
-  'paket_essay',
-  'soal_essay',
-  'sesi_ujian',
-  'siswa_ujian',
-  'jawaban',
-  'jawaban_essay',
-  'jawaban_essay_foto',
-  'skor_essay_siswa',
-  'nilai',
-  'pelanggaran',
-  'log_reset',
-  'log_aktivitas',
-]
+// =============================================================================
+// BACKUP — API BERTAHAP (dipanggil berulang dari browser)
+//
+// KENAPA DIUBAH: versi lama membuat SELURUH backup (semua tabel + semua file
+// storage dalam base64) di satu request lalu mengirimnya sebagai satu response
+// JSON. Dengan data nyata (tabel `jawaban` saja 33.196 baris ≈ 10 MB) ini:
+//   1. melewati batas body response Vercel (~4,5 MB) → gagal 413, dan
+//   2. berisiko melewati maxDuration 60 detik, dan
+//   3. menghasilkan file yang TIDAK BISA direstore lewat UI (UI membatasi
+//      restore 4 MB), jadi backup-nya sendiri praktis tidak berguna.
+//
+// SEKARANG browser yang merakit file backup dari banyak request kecil:
+//
+//   GET ?mode=plan[&force=1]
+//        → daftar tabel + jumlah baris, daftar file storage. Di sini juga
+//          dilakukan pengecekan sesi ujian aktif (409 kalau ada, kecuali force).
+//   GET ?table=<nama>&from=<offset>&limit=<n>
+//        → satu halaman baris (dipangkas otomatis agar < ~3,5 MB).
+//   GET ?bucket=<nama>&file=<path>
+//        → satu file storage sebagai base64.
+//
+// Format file backup versi 2.0 (dirakit di src/lib/backup-restore-client.ts):
+//   { version, app, exported_at, errors?, row_counts, tables:{...},
+//     storage:{ buckets:{ assets:[...], 'jawaban-essay':[...] } } }
+// `errors` TIDAK kosong berarti backup tidak lengkap; restore menolaknya kecuali
+// admin secara eksplisit mengizinkan.
+// =============================================================================
 
-// Kolom unik untuk ORDER BY saat paginasi tiap tabel (default 'id' kalau tidak
-// disebutkan di sini). Wajib pakai kolom yang benar-benar unik & stabil agar
-// paginasi .range() tidak melompati atau menduplikasi baris antar halaman.
-const ORDER_COLUMN: Record<string, string> = {
-  pengaturan: 'key',
-  siswa: 'nis',
-  users: 'username',
+// Supabase/PostgREST membatasi setiap query ke 1000 baris (db-max-rows).
+const MAX_PAGE_ROWS = 1000
+// Batas ukuran satu response halaman (Vercel ±4,5 MB, sisakan ruang).
+const MAX_PAGE_BYTES = 3_500_000
+
+function noStore(body: unknown, status = 200) {
+  return NextResponse.json(body, { status, headers: { 'Cache-Control': 'no-store' } })
 }
 
-// FIX BUG FATAL: Supabase/PostgREST membatasi SETIAP query .select() ke maksimal
-// 1000 baris secara default (db-max-rows) — TANPA error sama sekali kalau tabel
-// punya lebih banyak baris dari itu, sisanya diam-diam tidak ikut terbawa.
-//
-// Endpoint ini sebelumnya hanya melakukan SATU query .select('*') per tabel,
-// jadi untuk tabel besar (contoh nyata: tabel `jawaban` di data Anda sudah
-// berisi 33.196 baris — lihat komentar di supabase/04_seed_jawaban.sql) backup
-// yang dihasilkan hanya berisi ±1000 baris PERTAMA, kehilangan >96% datanya,
-// tanpa peringatan apa pun ke admin. File backup tetap "berhasil" di-download
-// padahal isinya sudah cacat — fatal khusus untuk fitur ini karena tujuannya
-// justru disaster-recovery: kalau backup-nya sendiri sudah cacat, restore pun
-// ikut membawa data yang cacat.
-//
-// FIX: ambil tiap tabel per halaman 1000 baris pakai .range(), diulang sampai
-// jumlah baris yang kembali < ukuran halaman (berarti sudah halaman terakhir),
-// lalu digabungkan jadi satu array lengkap.
-const PAGE_SIZE = 1000
-
-// ── Backup file di Supabase Storage (bucket "assets") ───────────────────────
-// FIX (celah backup/restore): sebelumnya backup HANYA menyimpan baris database.
-// Logo sekolah, logo aplikasi, dan gambar yang di-upload ke soal disimpan
-// sebagai FILE BINER di Supabase Storage bucket "assets" (lihat
-// admin/pengaturan/logo, admin/sekolah/logo, guru/soal/upload) — backup lama
-// cuma menyimpan URL-nya (lewat kolom di tabel `pengaturan`/`sekolah`), bukan
-// file aslinya. Kalau restore dilakukan ke project Supabase yang berbeda,
-// URL itu jadi menunjuk ke file yang tidak ada sama sekali (broken image).
-// Sekarang backup ikut mengunduh isi bucket, encode base64, dan menyimpannya
-// di payload — supaya restore benar-benar bisa memulihkan file-nya juga.
-const STORAGE_BUCKET = 'assets'
-// Batas ukuran per file yang ikut di-backup. Upload gambar soal sudah dibatasi
-// 2MB di endpoint uploadnya, tapi upload logo TIDAK dibatasi ukurannya —
-// tanpa batas di sini, satu logo besar bisa membengkakkan file backup JSON
-// (base64 menambah ~33% ukuran) tanpa peringatan apa pun ke admin.
-const MAX_ASSET_SIZE_BYTES = 10 * 1024 * 1024 // 10MB
-
-interface StorageAsset {
-  path: string
-  contentType: string
-  base64: string
+function toInt(v: string | null, def: number, min: number, max: number): number {
+  const n = Number.parseInt(v ?? '', 10)
+  if (!Number.isFinite(n)) return def
+  return Math.min(Math.max(n, min), max)
 }
 
-async function listAllFiles(
-  db: ReturnType<typeof createAdminClient>,
-  bucket: string,
-  prefix = ''
-): Promise<string[]> {
-  const LIMIT = 1000
-  const paths: string[] = []
-  let offset = 0
+// ── GET ?mode=plan ───────────────────────────────────────────────────────────
+async function handlePlan(req: NextRequest) {
+  const db = createAdminClient()
+  const force = req.nextUrl.searchParams.get('force') === '1'
 
-  while (true) {
-    const { data, error } = await db.storage
-      .from(bucket)
-      .list(prefix, { limit: LIMIT, offset, sortBy: { column: 'name', order: 'asc' } })
-
-    if (error || !data) break
-
-    for (const entry of data) {
-      const fullPath = prefix ? `${prefix}/${entry.name}` : entry.name
-      // Supabase Storage merepresentasikan sub-folder sebagai entry dengan
-      // id === null (tidak ada metadata file) — perlu direkursi, bukan
-      // diperlakukan sebagai file biasa.
-      if (entry.id === null) {
-        const nested = await listAllFiles(db, bucket, fullPath)
-        paths.push(...nested)
-      } else {
-        paths.push(fullPath)
-      }
-    }
-
-    if (data.length < LIMIT) break
-    offset += LIMIT
+  // Backup saat ujian berjalan berisiko tidak konsisten (jawaban belum
+  // tersimpan, nilai belum dihitung). Sama seperti restore/reset: ditolak
+  // kecuali admin sadar dan memaksa.
+  const akt = await cekAktivitasUjian(db)
+  if (akt.error) {
+    return noStore({ error: `Gagal memeriksa sesi ujian aktif: ${akt.error}` }, 500)
+  }
+  if ((akt.adaSesi || akt.adaSiswa) && !force) {
+    const pesan: string[] = []
+    if (akt.adaSesi) pesan.push('ada sesi ujian yang sedang berjalan')
+    if (akt.adaSiswa) pesan.push('ada siswa yang sedang mengerjakan ujian')
+    return noStore(
+      {
+        error: `Backup sebaiknya tidak dilakukan karena ${pesan.join(' dan ')} — data backup bisa tidak konsisten. Tutup semua sesi terlebih dahulu.`,
+        ada_aktivitas: true,
+        ada_sesi: akt.adaSesi,
+        ada_siswa: akt.adaSiswa,
+      },
+      409
+    )
   }
 
-  return paths
-}
+  const warnings: string[] = []
+  const tables: { name: string; count: number }[] = []
 
-async function backupStorageAssets(
-  db: ReturnType<typeof createAdminClient>
-): Promise<{ assets: StorageAsset[]; errors: string[] }> {
-  const errors: string[] = []
-  const assets: StorageAsset[] = []
+  const counts = await Promise.all(
+    BACKUP_TABLES.map(async name => {
+      const { count, error } = await db.from(name).select('*', { count: 'exact', head: true })
+      return { name, count, error }
+    })
+  )
 
-  let paths: string[] = []
-  try {
-    paths = await listAllFiles(db, STORAGE_BUCKET)
-  } catch (e) {
-    errors.push(`listing bucket "${STORAGE_BUCKET}": ${e instanceof Error ? e.message : 'error'}`)
-    return { assets, errors }
-  }
-
-  for (const path of paths) {
-    try {
-      const { data, error } = await db.storage.from(STORAGE_BUCKET).download(path)
-      if (error || !data) {
-        errors.push(`${path}: ${error?.message ?? 'gagal mengunduh file'}`)
+  for (const c of counts) {
+    if (c.error) {
+      if (isMissingTableError(c.error.message)) {
+        // Tabel belum ada di database ini (mis. migrasi belum dijalankan).
+        // Bukan kegagalan backup, tapi admin perlu tahu.
+        warnings.push(`Tabel "${c.name}" tidak ada di database ini dan dilewati.`)
         continue
       }
-      if (data.size > MAX_ASSET_SIZE_BYTES) {
-        errors.push(`${path}: dilewati, ukuran ${(data.size / 1024 / 1024).toFixed(1)}MB melebihi batas ${MAX_ASSET_SIZE_BYTES / 1024 / 1024}MB`)
-        continue
-      }
-      const buffer = Buffer.from(await data.arrayBuffer())
-      assets.push({
-        path,
-        contentType: data.type || 'application/octet-stream',
-        base64: buffer.toString('base64'),
-      })
-    } catch (e) {
-      errors.push(`${path}: ${e instanceof Error ? e.message : 'error'}`)
+      // Gagal menghitung tabel yang seharusnya ada = backup TIDAK boleh
+      // dilanjutkan, kalau tidak hasilnya diam-diam bolong.
+      return noStore({ error: `Gagal membaca tabel ${c.name}: ${c.error.message}` }, 500)
     }
+    tables.push({ name: c.name, count: c.count ?? 0 })
   }
 
-  return { assets, errors }
+  const buckets: Record<string, { path: string }[]> = {}
+  const storageErrors: string[] = []
+  for (const b of BACKUP_BUCKETS) {
+    const listed = await listBucketFiles(db, b.name)
+    if (listed.bucketMissing) {
+      buckets[b.name] = []
+      continue
+    }
+    if (listed.error) storageErrors.push(`storage/${listed.error}`)
+    buckets[b.name] = listed.paths.map(path => ({ path }))
+  }
+
+  return noStore({
+    exported_at: new Date().toISOString(),
+    page_size: MAX_PAGE_ROWS,
+    tables,
+    storage: { buckets, errors: storageErrors },
+    warnings,
+    ada_aktivitas: akt.adaSesi || akt.adaSiswa,
+  })
 }
 
-async function fetchAllRows(
-  db: ReturnType<typeof createAdminClient>,
-  table: string
-): Promise<{ rows: unknown[]; error?: string }> {
-  const orderCol = ORDER_COLUMN[table] ?? 'id'
-  const allRows: unknown[] = []
-  let from = 0
+// ── GET ?table=...&from=...&limit=... ────────────────────────────────────────
+async function handleTablePage(req: NextRequest, table: string) {
+  if (!BACKUP_TABLES.includes(table)) {
+    return noStore({ error: `Tabel "${table}" tidak dikenali` }, 400)
+  }
+  const db = createAdminClient()
+  const from = toInt(req.nextUrl.searchParams.get('from'), 0, 0, 100_000_000)
+  const limit = toInt(req.nextUrl.searchParams.get('limit'), MAX_PAGE_ROWS, 1, MAX_PAGE_ROWS)
 
-  while (true) {
-    const { data, error } = await db
-      .from(table as never)
-      .select('*')
-      .order(orderCol as never, { ascending: true })
-      .range(from, from + PAGE_SIZE - 1)
+  // ORDER BY seluruh kolom primary key → urutan stabil untuk paginasi offset.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let q: any = db.from(table).select('*')
+  for (const col of pkOf(table)) q = q.order(col, { ascending: true })
+  const { data, error } = await q.range(from, from + limit - 1)
 
-    if (error) {
-      return { rows: allRows, error: error.message }
-    }
+  if (error) return noStore({ error: `${table}: ${error.message}` }, 500)
 
-    const batch = (data ?? []) as unknown[]
-    allRows.push(...batch)
+  let rows = (data ?? []) as unknown[]
 
-    if (batch.length < PAGE_SIZE) break // sudah halaman terakhir
-    from += PAGE_SIZE
+  // Pangkas kalau baris-barisnya besar (mis. soal dengan teks panjang) supaya
+  // response tetap di bawah batas Vercel. Klien melanjutkan dari
+  // from + rows.length, jadi tidak ada baris yang terlewat.
+  let bytes = JSON.stringify(rows).length
+  while (bytes > MAX_PAGE_BYTES && rows.length > 1) {
+    rows = rows.slice(0, Math.max(1, Math.floor(rows.length / 2)))
+    bytes = JSON.stringify(rows).length
+  }
+  if (bytes > 4_300_000) {
+    return noStore(
+      { error: `${table}: satu baris berukuran ${(bytes / 1024 / 1024).toFixed(1)} MB, terlalu besar untuk di-backup lewat aplikasi` },
+      413
+    )
   }
 
-  return { rows: allRows }
+  return noStore({ table, from, rows })
+}
+
+// ── GET ?bucket=...&file=... ─────────────────────────────────────────────────
+async function handleFile(bucket: string, file: string) {
+  if (!isKnownBucket(bucket)) return noStore({ error: 'Bucket tidak dikenali' }, 400)
+  if (!isSafeStoragePath(file)) return noStore({ error: 'Path file tidak valid' }, 400)
+
+  const db = createAdminClient()
+  const { data, error } = await db.storage.from(bucket).download(file)
+  if (error || !data) {
+    return noStore({ error: `${bucket}/${file}: ${error?.message ?? 'gagal mengunduh file'}` }, 500)
+  }
+  if (data.size > MAX_ASSET_BYTES) {
+    return noStore({
+      skipped: true,
+      path: file,
+      size: data.size,
+      reason: `${bucket}/${file}: dilewati, ukuran ${(data.size / 1024 / 1024).toFixed(1)}MB melebihi batas ${MAX_ASSET_BYTES / 1024 / 1024}MB`,
+    })
+  }
+
+  const buffer = Buffer.from(await data.arrayBuffer())
+  return noStore({
+    path: file,
+    contentType: data.type || 'application/octet-stream',
+    base64: buffer.toString('base64'),
+  })
 }
 
 export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['ADMIN'])
   if ('error' in auth) return auth.error
 
-  const db = createAdminClient()
+  const sp = req.nextUrl.searchParams
+  try {
+    const table = sp.get('table')
+    if (table) return await handleTablePage(req, table)
 
-  // ── CEK AKTIVITAS SEBELUM BACKUP ────────────────────────────────────────
-  // Backup saat ujian berjalan berisiko menghasilkan data tidak konsisten
-  // (sebagian jawaban belum tersimpan, nilai belum dihitung). Tolak kecuali
-  // tidak ada sesi aktif sama sekali.
-  const { data: sesiAktif } = await db
-    .from('sesi_ujian')
-    .select('id')
-    .eq('status', 'BERJALAN')
-    .limit(1)
+    const bucket = sp.get('bucket')
+    const file = sp.get('file')
+    if (bucket && file) return await handleFile(bucket, file)
 
-  if (sesiAktif && sesiAktif.length > 0) {
-    return NextResponse.json({
-      error: 'Backup tidak bisa dilakukan saat ada sesi ujian yang sedang berjalan. Tutup semua sesi terlebih dahulu agar data backup konsisten.',
-      ada_sesi: true,
-    }, { status: 409 })
+    return await handlePlan(req)
+  } catch (e) {
+    return noStore({ error: e instanceof Error ? e.message : 'Backup gagal' }, 500)
   }
-  // ─────────────────────────────────────────────────────────────────────────
-
-  const backupData: Record<string, unknown[]> = {}
-  const errors: string[] = []
-
-  for (const table of BACKUP_TABLES) {
-    try {
-      const { rows, error } = await fetchAllRows(db, table)
-      backupData[table] = rows
-      if (error) errors.push(`${table}: ${error}`)
-    } catch (e) {
-      errors.push(`${table}: ${e instanceof Error ? e.message : 'Unknown error'}`)
-      backupData[table] = []
-    }
-  }
-
-  // Ambil file di Supabase Storage (logo & gambar soal) — lihat catatan di
-  // backupStorageAssets(). Kegagalan di sini TIDAK menggagalkan backup data
-  // tabel; dicatat sebagai warning di `errors` supaya admin tetap tahu.
-  const { assets: storageAssets, errors: storageErrors } = await backupStorageAssets(db)
-  if (storageErrors.length > 0) {
-    errors.push(...storageErrors.map(e => `storage/${STORAGE_BUCKET}/${e}`))
-  }
-
-  const payload = {
-    version: '1.1',
-    app: 'SmartExam',
-    exported_at: new Date().toISOString(),
-    errors: errors.length > 0 ? errors : undefined,
-    // Jumlah baris per tabel — supaya admin bisa langsung mengecek kewajaran
-    // angka ini (mis. dibandingkan dengan tampilan jumlah data di menu lain)
-    // tanpa harus membuka isi file JSON yang bisa sangat besar.
-    row_counts: {
-      ...Object.fromEntries(BACKUP_TABLES.map(t => [t, backupData[t]?.length ?? 0])),
-      _storage_assets: storageAssets.length,
-    },
-    tables: backupData,
-    // File biner dari Supabase Storage (logo & gambar soal), lihat
-    // backupStorageAssets(). Field ini opsional agar file backup versi lama
-    // (tanpa key `storage`) tetap valid untuk direstore.
-    storage: { assets: storageAssets },
-  }
-
-  return new NextResponse(JSON.stringify(payload, null, 2), {
-    status: 200,
-    headers: {
-      'Content-Type': 'application/json',
-      'Content-Disposition': `attachment; filename="smartexam-backup-${new Date().toISOString().slice(0, 10)}.json"`,
-    },
-  })
 }
