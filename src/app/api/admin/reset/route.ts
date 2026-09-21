@@ -2,6 +2,16 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 import { cacheDel, cacheDelPrefix } from '@/lib/cache'
+import {
+  DELETE_ORDER,
+  TRUNCATE_TABLES,
+  cekAktivitasUjian,
+  isMissingTableError,
+  listBucketFiles,
+  pkOf,
+  removeFilesInChunks,
+  type Db,
+} from '@/lib/backup-restore-shared'
 
 export type ResetCategory =
   | 'jawaban_nilai'
@@ -15,200 +25,155 @@ export type ResetCategory =
   | 'pengaturan'
   | 'semua'
 
-// BUG FIX (fitur Soal Essay tidak diakomodir reset): sama seperti bug
-// kisi_kisi/sekolah yang dijelaskan di bawah — tabel-tabel essay
-// (`paket_essay`, `soal_essay`, `jawaban_essay`, `jawaban_essay_foto`)
-// ditambahkan lewat migrasi terpisah (07_essay.sql, 08_paket_essay.sql)
-// setelah kategori reset ini pertama kali dibuat, dan belum pernah
-// dimasukkan ke kategori manapun. Akibatnya "Reset Jawaban & Nilai",
-// "Reset Sesi Ujian", "Reset Soal & Paket", dan bahkan "Reset Semua Data"
-// TIDAK PERNAH membersihkan bank soal essay maupun jawaban essay siswa —
-// admin yang reset ujian akan tetap menemukan soal essay & jawaban essay
-// lama menumpuk. Ditempatkan sejajar dengan tabel PG yang setara:
-//   paket_essay ~ setara paket_soal · soal_essay ~ setara soal ·
-//   jawaban_essay/jawaban_essay_foto ~ setara jawaban
+// PERBAIKAN (versi ini):
+//  - `skor_essay_siswa` (skor per butir soal essay, 12_skor_per_soal_essay.sql)
+//    sebelumnya TIDAK ada di kategori manapun, termasuk "Semua" → tersisa
+//    sebagai data yatim setelah reset. Sekarang ikut dihapus bersama
+//    jawaban_essay.
+//  - `essay_amplop_offline` (19_essay_amplop_offline.sql, data amplop essay
+//    offline per sesi+siswa) juga tidak pernah ter-reset. Sekarang ikut
+//    dihapus bersama sesi_ujian/siswa_ujian.
+//  - Daftar "Semua" sekarang diambil dari DELETE_ORDER (backup-restore-shared)
+//    supaya tidak bisa lagi menyimpang dari daftar tabel backup/restore.
+//  - Penghapusan baris memakai `NOT (pk IS NULL)`. Versi lama memakai
+//    `created_at > '1970-01-01'` untuk sebagian tabel, yang TIDAK menghapus
+//    baris ber-created_at NULL (NULL > x = NULL) → "Reset berhasil" padahal
+//    sisa baris masih ada.
+//  - Pembersihan Storage: foto jawaban essay yang sekarang disimpan di bucket
+//    PRIVAT `jawaban-essay` tidak pernah dibersihkan (reset hanya melihat
+//    folder `jawaban-essay/` di bucket `assets`). Sekarang keduanya. Loop
+//    penghapusan lama (list 100 → remove → ulang sampai kosong) juga bisa
+//    berputar tanpa henti kalau ada entry yang tidak terhapus (mis. sub-folder);
+//    sekarang seluruh path dikumpulkan dulu, lalu dihapus per 100.
+//  - Error query pengecekan sesi aktif tidak lagi diabaikan.
+const JAWABAN_ESSAY = ['jawaban_essay', 'jawaban_essay_foto', 'skor_essay_siswa']
+const SESI_TURUNAN = [
+  'pelanggaran',
+  'log_reset',
+  'nilai',
+  'jawaban',
+  ...JAWABAN_ESSAY,
+  'essay_amplop_offline',
+  'siswa_ujian',
+  'sesi_ujian',
+]
+const BANK_SOAL = ['soal', 'soal_essay', 'kisi_kisi', 'paket_soal', 'paket_essay']
+
 const CATEGORY_MAP: Record<ResetCategory, string[]> = {
-  jawaban_nilai: ['pelanggaran', 'log_reset', 'nilai', 'jawaban', 'jawaban_essay', 'jawaban_essay_foto'],
-  sesi_ujian:   ['pelanggaran', 'log_reset', 'nilai', 'jawaban', 'jawaban_essay', 'jawaban_essay_foto', 'siswa_ujian', 'sesi_ujian'],
-  soal_paket:   ['pelanggaran', 'log_reset', 'nilai', 'jawaban', 'jawaban_essay', 'jawaban_essay_foto', 'siswa_ujian', 'sesi_ujian', 'soal', 'soal_essay', 'kisi_kisi', 'paket_soal', 'paket_essay'],
+  jawaban_nilai: ['pelanggaran', 'log_reset', 'nilai', 'jawaban', ...JAWABAN_ESSAY],
+  sesi_ujian: [...SESI_TURUNAN],
+  soal_paket: [...SESI_TURUNAN, ...BANK_SOAL],
   // Sengaja HANYA menghapus tabel jadwal — nilai/jawaban adalah bukti
   // siswa sudah mengikuti ujian dan tidak boleh ikut terhapus di sini.
   // Kalau admin memang ingin reset nilai/jawaban juga, pakai kategori
   // 'jawaban_nilai' secara terpisah (bisa dipilih bersamaan dari UI).
-  jadwal:       ['jadwal'],
-  siswa:        ['pelanggaran', 'log_reset', 'nilai', 'jawaban', 'jawaban_essay', 'jawaban_essay_foto', 'siswa_ujian', 'siswa'],
-  kelas_mapel:  ['pelanggaran', 'log_reset', 'nilai', 'jawaban', 'jawaban_essay', 'jawaban_essay_foto', 'siswa_ujian', 'sesi_ujian', 'soal', 'soal_essay', 'kisi_kisi', 'paket_soal', 'paket_essay', 'jadwal', 'siswa', 'kelas_mapel', 'mapel', 'kelas'],
-  users:        ['log_aktivitas', 'log_reset', 'users'],
-  log:          ['log_aktivitas', 'log_reset'],
-  pengaturan:   ['pengaturan'],
-  // BUG FIX: tabel `sekolah` (fitur jenjang/Kepsek) sebelumnya tidak pernah
-  // ikut dihapus oleh kategori manapun, termasuk 'semua' (reset total).
-  // Ditambahkan di sini saja (bukan di 'kelas_mapel') karena 'kelas_mapel'
-  // tidak menghapus tabel `users`, dan `users.sekolah_id` adalah FK ke
-  // tabel ini — menghapus sekolah di kategori itu bisa melanggar FK kalau
-  // ada akun Kepsek yang masih menunjuk ke sekolah tersebut. Di 'semua',
-  // `users` dan `kelas` sudah dihapus lebih dulu sehingga aman.
-  semua: [
-    'log_aktivitas',
-    'log_reset',
+  jadwal: ['jadwal'],
+  siswa: [
     'pelanggaran',
+    'log_reset',
     'nilai',
     'jawaban',
-    'jawaban_essay',
-    'jawaban_essay_foto',
+    ...JAWABAN_ESSAY,
+    'essay_amplop_offline',
     'siswa_ujian',
-    'sesi_ujian',
-    'soal',
-    'soal_essay',
-    'kisi_kisi',
-    'paket_soal',
-    'paket_essay',
+    'siswa',
+  ],
+  kelas_mapel: [
+    ...SESI_TURUNAN,
+    ...BANK_SOAL,
     'jadwal',
-    'users',
     'siswa',
     'kelas_mapel',
     'mapel',
     'kelas',
-    'sekolah',
-    'pengaturan',
   ],
+  users: ['log_aktivitas', 'log_reset', 'users'],
+  log: ['log_aktivitas', 'log_reset'],
+  pengaturan: ['pengaturan'],
+  // `sekolah` hanya dihapus di 'semua': users.sekolah_id & kelas.sekolah_id
+  // adalah FK ke tabel ini, dan di sini users & kelas sudah terhapus lebih dulu.
+  // `metrik_sistem` (telemetri sementara) ikut dibersihkan supaya "kembali
+  // seperti baru" benar-benar bersih.
+  semua: [...DELETE_ORDER, 'metrik_sistem'],
 }
 
-// Tabel yang datanya bisa sangat besar → pakai TRUNCATE via RPC
-// agar tidak timeout di Vercel, eksekusi langsung di dalam database.
-// `jawaban_essay` mengikuti pola jumlah baris yang sama dengan `jawaban`
-// (1 baris per siswa per soal per sesi), jadi ikut dimasukkan di sini.
-const TRUNCATE_TABLES = new Set(['jawaban', 'jawaban_essay', 'jawaban_essay_foto', 'siswa_ujian', 'nilai', 'pelanggaran', 'log_reset', 'log_aktivitas'])
-
-// BUG FIX (02 Jul 2026): `kisi_kisi` sebelumnya ada di SKIP_TABLES dengan
-// alasan "tidak ada di schema (legacy)" — padahal tabel ini aktif dipakai
-// (src/app/api/{admin,guru,siswa}/kisi-kisi) dan memang ada di database.
-// Efek bug lama: clearTable() langsung `return null` (dianggap sukses)
-// begitu ketemu tabel ini TANPA benar-benar menghapus datanya, sehingga
-// "Reset semua data" / reset kategori soal_paket & kelas_mapel melaporkan
-// sukses padahal data kisi_kisi lama masih tersisa di database.
-// Sudah diverifikasi manual di Supabase: tidak ada tabel lain yang tidak
-// dikenal aplikasi ini, jadi SKIP_TABLES sekarang kosong. Set ini tetap
-// dipertahankan (bukan dihapus total) sebagai jaring pengaman kalau suatu
-// saat ada tabel baru yang perlu di-skip sementara dari proses reset.
-const SKIP_TABLES = new Set<string>([])
-
-const TABLE_FILTER: Record<string, { col: string; method: 'gt_epoch' | 'not_null' | 'gt_zero' }> = {
-  pengaturan: { col: 'key',       method: 'not_null' },
-  siswa:      { col: 'nis',       method: 'not_null' },
-  log_reset:  { col: 'id',        method: 'gt_zero'  },
+// File fisik di Storage yang berasosiasi dengan tabel. Dibersihkan SEBELUM baris
+// DB-nya dihapus, supaya kalau reset gagal di tengah jalan kita tidak kehilangan
+// jejak URL/path file yang belum sempat terhapus.
+//   - assets/soal/            : gambar soal PG & essay (guru/soal/upload)
+//   - assets/jawaban-essay/   : foto jawaban essay versi LAMA (bucket publik)
+//   - bucket jawaban-essay    : foto jawaban essay versi baru (bucket privat)
+const STORAGE_BY_TABLE: Record<string, { bucket: string; prefix: string }[]> = {
+  jawaban_essay_foto: [
+    { bucket: 'assets', prefix: 'jawaban-essay' },
+    { bucket: 'jawaban-essay', prefix: '' },
+  ],
+  soal: [{ bucket: 'assets', prefix: 'soal' }],
+  soal_essay: [{ bucket: 'assets', prefix: 'soal' }],
 }
 
-const HAS_CREATED_AT = new Set([
-  'sesi_ujian', 'soal', 'soal_essay', 'paket_soal', 'paket_essay', 'jadwal',
-  'kelas_mapel', 'mapel', 'kelas', 'log_aktivitas',
-])
-
-// BUG FIX (11 Sep 2026): reset kategori jawaban_nilai/sesi_ujian/soal_paket/
-// kelas_mapel/semua sudah menghapus BARIS tabel `jawaban_essay_foto` dengan
-// benar, tapi FILE FISIK-nya di Supabase Storage (bucket `assets`, folder
-// `jawaban-essay/`) tidak pernah ikut dihapus — lihat cara upload di
-// src/app/api/siswa/ujian/essay/upload-foto/route.ts yang menaruh file di
-// path itu lalu HANYA mencatat public URL-nya ke kolom `foto_url`. Akibatnya
-// admin yang reset akan tetap menemukan file-file foto lembar jawaban lama
-// menumpuk di Storage walau baris DB-nya sudah bersih (endpoint melaporkan
-// "Reset berhasil" karena dari sisi query DB memang tidak ada error).
-// Sekalian didaftarkan folder `soal/` (dipakai guru/soal/upload/route.ts
-// untuk gambar soal PG maupun essay) supaya reset kategori yang menghapus
-// bank soal (`soal_paket`, `kelas_mapel`, `semua`) juga membersihkan gambar
-// soal lama, bukan cuma baris `soal`/`soal_essay`.
-const STORAGE_BUCKET = 'assets'
-const STORAGE_FOLDERS_BY_TABLE: Record<string, string[]> = {
-  jawaban_essay_foto: ['jawaban-essay'],
-  soal: ['soal'],
-  soal_essay: ['soal'],
-}
-
-async function clearStorageFolder(
-  db: ReturnType<typeof import('@/lib/supabase').createAdminClient>,
-  folder: string
+async function clearStorage(
+  db: Db,
+  target: { bucket: string; prefix: string }
 ): Promise<string | null> {
   try {
-    // list() hanya mengembalikan maksimal 100 entri per panggilan (default),
-    // jadi diloop sampai folder benar-benar kosong agar folder besar (mis.
-    // ratusan foto jawaban essay) tetap tuntas terhapus, bukan cuma 100 awal.
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      const { data: files, error: listError } = await db.storage
-        .from(STORAGE_BUCKET)
-        .list(folder, { limit: 100 })
-
-      if (listError) return `storage:${folder}: ${listError.message}`
-      if (!files || files.length === 0) break
-
-      const paths = files.map(f => `${folder}/${f.name}`)
-      const { error: removeError } = await db.storage.from(STORAGE_BUCKET).remove(paths)
-      if (removeError) return `storage:${folder}: ${removeError.message}`
-
-      // Kalau hasil list lebih kecil dari limit, berarti sudah halaman terakhir
-      if (files.length < 100) break
-    }
-    return null
+    const listed = await listBucketFiles(db, target.bucket, target.prefix)
+    if (listed.bucketMissing) return null // bucket tidak ada = tidak ada yang perlu dihapus
+    if (listed.error) return `storage:${listed.error}`
+    if (listed.paths.length === 0) return null
+    const err = await removeFilesInChunks(db, target.bucket, listed.paths)
+    return err ? `storage:${err}` : null
   } catch (e) {
-    return `storage:${folder}: ${e instanceof Error ? e.message : 'error'}`
+    return `storage:${target.bucket}/${target.prefix}: ${e instanceof Error ? e.message : 'error'}`
   }
 }
 
 async function clearTable(
-  db: ReturnType<typeof import('@/lib/supabase').createAdminClient>,
-  table: string
+  db: Db,
+  table: string,
+  storageDone: Set<string>
 ): Promise<string | null> {
-  // Skip tabel yang tidak ada di schema
-  if (SKIP_TABLES.has(table)) return null
-
-  // Bersihkan file fisik di Storage yang berasosiasi dengan tabel ini
-  // TERLEBIH DAHULU, sebelum baris DB-nya dihapus — supaya kalau reset
-  // gagal di tengah jalan, kita tidak kehilangan jejak `foto_url` yang
-  // masih menunjuk ke file yang belum sempat dihapus.
-  const folders = STORAGE_FOLDERS_BY_TABLE[table]
-  if (folders) {
-    for (const folder of folders) {
-      const err = await clearStorageFolder(db, folder)
+  const targets = STORAGE_BY_TABLE[table]
+  if (targets) {
+    for (const t of targets) {
+      const key = `${t.bucket}/${t.prefix}`
+      if (storageDone.has(key)) continue // soal & soal_essay berbagi folder yang sama
+      const err = await clearStorage(db, t)
       if (err) return err
+      storageDone.add(key)
     }
   }
 
   try {
-    // Tabel besar → pakai TRUNCATE via RPC (eksekusi di DB, tidak timeout)
+    // Tabel besar → TRUNCATE via RPC (eksekusi di DB, tidak timeout di Vercel)
     if (TRUNCATE_TABLES.has(table)) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { error } = await (db as any).rpc('truncate_tabel_besar', { nama_tabel: table })
-      return error ? `${table}: ${error.message}` : null
+      if (!error) return null
+      if (isMissingTableError(error.message)) return null
+      // Fungsi lama belum memasukkan tabel ini ke whitelist (migrasi 22 belum
+      // dijalankan) → jatuh ke DELETE biasa alih-alih gagal.
+      if (!/tidak diizinkan/i.test(error.message)) return `${table}: ${error.message}`
     }
 
-    // Tabel users: jangan hapus ADMIN
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let q: any = db.from(table).delete()
     if (table === 'users') {
-      const { error } = await (db as any).from('users').delete().neq('role', 'ADMIN')
-      return error ? `users: ${error.message}` : null
+      // Jangan hapus akun ADMIN
+      q = q.neq('role', 'ADMIN')
+    } else {
+      q = q.not(pkOf(table)[0], 'is', null)
     }
-
-    // Tabel dengan filter kolom spesifik
-    const spec = TABLE_FILTER[table]
-    if (spec) {
-      let q = (db as any).from(table).delete()
-      if (spec.method === 'gt_epoch') q = q.gt(spec.col, '1970-01-01')
-      else if (spec.method === 'not_null') q = q.not(spec.col, 'is', null)
-      else if (spec.method === 'gt_zero') q = q.gt(spec.col, 0)
-      const { error } = await q
-      return error ? `${table}: ${error.message}` : null
+    const { error } = await q
+    if (error) {
+      if (isMissingTableError(error.message)) return null
+      return `${table}: ${error.message}`
     }
-
-    // Tabel dengan created_at standar
-    if (HAS_CREATED_AT.has(table)) {
-      const { error } = await (db as any).from(table).delete().gt('created_at', '1970-01-01')
-      return error ? `${table}: ${error.message}` : null
-    }
-
-    // Fallback: PK id TEXT
-    const { error } = await (db as any).from(table).delete().not('id', 'is', null)
-    return error ? `${table}: ${error.message}` : null
-
+    return null
   } catch (e) {
-    return `${table}: ${e instanceof Error ? e.message : 'error'}`
+    const msg = e instanceof Error ? e.message : 'error'
+    if (isMissingTableError(msg)) return null
+    return `${table}: ${msg}`
   }
 }
 
@@ -229,45 +194,43 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Pilih minimal satu kategori reset' }, { status: 400 })
   }
 
-  // ── CEK AKTIVITAS SEBELUM RESET ─────────────────────────────────────────
-  // Tolak reset jika ada sesi ujian yang sedang berjalan atau siswa yang
-  // sedang aktif mengerjakan. Admin harus konfirmasi paksa (force=true) hanya
-  // jika kondisi sudah diketahui dan tetap ingin dilanjutkan.
-  if (!force) {
-    const db = createAdminClient()
-    const [{ data: sesiAktif }, { data: siswaAktif }] = await Promise.all([
-      db.from('sesi_ujian').select('id', { count: 'exact', head: false }).eq('status', 'BERJALAN').limit(1),
-      db.from('siswa_ujian').select('id', { count: 'exact', head: false }).eq('status', 'AKTIF').limit(1),
-    ])
-
-    const adaSesi = (sesiAktif?.length ?? 0) > 0
-    const adaSiswa = (siswaAktif?.length ?? 0) > 0
-
-    if (adaSesi || adaSiswa) {
-      const pesan: string[] = []
-      if (adaSesi) pesan.push('ada sesi ujian yang sedang berjalan')
-      if (adaSiswa) pesan.push('ada siswa yang sedang mengerjakan ujian')
-      return NextResponse.json({
-        error: `Reset tidak bisa dilakukan karena ${pesan.join(' dan ')}. Tutup semua sesi terlebih dahulu, lalu coba lagi.`,
-        ada_aktivitas: true,
-        ada_sesi: adaSesi,
-        ada_siswa: adaSiswa,
-      }, { status: 409 })
-    }
-  }
-  // ─────────────────────────────────────────────────────────────────────────
-
   const validCategories = Object.keys(CATEGORY_MAP) as ResetCategory[]
   const invalid = categories.filter(c => !validCategories.includes(c))
   if (invalid.length > 0) {
     return NextResponse.json({ error: `Kategori tidak valid: ${invalid.join(', ')}` }, { status: 400 })
   }
 
+  const db = createAdminClient()
+
+  // ── CEK AKTIVITAS SEBELUM RESET ─────────────────────────────────────────
+  // Tolak reset jika ada sesi ujian yang sedang berjalan atau siswa yang
+  // sedang aktif mengerjakan. Admin harus konfirmasi paksa (force=true) hanya
+  // jika kondisi sudah diketahui dan tetap ingin dilanjutkan.
+  if (!force) {
+    const akt = await cekAktivitasUjian(db)
+    if (akt.error) {
+      return NextResponse.json({ error: `Gagal memeriksa sesi ujian aktif: ${akt.error}` }, { status: 500 })
+    }
+    if (akt.adaSesi || akt.adaSiswa) {
+      const pesan: string[] = []
+      if (akt.adaSesi) pesan.push('ada sesi ujian yang sedang berjalan')
+      if (akt.adaSiswa) pesan.push('ada siswa yang sedang mengerjakan ujian')
+      return NextResponse.json({
+        error: `Reset tidak bisa dilakukan karena ${pesan.join(' dan ')}. Tutup semua sesi terlebih dahulu, lalu coba lagi.`,
+        ada_aktivitas: true,
+        ada_sesi: akt.adaSesi,
+        ada_siswa: akt.adaSiswa,
+      }, { status: 409 })
+    }
+  }
+  // ─────────────────────────────────────────────────────────────────────────
+
   const effectiveCategories = categories.includes('semua')
     ? ['semua' as ResetCategory]
     : categories
 
-  // Kumpulkan tabel unik dengan urutan yang benar
+  // Kumpulkan tabel unik. Urutan antar kategori dipertahankan seperti yang
+  // dipilih, tapi setiap tabel hanya diproses sekali.
   const tablesToDelete: string[] = []
   for (const cat of effectiveCategories) {
     for (const table of CATEGORY_MAP[cat]) {
@@ -275,12 +238,12 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const db = createAdminClient()
   const errors: string[] = []
   const deleted: string[] = []
+  const storageDone = new Set<string>()
 
   for (const table of tablesToDelete) {
-    const err = await clearTable(db, table)
+    const err = await clearTable(db, table, storageDone)
     if (err) {
       errors.push(err)
     } else {
@@ -292,14 +255,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Reset gagal', details: errors }, { status: 500 })
   }
 
-  // BUG FIX (02 Jul 2026): endpoint dashboard (`/api/admin/dashboard`) dan
-  // beberapa endpoint pengaturan (`/api/auth/login`, `/api/public/pengaturan`,
-  // `/api/siswa/ujian/pelanggaran`) memakai in-memory cache (lib/cache.ts,
-  // TTL 30–60 detik). Sebelum fix ini, reset TIDAK PERNAH membersihkan cache
-  // tersebut, sehingga admin yang membuka beranda tak lama setelah reset
-  // masih melihat angka/data lama sampai TTL cache habis sendiri (terlihat
-  // seperti "baru bersih setelah refresh browser", padahal refresh-nya
-  // kebetulan saja terjadi setelah TTL lewat, bukan penyebab sebenarnya).
+  // Endpoint dashboard dan beberapa endpoint pengaturan memakai in-memory cache
+  // (lib/cache.ts, TTL 30–60 detik). Tanpa ini admin masih melihat data lama
+  // sampai TTL habis.
   cacheDel('admin:dashboard')
   if (tablesToDelete.includes('pengaturan')) cacheDelPrefix('pengaturan:')
 
