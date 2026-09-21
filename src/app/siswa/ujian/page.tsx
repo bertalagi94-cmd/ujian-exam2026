@@ -1309,10 +1309,15 @@ export default function SiswaUjianPage() {
             // dari resume yang belum pernah diubah lagi di device ini),
             // pakai 1 supaya tetap dianggap "perubahan pertama" dan bukan 0
             // yang berarti "tidak ada perubahan" bagi server.
+            // `waktuJawabMs` = jam tepercaya saat siswa membuat/ubah jawaban ini.
+            // Server memakainya HANYA kalau sync tiba SETELAH waktu siswa habis
+            // (kerja offline): jawaban yang terbukti dibuat sebelum batas tetap
+            // sah, sisanya ditolak (lihat src/lib/deadline-pg.ts).
             jawaban: entries.map(([soal_id, jwb]) => ({
               soal_id,
               jawaban: jwb,
               revisi: jawabanRevisiRef.current[soal_id] ?? 1,
+              waktuJawabMs: jawabanTsRef.current[soal_id] || undefined,
             })),
             deviceId: getDeviceId(),
           }),
@@ -1426,7 +1431,7 @@ export default function SiswaUjianPage() {
   // lihat FIX BUG P1 di jawaban-merge.ts) dan JAM (fallback untuk data lama)
   // perubahan ini di device ini.
   function pilihJawaban(soalId: string, label: string) {
-    jawabanTsRef.current = { ...jawabanTsRef.current, [soalId]: Date.now() }
+    jawabanTsRef.current = { ...jawabanTsRef.current, [soalId]: trustedNow() }
     jawabanRevisiRef.current = { ...jawabanRevisiRef.current, [soalId]: nextRevisi(jawabanRevisiRef.current, soalId) }
     setJawaban(prev => ({ ...prev, [soalId]: label }))
   }
