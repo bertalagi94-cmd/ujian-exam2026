@@ -20,9 +20,15 @@ berikut dari **Project Settings → API** (dibutuhkan di langkah 4):
 
 Buka **SQL Editor** di Supabase Dashboard, jalankan seluruh isi folder
 `supabase/` **sesuai urutan nomor filenya**, dari `01_schema.sql` sampai
-file bernomor terbesar (saat ini `18_catat_tabel_sekolah_dan_kisi_kisi.sql`
-— cek folder `supabase/` untuk nomor terbaru kalau ada tambahan setelah
-checklist ini dibuat).
+file bernomor terbesar (saat ini `23_hardening_keamanan_db.sql` — cek folder
+`supabase/` untuk nomor terbaru kalau ada tambahan setelah checklist ini
+dibuat).
+
+⚠️ **Migrasi 23 (hardening keamanan) WAJIB dan harus dijalankan TERAKHIR.**
+Ia mengaktifkan RLS di semua tabel dan mencabut semua hak `anon`/
+`authenticated`; ia sengaja **menolak berjalan** kalau migrasi 20/21/22
+belum terpasang. Kode aplikasi tidak punya jalur fallback — tanpa migrasi
+20/21/22 sinkron jawaban dan finalisasi ujian akan mengembalikan error.
 
 Catatan:
 - `01_schema.sql` sampai `01b_seed_master_part1.sql` s/d `04_seed_jawaban.sql`
@@ -31,11 +37,13 @@ Catatan:
 - File `11_akses_mulai_essay.sql` dan `11_mode_jawaban_pg.sql` sama-sama
   bernomor 11 tapi saling independen (beda tabel) — urutan di antara
   keduanya tidak masalah.
+- Jalankan migrasi baru di database dulu, **baru** deploy kodenya.
 - Semua file migrasi ditulis idempotent (`IF NOT EXISTS`, `CREATE OR
   REPLACE`), aman dijalankan ulang kalau ragu sudah jalan atau belum.
 
 **Verifikasi setelah selesai** — jalankan query ini, pastikan jumlah tabel
-sesuai ekspektasi (saat ini seharusnya 24 tabel):
+sesuai ekspektasi (jumlah bisa berubah seiring migrasi baru; bandingkan
+dengan project lama Anda):
 ```sql
 select count(*) from information_schema.tables where table_schema = 'public';
 ```
@@ -74,19 +82,26 @@ Redeploy project setelah env var diisi.
 
 ---
 
-## 5. Verifikasi RLS (keamanan)
+## 5. Verifikasi keamanan (RLS + hak akses)
 
-Jalankan di SQL Editor, pastikan `rls_aktif = true` untuk ketiganya dan
-baris ke-2 kosong (tidak ada policy longgar):
+Jalankan di SQL Editor. **Kedua query harus mengembalikan 0 baris.**
 ```sql
-select relname as tabel, relrowsecurity as rls_aktif
-from pg_class
-where relname in ('jawaban', 'siswa_ujian', 'pelanggaran');
+-- fungsi yang bisa dijalankan anon/authenticated (harus kosong)
+select p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+where n.nspname = 'public'
+  and (has_function_privilege('anon', p.oid, 'execute')
+    or has_function_privilege('authenticated', p.oid, 'execute'));
 
-select tablename, policyname, roles, cmd
-from pg_policies
-where tablename in ('jawaban', 'siswa_ujian', 'pelanggaran');
+-- tabel tanpa RLS atau masih terbuka untuk anon/authenticated (harus kosong)
+select c.relname from pg_class c join pg_namespace n on n.oid = c.relnamespace
+where n.nspname = 'public' and c.relkind = 'r'
+  and (not c.relrowsecurity
+    or has_table_privilege('anon', c.oid, 'select,insert,update,delete,truncate')
+    or has_table_privilege('authenticated', c.oid, 'select,insert,update,delete,truncate'));
 ```
+
+Lalu uji dari luar dengan anon key (contoh perintah `curl` ada di bagian
+bawah `supabase/23_hardening_keamanan_db.sql`); semuanya harus ditolak.
 
 ---
 

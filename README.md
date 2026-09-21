@@ -1,91 +1,256 @@
-# Fitur Soal Essay — Backend LENGKAP (siap timpa langsung ke repo)
+# ujian-exam2026
 
-Total **17 file backend** sudah selesai dan siap ditimpa/ditambahkan ke
-`bertalagi94-cmd/ujian-exam2026`. Ini SEMUA logika server (database, API,
-validasi, rumus nilai) — yang tersisa HANYA tampilan (UI) di frontend,
-lihat bagian "SISA PEKERJAAN" di bawah.
+Aplikasi ujian sekolah (PG + Essay) dengan mode offline dan anti-cheat.
+Next.js 14 (App Router) + Supabase (Postgres) + Vercel, dibungkus Capacitor
+untuk Android. Peran: `admin`, `kepsek`, `guru` (termasuk mode pengawas),
+`siswa`.
 
-## Cara pasang
-Struktur folder di dalam zip ini SAMA PERSIS dengan struktur repo Anda —
-tinggal copy-timpa folder `src/` dan `supabase/` di zip ini ke repo Anda,
-lalu jalankan migrasi SQL-nya.
+> **BACA INI DULU JIKA ANDA ADALAH AI CODING AGENT.**
+> Repo ini sudah melewati beberapa putaran perbaikan keamanan dan
+> konkurensi. Banyak kode yang tampak "berlebihan" sebenarnya adalah
+> perbaikan bug nyata. Baca bagian **DO NOT REVERT / OVERWRITE** di bawah
+> sebelum mengubah apa pun. **Jangan pernah menimpa file dengan versi lama
+> dari zip/patch/riwayat chat.** Semua perubahan harus berupa edit terhadap
+> file yang ada di repo sekarang.
 
+Dokumen lain: `SETUP.md` (bangun ulang dari nol), `supabase/*.sql` (migrasi).
+
+---
+
+## CURRENT ARCHITECTURE
+
+- **Semua akses database dari server memakai `service_role`**
+  (`createAdminClient` di `src/lib/supabase.ts`). Autentikasi memakai JWT
+  buatan sendiri (`jsonwebtoken`, `src/lib/auth.ts`, login di
+  `src/app/api/auth/login`), **bukan** Supabase Auth.
+- **Client `anon`/`authenticated` tidak dipakai untuk apa pun.** Sejak migrasi
+  23, role itu tidak punya hak apa pun di schema `public` dan RLS aktif di
+  semua tabel. `NEXT_PUBLIC_SUPABASE_ANON_KEY` tetap dibutuhkan hanya karena
+  `src/lib/supabase.ts` membacanya. Hook `src/hooks/useMonitorRealtime.ts`
+  tidak diimpor di mana pun dan tidak akan berfungsi (tanpa hak anon).
+- **Server = sumber kebenaran akhir.** Client menyimpan data lokal (IndexedDB)
+  hanya sebagai antrean dan untuk pemulihan.
+- Logika penting yang dipakai bersama client dan server ada di `src/lib/`
+  (`*-shared.ts`), mis. `pelanggaran-shared.ts`, `essay-amplop-shared.ts`.
+
+## DATABASE MIGRATIONS
+
+Jalankan **berurutan** di Supabase SQL Editor. Semua idempotent.
+
+| File | Isi |
+|---|---|
+| `01`–`04` | Skema dasar + seed |
+| `05_fix_rls.sql` | RLS awal (hanya untuk tabel yang ada saat itu) |
+| `07`–`09`, `11`–`13` | Essay, paket essay, bobot, skor per soal, idempotency |
+| `10`, `22` | `truncate_tabel_besar` (untuk restore/reset) |
+| `14`, `15` | Snapshot paket, transaksi atomik, metrik |
+| `16`, `17` | RPC approval paket, dashboard stats, increment peserta |
+| `19` | Amplop essay offline |
+| `20` | PG offline: kolom `revisi`, `sync_jawaban_revisi()`, `pg_selesai_offline` |
+| `21` | `finalisasi_pg_atomik()` — nilai + status siswa dalam satu transaksi |
+| `22` | Perbaikan backup/restore/reset, `sinkron_sequence_setelah_restore()` |
+| **`23`** | **Hardening: RLS di semua tabel, cabut hak anon/authenticated, default privileges. WAJIB.** |
+
+Aturan migrasi:
+
+1. **Migrasi 23 menolak berjalan** kalau 20/21/22 belum terpasang. Itu
+   disengaja: kode aplikasi **fail closed** dan tidak punya jalur fallback.
+2. **Setiap tabel/fungsi baru wajib** menyertakan `ENABLE ROW LEVEL SECURITY`
+   dan `REVOKE ... FROM PUBLIC, anon, authenticated` (contoh benar: migrasi
+   19 dan 21). Di Supabase, `REVOKE ... FROM PUBLIC` saja **tidak cukup**.
+3. Fungsi `SECURITY DEFINER` wajib `SET search_path = public` dan hanya
+   di-`GRANT` ke `service_role`.
+
+## EXAM FLOW
+
+1. Siswa login → memasukkan Kode Ujian → server memvalidasi.
+2. Client mengunduh paket PG (+ Essay), meng-cache soal dan gambar
+   (`src/lib/pg-paket-offline.ts`, `gambar-offline.ts`) dan memverifikasinya.
+3. Ujian baru **boleh dimulai setelah pre-cache selesai dan tervalidasi**.
+   Jika internet mati sebelum tahap ini selesai, ujian tidak dimulai.
+4. Setelah "siap", internet boleh terputus; ujian tetap berjalan.
+5. PG: jawaban → outbox → `/api/siswa/ujian/sync` → `sync_jawaban_revisi()`.
+6. Selesai: `/api/siswa/ujian/selesai` → `finalisasi_pg_atomik()`.
+7. Jika ada Essay: fase essay (DIGITAL atau KERTAS), lalu kirim.
+
+## OFFLINE ARCHITECTURE
+
+**Sudah ada:**
+
+- Status jaringan memakai pengecekan nyata ke server
+  (`src/lib/status-jaringan.ts`), bukan hanya `navigator.onLine`.
+- Outbox jawaban di IndexedDB (`src/lib/ujian-outbox.ts`), dengan migrasi dari
+  localStorage lama. Outbox hidup di luar komponen halaman.
+- Paket PG dan gambar di-cache sebelum ujian mulai.
+- Jawaban PG memakai `revisi` naik-monoton yang dibuat client; server menolak
+  revisi yang lebih kecil dari yang tersimpan.
+- Klaim "PG selesai offline" disimpan sebagai jejak audit
+  (`src/lib/klaim-offline.ts`, kolom `pg_selesai_offline`).
+
+**Celah yang diketahui (belum diperbaiki):**
+
+- Jika IndexedDB **dan** fallback localStorage sama-sama gagal, kegagalan
+  ditelan diam-diam (`ujian-outbox.ts`). Siswa harus diperingatkan.
+- Validasi cache gambar hanya `res.ok` + `blob.size > 0`; belum memeriksa
+  `Content-Type: image/*` (HTML error dengan HTTP 200 lolos).
+- Data pengawas (kode ujian, kode reset) **tidak** disimpan lokal; halaman
+  Mode Pengawas tidak berfungsi penuh saat offline.
+
+## ANTI-CHEAT
+
+- Client mendeteksi: keluar fullscreen, blur, visibilitychange, dsb.
+  (`src/app/siswa/ujian/page.tsx`).
+- Di Android (Capacitor), penguncian native (immersive mode + screen
+  pinning) dijembatani lewat `src/lib/exam-lock.ts` →
+  `android/.../ExamLockPlugin.java` (folder `android/` tidak ada di repo ini;
+  pastikan tersedia di tempat build APK).
+- Pelanggaran dikirim ke `/api/siswa/ujian/pelanggaran`; server
+  men-dedup dalam jendela 5 detik dan menaikkan level.
+- `pelanggaranActiveRef` di `page.tsx` berfungsi sebagai gerbang
+  "menunggu reset"; ia direset **hanya** setelah kode reset benar.
+
+**Belum ada (target desain — lihat prinsip di bawah):**
+
+- Antrean event pelanggaran offline (saat ini kegagalan kirim hanya
+  `console.warn` → pelanggaran offline hilang).
+- Dedup event berbasis timestamp/ID idempotent di client.
+
+**Prinsip yang HARUS dipertahankan:**
+
+1. Offline **bukan** berarti anti-cheat mati.
+2. Keluar dari lingkungan ujian yang **berhasil terdeteksi** = pelanggaran.
+3. Crash/mati listrik yang tidak sempat terdeteksi = **recovery**, bukan
+   pelanggaran yang dikarang-karang.
+4. Event pelanggaran harus disimpan lokal dan disinkronkan idempotent.
+
+## RESET CODE SYSTEM
+
+**Kondisi sekarang:** satu kode reset 7 karakter dibuat **saat pengawas
+menekan reset**, secara online (`api/pengawas/sesi/[id]/reset-siswa`), dicatat
+di `log_reset`, diverifikasi server (`api/siswa/ujian/verifikasi-reset`).
+Jika saat pengawas menekan reset level pelanggaran saat itu sudah
+`>= batasPelanggaran` (pengaturan, default 3), siswa **dikunci permanen**
+(`TERKUNCI`) dan tidak diberi kode lanjut — artinya sekarang pelanggaran ke-3
+sudah mengakhiri ujian, sedangkan target desain: pelanggaran ke-4.
+Kode dibuat dengan `Math.random()`.
+
+**Target desain (belum diimplementasikan):**
+
+- Saat sesi dibuka, sistem menyiapkan per siswa: Kode Ujian, Kode Reset
+  Darurat, Reset 1, Reset 2, Reset 3 — tersedia offline (IndexedDB) di
+  perangkat pengawas.
+- Pelanggaran #1 → R1, #2 → R2, #3 → R3, **#4 → ujian otomatis selesai**.
+  Kode sekali pakai, berurutan, idempotent.
+- Perangkat siswa memverifikasi kode offline memakai **hash** (jangan kirim
+  kode asli ke siswa).
+- Pembuatan kode wajib memakai `crypto` (bukan `Math.random`).
+- Jenis kode dipisah: Kode Ujian ≠ Reset Darurat ≠ Reset 1/2/3.
+
+## ESSAY
+
+- Mode `DIGITAL` (ketik + autosave, `essay/jawab`) dan `KERTAS` (siswa
+  menulis di kertas; akses kirim dibuka pengawas, `buka-akses-essay`).
+- Alur: PG selesai → nilai PG disimpan tapi disembunyikan → fase essay →
+  kirim → nilai dibuka. Guru mengoreksi lewat `koreksi-essay`.
+- **Celah yang diketahui:** `essay/jawab` masih memakai `updated_at`
+  (timestamp), belum `revisi`; belum ada flush autosave sebelum kirim;
+  finalisasi essay belum lewat RPC atomik; `essay/kirim` melewati cek device
+  bila `device_id` di database masih null.
+
+## DEVICE LOCK
+
+- `siswa_ujian.device_id` mengikat siswa ke satu perangkat. Diperiksa di
+  route `sync`, `cek-sesi`, `selesai`, dan endpoint essay
+  (`mulai`/`jawab`/`kirim`).
+- **Belum** diperiksa di: `pelanggaran`, `verifikasi-reset`, dan di dalam
+  `finalisasi_pg_atomik()` (RPC belum menerima `device_id`).
+- Takeover setelah heartbeat stale harus diperlakukan sebagai *device lease*;
+  device lama harus ditolak setelah takeover.
+- Identitas tab: `src/lib/identitas-tab.ts`. Outbox satu siswa tidak boleh
+  pernah terkirim dengan identitas siswa lain (uji dengan dua tab).
+
+## DEADLINE
+
+- Jawaban yang dibuat **sebelum deadline** tetap diterima walau baru sync
+  setelah deadline (kerja offline); jawaban yang dibuat setelahnya ditolak.
+  Lihat `src/lib/deadline-pg.ts` dan `saringJawabanTerlambat` di `sync/route.ts`.
+- Server **tidak** menjadikan waktu sync sebagai satu-satunya aturan, dan
+  **tidak** memercayai jam client secara buta (metadata sesi dari server,
+  validasi konsistensi). `clock-offset.ts` melindungi **timer** dari
+  perubahan jam perangkat oleh siswa.
+
+## SYNC
+
+- `POST /api/siswa/ujian/sync` → `sync_jawaban_revisi(p_records)`; mengembalikan
+  ACK per jawaban (`accepted` + `revisi` tersimpan).
+- Jika RPC gagal, route mengembalikan **503** dan client mempertahankan
+  jawaban di outbox untuk dicoba ulang. **Tidak ada fallback ke upsert lama.**
+- `GET` sync mengembalikan jawaban server termasuk `revisi` untuk merge
+  (`src/lib/jawaban-merge.ts`: bandingkan revisi dulu, jam hanya pemutus seri).
+
+## RESET
+
+- Reset siswa/sesi harus menangani jawaban PG, jawaban essay, revision,
+  waktu mulai/deadline, device, heartbeat, pelanggaran, finalisasi, nilai.
+- Bedakan **reset untuk retake** dari **hapus riwayat**. Riwayat audit
+  jangan hilang tanpa alasan.
+- *Audit fungsi Reset belum selesai.*
+
+## BACKUP/RESTORE
+
+- `api/admin/backup`, `api/admin/restore`, memakai `truncate_tabel_besar`
+  dan `sinkron_sequence_setelah_restore` (migrasi 22).
+- Restore harus menjaga konsistensi relasional (sesi ↔ siswa_ujian ↔
+  jawaban ↔ essay ↔ nilai ↔ pelanggaran). Saat ini restore **bukan satu
+  transaksi**; audit integritas belum selesai.
+
+## PRODUCTION DEPLOYMENT
+
+Urutan **wajib** saat rilis yang menyentuh database:
+
+1. Jalankan migrasi baru di SQL Editor (berurutan; 23 akan menolak jika
+   prasyarat tidak ada).
+2. Verifikasi (lihat query di bawah).
+3. **Baru** deploy kode.
+
+Verifikasi keamanan (semua harus kosong/0):
+
+```sql
+-- fungsi yang bisa dijalankan anon/authenticated
+select p.proname from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+where n.nspname='public'
+  and (has_function_privilege('anon',p.oid,'execute')
+    or has_function_privilege('authenticated',p.oid,'execute'));
+
+-- tabel tanpa RLS atau masih terbuka untuk anon
+select c.relname from pg_class c join pg_namespace n on n.oid=c.relnamespace
+where n.nspname='public' and c.relkind='r'
+  and (not c.relrowsecurity
+    or has_table_privilege('anon',c.oid,'select,insert,update,delete,truncate')
+    or has_table_privilege('authenticated',c.oid,'select,insert,update,delete,truncate'));
 ```
-supabase/07_essay.sql   ← BARU, jalankan di Supabase SQL editor dulu
 
-src/lib/penilaian-ujian.ts                                          ← DIEDIT (tambah info_json ke select)
-src/app/api/siswa/ujian/selesai/route.ts                              ← DIEDIT (cabang alur essay)
-src/app/api/guru/mode-pengawas/route.ts                               ← DIEDIT (salin config essay ke sesi)
-src/app/api/guru/susulan/route.ts                                     ← DIEDIT (idem, untuk sesi susulan guru)
-src/app/api/admin/susulan/route.ts                                    ← DIEDIT (idem, untuk sesi susulan admin)
-src/app/api/guru/kirim-nilai/route.ts                                 ← DIEDIT (tambah aksi rilis_essay_individu / rilis_essay_sekaligus)
+Env vars: lihat `SETUP.md` bagian 4. Header keamanan (CSP, HSTS,
+Permissions-Policy) **belum** dikonfigurasi di `next.config.js`.
 
-src/app/api/guru/soal-essay/route.ts                                  ← BARU (CRUD bank soal essay - list & create)
-src/app/api/guru/soal-essay/[id]/route.ts                             ← BARU (CRUD - update & delete)
-src/app/api/guru/jadwal/[id]/essay-setting/route.ts                   ← BARU (set mode/durasi/bobot per jadwal)
-src/app/api/guru/mode-pengawas/buka-akses-essay/route.ts              ← BARU (buka akses kirim, mode KERTAS)
-src/app/api/guru/koreksi-essay/route.ts                               ← BARU (lihat jawaban + input nilai essay)
-src/app/api/siswa/ujian/essay/info/route.ts                           ← BARU (halaman info sebelum mulai essay)
-src/app/api/siswa/ujian/essay/mulai/route.ts                          ← BARU (mulai timer essay)
-src/app/api/siswa/ujian/essay/jawab/route.ts                          ← BARU (autosave jawaban, mode DIGITAL)
-src/app/api/siswa/ujian/essay/upload-foto/route.ts                    ← BARU (upload foto, mode KERTAS)
-src/app/api/siswa/ujian/essay/kirim/route.ts                          ← BARU (kirim essay, buka nilai PG + lepas fullscreen)
-```
+---
 
-**PENTING**: file yang ditandai "DIEDIT" adalah file yang SUDAH ADA di
-repo Anda — file di zip ini adalah versi LENGKAP (bukan diff/patch), jadi
-langsung TIMPA file lama dengan file ini. Perubahan yang saya buat di
-masing-masing ditandai komentar `// FIX (fitur essay): ...` di dalam kode,
-supaya gampang dilacak kalau ada konflik dengan perubahan lain yang mungkin
-sudah Anda buat di file yang sama sejak repo di-clone.
+## DO NOT REVERT / OVERWRITE
 
-## Alur yang SUDAH lengkap di backend ini
-1. Guru buat soal essay + atur mode jawaban/durasi/bobot per jadwal
-2. Sesi dibuka → konfigurasi essay ikut tersalin & terkunci di sesi tsb
-3. Siswa submit PG → nilai PG dihitung & DISIMPAN tapi TIDAK dibuka ke
-   siswa dulu → diarahkan ke fase essay
-4. Siswa lihat info essay → mulai → jawab (digital: ketik & autosave;
-   kertas: HANYA baca soal, tulis di kertas fisik, tidak ada unggah foto —
-   lihat catatan di bawah)
-5. Siswa kirim essay → BARU DI SINI nilai PG dibuka & status ujian jadi
-   SELESAI (frontend bisa lepas fullscreen)
-6. Guru koreksi essay (lihat jawaban/foto, input nilai) → sistem hitung
-   nilai_total otomatis dari bobot PG:Essay
-7. Guru rilis nilai (per individu / sekaligus — sekaligus terkunci sampai
-   SEMUA siswa dinilai) → siswa baru bisa lihat nilai_essay/nilai_total
-
-## SISA PEKERJAAN — hanya UI/Frontend (untuk dilanjutkan AI lain)
-Backend TIDAK butuh apa-apa lagi untuk fitur ini berfungsi lewat API
-langsung (Postman/curl). Yang belum ada HANYA tampilan di browser:
-
-1. **`src/app/siswa/ujian/page.tsx`** (paling besar, 1906 baris) — tambah
-   state/tampilan baru setelah submit PG: halaman info essay → form
-   jawab essay (digital/kertas) → tombol kirim. INI YANG PALING RUMIT
-   karena harus terintegrasi dengan fullscreen-lock & anti-kecurangan yang
-   sudah ada di file itu.
-2. Halaman guru: form buat/edit soal essay + setting sesi (pakai endpoint
-   `/api/guru/soal-essay` & `/api/guru/jadwal/[id]/essay-setting`)
-3. Halaman guru: panel koreksi essay (pakai `/api/guru/koreksi-essay`)
-4. ~~Tombol "Buka Akses Kirim" di halaman Mode Pengawas guru~~ — JANGAN
-   dibuat. Endpoint `/api/guru/mode-pengawas/buka-akses-essay` sudah
-   dinonaktifkan (410 Gone): desain mode KERTAS diubah supaya siswa boleh
-   menekan "Kirim" kapan pun tanpa gerbang pengawas, dan guru menilai
-   langsung dari kertas fisik (lihat komentar di `essay/kirim/route.ts`).
-   Membangun tombol ini tidak akan berefek apa pun ke siswa.
-5. ~~Fitur unggah foto lembar jawaban (mode KERTAS)~~ — JANGAN dibangun.
-   Endpoint `/api/siswa/ujian/essay/upload-foto` sudah dinonaktifkan (410
-   Gone): keputusan desain final, siswa mode KERTAS TIDAK diminta foto sama
-   sekali — halaman essay-nya hanya menampilkan soal + tombol "Selesai".
-   Lembar jawaban fisik dikumpulkan MANUAL oleh pengawas ruang ujian, lalu
-   diserahkan ke guru untuk dinilai langsung dari kertas (guru tetap input
-   skor per soal lewat UI koreksi essay seperti biasa, tanpa referensi
-   foto).
-6. `src/app/guru/kirim-nilai/page.tsx` — tambah tombol rilis nilai essay
-   (pakai aksi `rilis_essay_individu` / `rilis_essay_sekaligus`)
-7. Halaman Pengaturan Admin — tambah 2 field untuk
-   `batas_durasi_essay_min_menit` / `batas_durasi_essay_max_menit`
-   (endpoint-nya sudah ada, generik key-value, tidak perlu API baru)
-
-Detail teknis & alasan setiap keputusan desain ada di `HANDOFF.md` yang
-disertakan dalam paket ini — silakan lampirkan ke sesi AI berikutnya
-sebagai konteks.
+1. **Jangan menambahkan kembali fallback** ke upsert lama di `sync/route.ts`
+   atau ke penulisan non-atomik di `selesai/route.ts`. Sistem harus fail
+   closed.
+2. **Jangan memberi hak `anon`/`authenticated`** pada tabel/fungsi apa pun,
+   dan jangan menghapus migrasi 23. Jangan membuat client Supabase di browser
+   untuk membaca tabel langsung.
+3. **Jangan mengganti `revisi` dengan timestamp** untuk menentukan jawaban
+   terbaru. (Essay masih perlu dimigrasikan *ke* revisi, bukan sebaliknya.)
+4. **Jangan menjadikan waktu sinkronisasi sebagai waktu terjadinya jawaban.**
+5. **Jangan menyederhanakan outbox/`finalisasi_pg_atomik`** menjadi beberapa
+   query terpisah; atomisitasnya menutup race dengan penutupan sesi.
+6. **Jangan mematikan anti-cheat saat offline**, dan jangan mengubah
+   "keluar lingkungan ujian" menjadi bukan-pelanggaran.
+7. **Jangan menimpa file dengan salinan dari zip/patch lama.** Riwayat repo
+   (`git log`) adalah sumber kebenaran; edit file yang ada.
+8. **Jangan mengklaim sesuatu aman sebelum diverifikasi di database
+   production** (RLS, grant, RPC).
