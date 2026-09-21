@@ -115,6 +115,28 @@ export function requireRole(
       }),
     }
   }
+  // ── Pengikat identitas siswa (lihat src/lib/identitas-tab.ts) ─────────────
+  // Client menyertakan X-Nis-Klien = nis siswa yang sedang mengerjakan di TAB
+  // itu. Kalau tidak sama dengan nis di token, berarti token di browser sudah
+  // diganti akun lain (login di tab lain) -- tolak SEBELUM endpoint mana pun
+  // menyentuh data, karena semua endpoint siswa memakai user.nis dari token
+  // dan device_id yang sama (satu browser) tidak akan menangkap ini.
+  // Header dikirim client hanya untuk /api/siswa/*; header tidak ada = klien
+  // lama, tetap diterima (kompatibilitas selama transisi deploy).
+  if (user.role === 'SISWA' && user.nis) {
+    const nisKlien = req.headers.get('x-nis-klien')
+    if (nisKlien && nisKlien !== user.nis) {
+      return {
+        error: new Response(
+          JSON.stringify({
+            error: 'Akun yang login di browser ini berbeda dengan akun yang sedang mengerjakan ujian di tab ini. Permintaan dibatalkan supaya data tidak tercampur.',
+            kode: 'IDENTITAS_BERUBAH',
+          }),
+          { status: 403, headers: { 'Content-Type': 'application/json' } }
+        ),
+      }
+    }
+  }
   // ── Penegakan read-only untuk mode "Lihat sebagai" ────────────────────────
   // SATU titik untuk semua endpoint yang memakai requireRole(): token viewAs
   // hanya boleh GET/HEAD. Semua POST/PUT/PATCH/DELETE (submit jawaban, ganti
