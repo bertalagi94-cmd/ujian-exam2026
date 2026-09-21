@@ -10,6 +10,13 @@ import Link from 'next/link'
 import { Toast, Spinner, Confirm } from '@/components/ui'
 import { HackerPopup, HackerPopupType } from '@/components/ui/HackerPopup'
 import { apiRequest } from '@/lib/utils'
+import {
+  runBackup,
+  runRestore,
+  parseBackupText,
+  AktivitasAktifError,
+  type ParsedBackup,
+} from '@/lib/backup-restore-client'
 import { DATA_WILAYAH, getProvinsiById, ZONA_WAKTU_INFO } from '@/lib/wilayah'
 
 type ResetCategory = {
@@ -89,7 +96,11 @@ export default function AdminPengaturanPage() {
   // risikonya, dan kalau admin tetap memilih lanjut, kirim ulang restore
   // dengan force=true (lihat doRestore).
   const [confirmRestoreForce, setConfirmRestoreForce] = useState<{ ada_sesi: boolean; ada_siswa: boolean } | null>(null)
-  const [pendingRestoreFile, setPendingRestoreFile] = useState<File | null>(null)
+  // File backup di-parse sekali saat dipilih (lihat handleRestoreFile) lalu
+  // disimpan di sini, jadi restore tidak perlu membaca ulang file yang besar.
+  const [pendingRestore, setPendingRestore] = useState<ParsedBackup | null>(null)
+  // true = admin sudah mengonfirmasi eksplisit untuk memulihkan backup yang tidak lengkap
+  const [pendingRestoreIncomplete, setPendingRestoreIncomplete] = useState(false)
   const [pendingRestoreInfo, setPendingRestoreInfo] = useState<{ name: string; size: string } | null>(null)
   // BUG FIX: endpoint /api/admin/reset sudah mendukung `force` (persis seperti
   // /api/admin/restore) untuk menembus penolakan 409 saat ada sesi ujian
@@ -107,6 +118,7 @@ export default function AdminPengaturanPage() {
   const [hackerProgress, setHackerProgress] = useState(0)
   const [hackerFile, setHackerFile] = useState<string>()
   const [hackerSize, setHackerSize] = useState<string>()
+  const [hackerSteps, setHackerSteps] = useState<string[]>()
   const hackerDoneRef = useRef<() => void>()
 
   const [togglingMinSubmit, setTogglingMinSubmit] = useState(false)
@@ -207,10 +219,11 @@ export default function AdminPengaturanPage() {
     }
   }
 
-  function openHacker(type: HackerPopupType, file?: string, size?: string, onDone?: () => void) {
+  function openHacker(type: HackerPopupType, file?: string, size?: string, onDone?: () => void, steps?: string[]) {
     setHackerType(type)
     setHackerFile(file)
     setHackerSize(size)
+    setHackerSteps(steps)
     setHackerProgress(0)
     hackerDoneRef.current = onDone
     setHackerOpen(true)
@@ -226,142 +239,192 @@ export default function AdminPengaturanPage() {
     }, 90)
   }
 
-  async function handleBackup() {
+  // ── Backup & Restore (bertahap dari browser) ───────────────────────────────
+  // Backup/restore dipecah menjadi banyak request kecil yang dikoordinasi di
+  // src/lib/backup-restore-client.ts — versi lama mengirim seluruh file dalam
+  // SATU request sehingga terbentur batas body Vercel (±4,5 MB) dan backup
+  // buatan aplikasi sendiri (>10 MB) tidak bisa direstore (UI memblokir >4 MB).
+  const BACKUP_STEPS = [
+    'Memeriksa sesi ujian aktif...',
+    'Membaca tabel database...',
+    'Membaca tabel database...',
+    'Mengambil file logo & gambar...',
+    'Menyusun file backup...',
+    'Selesai ✓',
+  ]
+  const RESTORE_STEPS = [
+    'Membuat backup pengaman...',
+    'Memverifikasi & mengosongkan data lama...',
+    'Memulihkan tabel database...',
+    'Memulihkan tabel database...',
+    'Memulihkan file & sinkronisasi akhir...',
+    'Selesai ✓',
+  ]
+
+  function fmtMB(bytes: number) {
+    return (bytes / 1024 / 1024).toFixed(1) + ' MB'
+  }
+
+  function downloadBlob(blob: Blob, fileName: string) {
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = fileName
+    a.click()
+    // Jangan langsung di-revoke: file besar bisa batal terunduh di sebagian browser
+    setTimeout(() => URL.revokeObjectURL(url), 30_000)
+  }
+
+  async function handleBackup(force = false) {
     setBackingUp(true)
+    let retryForce = false
     const fileName = `smartexam-backup-${new Date().toISOString().slice(0, 10)}.json`
-    openHacker('backup', fileName)
+    openHacker('backup', 'Menyiapkan backup…', undefined, undefined, BACKUP_STEPS)
     try {
-      const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
-      const res = await fetch('/api/admin/backup', { headers: token ? { Authorization: `Bearer ${token}` } : {} })
-      if (!res.ok) { const j = await res.json(); throw new Error(j.error || 'Backup gagal') }
-      const blob = await res.blob()
-      const sizeMB = (blob.size / 1024 / 1024).toFixed(1) + ' MB'
+      const result = await runBackup({
+        force,
+        onProgress: (pct, detail) => {
+          setHackerProgress(Math.min(pct, 99))
+          setHackerFile(detail)
+        },
+      })
       setHackerFile(fileName)
-      setHackerSize(sizeMB)
-      await new Promise<void>(resolve => { const ref: { id?: ReturnType<typeof setInterval> } = {}; tickProgress(resolve, ref) })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url; a.download = fileName; a.click()
-      URL.revokeObjectURL(url)
-      showToast('Backup berhasil diunduh')
+      setHackerSize(fmtMB(result.sizeBytes))
+      downloadBlob(result.blob, fileName)
+      setHackerProgress(100)
+      if (result.errors.length > 0) {
+        // Jangan lapor "berhasil" kalau ada bagian yang terlewat
+        showToast(
+          `Backup diunduh tetapi TIDAK LENGKAP (${result.errors.length} masalah): ${result.errors.slice(0, 2).join('; ')}`,
+          'error'
+        )
+      } else {
+        showToast('Backup berhasil diunduh')
+      }
     } catch (err: unknown) {
       setHackerOpen(false)
-      showToast(err instanceof Error ? err.message : 'Backup gagal', 'error')
+      if (err instanceof AktivitasAktifError && !force) {
+        // Ada sesi ujian aktif → tawarkan jalan keluar (sama seperti restore/reset)
+        retryForce = window.confirm(`${err.message}\n\nTetap buat backup sekarang? (data backup bisa tidak konsisten)`)
+      } else {
+        showToast(err instanceof Error ? err.message : 'Backup gagal', 'error')
+      }
     } finally {
       setBackingUp(false)
     }
+    if (retryForce) await handleBackup(true)
   }
 
-  // Langkah 1: admin pilih file → validasi ringan → tampilkan dialog konfirmasi
+  // Langkah 1: admin pilih file → baca & validasi isinya → tampilkan dialog konfirmasi
   function handleRestoreFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
     e.target.value = ''
     if (!file.name.endsWith('.json')) { showToast('File harus berformat .json', 'error'); return }
-    // Validasi ringan di sisi klien sebelum konfirmasi
     const reader = new FileReader()
     reader.onload = (ev) => {
       try {
-        const parsed = JSON.parse(ev.target?.result as string)
-        if (!parsed?.tables) { showToast('File bukan backup SmartExam yang valid', 'error'); return }
-        if (parsed.app && parsed.app !== 'SmartExam') { showToast('File backup bukan dari aplikasi SmartExam', 'error'); return }
-        const sizeMB = (file.size / 1024 / 1024).toFixed(1) + ' MB'
-        setPendingRestoreFile(file)
-        setPendingRestoreInfo({ name: file.name, size: sizeMB })
+        const parsed = parseBackupText(ev.target?.result as string)
+
+        // Backup yang saat dibuat sebagian tabel/filenya gagal diambil. Restore
+        // akan MENGHAPUS data yang tidak ada di file ini, jadi minta konfirmasi
+        // eksplisit (default: batal).
+        let incomplete = false
+        if (parsed.errors && parsed.errors.length > 0) {
+          const lanjut = window.confirm(
+            `PERINGATAN: file backup ini TIDAK LENGKAP — saat dibuat ada ${parsed.errors.length} bagian yang gagal diambil:\n\n` +
+            `${parsed.errors.slice(0, 5).join('\n')}${parsed.errors.length > 5 ? '\n…' : ''}\n\n` +
+            `Memulihkannya akan menghapus data yang tidak ada di file ini. Tetap lanjutkan?`
+          )
+          if (!lanjut) return
+          incomplete = true
+        }
+
+        setPendingRestoreIncomplete(incomplete)
+        setPendingRestore(parsed)
+        setPendingRestoreInfo({ name: file.name, size: fmtMB(file.size) })
         setConfirmRestore(true)
-      } catch {
-        showToast('File tidak bisa dibaca atau bukan JSON yang valid', 'error')
+      } catch (err: unknown) {
+        showToast(err instanceof Error ? err.message : 'File tidak bisa dibaca atau bukan JSON yang valid', 'error')
       }
     }
+    reader.onerror = () => showToast('Gagal membaca file', 'error')
     reader.readAsText(file)
   }
 
-  // Langkah 2: admin konfirmasi → jalankan restore
+  // Langkah 2: admin konfirmasi → backup pengaman → restore bertahap
   async function doRestore(force = false) {
-    if (!pendingRestoreFile || !pendingRestoreInfo) return
+    if (!pendingRestore || !pendingRestoreInfo) return
+    const parsed = pendingRestore
+    const info = pendingRestoreInfo
     setConfirmRestore(false)
     setConfirmRestoreForce(null)
-    const sizeMB = pendingRestoreInfo.size
-
-    // BUG FIX: Vercel Serverless Functions membatasi ukuran request body
-    // default 4.5 MB. File backup yang besar (banyak data jawaban) bisa
-    // melebihi batas ini dan menyebabkan error 413 tanpa pesan yang jelas.
-    //
-    // Solusi: kirim file sebagai FormData (multipart/form-data) — raw file
-    // langsung tanpa JSON.parse + JSON.stringify ulang di browser — dan
-    // biarkan server yang parse JSON-nya. Ini menghilangkan overhead
-    // double-serialization dan memastikan ukuran body == ukuran file asli.
-    //
-    // Selain itu, tambahkan pemeriksaan ukuran di sisi klien agar admin
-    // mendapat pesan yang jelas sebelum request dikirim, bukan error
-    // jaringan yang membingungkan setelah upload selesai.
-    const FILE_SIZE_WARN_MB  = 3.5  // tampilkan peringatan
-    const FILE_SIZE_LIMIT_MB = 4.0  // blokir — Vercel limit 4.5 MB (sisakan ruang untuk header)
-    const fileSizeMB = pendingRestoreFile.size / 1024 / 1024
-
-    if (fileSizeMB > FILE_SIZE_LIMIT_MB) {
-      showToast(
-        `File backup terlalu besar (${fileSizeMB.toFixed(1)} MB). Ukuran maksimal yang didukung saat ini adalah ${FILE_SIZE_LIMIT_MB} MB. ` +
-        `Untuk database besar, hubungi administrator teknis untuk restore langsung via Supabase.`,
-        'error'
-      )
-      setPendingRestoreFile(null)
-      setPendingRestoreInfo(null)
-      return
-    }
-
     setRestoring(true)
-    openHacker('restore', pendingRestoreFile.name, sizeMB)
+    openHacker('restore', 'Membuat backup pengaman…', info.size, undefined, RESTORE_STEPS)
 
-    if (fileSizeMB > FILE_SIZE_WARN_MB) {
-      showToast(
-        `File backup cukup besar (${fileSizeMB.toFixed(1)} MB). Proses restore mungkin membutuhkan waktu lebih lama.`,
-        'error'
-      )
-    }
+    // Menutup/me-refresh tab di tengah restore = data setengah jadi.
+    const warnUnload = (ev: BeforeUnloadEvent) => { ev.preventDefault(); ev.returnValue = '' }
+    window.addEventListener('beforeunload', warnUnload)
 
     try {
-      // Validasi cepat isi JSON sebelum dikirim (baca teks, cek field "tables")
-      const text = await pendingRestoreFile.text()
-      const quick = JSON.parse(text) as { tables?: unknown; app?: string }
-      if (!quick?.tables) throw new Error('File bukan backup SmartExam yang valid')
-
-      // Kirim sebagai FormData — server membaca via req.formData()
-      const formData = new FormData()
-      formData.append('file', pendingRestoreFile)
-      if (force) formData.append('force', 'true')
-      const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
-      const resPromise = fetch('/api/admin/restore', {
-        method: 'POST',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        body: formData,
-        // Tidak set Content-Type — browser otomatis set multipart/form-data + boundary
-      })
-      const [apiRes] = await Promise.all([resPromise, new Promise<void>(resolve => { const ref: { id?: ReturnType<typeof setInterval> } = {}; tickProgress(resolve, ref) })])
-      const json = await apiRes.json()
-
-      // FIX: kalau ditolak karena ada sesi/siswa aktif, JANGAN langsung anggap
-      // gagal — tawarkan dialog konfirmasi kedua untuk memaksa (force),
-      // supaya admin tidak terjebak kalau sesi itu ternyata terlantar dan
-      // pengawasnya tidak bisa dihubungi untuk menutupnya sendiri.
-      if (apiRes.status === 409 && json.ada_aktivitas) {
-        setHackerOpen(false)
-        setConfirmRestoreForce({ ada_sesi: !!json.ada_sesi, ada_siswa: !!json.ada_siswa })
-        return
+      // 1. Backup pengaman dari kondisi SAAT INI (progress 0–20%). Kalau gagal,
+      //    restore dibatalkan SEBELUM ada data yang diubah.
+      let safety
+      try {
+        safety = await runBackup({
+          force,
+          onProgress: (pct, detail) => {
+            setHackerProgress(Math.round(pct * 0.2))
+            setHackerFile(`[Backup pengaman] ${detail}`)
+          },
+        })
+      } catch (e) {
+        if (e instanceof AktivitasAktifError) throw e
+        throw new Error(
+          `Backup pengaman gagal, restore dibatalkan (tidak ada data yang diubah): ${e instanceof Error ? e.message : 'error'}`
+        )
       }
+      const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')
+      downloadBlob(safety.blob, `smartexam-PENGAMAN-sebelum-restore-${stamp}.json`)
 
-      if (!apiRes.ok && apiRes.status !== 207) throw new Error(json.error || 'Restore gagal')
-      showToast(json.message || 'Restore berhasil')
+      // 2. Restore bertahap (progress 20–99%)
+      const result = await runRestore(parsed, {
+        force,
+        allowIncomplete: pendingRestoreIncomplete,
+        onProgress: (pct, detail) => {
+          setHackerProgress(20 + Math.round(pct * 0.79))
+          setHackerFile(detail)
+        },
+      })
+      setHackerProgress(100)
+
+      const catatan = [...result.errors, ...result.warnings]
+      if (catatan.length > 0) {
+        showToast(`Restore selesai dengan ${catatan.length} catatan: ${catatan.slice(0, 2).join(' | ')}`, 'error')
+      } else {
+        showToast('Restore berhasil')
+      }
       window.dispatchEvent(new Event('pengaturan-changed'))
       await load()
-      setPendingRestoreFile(null)
+      setPendingRestore(null)
       setPendingRestoreInfo(null)
     } catch (err: unknown) {
       setHackerOpen(false)
+
+      // Kalau ditolak karena ada sesi/siswa aktif, JANGAN langsung anggap
+      // gagal — tawarkan dialog konfirmasi kedua untuk memaksa (force), supaya
+      // admin tidak terjebak kalau sesi itu ternyata terlantar. File backup
+      // yang sudah dibaca dipertahankan untuk percobaan berikutnya.
+      if (err instanceof AktivitasAktifError && !force) {
+        setConfirmRestoreForce({ ada_sesi: err.adaSesi, ada_siswa: err.adaSiswa })
+        return
+      }
+
       showToast(err instanceof Error ? err.message : 'Restore gagal', 'error')
-      setPendingRestoreFile(null)
+      setPendingRestore(null)
       setPendingRestoreInfo(null)
     } finally {
+      window.removeEventListener('beforeunload', warnUnload)
       setRestoring(false)
     }
   }
@@ -396,7 +459,13 @@ export default function AdminPengaturanPage() {
       }
 
       if (!res.ok && res.status !== 207) throw new Error(json.error || 'Reset gagal')
-      showToast(json.message || 'Reset berhasil')
+      if (res.status === 207) {
+        // Sebagian tabel gagal dihapus — jangan tampilkan seolah-olah sukses
+        const detail = Array.isArray(json.errors) ? json.errors.slice(0, 3).join('; ') : ''
+        showToast(`${json.message || 'Reset selesai dengan error'}${detail ? `: ${detail}` : ''}`, 'error')
+      } else {
+        showToast(json.message || 'Reset berhasil')
+      }
       setSelectedResets([])
       // Dispatch event agar halaman lain (admin dashboard, login) tahu pengaturan berubah
       if (categories.includes('semua') || categories.includes('pengaturan')) {
@@ -864,9 +933,9 @@ export default function AdminPengaturanPage() {
                 <span className="font-medium text-slate-900 text-sm">Backup Data</span>
               </div>
               <p className="text-xs text-slate-500">
-                Unduh seluruh data aplikasi (siswa, soal, jadwal, nilai, pengaturan, dll) ke file JSON. Simpan di tempat aman.
+                Unduh seluruh data aplikasi (siswa, soal PG &amp; essay, jadwal, nilai, jawaban, pengaturan, serta file logo &amp; gambar soal) ke file JSON. Simpan di tempat aman. Untuk data besar proses ini bisa memakan waktu beberapa menit — jangan tutup halaman.
               </p>
-              <button type="button" onClick={handleBackup} disabled={backingUp} className="btn-primary btn-sm w-full justify-center">
+              <button type="button" onClick={() => handleBackup()} disabled={backingUp} className="btn-primary btn-sm w-full justify-center">
                 {backingUp ? <><Spinner size="sm" /> Membuat backup…</> : <><Download className="w-4 h-4" /> Unduh Backup</>}
               </button>
             </div>
@@ -992,10 +1061,10 @@ export default function AdminPengaturanPage() {
 
       <Confirm
         open={confirmRestore}
-        onClose={() => { setConfirmRestore(false); setPendingRestoreFile(null); setPendingRestoreInfo(null) }}
+        onClose={() => { setConfirmRestore(false); setPendingRestore(null); setPendingRestoreInfo(null) }}
         onConfirm={() => doRestore(false)}
         title="Konfirmasi Restore Data"
-        message={`File: ${pendingRestoreInfo?.name ?? ''} (${pendingRestoreInfo?.size ?? ''}). PERINGATAN: Semua data yang ada saat ini akan digantikan oleh data dari file backup ini. Tindakan ini tidak dapat dibatalkan. Pastikan Anda sudah memilih file yang benar. Lanjutkan?`}
+        message={`File: ${pendingRestoreInfo?.name ?? ''} (${pendingRestoreInfo?.size ?? ''}). PERINGATAN: Semua data yang ada saat ini akan digantikan oleh data dari file backup ini. Tindakan ini tidak dapat dibatalkan. Sebelum memulihkan, sistem otomatis mengunduh backup pengaman dari data saat ini — simpan file itu sampai Anda yakin hasil restore sudah benar. Proses bisa memakan waktu beberapa menit; JANGAN menutup atau me-refresh halaman ini sampai selesai. Lanjutkan?`}
         confirmLabel="Ya, Pulihkan Sekarang"
         variant="primary"
         loading={restoring}
@@ -1008,7 +1077,7 @@ export default function AdminPengaturanPage() {
           beri opsi memaksa restore kalau memang tidak ada pilihan lain. */}
       <Confirm
         open={!!confirmRestoreForce}
-        onClose={() => { setConfirmRestoreForce(null); setPendingRestoreFile(null); setPendingRestoreInfo(null) }}
+        onClose={() => { setConfirmRestoreForce(null); setPendingRestore(null); setPendingRestoreInfo(null) }}
         onConfirm={() => doRestore(true)}
         title="⚠️ Ada Ujian yang Sedang Berjalan"
         message={`Restore tidak bisa dilakukan secara normal karena ${confirmRestoreForce?.ada_sesi ? 'ada sesi ujian yang berstatus BERJALAN' : ''}${confirmRestoreForce?.ada_sesi && confirmRestoreForce?.ada_siswa ? ' dan ' : ''}${confirmRestoreForce?.ada_siswa ? 'ada siswa yang sedang mengerjakan ujian' : ''}. Sebaiknya tutup dulu sesi tersebut lewat panel Monitoring (tombol "Tutup Paksa") kalau memungkinkan. Kalau sesi itu ternyata terlantar dan tidak bisa ditutup normal (mis. pengawasnya tidak bisa dihubungi), Anda bisa memaksa restore sekarang — TAPI ini akan MENGHAPUS jawaban siswa yang sedang mengerjakan saat ini. Tetap lanjutkan?`}
@@ -1040,6 +1109,7 @@ export default function AdminPengaturanPage() {
         fileName={hackerFile}
         fileSize={hackerSize}
         progress={hackerProgress}
+        steps={hackerSteps}
         onDone={() => {
           setHackerOpen(false)
           hackerDoneRef.current?.()
