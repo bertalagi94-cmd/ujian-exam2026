@@ -5,6 +5,7 @@ import { generateId } from '@/lib/utils'
 import { ambilDataSesiUntukPenilaian, hitungHasilPenilaian } from '@/lib/penilaian-ujian'
 import { catatAktivitas } from '@/lib/aktivitas'
 import { klaimkanWaktu } from '@/lib/klaim-offline'
+import { hitungBatasWaktuPg, sudahKedaluwarsa } from '@/lib/deadline-pg'
 
 export async function POST(req: NextRequest) {
   const auth = requireRole(req, ['SISWA'])
@@ -194,17 +195,21 @@ export async function POST(req: NextRequest) {
   // waktu_mulai_awal adalah referensi tunggal yang tidak pernah berubah
   // (bahkan setelah reset pelanggaran). Toleransi 60 detik untuk mengakomodasi
   // jeda jaringan wajar saat auto-submit timeout.
-  if (siswaUjianCheck.waktu_mulai_awal && sesi.durasi) {
-    const batasWaktu = new Date(siswaUjianCheck.waktu_mulai_awal).getTime() + sesi.durasi * 60 * 1000
-    const toleransiMs = 60 * 1000 // 60 detik grace period untuk jeda jaringan
-    if (Date.now() > batasWaktu + toleransiMs) {
-      return NextResponse.json(
-        { error: 'Waktu ujian Anda sudah habis. Jawaban yang sudah tersimpan akan dinilai secara otomatis oleh sistem.' },
-        { status: 409 }
-      )
-    }
-  }
-  // ─────────────────────────────────────────────────────────────────────────
+  //
+  // FIX (audit: kedaluwarsa sesi secara logis): dulu submit setelah batas waktu
+  // ditolak 409 dengan pesan "akan dinilai otomatis oleh sistem" -- padahal
+  // TIDAK ADA proses otomatis: satu-satunya yang menilai siswa itu adalah
+  // pengawas yang menutup sesi. Pengawas lupa menutup = siswa tanpa nilai.
+  // Sekarang server sendiri yang memutuskan (waktu_mulai_awal + durasi + 60 dtk,
+  // lihat src/lib/deadline-pg.ts): submit terlambat TETAP diproses, tapi nilainya
+  // dihitung HANYA dari jawaban yang sudah tersimpan di server -- dan jawaban
+  // yang masuk setelah batas sudah disaring di /sync -- persis sama dengan yang
+  // akan dilakukan finalisasiNilaiPaksa saat pengawas menutup sesi. Tidak
+  // bergantung pada pengawas maupun cron. Status sesi tetap wajib BERJALAN
+  // (dicek di atas); kalau sudah ditutup, finalisasiNilaiPaksa yang berwenang.
+  const batasWaktuPg = hitungBatasWaktuPg(siswaUjianCheck.waktu_mulai_awal, sesi.durasi)
+  const terlambat = sudahKedaluwarsa(batasWaktuPg, Date.now())
+  const terlambatDetik = terlambat && batasWaktuPg ? Math.round((Date.now() - batasWaktuPg.deadlineMs) / 1000) : 0
 
   // ── VALIDASI BATAS MINIMAL SUBMIT (server-side) ───────────────────────────
   // FIX (audit): /validasi hanya MENGIRIM minSubmitMenit ke frontend; tombol
@@ -261,6 +266,11 @@ export async function POST(req: NextRequest) {
     lulus,
     kkm,
     timestamp: new Date().toISOString(),
+    // Tanda untuk guru: nilai ini dari submit yang datang SETELAH batas waktu
+    // (mis. siswa offline lalu online lagi) dan dihitung dari jawaban tersimpan.
+    ...(terlambat
+      ? { catatan_guru: `Dikirim ${terlambatDetik} detik setelah batas waktu ujian; dinilai otomatis dari jawaban yang sudah tersimpan di server.` }
+      : {}),
   }
 
   // FIX (fitur essay): kalau sesi ini punya essay, JANGAN tandai siswa_ujian
@@ -409,6 +419,9 @@ export async function POST(req: NextRequest) {
   // submit BARU (kedua early-return "sudah pernah submit" di atas sudah
   // menangani panggilan ulang), jadi aman dicatat sekali.
   catatAktivitas(db, nis, 'SUBMIT_UJIAN', `Siswa ${user.nama} submit ujian ${sesi.mapel_id} (${sesi.kelas}), nilai ${nilaiAngka}`)
+  if (terlambat) {
+    catatAktivitas(db, nis, 'SUBMIT_TERLAMBAT', `Siswa ${user.nama} submit ${terlambatDetik} detik setelah batas waktu (sesi ${sesiId}); dinilai otomatis dari jawaban tersimpan.`)
+  }
 
   // FIX (fitur essay): kalau sesi punya essay, JANGAN kirim nilai/grade/lulus
   // ke client sekarang — sesuai desain, nilai PG baru boleh tampil setelah
