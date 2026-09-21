@@ -28,6 +28,7 @@ import { healthCheckStorage } from '@/lib/ujian-offline-storage'
 import { trustedNow } from '@/lib/clock-offset'
 // FIX (gambar soal belum jadi asset offline): lihat src/lib/gambar-offline.ts.
 import { precacheGambarSoal } from '@/lib/gambar-offline'
+import { berlanggananStatusJaringan } from '@/lib/status-jaringan'
 import { GambarSoalOffline } from '@/components/ui/GambarSoalOffline'
 
 type Phase = 'CEK_JADWAL' | 'PERSIAPAN' | 'KODE' | 'UJIAN' | 'ESSAY_INFO' | 'ESSAY_KERJAKAN' | 'SELESAI' | 'RESET_KODE'
@@ -525,9 +526,25 @@ export default function SiswaUjianPage() {
 
   // Padanan untuk soal essay (baik yang datang dari server maupun yang
   // dibuka dari amplop offline — keduanya sama-sama mengisi `essayList`).
+  //
+  // FIX (audit: gambar essay tidak selalu siap offline): dulu ini SEKALI
+  // tembak `void precacheGambarSoal(...)` -- kalau internet putus di tengah
+  // unduhan, gambar yang belum sempat terunduh tidak pernah dicoba lagi.
+  // Sekarang diulang (maks 6x, jeda 5 dtk) sampai SEMUA gambar tersimpan
+  // (`siap`). URL gambar essay tidak bisa diunduh lebih awal dari ini karena
+  // ada di dalam amplop terenkripsi -- itu memang desain keamanannya.
   useEffect(() => {
     if (!essayList.length) return
-    void precacheGambarSoal(essayList.map(s => s.gambar_url))
+    const urls = essayList.map(s => s.gambar_url)
+    let batal = false
+    void (async () => {
+      for (let i = 0; i < 6 && !batal; i++) {
+        const hasil = await precacheGambarSoal(urls)
+        if (hasil.siap || batal) return
+        await new Promise(resolve => setTimeout(resolve, 5000))
+      }
+    })()
+    return () => { batal = true }
   }, [essayList])
 
   // ── Status jaringan untuk gerbang essay offline ───────────────────────────
@@ -540,6 +557,20 @@ export default function SiswaUjianPage() {
     window.addEventListener('offline', off)
     window.addEventListener('online', on)
     return () => { window.removeEventListener('offline', off); window.removeEventListener('online', on) }
+  }, [])
+
+  // Denyut keterjangkauan server (src/lib/status-jaringan.ts) ikut mengisi
+  // jaringanBermasalah: menangkap kasus Wi-Fi tersambung tapi internet mati
+  // SEBELUM siswa sempat memicu request yang gagal. Hanya arah aman yang
+  // diteruskan: OFFLINE -> true, dan pulih dari OFFLINE -> false. Status
+  // ONLINE biasa TIDAK menimpa true yang diset kegagalan request nyata, jadi
+  // perilaku gerbang essay yang sudah ada tidak berubah.
+  useEffect(() => {
+    let pernahOffline = false
+    return berlanggananStatusJaringan(s => {
+      if (s === 'OFFLINE') { pernahOffline = true; setJaringanBermasalah(true) }
+      else if (s === 'ONLINE' && pernahOffline) { pernahOffline = false; setJaringanBermasalah(false) }
+    })
   }, [])
 
   // ── Ambil "amplop" soal essay terenkripsi SEDINI mungkin ──────────────────
@@ -2521,6 +2552,21 @@ export default function SiswaUjianPage() {
         body: JSON.stringify({ sesiId, deviceId: getDeviceId() }),
       })
       const soalRes = await apiRequest<{ data: SoalEssay[] }>(`/api/siswa/ujian/essay/soal?sesiId=${sesiId}`)
+      // FIX (audit: gambar essay): masuk ke halaman essay tanpa menunggu
+      // gambarnya sama sekali membuka celah -- internet putus tepat setelah
+      // soal diterima = gambar yang belum terunduh tidak akan pernah tampil.
+      // Tunggu unduhan gambar essay SELAMA-LAMANYA 8 detik. Batas ini sengaja
+      // dibuat: timer essay sudah berjalan sejak /mulai, jadi tidak boleh
+      // memblokir tanpa batas (tidak seperti PG, yang START-nya belum dimulai
+      // saat gerbang gambar berjalan). Kalau belum tuntas dalam 8 detik, siswa
+      // tetap masuk dan efek pengulangan di atas melanjutkan unduhan latar.
+      const urlGambarEssay = (soalRes.data ?? []).map(s => s.gambar_url)
+      if (urlGambarEssay.some(Boolean)) {
+        await Promise.race([
+          precacheGambarSoal(urlGambarEssay).catch(() => null),
+          new Promise(resolve => setTimeout(resolve, 8000)),
+        ])
+      }
       setEssayList(soalRes.data ?? [])
 
       const info = essayInfoRef.current
