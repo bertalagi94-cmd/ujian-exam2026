@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 import { verifySesiOwnershipCached } from '@/lib/sesi-ownership'
+import { ambilTargetSiswaSesi } from '@/lib/target-siswa-sesi'
 
 // GET /api/pengawas/sesi/[id]/siswa
 // Mengembalikan daftar SEMUA siswa target sesi ini — termasuk yang BELUM
@@ -66,7 +67,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   // Ambil semua siswa yang SUDAH login (baris di siswa_ujian) untuk sesi ini
   const { data: siswaUjian, error } = await db
     .from('siswa_ujian')
-    .select('nis, status, waktu_daftar, waktu_mulai, waktu_selesai')
+    .select('nis, status, waktu_daftar, waktu_mulai, waktu_selesai, reset_terpakai')
     .eq('sesi_id', sesiId)
     .order('waktu_daftar', { ascending: true })
 
@@ -74,36 +75,8 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 
   const siswaUjianMap = new Map((siswaUjian ?? []).map(s => [s.nis, s]))
 
-  // Tentukan target peserta sesi ini.
-  let targetSiswa: { nis: string; nama: string; kelas: string }[] = []
-  if (sesi.is_darurat && Array.isArray(sesi.siswa_diizinkan) && sesi.siswa_diizinkan.length > 0) {
-    const { data } = await db
-      .from('siswa')
-      .select('nis, nama, kelas')
-      .in('nis', sesi.siswa_diizinkan)
-    targetSiswa = data ?? []
-  } else if (sesi.kelas) {
-    const { data } = await db
-      .from('siswa')
-      .select('nis, nama, kelas')
-      .eq('kelas', sesi.kelas)
-      .eq('status', 'AKTIF')
-    targetSiswa = data ?? []
-  }
-
-  // Jaga-jaga: kalau ada baris siswa_ujian yang NIS-nya di luar target
-  // (mis. siswa pindah kelas setelah sesi dibuka), tetap sertakan supaya
-  // pengawas tidak kehilangan pantauan terhadap siswa yang sudah terlanjur
-  // login.
-  const targetNisSet = new Set(targetSiswa.map(s => s.nis))
-  const extraNis = [...siswaUjianMap.keys()].filter(nis => !targetNisSet.has(nis))
-  if (extraNis.length > 0) {
-    const { data: extraSiswa } = await db
-      .from('siswa')
-      .select('nis, nama, kelas')
-      .in('nis', extraNis)
-    targetSiswa = targetSiswa.concat(extraSiswa ?? [])
-  }
+  // Tentukan target peserta sesi ini (logika bersama: src/lib/target-siswa-sesi.ts).
+  const targetSiswa = await ambilTargetSiswaSesi(db, sesi, [...siswaUjianMap.keys()])
 
   if (!targetSiswa.length) return NextResponse.json({ data: [] })
 
@@ -124,19 +97,11 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     pelanggaranMap[p.nis] = (pelanggaranMap[p.nis] ?? 0) + 1
   }
 
-  // Ambil kode reset aktif (kode 7 digit untuk siswa yang di-reset)
-  const { data: resetList } = await db
-    .from('log_reset')
-    .select('nis, password_baru, digunakan, created_at')
-    .in('nis', nisList)
-    .eq('digunakan', false)
-    .order('created_at', { ascending: false })
-
-  // Kode reset aktif per siswa (yang belum digunakan)
-  const resetMap: Record<string, string> = {}
-  for (const r of resetList ?? []) {
-    if (!resetMap[r.nis]) resetMap[r.nis] = r.password_baru
-  }
+  // CATATAN: kode reset (R1/R2/R3) SENGAJA tidak ikut di respons polling ini.
+  // Kode diturunkan HMAC dan diambil pengawas lewat endpoint terpisah
+  // GET /api/pengawas/sesi/[id]/kode-reset (sekali saat sesi dibuka, lalu
+  // disimpan untuk dipakai offline). Di sini cukup penghitung reset_terpakai
+  // supaya pengawas tahu R-berapa yang sekarang berlaku.
 
   // Siswa yang sudah login — urutan sesuai waktu login (seperti sebelumnya)
   const sudahLogin = (siswaUjian ?? []).map(s => ({
@@ -147,7 +112,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     waktu_daftar: s.waktu_daftar,
     waktu_selesai: s.waktu_selesai,
     jumlah_pelanggaran: pelanggaranMap[s.nis] ?? 0,
-    kode_reset: resetMap[s.nis] ?? null,
+    reset_terpakai: s.reset_terpakai ?? 0,
   }))
 
   // Siswa target yang BELUM punya baris di siswa_ujian sama sekali —
@@ -163,7 +128,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       waktu_daftar: null,
       waktu_selesai: null,
       jumlah_pelanggaran: 0,
-      kode_reset: null,
+      reset_terpakai: 0,
     }))
 
   // FIX: khusus sesi SUSULAN, sertakan juga siswa yang sudah SELESAI di sesi
@@ -177,7 +142,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   let sudahSebelumnya: {
     nis: string; nama: string; kelas: string; status: 'SELESAI'
     waktu_daftar: string | null; waktu_selesai: string | null
-    jumlah_pelanggaran: number; kode_reset: string | null
+    jumlah_pelanggaran: number; reset_terpakai: number
     dari_sesi_lain: true
   }[] = []
 
@@ -232,7 +197,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
             waktu_daftar: s.waktu_daftar,
             waktu_selesai: s.waktu_selesai,
             jumlah_pelanggaran: pelanggaranLainMap[s.nis] ?? 0,
-            kode_reset: null,
+            reset_terpakai: 0,
             dari_sesi_lain: true as const,
           }))
       }
