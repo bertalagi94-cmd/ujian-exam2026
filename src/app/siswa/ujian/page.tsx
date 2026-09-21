@@ -29,6 +29,18 @@ import { healthCheckStorage } from '@/lib/ujian-offline-storage'
 import { trustedNow } from '@/lib/clock-offset'
 // FIX (gambar soal belum jadi asset offline): lihat src/lib/gambar-offline.ts.
 import { precacheGambarSoal } from '@/lib/gambar-offline'
+// P0 (audit reset offline R1/R2/R3): simpan & verifikasi amplop reset secara
+// lokal. Lihat src/lib/reset-offline-client.ts untuk desain lengkap.
+import {
+  simpanMaterialReset,
+  ambilMaterialReset,
+  materialResetSiap,
+  verifikasiKodeResetOffline,
+  antrekanResetOffline,
+  nomorResetBerikutnya,
+  EnkripsiTidakDidukungError as ResetEnkripsiTidakDidukungError,
+} from '@/lib/reset-offline-client'
+import type { ResetAmplop } from '@/lib/reset-amplop-shared'
 import { berlanggananStatusJaringan, ambilStatusJaringan } from '@/lib/status-jaringan'
 import { GambarSoalOffline } from '@/components/ui/GambarSoalOffline'
 
@@ -66,6 +78,11 @@ interface SesiInfo {
   waktu_mulai: string
   soalList: SoalUjian[]
   minSubmitMenit: number  // 0 = tidak ada batas
+  // P0 (audit reset offline R1/R2/R3): amplop terenkripsi R1..R(maksReset)
+  // untuk sesi+siswa ini, dibuat server saat masuk ujian. Lihat
+  // src/lib/reset-offline-client.ts.
+  resetMaterial?: ResetAmplop[]
+  maksReset?: number
 }
 
 interface SoalUjian extends Soal {
@@ -1671,6 +1688,26 @@ export default function SiswaUjianPage() {
       const gambarSiap = await pastikanGambarSiapSebelumMulai(res)
       if (!gambarSiap) return
 
+      // P0 (audit reset offline R1/R2/R3): WAJIB tunggu & pastikan material
+      // verifier R1..R(maksReset) benar-benar tersimpan lokal SEBELUM
+      // membuka fase UJIAN — persis prinsip yang sama dengan gambar soal di
+      // atas. Kalau gagal, JANGAN diam-diam lanjut: kalau nanti internet mati
+      // saat pelanggaran terjadi, siswa akan terjebak tanpa jalan reset sama
+      // sekali. Reset ONLINE tetap tersedia seperti biasa; ini murni gerbang
+      // untuk jalur OFFLINE.
+      const maksReset = res.maksReset ?? 0
+      if (maksReset > 0) {
+        const tersimpan = await simpanMaterialReset(res.sesiId, user.nis, res.resetMaterial ?? [])
+        if (!tersimpan || !materialResetSiap(res.resetMaterial, maksReset)) {
+          setError(
+            'Gagal menyiapkan data reset pelanggaran untuk mode offline. ' +
+            'Periksa koneksi internet lalu tekan "Masuk Ujian" lagi — jangan lanjutkan ' +
+            'sebelum ini siap, supaya Anda tidak terjebak kalau internet mati saat pelanggaran terjadi.'
+          )
+          return
+        }
+      }
+
       const terpakai1 = Math.floor((trustedNow() - new Date(res.waktu_mulai).getTime()) / 1000)
       setSisaWaktu(Math.max(0, res.durasi * 60 - terpakai1))
       setWaktuTerpakai(terpakai1)
@@ -2497,32 +2534,17 @@ export default function SiswaUjianPage() {
     const currentSesi = sesiInfoRef.current
     if (!currentSesi) return
     setKodeResetLoading(true); setKodeResetError('')
-    try {
-      const res = await apiRequest<{ valid: boolean; waktu_mulai?: string; message?: string; terkunci_permanen?: boolean; jumlah_pelanggaran?: number }>('/api/siswa/ujian/verifikasi-reset', {
-        method: 'POST',
-        body: JSON.stringify({ sesiId: currentSesi.sesiId, kodeReset: kodeReset.trim().toUpperCase() }),
-      })
 
-      // FIX BUG (siswa terjebak di balik overlay pelanggaran tanpa jalan
-      // keluar): popup ini sendiri tidak punya tombol apa pun selain kirim
-      // kode reset, dan sebelumnya kasus terkunci permanen di sini hanya
-      // menampilkan `kodeResetError` — siswa tetap tertutup overlay
-      // fullscreen sampai polling terpisah (tiap 10 detik) akhirnya
-      // memaksa pindah ke layar "Ujian Dihentikan". Sekarang tutup overlay
-      // dan pindah SEKETIKA begitu server mengonfirmasi terkunci permanen.
-      if (!res.valid && res.terkunci_permanen) {
-        if (typeof res.jumlah_pelanggaran === 'number') setJumlahPelanggaran(res.jumlah_pelanggaran)
-        setShowWarningOverlay(false)
-        setKodeResetError('')
-        setDikeluarkan(true)
-        return
-      }
-
-      if (!res.valid) { setKodeResetError(res.message ?? 'Kode tidak valid'); return }
-      // FIX: hitung sisa waktu dari waktu_mulai_awal (bukan dari sekarang)
+    // P0 (audit reset offline R1/R2/R3): dipakai baik oleh jalur sukses
+    // ONLINE maupun OFFLINE — reset TIDAK PERNAH mengubah waktu_mulai_awal
+    // (lihat komentar di reset-berurutan.ts), jadi sisa waktu selalu aman
+    // dihitung dari currentSesi.waktu_mulai yang sudah diketahui client
+    // sejak ujian dimulai, tanpa perlu jawaban server.
+    const terapkanResetBerhasil = (waktuMulaiAcuan?: string) => {
       let sisaSetelahReset = currentSesi.durasi * 60
-      if (res.waktu_mulai) {
-        const terpakai = Math.floor((trustedNow() - new Date(res.waktu_mulai).getTime()) / 1000)
+      const acuan = waktuMulaiAcuan ?? currentSesi.waktu_mulai
+      if (acuan) {
+        const terpakai = Math.floor((trustedNow() - new Date(acuan).getTime()) / 1000)
         sisaSetelahReset = Math.max(0, currentSesi.durasi * 60 - terpakai)
         setSisaWaktu(sisaSetelahReset)
       }
@@ -2549,8 +2571,79 @@ export default function SiswaUjianPage() {
       if (sisaSetelahReset <= 0) {
         setTimeout(() => handleSelesai(true), 0)
       }
+    }
+
+    try {
+      const res = await apiRequest<{ valid: boolean; waktu_mulai?: string; message?: string; terkunci_permanen?: boolean; jumlah_pelanggaran?: number }>('/api/siswa/ujian/verifikasi-reset', {
+        method: 'POST',
+        body: JSON.stringify({ sesiId: currentSesi.sesiId, kodeReset: kodeReset.trim().toUpperCase() }),
+      })
+
+      // FIX BUG (siswa terjebak di balik overlay pelanggaran tanpa jalan
+      // keluar): popup ini sendiri tidak punya tombol apa pun selain kirim
+      // kode reset, dan sebelumnya kasus terkunci permanen di sini hanya
+      // menampilkan `kodeResetError` — siswa tetap tertutup overlay
+      // fullscreen sampai polling terpisah (tiap 10 detik) akhirnya
+      // memaksa pindah ke layar "Ujian Dihentikan". Sekarang tutup overlay
+      // dan pindah SEKETIKA begitu server mengonfirmasi terkunci permanen.
+      if (!res.valid && res.terkunci_permanen) {
+        if (typeof res.jumlah_pelanggaran === 'number') setJumlahPelanggaran(res.jumlah_pelanggaran)
+        setShowWarningOverlay(false)
+        setKodeResetError('')
+        setDikeluarkan(true)
+        return
+      }
+
+      if (!res.valid) { setKodeResetError(res.message ?? 'Kode tidak valid'); return }
+      terapkanResetBerhasil(res.waktu_mulai)
     } catch (err: unknown) {
-      setKodeResetError(err instanceof Error ? err.message : 'Gagal memverifikasi kode')
+      const status = (err as { status?: number } | undefined)?.status
+
+      // P0 (audit reset offline R1/R2/R3): request gagal TANPA .status berarti
+      // murni jaringan/timeout (lihat apiRequest di utils.ts — penolakan SAH
+      // dari server selalu membawa .status). Penolakan sah (mis. "kode
+      // salah", sesi ditutup) TIDAK dialihkan ke sini — pesan aslinya
+      // langsung ditampilkan lewat cabang else di bawah, supaya siswa yang
+      // sebenarnya online tapi salah ketik tidak disesatkan.
+      if (status !== undefined) {
+        setKodeResetError(err instanceof Error ? err.message : 'Gagal memverifikasi kode')
+        return
+      }
+
+      try {
+        const user = JSON.parse(localStorage.getItem('user') ?? '{}')
+        const nis = user?.nis as string | undefined
+        const material = nis ? await ambilMaterialReset(currentSesi.sesiId, nis) : null
+
+        if (!nis || !material || material.length === 0) {
+          setKodeResetError(
+            'Tidak ada koneksi ke server, dan data verifikasi reset offline untuk sesi ini tidak tersedia di perangkat ini.'
+          )
+          return
+        }
+
+        const kodeInput = kodeReset.trim().toUpperCase()
+        const perkiraanNomor = Math.max(jumlahPelanggaran ?? 0, pelanggRef.current)
+        const nomor = nomorResetBerikutnya(currentSesi.sesiId, nis, perkiraanNomor)
+
+        const cocok = await verifikasiKodeResetOffline(material, currentSesi.sesiId, nis, nomor, kodeInput)
+        if (!cocok) {
+          setKodeResetError('Kode reset salah (diperiksa secara offline). Cek kembali kode dari pengawas.')
+          return
+        }
+
+        // Simpan kejadian ini SEBELUM melanjutkan UI — supaya tidak hilang
+        // walau tab ditutup tepat setelah ini. Direkonsiliasi ke server
+        // otomatis oleh mulaiPenjagaResetOffline() begitu online kembali.
+        await antrekanResetOffline(currentSesi.sesiId, nis, nomor, kodeInput)
+        terapkanResetBerhasil()
+      } catch (offlineErr: unknown) {
+        setKodeResetError(
+          offlineErr instanceof ResetEnkripsiTidakDidukungError
+            ? offlineErr.message
+            : (err instanceof Error ? err.message : 'Gagal memverifikasi kode (tidak ada koneksi ke server).')
+        )
+      }
     } finally { setKodeResetLoading(false) }
   }
 
