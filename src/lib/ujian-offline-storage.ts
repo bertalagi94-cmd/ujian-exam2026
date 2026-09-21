@@ -19,11 +19,18 @@ const DB_NAME = 'ujian-offline-db'
 // dari STORE_OUTBOX (paket PG/Essay) supaya tidak ada campur jenis data saat
 // membaca "semua nilai" dari satu store. IndexedDB akan memanggil
 // onupgradeneeded otomatis untuk browser yang masih di versi lama.
-const DB_VERSION = 3
+// FIX P0 (audit reset offline R1/R2/R3): dinaikkan dari 3 → 4 untuk
+// menambah dua object store baru — STORE_RESET_MATERIAL (amplop terenkripsi
+// R1/R2/R3 per sesi+nis, disimpan sejak masuk ujian) dan STORE_RESET_PENDING
+// (antrean kejadian reset yang berhasil diverifikasi OFFLINE, menunggu
+// direkonsiliasi ke server begitu online kembali). Lihat reset-offline-client.ts.
+const DB_VERSION = 4
 export const STORE_ASSETS = 'assets'
 export const STORE_HEALTHCHECK = 'healthcheck'
 export const STORE_OUTBOX = 'outbox'
 export const STORE_PELANGGARAN = 'pelanggaran_outbox'
+export const STORE_RESET_MATERIAL = 'reset_material'
+export const STORE_RESET_PENDING = 'reset_pending'
 
 export type AssetStatus = 'ASSET_LOADING' | 'ASSET_READY' | 'ASSET_FAILED'
 
@@ -60,6 +67,12 @@ function bukaDb(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(STORE_PELANGGARAN)) {
         db.createObjectStore(STORE_PELANGGARAN)
+      }
+      if (!db.objectStoreNames.contains(STORE_RESET_MATERIAL)) {
+        db.createObjectStore(STORE_RESET_MATERIAL)
+      }
+      if (!db.objectStoreNames.contains(STORE_RESET_PENDING)) {
+        db.createObjectStore(STORE_RESET_PENDING)
       }
     }
     req.onsuccess = () => resolve(req.result)
@@ -237,5 +250,62 @@ export async function pelanggaranQueueGetAllValues<T>(): Promise<T[]> {
     const req = tx.objectStore(STORE_PELANGGARAN).getAll()
     req.onsuccess = () => resolve((req.result as T[]) ?? [])
     req.onerror = () => reject(req.error ?? new Error('Gagal membaca antrean pelanggaran'))
+  })
+}
+
+// ── P0 (reset offline R1/R2/R3) — dua store, KV generik sama seperti di
+// atas: STORE_RESET_MATERIAL menyimpan amplop terenkripsi (dibaca berkali-
+// kali, tidak pernah dihapus sampai sesi selesai), STORE_RESET_PENDING
+// menyimpan kejadian reset yang berhasil diverifikasi OFFLINE dan menunggu
+// direkonsiliasi ke server. Lihat src/lib/reset-offline-client.ts.
+
+export async function resetMaterialPut<T>(key: string, value: T): Promise<void> {
+  const db = await bukaDb()
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(STORE_RESET_MATERIAL, 'readwrite')
+    tx.objectStore(STORE_RESET_MATERIAL).put(value, key)
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error ?? new Error('Gagal menyimpan material reset'))
+  })
+}
+
+export async function resetMaterialGet<T>(key: string): Promise<T | null> {
+  const db = await bukaDb()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_RESET_MATERIAL, 'readonly')
+    const req = tx.objectStore(STORE_RESET_MATERIAL).get(key)
+    req.onsuccess = () => resolve((req.result as T | undefined) ?? null)
+    req.onerror = () => reject(req.error ?? new Error('Gagal membaca material reset'))
+  })
+}
+
+export async function resetPendingPut<T>(key: string, value: T): Promise<void> {
+  const db = await bukaDb()
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(STORE_RESET_PENDING, 'readwrite')
+    tx.objectStore(STORE_RESET_PENDING).put(value, key)
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error ?? new Error('Gagal menyimpan antrean reset'))
+  })
+}
+
+export async function resetPendingDelete(key: string): Promise<void> {
+  const db = await bukaDb()
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(STORE_RESET_PENDING, 'readwrite')
+    tx.objectStore(STORE_RESET_PENDING).delete(key)
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error ?? new Error('Gagal menghapus antrean reset'))
+  })
+}
+
+/** Semua value yang tersimpan di antrean reset offline saat ini. */
+export async function resetPendingGetAllValues<T>(): Promise<T[]> {
+  const db = await bukaDb()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_RESET_PENDING, 'readonly')
+    const req = tx.objectStore(STORE_RESET_PENDING).getAll()
+    req.onsuccess = () => resolve((req.result as T[]) ?? [])
+    req.onerror = () => reject(req.error ?? new Error('Gagal membaca antrean reset'))
   })
 }
