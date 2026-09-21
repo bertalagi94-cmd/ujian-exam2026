@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Shield, Play, Square, Clock, Copy, CheckCircle,
   RefreshCw, AlertTriangle, BookOpen, Users, Lock,
-  ShieldAlert, RotateCcw, KeyRound, Eye, ChevronDown, ChevronUp, FileQuestion, UserRound
+  ShieldAlert, KeyRound, Eye, ChevronDown, ChevronUp, FileQuestion, UserRound
 } from 'lucide-react'
 import { apiRequest, formatDateTime } from '@/lib/utils'
 import { PageLoader, Spinner } from '@/components/ui'
@@ -77,7 +77,10 @@ interface SiswaAktif {
   waktu_daftar: string | null
   waktu_selesai: string | null
   jumlah_pelanggaran: number
-  kode_reset: string | null
+  // Sudah berapa kode reset (R1..R3) yang dipakai siswa ini. Kode berikut yang
+  // berlaku = R(reset_terpakai + 1). Kode-nya sendiri TIDAK ada di sini — lihat
+  // KodeResetSesi / GET /api/pengawas/sesi/[id]/kode-reset.
+  reset_terpakai: number
   // Diisi kalau siswa ini SELESAI di sesi LAIN pada jadwal yang sama (mis.
   // sudah ujian reguler sebelum sesi susulan ini dibuka) — lihat FIX di
   // /api/pengawas/sesi/[id]/siswa. Dipakai untuk menampilkan label pembeda
@@ -97,12 +100,23 @@ interface Pelanggaran {
   created_at: string
 }
 
-interface ResetResult {
-  dikunci_permanen: boolean
-  kode_reset?: string
-  nama_siswa: string
-  reset_ke?: number
-  message: string
+// Respons GET /api/pengawas/sesi/[id]/kode-reset — R1/R2/R3 semua siswa sesi.
+interface KodeResetSesi {
+  maksReset: number
+  dibuatPada: string
+  // nis -> [R1, R2, R3]
+  kodePerNis: Record<string, string[]>
+}
+
+// Dialog "tampilkan kode" yang sedang terbuka.
+interface KodeResetTampil {
+  nis: string
+  nama: string
+  nomor: number
+  kode: string
+  status: SiswaAktif['status']
+  resetTerpakai: number
+  maksReset: number
 }
 
 
@@ -203,10 +217,14 @@ export default function ModePengawasPage() {
   const [pelanggaranMap, setPelanggaranMap] = useState<Record<string, Pelanggaran[]>>({})
   const [expandedSesi, setExpandedSesi] = useState<Set<string>>(new Set())
 
-  // Reset siswa
-  const [resetTarget, setResetTarget] = useState<{ sesiId: string; nis: string; nama: string } | null>(null)
-  const [resetResult, setResetResult] = useState<ResetResult | null>(null)
-  const [resetting, setResetting] = useState(false)
+  // Kode reset R1/R2/R3 per sesi. Diturunkan HMAC di server (tidak ada di
+  // database), diambil SEKALI per sesi lalu dipegang di sini. Ref dipakai
+  // supaya fetchMonitor (useCallback tanpa dependensi) selalu melihat isi
+  // terbaru; state-nya untuk render.
+  const [kodeResetMap, setKodeResetMap] = useState<Record<string, KodeResetSesi>>({})
+  const kodeResetRef = useRef<Record<string, KodeResetSesi>>({})
+  const kodeResetMemuatRef = useRef<Set<string>>(new Set())
+  const [kodeTampil, setKodeTampil] = useState<KodeResetTampil | null>(null)
 
   // Notif pelanggaran baru
   const [pelNotif, setPelNotif] = useState<Pelanggaran | null>(null)
@@ -350,6 +368,26 @@ export default function ModePengawasPage() {
   }
 
 
+  const muatKodeReset = useCallback(async (sesiId: string, nisPerlu: string[]) => {
+    const ada = kodeResetRef.current[sesiId]
+    const lengkap = !!ada && nisPerlu.every(nis => !!ada.kodePerNis[nis])
+    if (lengkap || kodeResetMemuatRef.current.has(sesiId)) return
+    kodeResetMemuatRef.current.add(sesiId)
+    try {
+      const res = await apiRequest<{
+        maksReset: number
+        dibuatPada: string
+        data: { nis: string; kode: string[] }[]
+      }>(`/api/pengawas/sesi/${sesiId}/kode-reset`)
+      const kodePerNis: Record<string, string[]> = {}
+      for (const r of res.data ?? []) kodePerNis[r.nis] = r.kode
+      const baru: KodeResetSesi = { maksReset: res.maksReset, dibuatPada: res.dibuatPada, kodePerNis }
+      kodeResetRef.current = { ...kodeResetRef.current, [sesiId]: baru }
+      setKodeResetMap(kodeResetRef.current)
+    } catch { /* silent — dicoba lagi pada poll berikutnya */ }
+    finally { kodeResetMemuatRef.current.delete(sesiId) }
+  }, [])
+
   const fetchMonitor = useCallback(async (sesiIds: string[]) => {
     if (!sesiIds.length) return
     try {
@@ -362,6 +400,13 @@ export default function ModePengawasPage() {
       const newSiswaMap: Record<string, SiswaAktif[]> = {}
       sesiIds.forEach((id, i) => { newSiswaMap[id] = siswaResults[i].data ?? [] })
       setSiswaMap(newSiswaMap)
+      // Siapkan kode R1/R2/R3 (sekali per sesi; ulangi hanya kalau ada siswa
+      // baru yang belum punya kode). Gagal (mis. offline) dibiarkan diam —
+      // kode yang sudah dimuat tetap dipakai.
+      sesiIds.forEach((id, i) => {
+        const nisList = (siswaResults[i].data ?? []).filter(x => !x.dari_sesi_lain).map(x => x.nis)
+        void muatKodeReset(id, nisList)
+      })
       setExpandedSesi(prev => {
         const next = new Set(prev)
         sesiIds.forEach((id, i) => { if ((siswaResults[i].data ?? []).length > 0) next.add(id) })
@@ -413,7 +458,7 @@ export default function ModePengawasPage() {
         if (!existing || p.created_at > existing) sejakPelRef.current[p.sesi_id] = p.created_at
       })
     } catch { /* silent */ }
-  }, [])
+  }, [muatKodeReset])
 
   // ── Poll CEPAT khusus pelanggaran (setiap 1.5 detik) ─────────────────────
   // Sengaja dipisah dari fetchMonitor di atas: endpoint ini dipanggil dengan
@@ -641,20 +686,20 @@ export default function ModePengawasPage() {
     setKodeDaruratMap(prev => ({ ...prev, [sesiId]: null }))
   }
 
-  async function handleReset() {
-    if (!resetTarget) return
-    setResetting(true)
-    try {
-      const res = await apiRequest<ResetResult>(`/api/pengawas/sesi/${resetTarget.sesiId}/reset-siswa`, {
-        method: 'POST',
-        body: JSON.stringify({ nis: resetTarget.nis }),
-      })
-      setResetResult(res)
-      await fetchMonitor([resetTarget.sesiId])
-    } catch (err: unknown) {
-      showToast(err instanceof Error ? err.message : 'Gagal mereset siswa', 'error')
-      setResetTarget(null)
-    } finally { setResetting(false) }
+  // Tampilkan kode R{nomor} untuk satu siswa. Kodenya sudah ada di memori
+  // (dimuat lewat muatKodeReset); tidak ada permintaan baru ke server.
+  function handleTampilkanKodeReset(sesiId: string, sw: SiswaAktif, nomor: number) {
+    const kodeSesi = kodeResetMap[sesiId]
+    const kode = kodeSesi?.kodePerNis[sw.nis]?.[nomor - 1]
+    if (!kode) {
+      showToast('Kode belum siap. Periksa koneksi lalu coba lagi.', 'error')
+      void muatKodeReset(sesiId, [sw.nis])
+      return
+    }
+    setKodeTampil({
+      nis: sw.nis, nama: sw.nama, nomor, kode,
+      status: sw.status, resetTerpakai: sw.reset_terpakai ?? 0, maksReset: kodeSesi.maksReset,
+    })
   }
 
   if (loading) return <PageLoader />
@@ -1074,17 +1119,30 @@ export default function ModePengawasPage() {
                                         {sw.jumlah_pelanggaran}× langgar
                                       </span>
                                     )}
-                                    {sw.status === 'RESET' && (
-                                      <button
-                                        onClick={() => setResetTarget({ sesiId, nis: sw.nis, nama: sw.nama })}
-                                        className="flex-shrink-0 flex items-center gap-1 text-xs px-2 py-1 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 font-medium text-slate-600"
-                                      >
-                                        <RotateCcw className="w-3 h-3" /> Reset
-                                      </button>
-                                    )}
-                                    {sw.status === 'RESET' && sw.kode_reset && (
-                                      <div className="flex-shrink-0 flex items-center gap-1 text-xs px-2 py-1 bg-amber-50 border border-amber-200 rounded-lg font-mono font-bold text-amber-700">
-                                        <KeyRound className="w-3 h-3" />{sw.kode_reset}
+                                    {(sw.status === 'AKTIF' || sw.status === 'RESET') && !sw.dari_sesi_lain && (
+                                      <div className="flex-shrink-0 flex items-center gap-1" aria-label="Kode reset">
+                                        {Array.from({ length: kodeResetMap[sesiId]?.maksReset ?? 3 }, (_, i) => i + 1).map(n => {
+                                          const terpakai = sw.reset_terpakai ?? 0
+                                          const dipakai = n <= terpakai
+                                          const giliran = n === terpakai + 1
+                                          const cls = dipakai
+                                            ? 'bg-slate-100 text-slate-400 line-through border-slate-100'
+                                            : giliran && sw.status === 'RESET'
+                                              ? 'bg-amber-500 text-white border-amber-500 shadow-sm'
+                                              : giliran
+                                                ? 'bg-white text-slate-700 border-amber-300 hover:bg-amber-50'
+                                                : 'bg-white text-slate-400 border-slate-200 hover:bg-slate-50'
+                                          return (
+                                            <button
+                                              key={n}
+                                              onClick={() => handleTampilkanKodeReset(sesiId, sw, n)}
+                                              title={dipakai ? `R${n} sudah dipakai` : giliran ? `Tampilkan kode R${n} (berlaku sekarang)` : `Tampilkan kode R${n} (belum berlaku)`}
+                                              className={`text-xs font-bold px-2 py-1 rounded-lg border ${cls}`}
+                                            >
+                                              R{n}
+                                            </button>
+                                          )
+                                        })}
                                       </div>
                                     )}
                                     </div>
@@ -1319,55 +1377,56 @@ export default function ModePengawasPage() {
         )
       })()}
 
-      {/* Confirm Reset Dialog */}
-      {resetTarget && !resetResult && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 animate-fade-in">
-            <div className="w-12 h-12 rounded-full bg-amber-100 flex items-center justify-center mx-auto mb-4">
-              <RotateCcw className="w-6 h-6 text-amber-600" />
-            </div>
-            <h3 className="text-lg font-bold text-slate-900 text-center mb-2">Reset Siswa?</h3>
-            <p className="text-sm text-slate-500 text-center mb-6">
-              Siswa <strong>{resetTarget.nama}</strong> akan di-reset dan harus memasukkan kode 7 digit baru. Jawaban tidak akan hilang. Jika ini reset ke-3, siswa akan dikunci permanen dan nilai menjadi 0.
-            </p>
-            <div className="flex gap-3">
-              <button onClick={() => setResetTarget(null)} className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 text-sm font-medium">Batal</button>
-              <button onClick={handleReset} disabled={resetting} className="flex-1 px-4 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold flex items-center justify-center gap-2">
-                {resetting ? <Spinner size="sm" /> : 'Ya, Reset'}
-              </button>
+      {/* Kode reset R1/R2/R3 */}
+      {kodeTampil && (() => {
+        const k = kodeTampil
+        const giliran = k.resetTerpakai + 1
+        const dipakai = k.nomor <= k.resetTerpakai
+        const belumBerlaku = k.nomor > giliran
+        const terakhir = k.nomor === k.maksReset
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 animate-fade-in text-center">
+              <div className={`w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4 ${dipakai || belumBerlaku ? 'bg-slate-100' : 'bg-emerald-100'}`}>
+                <KeyRound className={`w-6 h-6 ${dipakai || belumBerlaku ? 'text-slate-500' : 'text-emerald-600'}`} />
+              </div>
+              <h3 className="text-lg font-bold text-slate-900 mb-2">Kode Reset {k.nomor}</h3>
+              <p className="text-sm text-slate-500 mb-3">
+                {dipakai
+                  ? <>Kode ini <strong>sudah dipakai</strong> oleh <strong>{k.nama}</strong>.</>
+                  : belumBerlaku
+                    ? <>Kode ini <strong>belum berlaku</strong> untuk <strong>{k.nama}</strong>.</>
+                    : <>Berikan kode ini kepada <strong>{k.nama}</strong>:</>}
+              </p>
+              <div className={`flex items-center justify-center gap-1.5 mb-3 ${dipakai || belumBerlaku ? 'opacity-40' : ''}`}>
+                {k.kode.split('').map((c, i) => (
+                  <div key={i} className="w-10 h-12 rounded-xl bg-gradient-to-b from-amber-500 to-amber-600 flex items-center justify-center text-white text-xl font-black shadow">{c}</div>
+                ))}
+              </div>
+              {dipakai && giliran <= k.maksReset && (
+                <p className="text-xs text-slate-500 mb-4">Untuk pelanggaran berikutnya gunakan <strong>R{giliran}</strong>.</p>
+              )}
+              {dipakai && giliran > k.maksReset && (
+                <p className="text-xs text-red-500 font-semibold mb-4">🚨 Semua kode reset sudah terpakai. Pelanggaran berikutnya menutup ujian siswa ini.</p>
+              )}
+              {belumBerlaku && (
+                <p className="text-xs text-amber-600 mb-4">Siswa harus memakai <strong>R{giliran}</strong> lebih dulu. Kode ini akan ditolak sekarang.</p>
+              )}
+              {!dipakai && !belumBerlaku && (
+                <>
+                  <p className="text-xs text-amber-600 mb-2">⚠ Kode hanya berlaku satu kali pakai.</p>
+                  {k.status !== 'RESET' && (
+                    <p className="text-xs text-slate-500 mb-2">Siswa ini belum tercatat menunggu kode. Berikan hanya jika siswa memang sedang diminta memasukkan kode.</p>
+                  )}
+                  {terakhir && <p className="text-xs text-red-500 font-semibold mb-2">🚨 Ini kode reset terakhir. Pelanggaran lagi = ujian ditutup otomatis.</p>}
+                  <div className="mb-2" />
+                </>
+              )}
+              <button onClick={() => setKodeTampil(null)} className="w-full px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-900 text-white text-sm font-semibold">Tutup</button>
             </div>
           </div>
-        </div>
-      )}
-
-      {/* Hasil Reset — tampilkan kode */}
-      {resetResult && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 animate-fade-in text-center">
-            {resetResult.dikunci_permanen ? (
-              <>
-                <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mx-auto mb-4"><Lock className="w-6 h-6 text-red-600" /></div>
-                <h3 className="text-lg font-bold text-slate-900 mb-2">Siswa Dikunci Permanen</h3>
-                <p className="text-sm text-slate-500 mb-6">{resetResult.message}</p>
-              </>
-            ) : (
-              <>
-                <div className="w-12 h-12 rounded-full bg-emerald-100 flex items-center justify-center mx-auto mb-4"><KeyRound className="w-6 h-6 text-emerald-600" /></div>
-                <h3 className="text-lg font-bold text-slate-900 mb-2">Kode Reset Siswa</h3>
-                <p className="text-sm text-slate-500 mb-3">Berikan kode ini kepada <strong>{resetResult.nama_siswa}</strong>:</p>
-                <div className="flex items-center justify-center gap-1.5 mb-3">
-                  {resetResult.kode_reset?.split('').map((c, i) => (
-                    <div key={i} className="w-10 h-12 rounded-xl bg-gradient-to-b from-amber-500 to-amber-600 flex items-center justify-center text-white text-xl font-black shadow">{c}</div>
-                  ))}
-                </div>
-                <p className="text-xs text-amber-600 mb-4">⚠ Kode hanya berlaku satu kali pakai untuk siswa ini.</p>
-                {resetResult.reset_ke === 3 && <p className="text-xs text-red-500 font-semibold mb-4">🚨 Ini adalah reset terakhir. Pelanggaran lagi = dikunci permanen.</p>}
-              </>
-            )}
-            <button onClick={() => { setResetResult(null); setResetTarget(null) }} className="w-full px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-900 text-white text-sm font-semibold">Tutup</button>
-          </div>
-        </div>
-      )}
+        )
+      })()}
 
       {/* Toast */}
       {toast && (
