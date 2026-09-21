@@ -35,8 +35,28 @@ export async function GET(req: NextRequest) {
     .single()
 
   if (!sesi) return NextResponse.json({ error: 'Sesi tidak ditemukan' }, { status: 404 })
+
+  // FIX BUG (lihat catatan panjang di essay/info/route.ts): kalau siswa
+  // sudah di status akhir, jangan tampilkan pesan teknis "tidak memiliki
+  // soal essay" — beri tahu bahwa ujian sudah selesai.
+  const { data: statusCekAwal } = await db
+    .from('siswa_ujian')
+    .select('status_essay')
+    .eq('sesi_id', sesiId)
+    .eq('nis', user.nis!)
+    .maybeSingle()
+  if (statusCekAwal?.status_essay === 'SUDAH_KIRIM' || statusCekAwal?.status_essay === 'TIDAK_MENGERJAKAN') {
+    return NextResponse.json(
+      { error: 'Ujian ini sudah Anda selesaikan. Silakan kembali ke beranda.', sudahSelesai: true },
+      { status: 409 }
+    )
+  }
+
   if (!sesi.info_json?.essay_aktif) {
-    return NextResponse.json({ error: 'Sesi ini tidak memiliki soal essay' }, { status: 400 })
+    return NextResponse.json(
+      { error: 'Ujian ini tidak memiliki sesi essay. Silakan kembali ke beranda.', sudahSelesai: true },
+      { status: 400 }
+    )
   }
 
   // FIX BUG (soal essay bisa diambil walau sesi sudah tidak berjalan):
