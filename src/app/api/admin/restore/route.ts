@@ -2,436 +2,377 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 import { cacheDel, cacheDelPrefix } from '@/lib/cache'
+import {
+  BACKUP_BUCKETS,
+  DELETE_ORDER,
+  INSERT_ORDER,
+  MAX_ASSET_BASE64_CHARS,
+  SCHEMA_TABLES,
+  TRUNCATE_TABLES,
+  cekAktivitasUjian,
+  isBucketMissingError,
+  isKnownBucket,
+  isMissingTableError,
+  isSafeStoragePath,
+  listBucketFiles,
+  pkOf,
+  removeFilesInChunks,
+  type Db,
+} from '@/lib/backup-restore-shared'
 
-// Tabel yang BENAR-BENAR ada di schema database
+// =============================================================================
+// RESTORE — API BERTAHAP (dipanggil berulang dari browser, lihat
+// src/lib/backup-restore-client.ts)
 //
-// BUG FIX (02 Jul 2026): tabel `kisi_kisi` sebelumnya dianggap "DIHAPUS
-// karena tidak ada di schema (01_schema.sql)" — ternyata itu cuma karena
-// file schema-nya yang tidak pernah diupdate, bukan tabelnya yang benar-benar
-// hilang. Tabel ini aktif dipakai di src/app/api/{admin,guru,siswa}/kisi-kisi.
-// Akibat bug lama: (1) backup TIDAK PERNAH menyimpan data kisi_kisi, dan
-// (2) kalaupun ada file backup lama yang kebetulan punya data kisi_kisi,
-// restore akan SKIP DIAM-DIAM tanpa error (lihat SCHEMA_TABLES.has() di
-// bawah). Sudah diverifikasi manual di Supabase: kisi_kisi TIDAK punya FK
-// constraint ke/dari tabel manapun, jadi aman ditaruh setelah `soal` (sama
-// seperti urutan di reset/route.ts) — hanya perlu users/mapel/kelas sudah
-// ada dulu (guru_id, mapel_id, kelas_id) sebelum kisi_kisi di-insert.
+// KENAPA DIUBAH (bug di versi lama):
+//   1. Batas ukuran. Versi lama menerima SELURUH file backup di satu request.
+//      Vercel membatasi body request ±4,5 MB dan UI memblokir file > 4 MB,
+//      padahal backup nyata (33 ribu+ baris jawaban) ±10 MB+. Backup buatan
+//      aplikasi ini sendiri tidak bisa direstore. Sekarang browser membaca file
+//      dan mengirim batch kecil (< ~3 MB) satu per satu.
+//   2. Timeout. Menghapus `jawaban` lewat DELETE biasa + insert ±40 ribu baris
+//      + upload storage berurutan di satu request pasti melewati maxDuration.
+//      Sekarang tiap request pendek; tabel besar dikosongkan dengan TRUNCATE.
+//   3. Sequence. Baris di-insert dengan id eksplisit, sequence BIGSERIAL tidak
+//      ikut maju → insert berikutnya (mis. simpan jawaban) menabrak primary key.
+//      Sekarang action `finish` menyetel ulang sequence (lihat
+//      supabase/22_perbaikan_backup_restore_reset.sql).
+//   4. Validasi setelah menghapus. Versi lama menghapus semua data LALU baru
+//      mengetahui backup-nya cacat. Sekarang action `start` memvalidasi dulu
+//      (backup.errors kosong, row_counts cocok dengan isi sebenarnya, fungsi
+//      SQL yang dibutuhkan sudah ada) SEBELUM ada data yang dihapus.
+//   5. Kegagalan insert diteruskan diam-diam ke tabel berikutnya. Sekarang
+//      klien berhenti seketika di kegagalan pertama.
+//   6. Storage dikosongkan dulu baru diisi. Sekarang upload dulu, dan file
+//      lama yang tidak ada di backup baru dihapus (`storage-prune`) HANYA kalau
+//      semua upload sukses.
 //
-// BUG FIX: tabel `sekolah` (fitur jenjang/Kepsek — lihat src/lib/kepsek-scope.ts)
-// sebelumnya tidak ada di sini sama sekali, padahal `kelas.sekolah_id` dan
-// `users.sekolah_id` adalah FK ke tabel ini. Akibatnya: backup tidak pernah
-// menyimpan data sekolah, dan restore ke environment lain bisa gagal (FK
-// violation) saat insert kelas/users yang sekolah_id-nya menunjuk ke baris
-// sekolah yang tidak ada. `sekolah` harus DIHAPUS SETELAH kelas & users
-// (dia induk dari keduanya), dan DI-INSERT SEBELUM kelas & users.
-// BUG FIX (fitur Soal Essay tidak diakomodir backup/restore): sama persis
-// dengan bug `kisi_kisi` & `sekolah` yang dijelaskan di atas — tabel-tabel
-// essay (`paket_essay`, `soal_essay`, `jawaban_essay`, `jawaban_essay_foto`,
-// lihat supabase/07_essay.sql & 08_paket_essay.sql) ditambahkan lewat migrasi
-// terpisah SETELAH 01_schema.sql dan tidak pernah dimasukkan ke sini. Akibat:
-// (1) restore SKIP DIAM-DIAM data essay dari backup lama (SCHEMA_TABLES tidak
-// mengenalnya), dan (2) walau backup-nya sudah diperbaiki agar menyertakan
-// tabel-tabel ini, restore tetap butuh tabel ini terdaftar untuk benar-benar
-// menghapus & meng-insert-nya. Urutan mengikuti ketergantungan logis yang
-// sama seperti paket_soal/soal (tidak ada FK constraint di level DB untuk
-// tabel manapun di aplikasi ini — sama seperti kisi_kisi — jadi urutan di
-// sini murni demi konsistensi, bukan syarat FK):
-//   paket_essay ~ setara paket_soal · soal_essay ~ setara soal ·
-//   jawaban_essay/jawaban_essay_foto ~ setara jawaban
-// BUG FIX (skor per-soal essay tidak diakomodir backup/restore): tabel
-// `skor_essay_siswa` (lihat supabase/12_skor_per_soal_essay.sql, jejak audit
-// skor per butir soal essay yang diisi guru) juga ditambahkan lewat migrasi
-// terpisah dan sebelumnya tidak terdaftar di sini — sama seperti bug essay
-// di atas, kalaupun backup-nya sudah menyertakan tabelnya (lihat fix di
-// admin/backup/route.ts), restore tetap SKIP DIAM-DIAM tanpa tabel ini
-// terdaftar. Ditaruh setelah jawaban_essay_foto (setara posisinya: sama-sama
-// data turunan per sesi+nis yang dibuat SETELAH siswa_ujian & soal_essay ada).
-const DELETE_ORDER = [
-  'log_aktivitas',
-  'log_reset',
-  'pelanggaran',
-  'nilai',
-  'jawaban',
-  'jawaban_essay',
-  'jawaban_essay_foto',
-  'skor_essay_siswa',
-  'siswa_ujian',
-  'sesi_ujian',
-  'soal',
-  'soal_essay',
-  'kisi_kisi',
-  'paket_soal',
-  'paket_essay',
-  'jadwal',
-  'users',
-  'siswa',
-  'kelas_mapel',
-  'mapel',
-  'kelas',
-  'sekolah',
-  'pengaturan',
-]
+// PROTOKOL (semua POST JSON, hanya ADMIN):
+//   { action:'start',  force?, allow_incomplete?, meta }  → plan / 409 / 412 / 422
+//   { action:'clear',  table }
+//   { action:'insert', table, rows }
+//   { action:'storage-init',  bucket }
+//   { action:'storage-put',   bucket, path, contentType, base64 }
+//   { action:'storage-prune', bucket, keep: string[] }
+//   { action:'finish' }
+// =============================================================================
 
-const INSERT_ORDER = [
-  'pengaturan',
-  'sekolah',
-  'kelas',
-  'mapel',
-  'kelas_mapel',
-  'siswa',
-  'users',
-  'jadwal',
-  'paket_soal',
-  'soal',
-  'kisi_kisi',
-  'paket_essay',
-  'soal_essay',
-  'sesi_ujian',
-  'siswa_ujian',
-  'jawaban',
-  'jawaban_essay',
-  'jawaban_essay_foto',
-  'skor_essay_siswa',
-  'nilai',
-  'pelanggaran',
-  'log_reset',
-  'log_aktivitas',
-]
-
-// Tabel yang diketahui ada di schema (untuk validasi backup)
-const SCHEMA_TABLES = new Set(DELETE_ORDER)
-
-// ── Restore file di Supabase Storage (bucket "assets") ──────────────────────
-// Pasangan dari backupStorageAssets() di admin/backup/route.ts — lihat
-// catatan di sana untuk kenapa ini perlu ada (logo & gambar soal disimpan
-// sebagai file biner, bukan baris database, jadi tidak ikut ter-restore kalau
-// cuma tabel yang dipulihkan).
-const STORAGE_BUCKET = 'assets'
-
-interface StorageAsset {
-  path: string
-  contentType?: string
-  base64: string
+function res(body: unknown, status = 200) {
+  return NextResponse.json(body, { status, headers: { 'Cache-Control': 'no-store' } })
 }
 
-async function listAllStorageFiles(
-  db: ReturnType<typeof createAdminClient>,
-  bucket: string,
-  prefix = ''
-): Promise<string[]> {
-  const LIMIT = 1000
-  const paths: string[] = []
-  let offset = 0
-
-  while (true) {
-    const { data, error } = await db.storage
-      .from(bucket)
-      .list(prefix, { limit: LIMIT, offset, sortBy: { column: 'name', order: 'asc' } })
-
-    if (error || !data) break
-
-    for (const entry of data) {
-      const fullPath = prefix ? `${prefix}/${entry.name}` : entry.name
-      if (entry.id === null) {
-        const nested = await listAllStorageFiles(db, bucket, fullPath)
-        paths.push(...nested)
-      } else {
-        paths.push(fullPath)
-      }
-    }
-
-    if (data.length < LIMIT) break
-    offset += LIMIT
-  }
-
-  return paths
+function errMsg(e: unknown): string {
+  return e instanceof Error ? e.message : 'error'
 }
 
-async function restoreStorageAssets(
-  db: ReturnType<typeof createAdminClient>,
-  assets: StorageAsset[]
-): Promise<{ restored: number; errors: string[] }> {
-  const errors: string[] = []
-  let restored = 0
-
-  // Bersihkan dulu isi bucket saat ini — sama seperti tabel database, restore
-  // berarti MENGGANTIKAN, bukan menumpuk. Tanpa ini, file yang sudah dihapus
-  // sejak backup dibuat (misalnya logo lama) akan tetap tertinggal di bucket.
-  try {
-    const existing = await listAllStorageFiles(db, STORAGE_BUCKET)
-    if (existing.length > 0) {
-      const { error } = await db.storage.from(STORAGE_BUCKET).remove(existing)
-      if (error) errors.push(`Gagal membersihkan storage lama: ${error.message}`)
-    }
-  } catch (e) {
-    errors.push(`Gagal membersihkan storage lama: ${e instanceof Error ? e.message : 'error'}`)
-  }
-
-  for (const asset of assets) {
-    try {
-      const buffer = Buffer.from(asset.base64, 'base64')
-      const { error } = await db.storage
-        .from(STORAGE_BUCKET)
-        .upload(asset.path, buffer, {
-          contentType: asset.contentType || 'application/octet-stream',
-          upsert: true,
-        })
-      if (error) {
-        errors.push(`${asset.path}: ${error.message}`)
-        continue
-      }
-      restored++
-    } catch (e) {
-      errors.push(`${asset.path}: ${e instanceof Error ? e.message : 'error'}`)
-    }
-  }
-
-  return { restored, errors }
-}
-
-async function clearTable(
-  db: ReturnType<typeof import('@/lib/supabase').createAdminClient>,
-  table: string
-): Promise<string | null> {
-  // Skip tabel yang tidak ada di schema agar tidak error
+// ── clear ────────────────────────────────────────────────────────────────────
+// Mengembalikan pesan error, atau null kalau sukses / tabel memang tidak ada.
+async function clearTable(db: Db, table: string): Promise<string | null> {
   if (!SCHEMA_TABLES.has(table)) return null
 
   try {
-    let error: { message: string } | null = null
-
-    if (table === 'users') {
-      // users: hapus semua kecuali ADMIN
-      ;({ error } = await (db as any).from('users').delete().neq('role', 'ADMIN'))
-    } else if (table === 'pengaturan') {
-      // pengaturan: PK = key (TEXT)
-      ;({ error } = await (db as any).from('pengaturan').delete().not('key', 'is', null))
-    } else if (table === 'siswa') {
-      // siswa: PK = nis (TEXT)
-      ;({ error } = await (db as any).from('siswa').delete().not('nis', 'is', null))
-    } else if (table === 'siswa_ujian' || table === 'jawaban' || table === 'log_reset' || table === 'jawaban_essay' || table === 'jawaban_essay_foto') {
-      // BIGSERIAL PK — pakai gt 0 (jawaban_essay & jawaban_essay_foto ikut
-      // pola yang sama dengan jawaban, lihat catatan bug fix di atas)
-      ;({ error } = await (db as any).from(table).delete().gt('id', 0))
-    } else {
-      // Tabel lain punya id TEXT
-      ;({ error } = await (db as any).from(table).delete().not('id', 'is', null))
+    // Tabel besar → TRUNCATE lewat RPC (cepat, tidak timeout).
+    if (TRUNCATE_TABLES.has(table)) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { error } = await (db as any).rpc('truncate_tabel_besar', { nama_tabel: table })
+      if (!error) return null
+      if (isMissingTableError(error.message)) return null
+      // Fungsi belum diperbarui (migrasi 22 belum jalan) → jatuh ke DELETE biasa.
+      // Untuk tabel kecil/menengah ini tetap benar, hanya lebih lambat.
+      if (!/tidak diizinkan|truncate_tabel_besar/i.test(error.message)) {
+        return `${table}: ${error.message}`
+      }
     }
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let q: any = db.from(table).delete()
+    if (table === 'users') {
+      // Akun ADMIN sengaja tidak dihapus supaya admin yang sedang login tidak
+      // terkunci di tengah proses.
+      q = q.neq('role', 'ADMIN')
+    } else {
+      // `NOT (kolom IS NULL)` valid untuk semua tipe kolom PK (TEXT & BIGINT).
+      q = q.not(pkOf(table)[0], 'is', null)
+    }
+    const { error } = await q
     if (error) {
-      // Jika tabel tidak exist di DB (42P01), skip saja — jangan gagalkan restore
-      if (
-        error.message.includes('does not exist') ||
-        error.message.includes('42P01')
-      ) {
-        return null
-      }
+      if (isMissingTableError(error.message)) return null
       return `${table}: ${error.message}`
     }
     return null
   } catch (e) {
-    const msg = e instanceof Error ? e.message : 'error'
-    // Skip jika tabel tidak exist
-    if (msg.includes('does not exist') || msg.includes('42P01')) return null
+    const msg = errMsg(e)
+    if (isMissingTableError(msg)) return null
     return `${table}: ${msg}`
   }
+}
+
+// ── handler tiap action ──────────────────────────────────────────────────────
+interface StartMeta {
+  app?: string
+  version?: string
+  backup_errors?: unknown
+  row_counts?: Record<string, number>
+  actual_counts?: Record<string, number>
+}
+
+async function actionStart(db: Db, body: Record<string, unknown>) {
+  const force = body.force === true
+  const allowIncomplete = body.allow_incomplete === true
+  const meta = (body.meta ?? {}) as StartMeta
+  const actual = meta.actual_counts
+
+  // 1. Format dasar
+  if (meta.app && meta.app !== 'SmartExam') {
+    return res({ error: 'File backup bukan dari aplikasi SmartExam.' }, 400)
+  }
+  if (!actual || typeof actual !== 'object') {
+    return res({ error: 'Format permintaan restore tidak valid (meta.actual_counts hilang).' }, 400)
+  }
+  const major = Number.parseInt(String(meta.version ?? '1').split('.')[0], 10)
+  if (Number.isFinite(major) && major > 2) {
+    return res(
+      { error: `File backup dibuat oleh versi aplikasi yang lebih baru (format ${meta.version}). Perbarui aplikasi dulu.` },
+      400
+    )
+  }
+
+  const tablesInBackup = Object.keys(actual).filter(t => SCHEMA_TABLES.has(t))
+  if (tablesInBackup.length === 0) {
+    return res(
+      { error: 'File backup tidak mengandung data yang dikenali. Pastikan file adalah backup SmartExam yang valid.' },
+      400
+    )
+  }
+
+  // 2. Backup yang sejak awal tidak lengkap. Backup versi lama tetap
+  //    mengembalikan HTTP 200 walau sebagian tabel gagal dibaca, dan restore
+  //    lama tidak pernah melihat field `errors` itu — sehingga data produksi
+  //    dihapus lalu diganti data yang bolong.
+  const backupErrors = Array.isArray(meta.backup_errors) ? (meta.backup_errors as unknown[]) : []
+  if (backupErrors.length > 0 && !allowIncomplete) {
+    return res(
+      {
+        error:
+          'File backup ini TIDAK LENGKAP (saat dibuat ada bagian yang gagal diambil). Restore dibatalkan sebelum menghapus apa pun.',
+        backup_tidak_lengkap: true,
+        detail: backupErrors.slice(0, 10),
+      },
+      422
+    )
+  }
+
+  // 3. Integritas file: jumlah baris yang tercatat harus sama dengan isi
+  //    sebenarnya (mendeteksi file terpotong / diedit / rusak).
+  const rc = meta.row_counts
+  if (rc && typeof rc === 'object') {
+    const mismatch: string[] = []
+    for (const t of tablesInBackup) {
+      const expected = rc[t]
+      if (typeof expected === 'number' && expected !== actual[t]) {
+        mismatch.push(`${t}: tercatat ${expected}, isi file ${actual[t]}`)
+      }
+    }
+    if (mismatch.length > 0) {
+      return res(
+        {
+          error: 'File backup rusak atau terpotong (jumlah baris tidak cocok dengan yang tercatat). Restore dibatalkan sebelum menghapus apa pun.',
+          detail: mismatch,
+        },
+        422
+      )
+    }
+  }
+
+  // 4. Sesi ujian aktif
+  const akt = await cekAktivitasUjian(db)
+  if (akt.error) return res({ error: `Gagal memeriksa sesi ujian aktif: ${akt.error}` }, 500)
+  if ((akt.adaSesi || akt.adaSiswa) && !force) {
+    const pesan: string[] = []
+    if (akt.adaSesi) pesan.push('ada sesi ujian yang sedang berjalan')
+    if (akt.adaSiswa) pesan.push('ada siswa yang sedang mengerjakan ujian')
+    return res(
+      {
+        error: `Restore tidak bisa dilakukan karena ${pesan.join(' dan ')}. Tutup semua sesi terlebih dahulu, atau konfirmasi restore paksa.`,
+        ada_aktivitas: true,
+        ada_sesi: akt.adaSesi,
+        ada_siswa: akt.adaSiswa,
+      },
+      409
+    )
+  }
+
+  // 5. Prasyarat database: fungsi sinkronisasi sequence (migrasi 22). Dicek
+  //    SEKARANG (sebelum menghapus apa pun) — memanggilnya di data lama tidak
+  //    berbahaya, ia hanya menyetel sequence ke MAX(id)+1.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error: fnErr } = await (db as any).rpc('sinkron_sequence_setelah_restore')
+  if (fnErr) {
+    return res(
+      {
+        error:
+          'Migrasi database belum dijalankan: jalankan file supabase/22_perbaikan_backup_restore_reset.sql di Supabase SQL Editor, lalu coba restore lagi. Tanpa itu, restore akan membuat penyimpanan jawaban gagal (duplicate key). Belum ada data yang diubah.',
+        butuh_migrasi: true,
+        detail: fnErr.message,
+      },
+      412
+    )
+  }
+
+  return res({
+    ok: true,
+    delete_order: DELETE_ORDER.filter(t => tablesInBackup.includes(t)),
+    insert_order: INSERT_ORDER.filter(t => tablesInBackup.includes(t)),
+    ada_aktivitas: akt.adaSesi || akt.adaSiswa,
+  })
+}
+
+async function actionClear(db: Db, body: Record<string, unknown>) {
+  const table = String(body.table ?? '')
+  if (!SCHEMA_TABLES.has(table)) return res({ error: `Tabel "${table}" tidak dikenali` }, 400)
+  const err = await clearTable(db, table)
+  if (err) return res({ error: err }, 500)
+  return res({ ok: true, table })
+}
+
+async function actionInsert(db: Db, body: Record<string, unknown>) {
+  const table = String(body.table ?? '')
+  if (!SCHEMA_TABLES.has(table)) return res({ error: `Tabel "${table}" tidak dikenali` }, 400)
+  if (!Array.isArray(body.rows)) return res({ error: 'rows harus berupa array' }, 400)
+
+  let rows = body.rows as Record<string, unknown>[]
+  // Akun ADMIN tidak dihapus saat clear, jadi jangan di-insert lagi (duplicate key).
+  if (table === 'users') rows = rows.filter(r => r?.role !== 'ADMIN')
+  if (rows.length === 0) return res({ ok: true, table, inserted: 0 })
+
+  // upsert (bukan insert) supaya batch yang dikirim ulang setelah gangguan
+  // jaringan — padahal server sudah sempat memprosesnya — tidak gagal
+  // "duplicate key". Tabel sudah dikosongkan, jadi hasilnya identik dengan insert.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error } = await (db as any)
+    .from(table)
+    .upsert(rows, { onConflict: pkOf(table).join(',') })
+
+  if (error) return res({ error: `Gagal insert ${table}: ${error.message}` }, 500)
+  return res({ ok: true, table, inserted: rows.length })
+}
+
+async function actionStorageInit(db: Db, body: Record<string, unknown>) {
+  const bucket = String(body.bucket ?? '')
+  if (!isKnownBucket(bucket)) return res({ error: 'Bucket tidak dikenali' }, 400)
+
+  const { error } = await db.storage.getBucket(bucket)
+  if (!error) return res({ ok: true, created: false })
+
+  if (!isBucketMissingError(error.message) && !/not found/i.test(error.message)) {
+    return res({ error: `storage/${bucket}: ${error.message}` }, 500)
+  }
+  // Restore ke project baru: bucket belum ada → buat dengan visibilitas yang sama
+  // seperti aslinya (assets publik karena URL-nya dipakai langsung di halaman;
+  // jawaban-essay privat karena dibaca lewat signed URL).
+  const publik = BACKUP_BUCKETS.find(b => b.name === bucket)?.public ?? false
+  const created = await db.storage.createBucket(bucket, { public: publik })
+  if (created.error) return res({ error: `storage/${bucket}: ${created.error.message}` }, 500)
+  return res({ ok: true, created: true })
+}
+
+async function actionStoragePut(db: Db, body: Record<string, unknown>) {
+  const bucket = String(body.bucket ?? '')
+  const path = body.path
+  const base64 = body.base64
+  if (!isKnownBucket(bucket)) return res({ error: 'Bucket tidak dikenali' }, 400)
+  if (!isSafeStoragePath(path)) return res({ error: 'Path file tidak valid' }, 400)
+  if (typeof base64 !== 'string') return res({ error: 'base64 hilang' }, 400)
+  if (base64.length > MAX_ASSET_BASE64_CHARS) {
+    return res({ error: `${bucket}/${path}: file terlalu besar untuk dipulihkan lewat aplikasi` }, 413)
+  }
+
+  const contentType =
+    typeof body.contentType === 'string' && body.contentType ? body.contentType : 'application/octet-stream'
+  const { error } = await db.storage
+    .from(bucket)
+    .upload(path, Buffer.from(base64, 'base64'), { contentType, upsert: true })
+  if (error) return res({ error: `${bucket}/${path}: ${error.message}` }, 500)
+  return res({ ok: true })
+}
+
+async function actionStoragePrune(db: Db, body: Record<string, unknown>) {
+  const bucket = String(body.bucket ?? '')
+  if (!isKnownBucket(bucket)) return res({ error: 'Bucket tidak dikenali' }, 400)
+  if (!Array.isArray(body.keep)) return res({ error: 'keep harus berupa array' }, 400)
+
+  const keep = new Set((body.keep as unknown[]).filter((p): p is string => typeof p === 'string'))
+  const listed = await listBucketFiles(db, bucket)
+  if (listed.bucketMissing) return res({ ok: true, removed: 0 })
+  if (listed.error) return res({ error: listed.error }, 500)
+
+  const stale = listed.paths.filter(p => !keep.has(p))
+  if (stale.length > 0) {
+    const err = await removeFilesInChunks(db, bucket, stale)
+    if (err) return res({ error: err }, 500)
+  }
+  return res({ ok: true, removed: stale.length })
+}
+
+async function actionFinish(db: Db) {
+  const warnings: string[] = []
+
+  // Setel ulang sequence BIGSERIAL ke MAX(id)+1 — lihat catatan #3 di atas.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error } = await (db as any).rpc('sinkron_sequence_setelah_restore')
+  if (error) {
+    warnings.push(
+      `PENTING: sinkronisasi sequence gagal (${error.message}). Jalankan SELECT sinkron_sequence_setelah_restore(); di Supabase SQL Editor sebelum ujian berikutnya, kalau tidak penyimpanan jawaban bisa gagal.`
+    )
+  }
+
+  // In-memory cache (lib/cache.ts) berisi data lama sampai TTL habis.
+  cacheDel('admin:dashboard')
+  cacheDelPrefix('pengaturan:')
+
+  return res({ ok: true, warnings })
 }
 
 export async function POST(req: NextRequest) {
   const auth = requireRole(req, ['ADMIN'])
   if ('error' in auth) return auth.error
 
-  let payload: {
-    version?: string
-    app?: string
-    tables: Record<string, unknown[]>
-    // Opsional — hanya ada di backup versi 1.1+ (lihat admin/backup/route.ts).
-    // Backup versi lama tanpa field ini tetap valid untuk direstore; storage
-    // bucket-nya cuma tidak ikut disentuh (aman, tidak menghapus apa pun).
-    storage?: { assets?: StorageAsset[] }
-  }
-
-  // Terima file sebagai FormData (multipart/form-data) agar file backup bisa
-  // dikirim sebagai raw file langsung dari browser — bukan JSON.stringify() di
-  // sisi klien yang menyebabkan double-parsing. Fallback ke req.json() untuk
-  // kompatibilitas mundur jika ada klien yang masih kirim Content-Type: application/json.
-  // FIX: tambahkan opsi `force` (mirip /api/admin/reset) — sebelumnya restore
-  // ditolak MUTLAK selama ada sesi_ujian berstatus BERJALAN, TANPA jalan
-  // keluar sama sekali. Kalau sesi itu ternyata terlantar/lupa ditutup
-  // pengawas (lihat gap yang sama di endpoint batas-submit), admin benar-benar
-  // terjebak: tidak berwenang menutup sesi orang lain, dan tidak bisa restore.
-  // Sekarang admin bisa memilih tetap melanjutkan restore setelah diberi
-  // peringatan eksplisit (lihat pengecekan di bawah).
-  let force = false
   const contentType = req.headers.get('content-type') ?? ''
+  if (!contentType.includes('application/json')) {
+    return res(
+      { error: 'Format permintaan tidak didukung. Muat ulang halaman admin (versi aplikasi di browser sudah usang) lalu coba lagi.' },
+      415
+    )
+  }
+
+  let body: Record<string, unknown>
   try {
-    if (contentType.startsWith('multipart/form-data')) {
-      const formData = await req.formData()
-      const file = formData.get('file')
-      if (!file || typeof file === 'string') {
-        return NextResponse.json({ error: 'Field "file" tidak ditemukan dalam FormData' }, { status: 400 })
-      }
-      force = formData.get('force') === 'true'
-      const text = await (file as File).text()
-      payload = JSON.parse(text)
-    } else {
-      const body = await req.json()
-      force = body?.force === true
-      payload = body
-    }
+    body = (await req.json()) as Record<string, unknown>
   } catch {
-    return NextResponse.json({ error: 'File backup tidak valid (bukan JSON yang bisa dibaca)' }, { status: 400 })
-  }
-
-  if (!payload?.tables || typeof payload.tables !== 'object') {
-    return NextResponse.json(
-      { error: 'Format backup tidak dikenali. Pastikan file adalah backup SmartExam.' },
-      { status: 400 }
-    )
-  }
-
-  if (payload.app && payload.app !== 'SmartExam') {
-    return NextResponse.json(
-      { error: 'File backup bukan dari aplikasi SmartExam.' },
-      { status: 400 }
-    )
-  }
-
-  // Validasi: minimal ada satu tabel schema yang dikenal
-  const tableKeys = Object.keys(payload.tables)
-  const hasKnownTable = tableKeys.some(k => SCHEMA_TABLES.has(k))
-  if (!hasKnownTable) {
-    return NextResponse.json(
-      { error: 'File backup tidak mengandung data yang dikenali. Pastikan file adalah backup SmartExam yang valid.' },
-      { status: 400 }
-    )
+    return res({ error: 'Permintaan tidak valid (bukan JSON).' }, 400)
   }
 
   const db = createAdminClient()
-
-  // ── CEK AKTIVITAS SEBELUM RESTORE ───────────────────────────────────────
-  // Restore saat ujian berjalan akan menghapus semua jawaban dan nilai siswa
-  // yang sedang mengerjakan. Tolak jika ada sesi aktif atau siswa aktif.
-  const [{ data: sesiAktif }, { data: siswaAktif }] = await Promise.all([
-    db.from('sesi_ujian').select('id').eq('status', 'BERJALAN').limit(1),
-    db.from('siswa_ujian').select('id').eq('status', 'AKTIF').limit(1),
-  ])
-
-  const adaSesi = (sesiAktif?.length ?? 0) > 0
-  const adaSiswa = (siswaAktif?.length ?? 0) > 0
-
-  if ((adaSesi || adaSiswa) && !force) {
-    const pesan: string[] = []
-    if (adaSesi) pesan.push('ada sesi ujian yang sedang berjalan')
-    if (adaSiswa) pesan.push('ada siswa yang sedang mengerjakan ujian')
-    return NextResponse.json({
-      error: `Restore tidak bisa dilakukan karena ${pesan.join(' dan ')}. Tutup semua sesi terlebih dahulu (atau tutup paksa dari panel Monitoring kalau pengawasnya tidak bisa dihubungi), lalu coba lagi. Kalau memang ingin tetap melanjutkan sekarang, konfirmasi restore paksa — ini akan MENGHAPUS jawaban siswa yang sedang mengerjakan.`,
-      ada_aktivitas: true,
-      ada_sesi: adaSesi,
-      ada_siswa: adaSiswa,
-    }, { status: 409 })
-  }
-  // Kalau force=true dan tetap ada aktivitas, restore dilanjutkan tapi hasil
-  // akhirnya mencatumkan peringatan ini supaya admin sadar konsekuensinya.
-  const restoreDipaksaSaatAktivitas = force && (adaSesi || adaSiswa)
-  // ─────────────────────────────────────────────────────────────────────────
-
-  const deleteErrors: string[] = []
-
-  // 1. Hapus data lama — hanya tabel yang ada di schema DAN ada di backup
-  for (const table of DELETE_ORDER) {
-    if (!(table in payload.tables)) continue
-    const err = await clearTable(db, table)
-    if (err) deleteErrors.push(err)
-  }
-
-  // BUG FIX (02 Jul 2026): sama seperti reset/route.ts — endpoint dashboard
-  // dan beberapa endpoint pengaturan memakai in-memory cache (lib/cache.ts).
-  // Restore sebelumnya tidak pernah membersihkannya, jadi data lama masih
-  // muncul sampai TTL cache habis sendiri. Dipanggil di sini (setelah fase
-  // hapus, sebelum fase insert) supaya tetap jalan walau nanti insert gagal
-  // sebagian — data lama sudah terhapus, jadi cache lama memang sudah tidak
-  // valid dan wajib dibersihkan terlepas dari hasil insert selanjutnya.
-  cacheDel('admin:dashboard')
-  if ('pengaturan' in payload.tables) cacheDelPrefix('pengaturan:')
-
-  if (deleteErrors.length > 0) {
-    return NextResponse.json(
-      { error: 'Gagal membersihkan data lama', details: deleteErrors },
-      { status: 500 }
-    )
-  }
-
-  // 2. Insert data dari backup
-  const errors: string[] = []
-  const stats: Record<string, number> = {}
-
-  for (const table of INSERT_ORDER) {
-    // Skip tabel yang tidak dikenal / tidak ada di schema saat ini (misalnya
-    // nama tabel dari versi backup yang jauh lebih lama dan sudah tidak ada)
-    if (!SCHEMA_TABLES.has(table)) {
-      stats[table] = 0
-      continue
+  try {
+    switch (body.action) {
+      case 'start':
+        return await actionStart(db, body)
+      case 'clear':
+        return await actionClear(db, body)
+      case 'insert':
+        return await actionInsert(db, body)
+      case 'storage-init':
+        return await actionStorageInit(db, body)
+      case 'storage-put':
+        return await actionStoragePut(db, body)
+      case 'storage-prune':
+        return await actionStoragePrune(db, body)
+      case 'finish':
+        return await actionFinish(db)
+      default:
+        return res({ error: 'Action tidak dikenali' }, 400)
     }
-
-    let rows = payload.tables[table]
-    if (!rows || !Array.isArray(rows) || rows.length === 0) {
-      stats[table] = 0
-      continue
-    }
-
-    // users: skip row ADMIN (tidak dihapus saat clear, hindari duplicate key)
-    if (table === 'users') {
-      rows = rows.filter((r: any) => r.role !== 'ADMIN')
-      if (rows.length === 0) {
-        stats[table] = 0
-        continue
-      }
-    }
-
-    const BATCH = 500
-    let inserted = 0
-    for (let i = 0; i < rows.length; i += BATCH) {
-      const batch = rows.slice(i, i + BATCH)
-      try {
-        const { error } = await (db as any).from(table).insert(batch)
-        if (error) {
-          errors.push(`Gagal insert ${table} (batch ${Math.floor(i / BATCH) + 1}): ${error.message}`)
-          break
-        }
-        inserted += batch.length
-      } catch (e) {
-        errors.push(`Gagal insert ${table}: ${e instanceof Error ? e.message : 'error'}`)
-        break
-      }
-    }
-    stats[table] = inserted
+  } catch (e) {
+    return res({ error: errMsg(e) }, 500)
   }
-
-  // 3. Restore file storage (logo & gambar soal) — hanya jika backup punya
-  // field `storage.assets` (backup versi 1.1+, lihat admin/backup/route.ts).
-  // Backup versi lama tanpa field ini: bucket storage TIDAK disentuh sama
-  // sekali, supaya restore backup lama tidak diam-diam menghapus file yang
-  // sedang dipakai sekarang.
-  let storageRestored = 0
-  if (payload.storage?.assets && Array.isArray(payload.storage.assets)) {
-    const storageResult = await restoreStorageAssets(db, payload.storage.assets)
-    storageRestored = storageResult.restored
-    if (storageResult.errors.length > 0) {
-      errors.push(...storageResult.errors.map(e => `storage/${STORAGE_BUCKET}/${e}`))
-    }
-  }
-  stats._storage_assets = storageRestored
-
-  const peringatanAktivitas = restoreDipaksaSaatAktivitas
-    ? ' PERINGATAN: restore ini dipaksa berjalan saat masih ada sesi ujian/siswa aktif — jawaban siswa yang sedang mengerjakan saat itu ikut terhapus.'
-    : ''
-
-  if (errors.length > 0) {
-    return NextResponse.json(
-      { error: 'Restore selesai dengan beberapa error' + peringatanAktivitas, details: errors, stats },
-      { status: 207 }
-    )
-  }
-
-  return NextResponse.json({ message: 'Restore berhasil' + peringatanAktivitas, stats })
 }
