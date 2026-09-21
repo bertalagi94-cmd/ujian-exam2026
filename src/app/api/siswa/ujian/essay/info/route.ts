@@ -27,9 +27,6 @@ export async function GET(req: NextRequest) {
     .single()
 
   if (!sesi) return NextResponse.json({ error: 'Sesi tidak ditemukan' }, { status: 404 })
-  if (!sesi.info_json?.essay_aktif) {
-    return NextResponse.json({ error: 'Sesi ini tidak memiliki soal essay' }, { status: 400 })
-  }
 
   const { data: siswaUjian } = await db
     .from('siswa_ujian')
@@ -39,6 +36,33 @@ export async function GET(req: NextRequest) {
     .single()
 
   if (!siswaUjian) return NextResponse.json({ error: 'Data ujian Anda tidak ditemukan' }, { status: 404 })
+
+  // FIX BUG (siswa yang sudah menyelesaikan ujian dilempar ke layar fullscreen
+  // essay dengan pesan teknis "tidak memiliki soal essay"): kalau siswa ini
+  // sendiri sudah berada di status akhir (sudah mengirim essay, atau memang
+  // tidak mengerjakan essay karena difinalisasi otomatis), jangan lanjut ke
+  // pengecekan essay_aktif sama sekali — beri tahu langsung bahwa ujian sudah
+  // selesai. Ini jadi lapis pertahanan kedua; perbaikan utamanya ada di
+  // /api/siswa/jadwal (essayPendingByJadwal) yang seharusnya sudah tidak
+  // mengarahkan siswa ke sini lagi kalau sesi memang tidak punya essay.
+  if (siswaUjian.status_essay === 'SUDAH_KIRIM' || siswaUjian.status_essay === 'TIDAK_MENGERJAKAN') {
+    return NextResponse.json(
+      { error: 'Ujian ini sudah Anda selesaikan. Silakan kembali ke beranda.', sudahSelesai: true },
+      { status: 409 }
+    )
+  }
+
+  // FIX BUG (pesan teknis membingungkan untuk siswa): sesi yang memang tidak
+  // pernah mengaktifkan essay untuk mapel ini seharusnya tidak pernah membuat
+  // siswa sampai ke halaman ini (lihat fix di /api/siswa/jadwal). Kalau tetap
+  // sampai di sini (mis. navigasi manual/link lama), tetap tolak tapi dengan
+  // pesan yang tidak menakut-nakuti siswa yang sebetulnya sudah beres.
+  if (!sesi.info_json?.essay_aktif) {
+    return NextResponse.json(
+      { error: 'Ujian ini tidak memiliki sesi essay. Silakan kembali ke beranda.', sudahSelesai: true },
+      { status: 400 }
+    )
+  }
 
   // FIX: samakan dengan guard di essay/mulai, essay/soal, essay/jawab, dan
   // essay/upload-foto — sebelumnya endpoint ini TIDAK memeriksa status
