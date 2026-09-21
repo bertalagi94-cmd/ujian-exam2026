@@ -1,70 +1,87 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
+import { ambilMaksReset, kodeResetCocok } from '@/lib/reset-berurutan'
 
-// Batas percobaan kode salah sebelum dikunci sementara.
+// Batas percobaan kode salah sebelum dikunci sementara, dan lama lockout-nya.
 const MAX_PERCOBAAN = 5
-// Lama lockout setelah percobaan gagal melebihi batas.
 const LOCKOUT_MENIT = 5
 
 // POST /api/siswa/ujian/verifikasi-reset
 // Body: { sesiId: string, kodeReset: string }
-// Siswa memasukkan kode 7 digit dari pengawas untuk melanjutkan ujian.
-// FIX: waktu_mulai TIDAK direset — timer tetap berjalan dari waktu awal masuk.
-// FIX RATE-LIMIT: kode reset hanya 7 karakter dari alfabet terbatas, dan endpoint
-// ini sebelumnya bisa dipanggil berkali-kali tanpa batas — siswa bisa menulis
-// script untuk brute-force kode tanpa perlu akses lain selain token miliknya
-// sendiri. Sekarang setiap kegagalan dicatat di log_reset.percobaan_gagal, dan
-// setelah MAX_PERCOBAAN kali salah, siswa dikunci sementara (terkunci_sampai)
-// selama LOCKOUT_MENIT sebelum bisa mencoba lagi. State disimpan di database
-// (bukan in-memory) karena environment serverless tidak menjamin variabel
-// in-memory bertahan antar request/instance.
+//
+// Siswa memasukkan kode 7 karakter dari pengawas untuk melanjutkan ujian.
+//
+// SISTEM R1/R2/R3 (supabase/24_reset_berurutan.sql, src/lib/reset-berurutan.ts):
+//   - Kode yang sah SEKARANG hanya satu: R(reset_terpakai + 1). R2 tidak
+//     berlaku sebelum R1, R3 tidak berlaku sebelum R2, dan kode yang sudah
+//     dipakai tidak berlaku lagi — dijaga oleh penghitung di database yang
+//     berubah atomik (konsumsi_reset_berurutan), bukan oleh pengecekan di sini.
+//   - Kode diturunkan lewat HMAC; TIDAK ada kode yang tersimpan di database.
+//   - Reset TIDAK menghapus riwayat pelanggaran dan TIDAK mengubah waktu mulai:
+//     timer tetap berjalan dari waktu_mulai_awal.
+//
+// RATE-LIMIT: kegagalan dihitung atomik di database (catat_reset_gagal) —
+// bukan in-memory, karena environment serverless tidak menjamin variabel
+// bertahan antar request/instance. Setelah MAX_PERCOBAAN kali salah, siswa
+// dikunci sementara LOCKOUT_MENIT menit.
 export async function POST(req: NextRequest) {
   const auth = requireRole(req, ['SISWA'])
   if ('error' in auth) return auth.error
   const { user } = auth
 
-  const db = createAdminClient()
-  const { sesiId, kodeReset } = await req.json()
+  let body: { sesiId?: unknown; kodeReset?: unknown }
+  try {
+    body = await req.json()
+  } catch {
+    return NextResponse.json({ valid: false, message: 'Permintaan tidak valid.' }, { status: 400 })
+  }
+  const { sesiId, kodeReset } = body
 
-  if (!kodeReset?.trim()) {
+  if (typeof sesiId !== 'string' || !sesiId) {
+    return NextResponse.json({ valid: false, message: 'Sesi tidak valid.' }, { status: 400 })
+  }
+  if (typeof kodeReset !== 'string' || !kodeReset.trim()) {
     return NextResponse.json({ valid: false, message: 'Masukkan kode reset dari pengawas' })
   }
 
-  // Cek apakah sesi masih aktif
-  const { data: sesi } = await db
-    .from('sesi_ujian')
-    .select('id, status')
-    .eq('id', sesiId)
-    .single()
+  const nis = user.nis!
+  const db = createAdminClient()
 
+  // Sesi masih aktif?
+  const { data: sesi } = await db.from('sesi_ujian').select('id, status').eq('id', sesiId).single()
   if (!sesi || sesi.status !== 'BERJALAN') {
     return NextResponse.json({ valid: false, message: 'Sesi ujian sudah ditutup.' })
   }
 
-  // Cek status siswa + ambil waktu_mulai_awal sekaligus
-  const { data: siswaUjian } = await db
+  const { data: siswaUjian, error: siswaErr } = await db
     .from('siswa_ujian')
-    .select('status, waktu_mulai_awal, waktu_mulai')
+    .select('status, waktu_mulai_awal, waktu_mulai, reset_terpakai, reset_terkunci_sampai')
     .eq('sesi_id', sesiId)
-    .eq('nis', user.nis!)
-    .single()
+    .eq('nis', nis)
+    .maybeSingle()
 
-  // FIX BUG (siswa terjebak tanpa jalan keluar): sebelumnya endpoint ini
-  // hanya mengembalikan `message` teks saat status TERKUNCI, tanpa flag
-  // eksplisit. Client (layar RESET_KODE dan overlay pelanggaran di tengah
-  // ujian) hanya menampilkan pesan itu sebagai error kecil dan MENUNGGU
-  // polling status terpisah (tiap 10 detik) untuk baru mengalihkan ke
-  // layar "Ujian Dihentikan" yang punya tombol Kembali ke Beranda — kalau
-  // polling telat atau gagal diam-diam, siswa tampak terjebak. Sekarang
-  // kirim `terkunci_permanen: true` + jumlah pelanggaran ASLI supaya
-  // client bisa langsung pindah ke layar itu tanpa menunggu poll berikutnya.
-  if (siswaUjian?.status === 'TERKUNCI') {
+  // Fail-closed: error database (mis. migrasi 24 belum dijalankan) BUKAN
+  // berarti "siswa tidak terdaftar" — jangan menyesatkan siswa dengan pesan itu.
+  if (siswaErr) {
+    console.error('[verifikasi-reset] gagal membaca siswa_ujian:', siswaErr.message)
+    return NextResponse.json({ valid: false, message: 'Kode belum dapat diproses. Coba lagi sebentar lagi.' }, { status: 503 })
+  }
+
+  if (!siswaUjian) {
+    return NextResponse.json({ valid: false, message: 'Anda belum terdaftar di sesi ujian ini.' })
+  }
+
+  const waktuMulai = siswaUjian.waktu_mulai_awal ?? siswaUjian.waktu_mulai ?? new Date().toISOString()
+
+  // Terkunci permanen: kirim flag eksplisit + jumlah pelanggaran ASLI supaya
+  // client langsung pindah ke layar "Ujian Dihentikan" tanpa menunggu polling.
+  const balasTerkunci = async () => {
     const { count } = await db
       .from('pelanggaran')
       .select('*', { count: 'exact', head: true })
       .eq('sesi_id', sesiId)
-      .eq('nis', user.nis!)
+      .eq('nis', nis)
       .neq('status', 'DIABAIKAN')
     return NextResponse.json({
       valid: false,
@@ -73,74 +90,93 @@ export async function POST(req: NextRequest) {
       message: 'Akun Anda dikunci permanen. Hubungi pengawas.',
     })
   }
+  if (siswaUjian.status === 'TERKUNCI') return balasTerkunci()
 
-  // Cari kode reset yang valid (belum digunakan) untuk siswa ini
-  const { data: logReset } = await db
-    .from('log_reset')
-    .select('id, password_baru, percobaan_gagal, terkunci_sampai')
-    .eq('nis', user.nis!)
-    .eq('digunakan', false)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .single()
-
-  if (!logReset) {
-    return NextResponse.json({ valid: false, message: 'Tidak ada kode reset aktif. Hubungi pengawas.' })
-  }
-
-  // RATE LIMIT: kalau sedang terkunci sementara, tolak tanpa mengecek kode sama sekali
-  if (logReset.terkunci_sampai && new Date(logReset.terkunci_sampai) > new Date()) {
-    const sisaMs = new Date(logReset.terkunci_sampai).getTime() - Date.now()
-    const sisaMenit = Math.ceil(sisaMs / 60000)
+  // Lockout sementara: tolak TANPA memeriksa kode sama sekali.
+  if (siswaUjian.reset_terkunci_sampai && new Date(siswaUjian.reset_terkunci_sampai) > new Date()) {
+    const sisaMenit = Math.ceil((new Date(siswaUjian.reset_terkunci_sampai).getTime() - Date.now()) / 60000)
     return NextResponse.json({
       valid: false,
       message: `Terlalu banyak percobaan salah. Coba lagi dalam ${sisaMenit} menit, atau hubungi pengawas.`,
     })
   }
 
-  if (logReset.password_baru.toUpperCase() !== kodeReset.trim().toUpperCase()) {
-    const percobaanBaru = (logReset.percobaan_gagal ?? 0) + 1
-    const updatePayload: Record<string, unknown> = { percobaan_gagal: percobaanBaru }
+  const terpakai = siswaUjian.reset_terpakai ?? 0
 
-    if (percobaanBaru >= MAX_PERCOBAAN) {
-      updatePayload.terkunci_sampai = new Date(Date.now() + LOCKOUT_MENIT * 60 * 1000).toISOString()
-      updatePayload.percobaan_gagal = 0 // reset counter, lockout yang menahan sekarang
+  // Retry yang sah: respons "kode benar" sebelumnya hilang di jaringan, siswa
+  // sudah AKTIF, lalu mengetik kode yang sama lagi. Kode yang barusan dipakai
+  // dianggap sukses (idempoten) — TIDAK mengubah state apa pun.
+  if (siswaUjian.status !== 'RESET') {
+    if (terpakai >= 1 && kodeResetCocok(sesiId, nis, terpakai, kodeReset)) {
+      return NextResponse.json({ valid: true, waktu_mulai: waktuMulai, message: 'Kode benar. Ujian dilanjutkan.' })
     }
+    return NextResponse.json({ valid: false, message: 'Tidak ada kode reset aktif. Hubungi pengawas.' })
+  }
 
-    await db.from('log_reset').update(updatePayload).eq('id', logReset.id)
+  const maks = await ambilMaksReset(db)
+  const nomor = terpakai + 1
+  if (nomor > maks) {
+    // Hanya mungkin bila batasPelanggaran diturunkan saat ujian berjalan.
+    return NextResponse.json({ valid: false, message: 'Batas reset tercapai. Hubungi pengawas.' })
+  }
 
-    if (percobaanBaru >= MAX_PERCOBAAN) {
+  // ── Kode salah → hitung percobaan ────────────────────────────────────────
+  if (!kodeResetCocok(sesiId, nis, nomor, kodeReset)) {
+    const { data: gagal, error } = await db.rpc('catat_reset_gagal', {
+      p_sesi_id: sesiId,
+      p_nis: nis,
+      p_maks_gagal: MAX_PERCOBAAN,
+      p_menit: LOCKOUT_MENIT,
+    })
+    if (error) console.error('[verifikasi-reset] catat_reset_gagal gagal:', error.message)
+    const g = (gagal ?? {}) as { hasil?: string; sisa?: number; menit?: number }
+    if (g.hasil === 'DIKUNCI_SEMENTARA') {
       return NextResponse.json({
         valid: false,
-        message: `Terlalu banyak percobaan salah. Akun dikunci sementara selama ${LOCKOUT_MENIT} menit. Hubungi pengawas jika perlu reset ulang.`,
+        message: `Terlalu banyak percobaan salah. Akun dikunci sementara selama ${g.menit ?? LOCKOUT_MENIT} menit. Hubungi pengawas jika perlu reset ulang.`,
       })
     }
-
-    const sisaPercobaan = MAX_PERCOBAAN - percobaanBaru
+    const sisa = typeof g.sisa === 'number' ? g.sisa : undefined
     return NextResponse.json({
       valid: false,
-      message: `Kode reset salah. Cek kembali kode dari pengawas. Sisa percobaan: ${sisaPercobaan}.`,
+      message: sisa !== undefined
+        ? `Kode reset salah. Cek kembali kode dari pengawas. Sisa percobaan: ${sisa}.`
+        : 'Kode reset salah. Cek kembali kode dari pengawas.',
     })
   }
 
-  // Kode benar — tandai sudah digunakan dan bersihkan counter
-  await db.from('log_reset')
-    .update({ digunakan: true, percobaan_gagal: 0, terkunci_sampai: null })
-    .eq('id', logReset.id)
-
-  // FIX: Aktifkan kembali siswa TANPA mengubah waktu_mulai
-  // Timer tetap berjalan dari waktu awal masuk, bukan dari sekarang
-  await db.from('siswa_ujian')
-    .update({ status: 'AKTIF' })   // ← tidak ada waktu_mulai: new Date() lagi
-    .eq('sesi_id', sesiId)
-    .eq('nis', user.nis!)
-
-  // Kembalikan waktu_mulai_awal agar client bisa hitung sisa waktu yang benar
-  const waktuMulaiAwal = siswaUjian?.waktu_mulai_awal ?? siswaUjian?.waktu_mulai ?? new Date().toISOString()
-
-  return NextResponse.json({
-    valid: true,
-    waktu_mulai: waktuMulaiAwal,
-    message: 'Kode benar. Ujian dilanjutkan.',
+  // ── Kode benar → pakai (atomik, berurutan, sekali pakai) ─────────────────
+  const { data: pakai, error: pakaiErr } = await db.rpc('konsumsi_reset_berurutan', {
+    p_sesi_id: sesiId,
+    p_nis: nis,
+    p_nomor: nomor,
+    p_maks: maks,
+    p_oleh: 'siswa',
   })
+  if (pakaiErr || !pakai) {
+    // Fail-closed: JANGAN meloloskan siswa kalau penggunaan kode tidak tercatat.
+    console.error('[verifikasi-reset] konsumsi_reset_berurutan gagal:', pakaiErr?.message)
+    return NextResponse.json({ valid: false, message: 'Kode belum dapat diproses. Coba lagi sebentar lagi.' }, { status: 503 })
+  }
+
+  const p = pakai as { hasil: string; waktu_mulai?: string; sampai?: string }
+  switch (p.hasil) {
+    case 'OK':
+    case 'SUDAH_DIPAKAI':
+    case 'TIDAK_PERLU_RESET':
+      return NextResponse.json({
+        valid: true,
+        waktu_mulai: p.waktu_mulai ?? waktuMulai,
+        message: 'Kode benar. Ujian dilanjutkan.',
+      })
+    case 'TERKUNCI':
+      return balasTerkunci()
+    case 'DIKUNCI_SEMENTARA':
+      return NextResponse.json({ valid: false, message: 'Terlalu banyak percobaan salah. Coba lagi beberapa menit lagi.' })
+    case 'SESI_DITUTUP':
+      return NextResponse.json({ valid: false, message: 'Sesi ujian sudah ditutup.' })
+    default:
+      // URUTAN_SALAH (balapan dengan request lain) dan sisanya: aman diulang.
+      return NextResponse.json({ valid: false, message: 'Kode belum dapat diproses. Coba lagi.' })
+  }
 }
