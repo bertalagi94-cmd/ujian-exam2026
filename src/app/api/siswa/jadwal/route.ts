@@ -54,12 +54,26 @@ export async function GET(req: NextRequest) {
   const jadwalIds = data.map(j => j.id)
   const { data: sesiList } = await db
     .from('sesi_ujian')
-    .select('id, jadwal_id, status')
+    .select('id, jadwal_id, status, info_json')
     .in('jadwal_id', jadwalIds)
 
   const sesiIds = (sesiList ?? []).map(s => s.id)
   const sesiToJadwal = Object.fromEntries((sesiList ?? []).map(s => [s.id, s.jadwal_id]))
   const sesiStatusMap = Object.fromEntries((sesiList ?? []).map(s => [s.id, s.status]))
+  // FIX BUG (siswa diarahkan ke fase essay untuk sesi yang TIDAK punya essay):
+  // `status_essay` di tabel siswa_ujian defaultnya 'BELUM_MULAI' untuk SEMUA
+  // baris (lihat supabase/07_essay.sql), termasuk sesi yang mapelnya sama
+  // sekali tidak memakai essay (info_json.essay_aktif = false). Selama sesi
+  // itu belum resmi ditutup guru (status masih 'BERJALAN'), cek di bawah
+  // sebelumnya SELALU menganggap siswa itu "essay pending" walau essay-nya
+  // memang tidak pernah aktif untuk sesi tsb — akibatnya siswa dilempar ke
+  // halaman ESSAY_INFO (fullscreen + anti-cheat aktif), lalu endpoint
+  // essay/info menolak dengan "Sesi ini tidak memiliki soal essay" karena
+  // essay_aktif memang false, dan siswa terjebak di balik layar fullscreen
+  // tanpa jalan keluar yang aman. Sekarang essay_aktif ikut disyaratkan.
+  const sesiEssayAktifMap = Object.fromEntries(
+    (sesiList ?? []).map(s => [s.id, !!(s.info_json as { essay_aktif?: boolean } | null)?.essay_aktif])
+  )
 
   let nilaiByJadwal: Record<string, { id: string }> = {}
   if (sesiIds.length > 0) {
@@ -102,7 +116,11 @@ export async function GET(req: NextRequest) {
       .eq('nis', user.nis!)
     for (const su of siswaUjianEssayList ?? []) {
       const sesiMasihBerjalan = sesiStatusMap[su.sesi_id] === 'BERJALAN'
-      if (sesiMasihBerjalan && (su.status_essay === 'BELUM_MULAI' || su.status_essay === 'MENGERJAKAN')) {
+      const sesiPunyaEssay = !!sesiEssayAktifMap[su.sesi_id]
+      if (
+        sesiMasihBerjalan && sesiPunyaEssay &&
+        (su.status_essay === 'BELUM_MULAI' || su.status_essay === 'MENGERJAKAN')
+      ) {
         const jadwalId = sesiToJadwal[su.sesi_id]
         if (jadwalId) essayPendingByJadwal[jadwalId] = su.sesi_id
       }
