@@ -87,7 +87,7 @@ BEGIN
   END IF;
 
   -- 3) Simpan nilai. Kalau sudah ada (request lain menang duluan), biarkan.
-  INSERT INTO nilai (id, sesi_id, nis, mapel_id, kelas, benar, total, nilai, grade, lulus, kkm, "timestamp")
+  INSERT INTO nilai (id, sesi_id, nis, mapel_id, kelas, benar, total, nilai, grade, lulus, kkm, "timestamp", catatan_guru)
   VALUES (
     p_nilai->>'id',
     p_sesi_id,
@@ -100,7 +100,9 @@ BEGIN
     p_nilai->>'grade',
     COALESCE((p_nilai->>'lulus')::boolean, FALSE),
     COALESCE((p_nilai->>'kkm')::int, 75),
-    COALESCE((p_nilai->>'timestamp')::timestamptz, NOW())
+    COALESCE((p_nilai->>'timestamp')::timestamptz, NOW()),
+    -- Hanya terisi untuk submit yang datang setelah batas waktu (lihat selesai/route.ts).
+    p_nilai->>'catatan_guru'
   )
   ON CONFLICT (sesi_id, nis) DO NOTHING;
 
