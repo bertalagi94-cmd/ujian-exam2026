@@ -19,6 +19,7 @@ import {
 // FIX (Essay masih bergantung koneksi saat "Kirim" + belum ada outbox
 // permanen): lihat src/lib/ujian-outbox.ts untuk rasionalnya.
 import { simpanPaketTertunda, cobaKirimPaketTertunda, ambilPaketTertunda, hapusPaketTertunda } from '@/lib/ujian-outbox'
+import { antrekanPelanggaran } from '@/lib/pelanggaran-outbox'
 import {
   simpanPaketPgOffline,
   cariPaketPgOfflineTerbaru,
@@ -1517,42 +1518,42 @@ export default function SiswaUjianPage() {
   async function laporPelanggaran(jenis: string, detail: string) {
     const currentSesi = sesiInfoRef.current
     if (!currentSesi) return
-    try {
-      // eventId = kunci idempoten untuk SATU kejadian fisik ini. Kalau request
-      // yang sama dikirim ulang (retry jaringan), server tidak menghitungnya
-      // sebagai pelanggaran baru.
-      const eventId =
-        typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-          ? crypto.randomUUID()
-          : `ev-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
-      const res = await apiRequest<{ perlu_reset?: boolean; terkunci?: boolean; level?: number; batasPelanggaran?: number }>('/api/siswa/ujian/pelanggaran', {
-        method: 'POST',
-        body: JSON.stringify({ sesiId: currentSesi.sesiId, jenis, detail, eventId }),
-      })
-      // FIX BUG A: simpan batasPelanggaran dari response supaya halaman
-      // "Ujian Dihentikan" menampilkan angka yang benar.
-      if (res?.batasPelanggaran) setBatasPelanggaran(res.batasPelanggaran)
-      // FIX BUG (jumlah pelanggaran ASLI, bukan angka batas): simpan level
-      // pelanggaran sungguhan yang baru saja dicatat server, supaya kalau
-      // siswa ini nanti benar-benar dikunci, layar "Ujian Dihentikan" bisa
-      // menampilkan angka yang sesuai riwayat asli, bukan sekadar batas.
-      if (typeof res?.level === 'number') setJumlahPelanggaran(res.level)
+    const user = JSON.parse(localStorage.getItem('user') ?? '{}')
+    if (!user?.nis) return
+    // FIX P0 #1 (audit): sebelumnya request ini dipanggil LANGSUNG dan
+    // kegagalan (offline/timeout) hanya di-console.warn — event pelanggaran
+    // HILANG SELAMANYA, padahal eventId (kunci idempoten) sudah dibuat.
+    // Sekarang antrekanPelanggaran() SELALU menyimpan event ke IndexedDB
+    // dulu (survive tab ditutup/crash), baru mencoba kirim; kalau gagal
+    // sementara, penjaga latar belakang (mulaiPenjagaPelanggaran di
+    // siswa/layout.tsx) akan mengulang otomatis begitu koneksi pulih. Lihat
+    // src/lib/pelanggaran-outbox.ts untuk detail siklusnya.
+    const res = await antrekanPelanggaran(currentSesi.sesiId, user.nis, jenis, detail)
+    if (!res) return // tertunda (offline/gagal sementara) — lihat catatan UX di pelanggaran-outbox.ts
 
-      // Sistem reset R1/R2/R3: kalau semua kode reset sudah terpakai, pelanggaran
-      // ini menutup ujian siswa. Keputusan diambil ATOMIK oleh server (bukan
-      // menunggu pengawas), jadi langsung pindah ke layar "Ujian Dihentikan"
-      // tanpa menunggu polling cekStatusSesi (10 detik).
-      if (res?.terkunci) {
-        clearInterval(timerRef.current!)
-        clearInterval(syncRef.current!)
-        clearInterval(sesiPollRef.current!)
-        clearInterval(essayTimerRef.current!)
-        clearInterval(essaySyncRef.current!)
-        clearInterval(essayAksesMulaiPollRef.current!)
-        setShowWarningOverlay(false)
-        setDikeluarkan(true)
-      }
-    } catch (e) { console.warn(e) }
+    // FIX BUG A: simpan batasPelanggaran dari response supaya halaman
+    // "Ujian Dihentikan" menampilkan angka yang benar.
+    if (res.batasPelanggaran) setBatasPelanggaran(res.batasPelanggaran)
+    // FIX BUG (jumlah pelanggaran ASLI, bukan angka batas): simpan level
+    // pelanggaran sungguhan yang baru saja dicatat server, supaya kalau
+    // siswa ini nanti benar-benar dikunci, layar "Ujian Dihentikan" bisa
+    // menampilkan angka yang sesuai riwayat asli, bukan sekadar batas.
+    if (typeof res.level === 'number') setJumlahPelanggaran(res.level)
+
+    // Sistem reset R1/R2/R3: kalau semua kode reset sudah terpakai, pelanggaran
+    // ini menutup ujian siswa. Keputusan diambil ATOMIK oleh server (bukan
+    // menunggu pengawas), jadi langsung pindah ke layar "Ujian Dihentikan"
+    // tanpa menunggu polling cekStatusSesi (10 detik).
+    if (res.terkunci) {
+      clearInterval(timerRef.current!)
+      clearInterval(syncRef.current!)
+      clearInterval(sesiPollRef.current!)
+      clearInterval(essayTimerRef.current!)
+      clearInterval(essaySyncRef.current!)
+      clearInterval(essayAksesMulaiPollRef.current!)
+      setShowWarningOverlay(false)
+      setDikeluarkan(true)
+    }
   }
 
   // FIX BUG P0 #4 (audit): GERBANG READINESS gambar soal SEBELUM START.
