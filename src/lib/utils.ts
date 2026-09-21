@@ -1,3 +1,4 @@
+import { nisTerkunciTab, nisDariToken, IdentitasBerubahError } from '@/lib/identitas-tab'
 import { clsx, type ClassValue } from 'clsx'
 import { twMerge } from 'tailwind-merge'
 import { registerServerDate } from '@/lib/clock-offset'
@@ -178,12 +179,31 @@ export function apiRequest<T = unknown>(
   const { timeoutMs: _omit, ...fetchOptions } = options ?? {}
   void _omit
 
+  // ── Pengikat identitas tab (lihat src/lib/identitas-tab.ts) ──────────────
+  // Untuk endpoint siswa: kalau token di browser sudah bukan milik siswa yang
+  // dikunci di tab ini (akun lain login di tab lain), JANGAN kirim -- request
+  // itu akan mengubah data siswa yang salah. Sengaja reject TANPA `status`:
+  // pemanggil (autosync, outbox) membacanya sebagai "belum bisa terkirim",
+  // jawaban tetap aman di perangkat, dan paket TIDAK jadi GAGAL permanen.
+  const headerIdentitas: Record<string, string> = {}
+  if (typeof window !== 'undefined' && url.startsWith('/api/siswa/')) {
+    const nisKunci = nisTerkunciTab()
+    if (nisKunci) {
+      if (nisDariToken() !== nisKunci) {
+        clearTimeout(timerId)
+        return Promise.reject(new IdentitasBerubahError())
+      }
+      headerIdentitas['X-Nis-Klien'] = nisKunci
+    }
+  }
+
   return fetch(url, {
     ...fetchOptions,
     signal: controller.signal,
     headers: {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...headerIdentitas,
       ...fetchOptions?.headers,
     },
   })
