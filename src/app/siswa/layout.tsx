@@ -11,6 +11,12 @@ import { DipantauBanner } from '@/components/shared/DipantauBanner'
 // manapun (beranda, nilai, dst), bukan cuma persis saat berada di halaman
 // ujian. Lihat src/lib/ujian-outbox.ts untuk detail siklus statusnya.
 import { mulaiPenjagaOutbox } from '@/lib/ujian-outbox'
+// FIX P0 #1 (antrean pelanggaran offline — README "Belum ada"): penjaga
+// pelanggaran dipasang di SINI juga, dengan alasan yang sama seperti penjaga
+// outbox di atas — event pelanggaran yang sempat gagal terkirim (offline)
+// harus tetap dicoba ulang selama siswa berada di area /siswa manapun, bukan
+// cuma persis saat berada di halaman ujian. Lihat src/lib/pelanggaran-outbox.ts.
+import { mulaiPenjagaPelanggaran } from '@/lib/pelanggaran-outbox'
 import { kunciIdentitasTab, identitasTabBerubah } from '@/lib/identitas-tab'
 import { AlertTriangle } from 'lucide-react'
 import { mulaiPemantauJaringan } from '@/lib/status-jaringan'
@@ -50,12 +56,14 @@ export default function SiswaLayout({ children }: { children: React.ReactNode })
     window.addEventListener('storage', cek)
     const idCek = setInterval(cek, 3000)
     const stopOutbox = mulaiPenjagaOutbox(nis)
+    const stopPelanggaran = mulaiPenjagaPelanggaran(nis)
 
     return () => {
       window.removeEventListener('storage', cek)
       clearInterval(idCek)
       kunciIdentitasTab(null)
       stopOutbox()
+      stopPelanggaran()
     }
   }, [])
 
