@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 import { instrumented } from '@/lib/metrik'
+import { catatAktivitas } from '@/lib/aktivitas'
+import { hitungBatasWaktuPg, sudahKedaluwarsa, saringJawabanTerlambat } from '@/lib/deadline-pg'
 
 // POST /api/siswa/ujian/sync
 // PENTING: setelah upsert, kita selalu hitung ulang jumlah baris jawaban yang
@@ -30,7 +32,7 @@ export async function POST(req: NextRequest) {
   // mengecek status sesi — siswa tetap bisa sync jawaban walau sesi sudah
   // ditutup pengawas (status SELESAI). Ditemukan otomatis oleh load test
   // (skenario "sync setelah sesi ditutup seharusnya ditolak").
-  const { data: sesi } = await db.from('sesi_ujian').select('status, paket_soal_id').eq('id', sesiId).single()
+  const { data: sesi } = await db.from('sesi_ujian').select('status, paket_soal_id, durasi').eq('id', sesiId).single()
   if (!sesi) return NextResponse.json({ error: 'Sesi tidak ditemukan' }, { status: 404 })
   if (sesi.status !== 'BERJALAN') {
     return NextResponse.json({ error: 'Sesi ujian sudah ditutup, jawaban tidak bisa disimpan lagi.' }, { status: 409 })
@@ -42,7 +44,7 @@ export async function POST(req: NextRequest) {
   // bisa terus mengirim & menyimpan jawaban sampai ujian selesai.
   const { data: siswaUjian } = await db
     .from('siswa_ujian')
-    .select('status, device_id')
+    .select('status, device_id, waktu_mulai_awal')
     .eq('sesi_id', sesiId)
     .eq('nis', user.nis!)
     .single()
@@ -100,11 +102,74 @@ export async function POST(req: NextRequest) {
       soalIdValid = new Set((soalSah ?? []).map(s => s.id))
     }
 
-    const jawabanValid = sesi.paket_soal_id
+    const jawabanSahPaket = sesi.paket_soal_id
       ? jawaban.filter((j: { soal_id: string }) => soalIdValid.has(j.soal_id))
       : jawaban // fallback: kalau sesi belum punya snapshot paket (seharusnya jarang), jangan blokir autosave
 
-    const jawabanDitolak = jawaban.length - jawabanValid.length
+    const jawabanDitolak = jawaban.length - jawabanSahPaket.length
+
+    // ── KEBIJAKAN BATAS WAKTU (server = otoritas; lihat src/lib/deadline-pg.ts) ──
+    // FIX (audit "deadline /sync"): sebelumnya endpoint ini hanya mengecek sesi
+    // BERJALAN, jadi jawaban bisa terus diubah lewat request langsung SETELAH
+    // durasi siswa habis, lalu ikut dinilai saat sesi ditutup. Sekarang, begitu
+    // waktu siswa ini KEDALUWARSA secara logis (waktu_mulai_awal + durasi + 60 dtk),
+    // hanya jawaban yang terbukti DIBUAT sebelum batas yang diterima (siswa offline
+    // yang mengerjakan tepat waktu tidak dirugikan). Sebelum kedaluwarsa jalur ini
+    // TIDAK dijalankan sama sekali -- perilaku normal tidak berubah.
+    const sekarangMs = Date.now()
+    const batasWaktu = hitungBatasWaktuPg(siswaUjian?.waktu_mulai_awal, sesi.durasi)
+    let jawabanValid = jawabanSahPaket
+    let ackTerlambat: { soal_id: string; jawaban: string; revisi: number; accepted: boolean }[] = []
+    let ditolakTerlambatTanpaBaris = 0
+    let jumlahDitolakTerlambat = 0
+    if (batasWaktu && sudahKedaluwarsa(batasWaktu, sekarangMs) && jawabanSahPaket.length > 0) {
+      // Ambil baris yang SUDAH ada di server untuk soal-soal yang dikirim. Jawaban
+      // yang revisinya tidak lebih baru dari yang tersimpan bukan "perubahan
+      // baru" (klien hanya mengirim ulang isi lamanya): dibiarkan lewat apa
+      // adanya (RPC tidak akan menimpanya) dan TIDAK dihitung sebagai ditolak,
+      // supaya log audit hanya berisi perubahan yang benar-benar dipersoalkan.
+      const idSemua = jawabanSahPaket.map((j: { soal_id: string }) => j.soal_id)
+      const { data: barisAda } = await db
+        .from('jawaban').select('soal_id, jawaban, revisi')
+        .eq('sesi_id', sesiId).eq('nis', user.nis!).in('soal_id', idSemua)
+      const adaMap = new Map(
+        (barisAda ?? []).map(r => [r.soal_id as string, { jawaban: r.jawaban as string, revisi: (r.revisi as number | null) ?? 0 }])
+      )
+      const tidakBerubah = jawabanSahPaket.filter((j: { soal_id: string; revisi?: number }) => {
+        const ada = adaMap.get(j.soal_id)
+        return !!ada && (typeof j.revisi === 'number' ? j.revisi : 0) <= ada.revisi
+      })
+      const kandidat = jawabanSahPaket.filter((j: { soal_id: string }) => !tidakBerubah.includes(j))
+
+      const { diterima, ditolak } = saringJawabanTerlambat(kandidat, batasWaktu, sekarangMs)
+      jawabanValid = [...tidakBerubah, ...diterima]
+      jumlahDitolakTerlambat = ditolak.length
+
+      if (ditolak.length > 0) {
+        // ACK untuk yang ditolak memakai revisi KLIEN + accepted:false: client
+        // menganggap soal itu "sudah ditangani server" (tidak menunggu revisi
+        // yang memang tidak akan pernah diterima) sehingga submit tidak macet;
+        // nilai yang tersimpan tetap yang lama di server.
+        ackTerlambat = ditolak.map(({ jawaban: j }) => ({
+          soal_id: j.soal_id,
+          jawaban: adaMap.get(j.soal_id)?.jawaban ?? j.jawaban,
+          revisi: typeof j.revisi === 'number' ? j.revisi : 1,
+          accepted: false,
+        }))
+        ditolakTerlambatTanpaBaris = ditolak.filter(d => !adaMap.has(d.jawaban.soal_id)).length
+
+        const ringkasAlasan = ditolak.reduce<Record<string, number>>((acc, d) => { acc[d.alasan] = (acc[d.alasan] ?? 0) + 1; return acc }, {})
+        catatAktivitas(
+          db, user.nis!, 'SYNC_TERLAMBAT',
+          `Sync setelah batas waktu (sesi ${sesiId}, ${Math.round((sekarangMs - batasWaktu.deadlineMs) / 1000)} dtk sesudah deadline): ${diterima.length} perubahan diterima (dibuat sebelum batas), ${ditolak.length} ditolak ${JSON.stringify(ringkasAlasan)}.`
+        )
+      } else if (diterima.length > 0) {
+        catatAktivitas(
+          db, user.nis!, 'SYNC_TERLAMBAT',
+          `Sync setelah batas waktu (sesi ${sesiId}, ${Math.round((sekarangMs - batasWaktu.deadlineMs) / 1000)} dtk sesudah deadline): ${diterima.length} perubahan diterima karena dibuat sebelum batas (kerja offline).`
+        )
+      }
+    }
 
     let acked: { soal_id: string; jawaban: string; revisi: number; accepted: boolean }[] | null = null
 
@@ -167,6 +232,14 @@ export async function POST(req: NextRequest) {
       console.warn(`[sync] ${jawabanDitolak} jawaban ditolak untuk sesi ${sesiId}, nis ${user.nis}: soal_id tidak termasuk paket sesi ini.`)
     }
 
+    // Gabungkan ACK jawaban yang ditolak karena terlambat. Hanya kalau server
+    // memang memakai mode ACK (migrasi 20) ATAU tidak ada satu pun jawaban valid
+    // yang diproses; kalau tidak (mode lama berbasis hitungan), client tidak
+    // memakai `acked` dan `ditolakTerlambatTanpaBaris` di bawah yang menutupi.
+    if (ackTerlambat.length > 0 && (acked !== null || jawabanValid.length === 0)) {
+      acked = [...(acked ?? []), ...ackTerlambat]
+    }
+
     if (acked) {
       // Ground truth + ACK per jawaban dikembalikan sekaligus supaya client
       // tidak perlu round-trip GET terpisah untuk tahu mana yang benar2
@@ -179,8 +252,21 @@ export async function POST(req: NextRequest) {
       if (countError) return NextResponse.json({ error: countError.message }, { status: 500 })
       return NextResponse.json({
         message: `${Array.isArray(jawaban) ? jawaban.length : 0} jawaban diproses`,
-        totalSynced: count ?? 0,
+        // Jawaban yang ditolak karena terlambat TIDAK punya baris di DB, tapi
+        // client membandingkan totalSynced dengan jumlah jawaban lokalnya --
+        // hitung sebagai "sudah ditangani" agar submit tidak menunggu selamanya.
+        totalSynced: (count ?? 0) + ditolakTerlambatTanpaBaris,
         acked,
+        ...(jumlahDitolakTerlambat > 0 ? { ditolakTerlambat: jumlahDitolakTerlambat } : {}),
+      })
+    }
+    if (jumlahDitolakTerlambat > 0) {
+      // Mode hitungan (tanpa ACK per soal): tetap sertakan penyesuaian.
+      const { count: cnt } = await db.from('jawaban').select('*', { count: 'exact', head: true }).eq('sesi_id', sesiId).eq('nis', user.nis!)
+      return NextResponse.json({
+        message: `${jawaban.length} jawaban diproses`,
+        totalSynced: (cnt ?? 0) + ditolakTerlambatTanpaBaris,
+        ditolakTerlambat: jumlahDitolakTerlambat,
       })
     }
   }
