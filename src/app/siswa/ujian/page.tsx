@@ -1518,9 +1518,16 @@ export default function SiswaUjianPage() {
     const currentSesi = sesiInfoRef.current
     if (!currentSesi) return
     try {
-      const res = await apiRequest<{ perlu_reset?: boolean; level?: number; batasPelanggaran?: number }>('/api/siswa/ujian/pelanggaran', {
+      // eventId = kunci idempoten untuk SATU kejadian fisik ini. Kalau request
+      // yang sama dikirim ulang (retry jaringan), server tidak menghitungnya
+      // sebagai pelanggaran baru.
+      const eventId =
+        typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+          ? crypto.randomUUID()
+          : `ev-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+      const res = await apiRequest<{ perlu_reset?: boolean; terkunci?: boolean; level?: number; batasPelanggaran?: number }>('/api/siswa/ujian/pelanggaran', {
         method: 'POST',
-        body: JSON.stringify({ sesiId: currentSesi.sesiId, jenis, detail }),
+        body: JSON.stringify({ sesiId: currentSesi.sesiId, jenis, detail, eventId }),
       })
       // FIX BUG A: simpan batasPelanggaran dari response supaya halaman
       // "Ujian Dihentikan" menampilkan angka yang benar.
@@ -1531,10 +1538,20 @@ export default function SiswaUjianPage() {
       // menampilkan angka yang sesuai riwayat asli, bukan sekadar batas.
       if (typeof res?.level === 'number') setJumlahPelanggaran(res.level)
 
-      // Catatan: setDikeluarkan(true) TIDAK dipanggil di sini karena endpoint
-      // pelanggaran siswa hanya mencatat kejadian — keputusan kunci/dikeluarkan
-      // ada di tangan pengawas/admin. Polling cekStatusSesi (tiap 10 detik) yang
-      // akan mendeteksi status TERKUNCI dan memanggil setDikeluarkan(true).
+      // Sistem reset R1/R2/R3: kalau semua kode reset sudah terpakai, pelanggaran
+      // ini menutup ujian siswa. Keputusan diambil ATOMIK oleh server (bukan
+      // menunggu pengawas), jadi langsung pindah ke layar "Ujian Dihentikan"
+      // tanpa menunggu polling cekStatusSesi (10 detik).
+      if (res?.terkunci) {
+        clearInterval(timerRef.current!)
+        clearInterval(syncRef.current!)
+        clearInterval(sesiPollRef.current!)
+        clearInterval(essayTimerRef.current!)
+        clearInterval(essaySyncRef.current!)
+        clearInterval(essayAksesMulaiPollRef.current!)
+        setShowWarningOverlay(false)
+        setDikeluarkan(true)
+      }
     } catch (e) { console.warn(e) }
   }
 
@@ -3251,7 +3268,7 @@ export default function SiswaUjianPage() {
         <h2 className="text-lg font-bold text-slate-900 mb-2">Pelanggaran Terdeteksi!</h2>
         <p className="text-sm text-slate-600 mb-1">{warningMsg}</p>
         <p className="text-xs text-red-500 font-medium mb-4">
-          Pelanggaran ke-{pelanggRef.current} — Aktivitas ini dilaporkan ke pengawas
+          Pelanggaran ke-{Math.max(jumlahPelanggaran ?? 0, pelanggRef.current)} — Aktivitas ini dilaporkan ke pengawas
         </p>
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4 text-left">
           <p className="text-xs text-amber-700 font-semibold mb-1">⚠ Diperlukan Kode dari Pengawas</p>
