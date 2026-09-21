@@ -531,8 +531,20 @@ export function SiswaSidebar() {
         const zonaOffset = (json.zonaWaktu?.utcOffsetJam ?? 7) as number
         const shifted = new Date(Date.now() + zonaOffset * 60 * 60 * 1000)
         const today = shifted.toISOString().slice(0, 10)
+        // FIX BUG (menu "Mulai Ujian" tidak muncul untuk sesi susulan):
+        // sebelumnya filter di sini HANYA mengandalkan `j.tanggal === today`
+        // — sama persis dengan bug yang sudah diperbaiki di
+        // src/app/siswa/ujian/page.tsx (lihat komentar panjang di sana) dan
+        // src/app/siswa/jadwal/page.tsx, tapi perbaikannya waktu itu tidak
+        // ikut diterapkan di sini. Akibatnya: untuk sesi susulan yang dibuka
+        // admin/pengawas pada jadwal yang tanggal ASLINYA sudah lewat (lihat
+        // /api/admin/susulan — hanya `jadwal.status` yang di-set 'BERJALAN',
+        // `jadwal.tanggal` sengaja tidak diubah), menu "Mulai Ujian" di
+        // sidebar tetap disembunyikan walau siswa sebenarnya bisa masuk lewat
+        // halaman /siswa/ujian atau /siswa/jadwal. Sekarang disamakan: sesi
+        // dengan status BERJALAN ikut dihitung apa pun tanggalnya.
         const jadwalHariIni = (json.data ?? []).filter((j) =>
-          j.tanggal?.slice(0, 10) === today && !j.sudah_ikut && j.status !== 'SELESAI'
+          (j.tanggal?.slice(0, 10) === today || j.status === 'BERJALAN') && !j.sudah_ikut && j.status !== 'SELESAI'
         )
         setAdaJadwalHariIni(jadwalHariIni.length > 0)
       })
