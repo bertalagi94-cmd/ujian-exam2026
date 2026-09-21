@@ -325,6 +325,18 @@ export default function SiswaUjianPage() {
   const [essayInfo, setEssayInfo] = useState<EssayInfo | null>(null)
   const [loadingEssayInfo, setLoadingEssayInfo] = useState(false)
   const [errorEssay, setErrorEssay] = useState('')
+  // FIX BUG (siswa terjebak fullscreen + anti-cheat di balik kartu error yang
+  // tidak pernah bisa "Coba Lagi"): sebelumnya begitu phase berubah jadi
+  // 'ESSAY_INFO', fullscreen & seluruh listener anti-cheat (keluar fullscreen/
+  // pindah tab/blur = pelanggaran) langsung aktif SEBELUM fetchEssayInfo()
+  // sempat berhasil/gagal. Kalau sesi ternyata tidak punya essay (essay_aktif
+  // false) atau siswa ini sudah menyelesaikan ujian, essay/info menolak dan
+  // siswa cuma melihat kartu error dengan tombol "Coba Lagi" yang akan gagal
+  // selamanya — satu-satunya jalan keluar (menutup tab/keluar fullscreen)
+  // langsung tercatat sebagai pelanggaran. Sekarang: selama halaman info
+  // essay masih memuat ATAU gagal dimuat, fullscreen & anti-cheat DITUNDA —
+  // baru diaktifkan setelah essayInfo benar-benar berhasil didapat.
+  const essayInfoBelumSiap = phase === 'ESSAY_INFO' && (loadingEssayInfo || !!errorEssay)
   const [essayList, setEssayList] = useState<SoalEssay[]>([])
   const [loadingEssaySoal, setLoadingEssaySoal] = useState(false)
   const [jawabanEssay, setJawabanEssay] = useState<JawabanEssayMap>({})
@@ -698,6 +710,7 @@ export default function SiswaUjianPage() {
   // jawaban yang belum terkonfirmasi tersimpan di server ──────────────────
   useEffect(() => {
     if (phase !== 'UJIAN' && phase !== 'ESSAY_INFO' && phase !== 'ESSAY_KERJAKAN') return
+    if (essayInfoBelumSiap) return
     function onBeforeUnload(e: BeforeUnloadEvent) {
       // PERBAIKAN AUDIT P1 #13: sebelumnya hanya mengandalkan syncStatus
       // ('error'/'syncing'). Skenario yang lolos: jawaban 1 & 2 sudah
@@ -721,7 +734,7 @@ export default function SiswaUjianPage() {
     }
     window.addEventListener('beforeunload', onBeforeUnload)
     return () => window.removeEventListener('beforeunload', onBeforeUnload)
-  }, [phase, syncStatus, essaySyncStatus, jawaban])
+  }, [phase, syncStatus, essaySyncStatus, jawaban, essayInfoBelumSiap])
 
   // ── Ambil batasPelanggaran dari pengaturan saat mount ─────────────────────
   useEffect(() => {
@@ -851,14 +864,16 @@ export default function SiswaUjianPage() {
   // ── Minta izin blokir notifikasi saat ujian dimulai ───────────────────────
   useEffect(() => {
     if (phase !== 'UJIAN' && phase !== 'ESSAY_INFO' && phase !== 'ESSAY_KERJAKAN') return
+    if (essayInfoBelumSiap) return
     if ('Notification' in window && Notification.permission === 'default') {
       Notification.requestPermission()
     }
-  }, [phase])
+  }, [phase, essayInfoBelumSiap])
 
   // ── Masuk fullscreen saat phase UJIAN ─────────────────────────────────────
   useEffect(() => {
     if (phase !== 'UJIAN' && phase !== 'ESSAY_INFO' && phase !== 'ESSAY_KERJAKAN') return
+    if (essayInfoBelumSiap) return
     const el = document.documentElement
     requestFullscreen(el).catch(() => {
       // FIX: sebelumnya kegagalan di sini dibuang total tanpa jejak apapun.
@@ -890,11 +905,12 @@ export default function SiswaUjianPage() {
       document.removeEventListener('mozfullscreenchange', onFSChange)
       document.removeEventListener('MSFullscreenChange', onFSChange)
     }
-  }, [phase])
+  }, [phase, essayInfoBelumSiap])
 
   // ── Deteksi keluar fullscreen saat ujian ─────────────────────────────────
   useEffect(() => {
     if (phase !== 'UJIAN' && phase !== 'ESSAY_INFO' && phase !== 'ESSAY_KERJAKAN') return
+    if (essayInfoBelumSiap) return
     let fsCooldown: ReturnType<typeof setTimeout> | null = null
     function onFSChange() {
       if (!isFullscreen()) {
@@ -921,11 +937,12 @@ export default function SiswaUjianPage() {
       if (fsCooldown) clearTimeout(fsCooldown)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase])
+  }, [phase, essayInfoBelumSiap])
 
   // ── Anti-cheat: tab switch / visibilitychange ─────────────────────────────
   useEffect(() => {
     if (phase !== 'UJIAN' && phase !== 'ESSAY_INFO' && phase !== 'ESSAY_KERJAKAN') return
+    if (essayInfoBelumSiap) return
     // Cooldown mencegah event ganda (visibilitychange + blur keduanya fire sekaligus)
     let visCooldown: ReturnType<typeof setTimeout> | null = null
     function onVisibilityChange() {
@@ -945,19 +962,21 @@ export default function SiswaUjianPage() {
       if (visCooldown) clearTimeout(visCooldown)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase])
+  }, [phase, essayInfoBelumSiap])
 
   // ── Anti-cheat: blokir klik kanan ────────────────────────────────────────
   useEffect(() => {
     if (phase !== 'UJIAN' && phase !== 'ESSAY_INFO' && phase !== 'ESSAY_KERJAKAN') return
+    if (essayInfoBelumSiap) return
     function block(e: MouseEvent) { e.preventDefault() }
     document.addEventListener('contextmenu', block)
     return () => document.removeEventListener('contextmenu', block)
-  }, [phase])
+  }, [phase, essayInfoBelumSiap])
 
   // ── Anti-cheat: blokir shortcut keyboard berbahaya ───────────────────────
   useEffect(() => {
     if (phase !== 'UJIAN' && phase !== 'ESSAY_INFO' && phase !== 'ESSAY_KERJAKAN') return
+    if (essayInfoBelumSiap) return
     function onKeyDown(e: KeyboardEvent) {
       const blockedKeys = [
         e.ctrlKey && e.key === 'c',
@@ -980,11 +999,12 @@ export default function SiswaUjianPage() {
     }
     document.addEventListener('keydown', onKeyDown, true)
     return () => document.removeEventListener('keydown', onKeyDown, true)
-  }, [phase])
+  }, [phase, essayInfoBelumSiap])
 
   // ── Anti-cheat: blokir copy/paste/cut ────────────────────────────────────
   useEffect(() => {
     if (phase !== 'UJIAN' && phase !== 'ESSAY_INFO' && phase !== 'ESSAY_KERJAKAN') return
+    if (essayInfoBelumSiap) return
     function block(e: ClipboardEvent) { e.preventDefault() }
     document.addEventListener('copy', block)
     document.addEventListener('cut', block)
@@ -994,11 +1014,12 @@ export default function SiswaUjianPage() {
       document.removeEventListener('cut', block)
       document.removeEventListener('paste', block)
     }
-  }, [phase])
+  }, [phase, essayInfoBelumSiap])
 
   // ── Anti-cheat: blokir drag & drop ───────────────────────────────────────
   useEffect(() => {
     if (phase !== 'UJIAN' && phase !== 'ESSAY_INFO' && phase !== 'ESSAY_KERJAKAN') return
+    if (essayInfoBelumSiap) return
     function block(e: DragEvent) { e.preventDefault() }
     document.addEventListener('dragstart', block)
     document.addEventListener('drop', block)
@@ -1006,11 +1027,12 @@ export default function SiswaUjianPage() {
       document.removeEventListener('dragstart', block)
       document.removeEventListener('drop', block)
     }
-  }, [phase])
+  }, [phase, essayInfoBelumSiap])
 
   // ── Anti-cheat: blokir window blur (pindah aplikasi di HP) ───────────────
   useEffect(() => {
     if (phase !== 'UJIAN' && phase !== 'ESSAY_INFO' && phase !== 'ESSAY_KERJAKAN') return
+    if (essayInfoBelumSiap) return
     // Cooldown timer untuk mencegah event blur/visibilitychange terpicu berganda
     let blurCooldown: ReturnType<typeof setTimeout> | null = null
     function onBlur() {
@@ -1029,7 +1051,7 @@ export default function SiswaUjianPage() {
       if (blurCooldown) clearTimeout(blurCooldown)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase])
+  }, [phase, essayInfoBelumSiap])
 
   // ── Keluar fullscreen saat ujian selesai ──────────────────────────────────
   useEffect(() => {
@@ -1150,9 +1172,10 @@ export default function SiswaUjianPage() {
 
   useEffect(() => {
     if (phase !== 'UJIAN' && phase !== 'ESSAY_INFO' && phase !== 'ESSAY_KERJAKAN') return
+    if (essayInfoBelumSiap) return
     sesiPollRef.current = setInterval(cekStatusSesi, 10000)
     return () => clearInterval(sesiPollRef.current!)
-  }, [phase, cekStatusSesi])
+  }, [phase, cekStatusSesi, essayInfoBelumSiap])
 
   // FIX: sebelumnya, begitu siswa masuk fase RESET_KODE (layar "minta kode
   // 7 digit ke pengawas"), TIDAK ADA polling status sama sekali — cekStatusSesi
@@ -3377,6 +3400,20 @@ export default function SiswaUjianPage() {
                 </div>
                 <button onClick={() => fetchEssayInfo()} className="btn-primary w-full justify-center py-3">
                   <RefreshCw className="w-4 h-4" /> Coba Lagi
+                </button>
+                {/* FIX BUG: sebelumnya tidak ada jalan keluar selain "Coba
+                    Lagi" — kalau errornya bukan masalah sementara (mis. sesi
+                    memang tidak punya essay, atau siswa sudah menyelesaikan
+                    ujian ini), tombol itu akan gagal selamanya dan satu-
+                    satunya cara keluar (tutup tab/keluar fullscreen) dulu
+                    tercatat sebagai pelanggaran. Sekarang aman diklik karena
+                    fullscreen & anti-cheat sengaja belum diaktifkan selama
+                    kartu error ini tampil (lihat essayInfoBelumSiap). */}
+                <button
+                  onClick={() => { window.location.href = '/siswa' }}
+                  className="btn-secondary w-full justify-center py-3 mt-2"
+                >
+                  Kembali ke Beranda
                 </button>
                 {renderGerbangKodeDarurat()}
               </>
