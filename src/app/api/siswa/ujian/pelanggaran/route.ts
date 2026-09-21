@@ -2,86 +2,118 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 import { generateId } from '@/lib/utils'
-import { cachedFetch } from '@/lib/cache'
+import { ambilMaksReset } from '@/lib/reset-berurutan'
+import { tuntaskanSiswaTerkunci } from '@/lib/kunci-siswa'
 
-async function getBatasPelanggaran(db: ReturnType<typeof createAdminClient>): Promise<number> {
-  const val = await cachedFetch('pengaturan:batasPelanggaran', 60, async () => {
-    const { data } = await db.from('pengaturan').select('value').eq('key', 'batasPelanggaran').single()
-    return data?.value ?? '3'
-  })
-  return parseInt(val as string, 10) || 3
-}
+// POST /api/siswa/ujian/pelanggaran
+// Body: { sesiId, jenis, detail, eventId? }
+//
+// Mencatat SATU kejadian pelanggaran. Seluruh keputusan (level, status RESET,
+// atau TERKUNCI pada pelanggaran ke-(N+1)) diambil ATOMIK di dalam RPC
+// catat_pelanggaran_atomik (supabase/24_reset_berurutan.sql), bukan lagi
+// "hitung dulu, insert kemudian" lewat query terpisah.
+//
+// DEDUPLIKASI (menggantikan jendela 5 detik yang lama):
+//   1. `eventId` — kunci idempoten dari client untuk SATU kejadian fisik.
+//      Pengiriman ulang (retry jaringan, antrean offline) dengan eventId yang
+//      sama tidak pernah menjadi pelanggaran baru.
+//   2. Selama siswa masih berstatus RESET (menunggu kode), kejadian baru
+//      bukan pelanggaran tambahan — sama seperti latch di client. Ini menjaga
+//      pasangan pelanggaran#N <-> reset R(N) tetap sejajar.
+//
+// Kalau RPC gagal/tidak tersedia: 503 (BUKAN fallback ke jalur lama yang tidak
+// atomik). Client menyimpan kejadian dan boleh mengulang.
+
+const PANJANG_MAKS_TEKS = 500
+const POLA_EVENT_ID = /^[A-Za-z0-9_.:-]{8,80}$/
 
 export async function POST(req: NextRequest) {
   const auth = requireRole(req, ['SISWA'])
   if ('error' in auth) return auth.error
   const { user } = auth
 
-  const db = createAdminClient()
-  const { sesiId, jenis, detail } = await req.json()
-
-  // FIX BUG #2: Dedup pelanggaran di sisi server.
-  // Sebelumnya: client punya ref pelanggaranActiveRef untuk mencegah event ganda
-  // (fullscreenchange + visibilitychange + blur bisa muncul bersamaan untuk 1
-  // kejadian fisik). Tapi ref itu hilang saat tab di-reload/suspend OS → laporan
-  // duplikat dikirim ulang dan tercatat sebagai pelanggaran baru.
-  // Sekarang: cek apakah sudah ada pelanggaran dari nis+sesi yang sama dalam
-  // 5 detik terakhir. Kalau ada → anggap event duplikat, kembalikan data lama
-  // tanpa insert entri baru / menaikkan level.
-  const window5s = new Date(Date.now() - 5000).toISOString()
-  const { data: recentPelanggaran } = await db
-    .from('pelanggaran')
-    .select('id, level, status')
-    .eq('sesi_id', sesiId)
-    .eq('nis', user.nis!)
-    .gte('created_at', window5s)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle()
-
-  if (recentPelanggaran) {
-    // Event duplikat — kembalikan pelanggaran yang sudah ada tanpa insert baru
-    const [batasPelanggaran] = await Promise.all([getBatasPelanggaran(db)])
-    return NextResponse.json({
-      perlu_reset: true,
-      level: recentPelanggaran.level,
-      batasPelanggaran,
-      message: `Pelanggaran ke-${recentPelanggaran.level} terdeteksi. Hubungi pengawas untuk mendapatkan kode lanjut ujian.`,
-    })
+  let body: { sesiId?: unknown; jenis?: unknown; detail?: unknown; eventId?: unknown }
+  try {
+    body = await req.json()
+  } catch {
+    return NextResponse.json({ error: 'Body tidak valid' }, { status: 400 })
   }
 
-  // Bukan duplikat — proses normal
-  const [batasPelanggaran, { count }] = await Promise.all([
-    getBatasPelanggaran(db),
-    db.from('pelanggaran')
-      .select('*', { count: 'exact', head: true })
-      .eq('sesi_id', sesiId)
-      .eq('nis', user.nis!)
-      .neq('status', 'DIABAIKAN'),
-  ])
+  const { sesiId, jenis, detail, eventId } = body
+  if (typeof sesiId !== 'string' || !sesiId || typeof jenis !== 'string' || !jenis) {
+    return NextResponse.json({ error: 'sesiId dan jenis diperlukan' }, { status: 400 })
+  }
+  if (eventId !== undefined && eventId !== null && (typeof eventId !== 'string' || !POLA_EVENT_ID.test(eventId))) {
+    return NextResponse.json({ error: 'eventId tidak valid' }, { status: 400 })
+  }
 
-  const level = (count ?? 0) + 1
+  const db = createAdminClient()
+  const maksReset = await ambilMaksReset(db)
 
-  await Promise.all([
-    db.from('pelanggaran').insert({
-      id: generateId('PEL'),
-      sesi_id: sesiId,
-      nis: user.nis!,
-      jenis,
-      level,
-      detail,
-      status: 'BELUM_DITINDAKLANJUTI',
-    }),
-    db.from('siswa_ujian')
-      .update({ status: 'RESET' })
-      .eq('sesi_id', sesiId)
-      .eq('nis', user.nis!),
-  ])
-
-  return NextResponse.json({
-    perlu_reset: true,
-    level,
-    batasPelanggaran,
-    message: `Pelanggaran ke-${level} terdeteksi. Hubungi pengawas untuk mendapatkan kode lanjut ujian.`,
+  const { data, error } = await db.rpc('catat_pelanggaran_atomik', {
+    p_sesi_id: sesiId,
+    p_nis: user.nis!,
+    p_id: generateId('PEL'),
+    p_jenis: jenis.slice(0, 100),
+    p_detail: typeof detail === 'string' ? detail.slice(0, PANJANG_MAKS_TEKS) : null,
+    p_event_id: typeof eventId === 'string' ? eventId : null,
+    p_maks_reset: maksReset,
   })
+
+  if (error || !data) {
+    console.error('[pelanggaran] RPC catat_pelanggaran_atomik gagal:', error?.message)
+    return NextResponse.json(
+      { error: 'Pelanggaran belum dapat dicatat di server. Coba lagi.' },
+      { status: 503 }
+    )
+  }
+
+  const hasil = data as { hasil: string; level?: number; terkunci?: boolean; reset_berikutnya?: number }
+
+  const responsTerkunci = () =>
+    NextResponse.json({
+      perlu_reset: false,
+      terkunci: true,
+      level: hasil.level,
+      batasPelanggaran: maksReset,
+      message: 'Batas pelanggaran terlampaui. Ujian dihentikan.',
+    })
+
+  switch (hasil.hasil) {
+    case 'DICATAT':
+    case 'DUPLIKAT':
+    case 'MENUNGGU_RESET': {
+      // DUPLIKAT bisa menjawab event yang ternyata SUDAH mengunci siswa.
+      if (hasil.terkunci) {
+        await tuntaskanSiswaTerkunci(db, sesiId, user.nis!)
+        return responsTerkunci()
+      }
+      return NextResponse.json({
+        perlu_reset: true,
+        terkunci: false,
+        level: hasil.level,
+        batasPelanggaran: maksReset,
+        message: `Pelanggaran ke-${hasil.level} terdeteksi. Hubungi pengawas untuk mendapatkan kode lanjut ujian.`,
+      })
+    }
+
+    case 'TERKUNCI':
+      // Idempoten — aman walau sudah pernah dituntaskan.
+      await tuntaskanSiswaTerkunci(db, sesiId, user.nis!)
+      return responsTerkunci()
+
+    case 'SUDAH_SELESAI':
+      return NextResponse.json({ perlu_reset: false, terkunci: false, level: hasil.level, batasPelanggaran: maksReset })
+
+    case 'SESI_DITUTUP':
+      return NextResponse.json({ error: 'Sesi ujian sudah ditutup.' }, { status: 409 })
+
+    case 'SISWA_TIDAK_TERDAFTAR':
+    case 'SESI_TIDAK_ADA':
+      return NextResponse.json({ error: 'Sesi ujian tidak ditemukan untuk akun ini.' }, { status: 404 })
+
+    default:
+      console.error('[pelanggaran] hasil RPC tidak dikenali:', hasil)
+      return NextResponse.json({ error: 'Pelanggaran belum dapat dicatat di server. Coba lagi.' }, { status: 503 })
+  }
 }
