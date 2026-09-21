@@ -28,7 +28,7 @@ import { healthCheckStorage } from '@/lib/ujian-offline-storage'
 import { trustedNow } from '@/lib/clock-offset'
 // FIX (gambar soal belum jadi asset offline): lihat src/lib/gambar-offline.ts.
 import { precacheGambarSoal } from '@/lib/gambar-offline'
-import { berlanggananStatusJaringan } from '@/lib/status-jaringan'
+import { berlanggananStatusJaringan, ambilStatusJaringan } from '@/lib/status-jaringan'
 import { GambarSoalOffline } from '@/components/ui/GambarSoalOffline'
 
 type Phase = 'CEK_JADWAL' | 'PERSIAPAN' | 'KODE' | 'UJIAN' | 'ESSAY_INFO' | 'ESSAY_KERJAKAN' | 'SELESAI' | 'RESET_KODE'
@@ -2094,6 +2094,32 @@ export default function SiswaUjianPage() {
 
     const expectedCount = Object.keys(jawabanRef.current).length
 
+    // FIX BUG (siswa HP menunggu lama/tampak macet saat tekan "Selesai" di
+    // tengah internet mati): sebelumnya jalur di bawah ini SELALU mencoba
+    // sync sampai 4 ronde x 4 percobaan dulu (bisa memakan waktu beberapa
+    // menit, lihat catatan MAX_SYNC_RETRY/MAX_VERIFY_ROUNDS) sebelum akhirnya
+    // menyerah dan beralih ke jalur "jawaban aman offline" — padahal
+    // `status-jaringan.ts` SUDAH memantau keterjangkauan server di
+    // background sepanjang ujian berlangsung (denyut tiap 3-5 detik, lihat
+    // mulaiPemantauJaringan() di siswa/layout.tsx) dan sudah tahu device ini
+    // OFFLINE jauh sebelum siswa sempat menekan "Selesai". Manfaatkan sinyal
+    // itu di sini: kalau sudah OFFLINE, jangan buang waktu mencoba sync
+    // berkali-kali dulu (percobaan itu pasti gagal juga) — langsung ke jalur
+    // aman offline (kalau syaratnya terpenuhi), sama seperti yang sudah
+    // dilakukan lebih lambat di bawah untuk kasus serverTidakTerjangkau.
+    if (
+      ambilStatusJaringan() === 'OFFLINE' && !dipaksaPengawas &&
+      (amplopTersediaRef.current || sesiTanpaEssayKonfirmasiRef.current) && expectedCount > 0
+    ) {
+      // Estimasi jumlah yang sudah tersimpan dari ack sync terakhir (bisa
+      // saja sudah tersinkron sebagian sebelum internet mati) — sekadar
+      // untuk info di modal, bukan sumber kebenaran (itu tetap di server).
+      const estimasiSynced = Object.keys(ackTerakhirRef.current).length
+      amankanPgOffline(expectedCount, estimasiSynced, false)
+      setSubmitting(false)
+      return
+    }
+
     // ── Verifikasi sebelum finalisasi ──────────────────────────────────────
     // Ini adalah inti perbaikan: JANGAN PERNAH memanggil endpoint penilaian
     // hanya berdasarkan "sync tidak melempar error". Kita ulangi sync + cek
@@ -3540,8 +3566,10 @@ export default function SiswaUjianPage() {
         )}
 
         <div className="max-w-3xl mx-auto space-y-4 animate-fade-in select-none">
-          {/* Header */}
-          <div className="card py-3">
+          {/* Header — sticky, sama seperti perbaikan di halaman PG (lihat
+              komentar di render fase UJIAN) supaya nama mapel & sisa waktu
+              essay tetap terlihat saat siswa scroll membaca/menulis soal. */}
+          <div className="card py-3 sticky top-0 z-30 shadow-md">
             <div className="flex items-center justify-between gap-3">
               <div className="flex-1 min-w-0">
                 <div className="font-semibold text-slate-900 text-sm truncate">{essayInfo?.namaMapel} — Essay</div>
@@ -4394,8 +4422,13 @@ export default function SiswaUjianPage() {
       {sesiDitutupOverlayJSX}
 
       <div className="max-w-3xl mx-auto space-y-4 animate-fade-in select-none">
-        {/* Header */}
-        <div className="card py-3">
+        {/* Header — FIX: sebelumnya ikut ter-scroll bersama daftar soal,
+            sehingga nama mapel, sisa waktu, dan tombol Selesai tidak
+            terlihat lagi begitu siswa scroll ke soal-soal berikutnya
+            (paling terasa di HP, layar kecil). Sekarang dibuat sticky di
+            bagian atas viewport supaya selalu terlihat & bisa diakses
+            kapan saja tanpa perlu scroll ke atas dulu. */}
+        <div className="card py-3 sticky top-0 z-30 shadow-md">
           <div className="flex items-center justify-between gap-3">
             <div className="flex-1 min-w-0">
               <div className="font-semibold text-slate-900 text-sm truncate">{sesiInfo?.namaMapel}</div>
