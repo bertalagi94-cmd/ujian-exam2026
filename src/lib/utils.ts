@@ -197,7 +197,7 @@ export function apiRequest<T = unknown>(
     }
   }
 
-  return fetch(url, {
+  const fetchPromise = fetch(url, {
     ...fetchOptions,
     signal: controller.signal,
     headers: {
@@ -253,4 +253,31 @@ export function apiRequest<T = unknown>(
       }
       throw err
     })
+
+  // FIX BUG (siswa HP dengan aplikasi APK: request "kirim jawaban" tidak
+  // pernah gagal/selesai sampai koneksi BENAR-BENAR pulih, walau sudah ada
+  // timeout 10 detik di atas via AbortController): AbortController.abort()
+  // idealnya membuat fetch() langsung reject, tapi ini bergantung pada
+  // implementasi engine WebView yang dipakai APK — ada kelas bug yang cukup
+  // dikenal di beberapa versi Android System WebView/Chromium bawaan
+  // (berbeda dari Chrome desktop yang dipakai laptop) di mana koneksi yang
+  // sudah terlanjur "menggantung" di lapisan native (mis. soket TCP yang
+  // jaringannya mati mendadak di tengah request, bukan gagal connect sejak
+  // awal) tidak langsung dibatalkan begitu sinyal abort dikirim dari
+  // JavaScript — walhasil Promise fetch() BARU settle setelah koneksi
+  // jaringan sungguhan pulih (persis gejala yang dilaporkan: baru berhasil
+  // setelah hotspot dinyalakan), bisa jauh lebih lama dari 10 detik yang
+  // dimaksud. Race dengan timer independen di sini MENJAMIN Promise yang
+  // dikembalikan apiRequest() tetap settle (reject) tepat 10 detik+dikit,
+  // TIDAK PEDULI apakah fetch() di bawahnya benar-benar berhenti atau tidak
+  // — kode pemanggil (mis. syncJawabanInternal/handleSelesai) jadi bisa
+  // lanjut ke jalur "jawaban aman offline" tanpa harus menunggu koneksi
+  // nyata pulih. fetch() yang masih menggantung di background dibiarkan
+  // (tidak menyebabkan memory leak berarti untuk siklus hidup halaman ini),
+  // dan kalau ternyata BERHASIL belakangan, hasilnya cukup diabaikan.
+  const hardTimeoutPromise = new Promise<T>((_, reject) => {
+    setTimeout(() => reject(new Error('Koneksi terlalu lama. Periksa jaringan dan coba lagi.')), timeoutMs + 500)
+  })
+
+  return Promise.race([fetchPromise, hardTimeoutPromise])
 }
