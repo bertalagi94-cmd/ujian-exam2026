@@ -2,13 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 import { generateId } from '@/lib/utils'
-
-function generateKodeReset(): string {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
-  let code = ''
-  for (let i = 0; i < 7; i++) code += chars[Math.floor(Math.random() * chars.length)]
-  return code
-}
+import { ambilMaksReset, hitungKodeReset } from '@/lib/reset-berurutan'
 
 // GET /api/admin/pelanggaran
 // Query: page, per_page, search, status, jenis, sesiId, tanggal
@@ -155,46 +149,70 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ success: true, message: `Status pelanggaran diubah ke ${newStatus}` })
   }
 
-  // --- Bypass reset: admin generate kode langsung tanpa pengawas ---
+  // --- Bypass reset: admin mengambil kode reset yang BERLAKU SEKARANG ---
+  // Sistem R1/R2/R3 (supabase/24_reset_berurutan.sql): kode yang sah untuk siswa
+  // ini hanya R(reset_terpakai + 1). Bypass TIDAK membuat kode acak baru dan
+  // TIDAK melompati urutan — ia menampilkan kode giliran itu (sama persis dengan
+  // yang bisa dilihat pengawas) dan memastikan siswa berstatus RESET. Kode baru
+  // dianggap terpakai hanya ketika siswa benar-benar memasukkannya.
   if (action === 'bypass_reset') {
     if (!nis || !sesiId) return NextResponse.json({ error: 'nis dan sesiId diperlukan' }, { status: 400 })
 
     const { data: siswa } = await db.from('siswa').select('nama').eq('nis', nis).single()
     if (!siswa) return NextResponse.json({ error: 'Siswa tidak ditemukan' }, { status: 404 })
 
-    const kodeReset = generateKodeReset()
+    const { data: su } = await db
+      .from('siswa_ujian')
+      .select('status, reset_terpakai')
+      .eq('sesi_id', sesiId)
+      .eq('nis', nis)
+      .maybeSingle()
+    if (!su) return NextResponse.json({ error: 'Siswa belum terdaftar di sesi ini' }, { status: 404 })
+    if (su.status === 'TERKUNCI') {
+      return NextResponse.json({ error: 'Siswa sudah dikunci permanen. Gunakan "Reset Semua Pelanggaran" jika ingin membukanya.' }, { status: 409 })
+    }
+    if (su.status === 'SELESAI') {
+      return NextResponse.json({ error: 'Siswa sudah menyelesaikan ujian.' }, { status: 409 })
+    }
 
-    await Promise.all([
-      // Hapus kode lama yang belum digunakan
-      db.from('log_reset').delete().eq('nis', nis).eq('digunakan', false),
-    ])
+    const maks = await ambilMaksReset(db)
+    const nomor = (su.reset_terpakai ?? 0) + 1
+    if (nomor > maks) {
+      return NextResponse.json({ error: `Semua kode reset (R1–R${maks}) sudah terpakai. Pelanggaran berikutnya menutup ujian siswa ini.` }, { status: 409 })
+    }
 
-    await db.from('log_reset').insert({
-      nis,
-      reset_oleh: auth.user?.username ?? 'admin',
-      alasan: `sesi:${sesiId} — Bypass reset oleh ADMIN${catatan ? ': ' + catatan : ''}`,
-      password_baru: kodeReset,
-      digunakan: false,
-    })
+    let kodeReset: string
+    try {
+      kodeReset = hitungKodeReset(sesiId, nis, nomor)
+    } catch (e) {
+      console.error('[admin/pelanggaran] gagal menghitung kode reset:', e instanceof Error ? e.message : e)
+      return NextResponse.json({ error: 'Kode reset belum dapat disiapkan. Periksa konfigurasi rahasia server.' }, { status: 500 })
+    }
 
-    // Set status siswa ke RESET agar harus masukkan kode
+    // Hanya AKTIF/RESET yang boleh diubah ke RESET (jangan menimpa status lain).
     await db.from('siswa_ujian')
       .update({ status: 'RESET' })
       .eq('sesi_id', sesiId)
       .eq('nis', nis)
+      .in('status', ['AKTIF', 'RESET'])
 
-    // Update semua pelanggaran siswa di sesi ini jadi sudah ditindaklanjuti
-    await db.from('pelanggaran')
-      .update({ status: 'SUDAH_DITINDAKLANJUTI' })
-      .eq('sesi_id', sesiId)
-      .eq('nis', nis)
-      .eq('status', 'BELUM_DITINDAKLANJUTI')
+    // Jejak audit. Kode TIDAK disimpan ('-'); reset_no sengaja kosong karena
+    // ini bukan pemakaian reset (pemakaian dicatat saat siswa memasukkan kode).
+    await db.from('log_reset').insert({
+      nis,
+      sesi_id: sesiId,
+      reset_oleh: auth.user?.username ?? 'admin',
+      alasan: `sesi:${sesiId} — Bypass reset (R${nomor}) dilihat oleh ADMIN${catatan ? ': ' + catatan : ''}`,
+      password_baru: '-',
+      digunakan: true,
+    })
 
     return NextResponse.json({
       success: true,
       kode_reset: kodeReset,
+      reset_ke: nomor,
       nama_siswa: siswa.nama,
-      message: `Kode bypass untuk ${siswa.nama}: ${kodeReset}`,
+      message: `Kode reset R${nomor} untuk ${siswa.nama}: ${kodeReset}`,
     })
   }
 
@@ -278,7 +296,13 @@ export async function PATCH(req: NextRequest) {
 
     await Promise.all([
       db.from('pelanggaran').delete().eq('sesi_id', sesiId).eq('nis', nis),
-      db.from('siswa_ujian').update({ status: 'AKTIF' }).eq('sesi_id', sesiId).eq('nis', nis),
+      // Penghitung reset WAJIB ikut dikembalikan ke 0. Kalau tidak, siswa yang
+      // sudah memakai R3 tidak punya kode lagi (butuh "R4" yang tidak ada) dan
+      // langsung terkunci di pelanggaran berikutnya.
+      db.from('siswa_ujian')
+        .update({ status: 'AKTIF', reset_terpakai: 0, reset_gagal: 0, reset_terkunci_sampai: null })
+        .eq('sesi_id', sesiId)
+        .eq('nis', nis),
       db.from('log_reset').delete().eq('nis', nis).eq('digunakan', false),
     ])
 
