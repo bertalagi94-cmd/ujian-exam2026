@@ -93,6 +93,8 @@ async function pastikanJawabanTersinkron(
           soal_id,
           jawaban,
           revisi: backup.r?.[soal_id] ?? 1,
+          // Bukti waktu untuk kebijakan jawaban terlambat (lihat src/lib/deadline-pg.ts).
+          waktuJawabMs: backup.t?.[soal_id] || undefined,
         })),
         deviceId,
       }),
