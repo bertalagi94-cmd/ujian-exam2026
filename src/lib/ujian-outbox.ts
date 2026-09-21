@@ -171,6 +171,27 @@ function bacaSemuaKeyOutboxLocalStorage(): string[] {
   return hasil
 }
 
+// Normalisasi paket yang dibaca dari penyimpanan.
+//
+// Entri yang dibuat SEBELUM kolom `butuhKirimEssay` / `butuhFinalisasiPg` ada
+// adalah paket "essay belum terkirim" (satu-satunya jenis paket outbox pada
+// saat itu), jadi bagi merekalah `butuhKirimEssay` yang hilang berarti TRUE.
+// Kita nyatakan itu EKSPLISIT di sini -- di titik baca -- supaya default di
+// simpanPaketTertunda() bisa dibuat aman (false: "belum terbukti perlu kirim
+// essay") tanpa membuat paket lama diam-diam dianggap "tidak ada yang perlu
+// dikirim", dihapus, dan ditandai TERKIRIM padahal tidak pernah terkirim.
+function normalisasiPaket(paket: PaketUjianTertunda): PaketUjianTertunda {
+  const p = paket as Partial<PaketUjianTertunda> & PaketUjianTertunda
+  if (p.butuhKirimEssay === undefined || p.butuhFinalisasiPg === undefined) {
+    return {
+      ...paket,
+      butuhFinalisasiPg: p.butuhFinalisasiPg ?? false,
+      butuhKirimEssay: p.butuhKirimEssay ?? true,
+    }
+  }
+  return paket
+}
+
 async function migrasikanOutboxLamaJikaPerlu(): Promise<void> {
   if (migrasiOutboxSelesai) return
   // Ditandai selesai DI AWAL (bukan di akhir): kalaupun migrasi gagal
@@ -184,7 +205,7 @@ async function migrasikanOutboxLamaJikaPerlu(): Promise<void> {
     try {
       const raw = localStorage.getItem(k)
       if (!raw) continue
-      const paket = JSON.parse(raw) as PaketUjianTertunda
+      const paket = normalisasiPaket(JSON.parse(raw) as PaketUjianTertunda)
       await outboxPut(k, paket)
       localStorage.removeItem(k)
     } catch {
@@ -212,7 +233,12 @@ export async function simpanPaketTertunda(
     pesanTerakhir: data.pesanTerakhir ?? existing?.pesanTerakhir ?? null,
     waktuSelesaiClaimIso: data.waktuSelesaiClaimIso ?? existing?.waktuSelesaiClaimIso ?? null,
     butuhFinalisasiPg: data.butuhFinalisasiPg ?? existing?.butuhFinalisasiPg ?? false,
-    butuhKirimEssay: data.butuhKirimEssay ?? existing?.butuhKirimEssay ?? true,
+    // Default AMAN: belum terbukti perlu kirim essay = false. PG selesai,
+    // amplop essay tersedia, atau akses essay dibuka BUKAN niat mengirim essay;
+    // hanya siswa yang menekan Kirim di halaman essay (tundaEssayKeOutbox)
+    // yang boleh menjadikannya true. Paket lama tanpa field ini sudah
+    // dinormalisasi di titik baca (normalisasiPaket) sehingga tidak terdampak.
+    butuhKirimEssay: data.butuhKirimEssay ?? existing?.butuhKirimEssay ?? false,
   }
   try {
     await outboxPut(storageKey(paket.sesiId, paket.nis), paket)
@@ -234,13 +260,13 @@ export async function ambilPaketTertunda(sesiId: string, nis: string): Promise<P
   await migrasikanOutboxLamaJikaPerlu()
   try {
     const dariIdb = await outboxGet<PaketUjianTertunda>(storageKey(sesiId, nis))
-    if (dariIdb) return dariIdb
+    if (dariIdb) return normalisasiPaket(dariIdb)
   } catch {
     // IndexedDB tidak tersedia — lanjut ke fallback localStorage di bawah.
   }
   try {
     const raw = localStorage.getItem(storageKey(sesiId, nis))
-    return raw ? (JSON.parse(raw) as PaketUjianTertunda) : null
+    return raw ? normalisasiPaket(JSON.parse(raw) as PaketUjianTertunda) : null
   } catch {
     return null
   }
@@ -266,7 +292,7 @@ export async function ambilSemuaPaketTertunda(nis: string): Promise<PaketUjianTe
   try {
     const semua = await outboxGetAllValues<PaketUjianTertunda>()
     for (const paket of semua) {
-      if (paket.nis === nis) hasil.push(paket)
+      if (paket.nis === nis) hasil.push(normalisasiPaket(paket))
     }
   } catch {
     // IndexedDB tidak tersedia sama sekali (browser sangat lama) — fallback
@@ -275,7 +301,7 @@ export async function ambilSemuaPaketTertunda(nis: string): Promise<PaketUjianTe
       try {
         const raw = localStorage.getItem(k)
         if (!raw) continue
-        const paket = JSON.parse(raw) as PaketUjianTertunda
+        const paket = normalisasiPaket(JSON.parse(raw) as PaketUjianTertunda)
         if (paket.nis === nis) hasil.push(paket)
       } catch {
         // entri korup — abaikan, jangan sampai mematikan seluruh daftar
