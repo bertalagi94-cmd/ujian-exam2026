@@ -38,8 +38,16 @@ export async function POST(req: NextRequest) {
     .single()
 
   if (!siswaUjian) return NextResponse.json({ error: 'Data ujian Anda tidak ditemukan' }, { status: 404 })
-  if (siswaUjian.status === 'TERKUNCI' || siswaUjian.status === 'RESET') {
-    return NextResponse.json({ error: 'Akses ujian Anda sedang dikunci/menunggu reset.' }, { status: 403 })
+  // BUG P0 (audit outbox — sama seperti temuan di /selesai dan
+  // /essay/kirim): RESET sementara (bisa pulih sendiri setelah R1
+  // tersinkron) harus ditandai `sementara: true` supaya panggilan dari
+  // ujian-outbox.ts (siapkanEssayUntukKirim) tidak dianggap penolakan
+  // permanen. TERKUNCI tetap tanpa flag itu (memang final).
+  if (siswaUjian.status === 'RESET') {
+    return NextResponse.json({ error: 'Akses ujian Anda sedang menunggu kode reset.', sementara: true }, { status: 403 })
+  }
+  if (siswaUjian.status === 'TERKUNCI') {
+    return NextResponse.json({ error: 'Akses ujian Anda dikunci.' }, { status: 403 })
   }
   if (siswaUjian.status_essay !== 'MENGERJAKAN') {
     return NextResponse.json({ error: 'Sesi essay belum dimulai atau sudah selesai.' }, { status: 409 })
@@ -163,8 +171,13 @@ export async function GET(req: NextRequest) {
     .single()
 
   if (!siswaUjian) return NextResponse.json({ error: 'Data ujian Anda tidak ditemukan' }, { status: 404 })
-  if (siswaUjian.status === 'TERKUNCI' || siswaUjian.status === 'RESET') {
-    return NextResponse.json({ error: 'Akses ujian Anda sedang dikunci/menunggu reset.' }, { status: 403 })
+  // BUG P0 (audit outbox): sama seperti guard POST di atas — bedakan RESET
+  // (sementara) dari TERKUNCI (permanen).
+  if (siswaUjian.status === 'RESET') {
+    return NextResponse.json({ error: 'Akses ujian Anda sedang menunggu kode reset.', sementara: true }, { status: 403 })
+  }
+  if (siswaUjian.status === 'TERKUNCI') {
+    return NextResponse.json({ error: 'Akses ujian Anda dikunci.' }, { status: 403 })
   }
   if (siswaUjian.status_essay !== 'MENGERJAKAN') {
     return NextResponse.json({ error: 'Sesi essay belum dimulai atau sudah selesai.' }, { status: 409 })
