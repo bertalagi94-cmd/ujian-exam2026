@@ -622,197 +622,53 @@ export default function LoginPage() {
   return (
     <div
       className="min-h-screen flex relative overflow-hidden"
-      style={{ background: 'linear-gradient(135deg, #eaf6fb 0%, #dbeefc 25%, #e3f2fb 50%, #d8edf9 75%, #e8f6fb 100%)' }}
       onMouseMove={handleMouseMove}
     >
+      {/* ── Background foto siswa full 1 layar — di belakang SEMUA elemen.
+          `fixed inset-0` supaya tetap penuh & tidak ikut scroll, termasuk
+          saat mode Layar Penuh (fullscreen browser). object-cover menjaga
+          rasio gambar 1672x941 apa pun tanpa gepeng, object-position
+          "center 30%" menjaga wajah/tubuh siswa tetap kelihatan meski
+          bagian tepi ter-crop di layar yang rasionya beda. -z-10 memastikan
+          lapisan ini paling belakang. ── */}
+      <div className="fixed inset-0 -z-10 overflow-hidden">
+        <img
+          src="/images/siswa-sekolah.webp"
+          alt="" aria-hidden="true"
+          className="absolute inset-0 w-full h-full object-cover"
+          style={{ objectPosition: 'center 30%' }}
+        />
+        {/* Tint biru lembut supaya teks & kartu login tetap kontras di atas foto */}
+        <div className="absolute inset-0" style={{
+          background: 'linear-gradient(180deg, rgba(4,32,74,0.30) 0%, rgba(4,32,74,0.05) 20%, rgba(4,32,74,0.05) 55%, rgba(4,32,74,0.55) 100%)',
+        }} />
+        {/* ── Tepi biru elegan di bagian bawah — meniru contoh desain:
+            lengkungan biru bertumpuk (dua gelombang) sehingga sebagian
+            foto di bawah tertutup "bis" warna biru yang menyatu rapi. ── */}
+        <svg
+          className="absolute bottom-0 left-0 w-full"
+          style={{ height: '16vh', minHeight: 90, maxHeight: 190 }}
+          viewBox="0 0 1440 220" preserveAspectRatio="none"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <path d="M0,90 C240,170 480,20 720,60 C960,100 1200,180 1440,120 L1440,220 L0,220 Z" fill="#1d4ed8" fillOpacity="0.55" />
+          <path d="M0,130 C260,205 520,95 780,120 C1020,145 1240,210 1440,160 L1440,220 L0,220 Z" fill="#0ea5e9" fillOpacity="0.85" />
+        </svg>
+      </div>
+
       {/* ── Mouse spotlight ── */}
       <div
         ref={spotlightRef}
         style={{
           position: 'fixed', pointerEvents: 'none', zIndex: 0,
           width: '600px', height: '600px',
-          background: 'radial-gradient(circle, rgba(56,189,248,0.10) 0%, transparent 70%)',
+          background: 'radial-gradient(circle, rgba(255,255,255,0.12) 0%, transparent 70%)',
           borderRadius: '50%',
           transform: 'translate(-50%, -50%)',
           transition: 'left 0.1s ease-out, top 0.1s ease-out',
           left: '-300px', top: '-300px',
         }}
       />
-
-      {/* ── Aurora glow blobs ── */}
-      <div className="absolute inset-0 overflow-hidden" style={{ pointerEvents: 'none', zIndex: 0 }}>
-        {/* Biru besar kiri atas */}
-        <div className="aurora-1 absolute -top-48 -left-48 w-[700px] h-[700px] rounded-full opacity-50"
-          style={{ background: 'radial-gradient(circle, rgba(56,189,248,0.35) 0%, rgba(14,165,233,0.18) 40%, transparent 70%)', filter: 'blur(60px)' }} />
-        {/* Teal kanan tengah */}
-        <div className="aurora-2 absolute top-1/3 -right-48 w-[600px] h-[600px] rounded-full opacity-40"
-          style={{ background: 'radial-gradient(circle, rgba(45,212,191,0.30) 0%, rgba(20,184,166,0.15) 45%, transparent 70%)', filter: 'blur(70px)' }} />
-        {/* Biru muda bawah kiri */}
-        <div className="aurora-3 absolute -bottom-56 left-1/4 w-[550px] h-[550px] rounded-full opacity-40"
-          style={{ background: 'radial-gradient(circle, rgba(96,165,250,0.30) 0%, rgba(59,130,246,0.12) 45%, transparent 70%)', filter: 'blur(65px)' }} />
-        {/* Aksen putih kecil */}
-        <div className="absolute bottom-1/4 right-1/3 w-[300px] h-[300px] rounded-full opacity-40"
-          style={{ background: 'radial-gradient(circle, rgba(186,230,253,0.55) 0%, transparent 70%)', filter: 'blur(50px)', animation: 'aurora3 22s ease-in-out infinite' }} />
-      </div>
-
-      {/* ── Motif geometris transparan — SVG pattern ringan ── */}
-      <svg
-        className="absolute inset-0 w-full h-full batik-layer"
-        style={{ pointerEvents: 'none', zIndex: 0, opacity: 0.18 }}
-        viewBox="0 0 800 800" preserveAspectRatio="xMidYMid slice"
-        xmlns="http://www.w3.org/2000/svg"
-      >
-        <defs>
-          <pattern id="batikPalem" width="160" height="160" patternUnits="userSpaceOnUse" patternTransform="rotate(12)">
-            <g fill="none" stroke="#7dd3fc" strokeWidth="1.2">
-              {/* Mega mendung / parang stilir */}
-              <path d="M0 40 Q40 0 80 40 Q120 80 160 40" />
-              <path d="M0 80 Q40 40 80 80 Q120 120 160 80" />
-              <path d="M0 120 Q40 80 80 120 Q120 160 160 120" />
-              <path d="M40 0 Q40 40 40 80" strokeWidth="0.8" stroke="#a5f3fc" />
-              <path d="M80 0 Q80 40 80 80" strokeWidth="0.8" stroke="#a5f3fc" />
-              <path d="M120 0 Q120 40 120 80" strokeWidth="0.8" stroke="#a5f3fc" />
-              <circle cx="40" cy="40" r="5" stroke="#bae6fd" strokeWidth="1" />
-              <circle cx="120" cy="120" r="5" stroke="#bae6fd" strokeWidth="1" />
-              <circle cx="80" cy="80" r="3" stroke="#38bdf8" strokeWidth="1" />
-              {/* Kawung accent */}
-              <ellipse cx="40" cy="40" rx="14" ry="9" transform="rotate(45 40 40)" strokeWidth="0.9" stroke="#7dd3fc" />
-              <ellipse cx="120" cy="120" rx="14" ry="9" transform="rotate(45 120 120)" strokeWidth="0.9" stroke="#7dd3fc" />
-            </g>
-          </pattern>
-        </defs>
-        <rect x="0" y="0" width="800" height="800" fill="url(#batikPalem)" />
-      </svg>
-
-      {/* ── Mesh lines dekoratif ── */}
-      <svg
-        className="absolute inset-0 w-full h-full"
-        style={{ pointerEvents: 'none', zIndex: 0, opacity: 0.5 }}
-        viewBox="0 0 1440 900" preserveAspectRatio="xMidYMid slice"
-        xmlns="http://www.w3.org/2000/svg"
-      >
-        <defs>
-          <linearGradient id="lgPurple" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="#38bdf8" stopOpacity="0" />
-            <stop offset="50%" stopColor="#38bdf8" stopOpacity="0.4" />
-            <stop offset="100%" stopColor="#38bdf8" stopOpacity="0" />
-          </linearGradient>
-          <linearGradient id="lgPink" x1="0%" y1="100%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor="#14b8a6" stopOpacity="0" />
-            <stop offset="50%" stopColor="#14b8a6" stopOpacity="0.35" />
-            <stop offset="100%" stopColor="#14b8a6" stopOpacity="0" />
-          </linearGradient>
-          <linearGradient id="lgBlue" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor="#3b82f6" stopOpacity="0" />
-            <stop offset="50%" stopColor="#60a5fa" stopOpacity="0.35" />
-            <stop offset="100%" stopColor="#3b82f6" stopOpacity="0" />
-          </linearGradient>
-          <filter id="softGlow2">
-            <feGaussianBlur stdDeviation="3" result="blur" />
-            <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
-          </filter>
-        </defs>
-        <g filter="url(#softGlow2)" opacity="0.8">
-          <path d="M -80 140 L 360 60 L 720 190 L 1080 40" stroke="url(#lgPurple)" strokeWidth="1.8" fill="none" />
-          <path d="M 360 60 L 420 320" stroke="url(#lgPink)" strokeWidth="1.4" fill="none" />
-          <path d="M 720 190 L 660 430" stroke="url(#lgBlue)" strokeWidth="1.4" fill="none" />
-          <path d="M -80 260 L 300 340 L 720 190" stroke="url(#lgBlue)" strokeWidth="1.2" fill="none" />
-        </g>
-        <g filter="url(#softGlow2)" opacity="0.7">
-          <path d="M 1540 760 L 1140 860 L 760 700 L 380 840" stroke="url(#lgPink)" strokeWidth="1.8" fill="none" />
-          <path d="M 1140 860 L 1080 600" stroke="url(#lgPurple)" strokeWidth="1.4" fill="none" />
-          <path d="M 760 700 L 820 470" stroke="url(#lgBlue)" strokeWidth="1.4" fill="none" />
-        </g>
-        <path d="M -80 500 L 480 380 L 1000 560 L 1540 420" stroke="url(#lgPurple)" strokeWidth="1" fill="none" opacity="0.5" />
-        <g filter="url(#softGlow2)">
-          <circle cx="360" cy="60" r="3.5" fill="#7dd3fc" />
-          <circle cx="720" cy="190" r="4" fill="#38bdf8" />
-          <circle cx="420" cy="320" r="2.5" fill="#2dd4bf" />
-          <circle cx="660" cy="430" r="3" fill="#60a5fa" />
-          <circle cx="1140" cy="860" r="3.5" fill="#2dd4bf" />
-          <circle cx="760" cy="700" r="4" fill="#38bdf8" />
-        </g>
-      </svg>
-
-      {/* ── Ikon dekoratif tema digital exam (laptop, monitor, HP, dokumen) ── */}
-      <svg
-        className="absolute inset-0 w-full h-full batik-layer"
-        style={{ pointerEvents: 'none', zIndex: 0 }}
-        viewBox="0 0 1440 900" preserveAspectRatio="xMidYMid slice"
-        xmlns="http://www.w3.org/2000/svg"
-      >
-        <defs>
-          <linearGradient id="iconGrad1" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="#0ea5e9" />
-            <stop offset="100%" stopColor="#14b8a6" />
-          </linearGradient>
-          <linearGradient id="iconGrad2" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="#3b82f6" />
-            <stop offset="100%" stopColor="#0ea5e9" />
-          </linearGradient>
-        </defs>
-
-        {/* Laptop — kiri atas */}
-        <g transform="translate(110,90) rotate(-8)" opacity="0.16">
-          <rect x="0" y="0" width="120" height="78" rx="8" fill="none" stroke="url(#iconGrad1)" strokeWidth="4" />
-          <rect x="12" y="12" width="96" height="54" rx="3" fill="none" stroke="url(#iconGrad1)" strokeWidth="3" />
-          <path d="M -14 78 L 134 78 L 148 100 L -28 100 Z" fill="none" stroke="url(#iconGrad1)" strokeWidth="4" strokeLinejoin="round" />
-          <path d="M40 36 l14 14 l28 -28" fill="none" stroke="url(#iconGrad1)" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
-        </g>
-
-        {/* Monitor + grafik — kanan atas */}
-        <g transform="translate(1180,130) rotate(6)" opacity="0.15">
-          <rect x="0" y="0" width="130" height="88" rx="8" fill="none" stroke="url(#iconGrad2)" strokeWidth="4" />
-          <rect x="48" y="88" width="34" height="16" fill="none" stroke="url(#iconGrad2)" strokeWidth="4" />
-          <line x1="30" y1="104" x2="100" y2="104" stroke="url(#iconGrad2)" strokeWidth="4" strokeLinecap="round" />
-          <path d="M18 64 L40 40 L58 52 L86 22" fill="none" stroke="url(#iconGrad2)" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
-          <circle cx="86" cy="22" r="4" fill="url(#iconGrad2)" />
-        </g>
-
-        {/* Smartphone — kiri bawah */}
-        <g transform="translate(180,640) rotate(10)" opacity="0.16">
-          <rect x="0" y="0" width="62" height="108" rx="12" fill="none" stroke="url(#iconGrad1)" strokeWidth="4" />
-          <line x1="20" y1="94" x2="42" y2="94" stroke="url(#iconGrad1)" strokeWidth="4" strokeLinecap="round" />
-          <path d="M16 30 l12 12 l20 -22" fill="none" stroke="url(#iconGrad1)" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" />
-          <line x1="14" y1="58" x2="48" y2="58" stroke="url(#iconGrad1)" strokeWidth="3" strokeLinecap="round" />
-          <line x1="14" y1="68" x2="40" y2="68" stroke="url(#iconGrad1)" strokeWidth="3" strokeLinecap="round" />
-        </g>
-
-        {/* Dokumen ujian / clipboard — kanan bawah */}
-        <g transform="translate(1230,660) rotate(-7)" opacity="0.16">
-          <rect x="0" y="6" width="92" height="118" rx="8" fill="none" stroke="url(#iconGrad2)" strokeWidth="4" />
-          <rect x="26" y="0" width="40" height="16" rx="4" fill="none" stroke="url(#iconGrad2)" strokeWidth="4" />
-          <path d="M16 44 l10 10 l18 -20" fill="none" stroke="url(#iconGrad2)" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" />
-          <line x1="50" y1="48" x2="76" y2="48" stroke="url(#iconGrad2)" strokeWidth="3.5" strokeLinecap="round" />
-          <path d="M16 76 l10 10 l18 -20" fill="none" stroke="url(#iconGrad2)" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" />
-          <line x1="50" y1="80" x2="76" y2="80" stroke="url(#iconGrad2)" strokeWidth="3.5" strokeLinecap="round" />
-        </g>
-
-        {/* Shield / anti-nyontek — tengah atas */}
-        <g transform="translate(700,40) rotate(0)" opacity="0.13">
-          <path d="M40 0 L78 14 L78 46 Q78 80 40 96 Q2 80 2 46 L2 14 Z" fill="none" stroke="url(#iconGrad1)" strokeWidth="4" />
-          <path d="M22 46 l12 12 l24 -26" fill="none" stroke="url(#iconGrad1)" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
-        </g>
-
-        {/* Bar chart kecil — tengah bawah kiri */}
-        <g transform="translate(560,790) rotate(4)" opacity="0.13">
-          <rect x="0" y="30" width="14" height="34" fill="none" stroke="url(#iconGrad2)" strokeWidth="3.5" />
-          <rect x="22" y="14" width="14" height="50" fill="none" stroke="url(#iconGrad2)" strokeWidth="3.5" />
-          <rect x="44" y="0" width="14" height="64" fill="none" stroke="url(#iconGrad2)" strokeWidth="3.5" />
-        </g>
-
-        {/* Jam / waktu — tengah kanan */}
-        <g transform="translate(980,420) rotate(-4)" opacity="0.13">
-          <circle cx="34" cy="34" r="34" fill="none" stroke="url(#iconGrad1)" strokeWidth="4" />
-          <path d="M34 14 V34 L50 46" fill="none" stroke="url(#iconGrad1)" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
-        </g>
-
-        {/* Pensil / soal — kiri tengah */}
-        <g transform="translate(330,420) rotate(-25)" opacity="0.13">
-          <rect x="0" y="0" width="14" height="68" rx="3" fill="none" stroke="url(#iconGrad2)" strokeWidth="3.5" />
-          <path d="M0 0 L7 -16 L14 0 Z" fill="none" stroke="url(#iconGrad2)" strokeWidth="3.5" strokeLinejoin="round" />
-        </g>
-      </svg>
 
       <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" style={{ pointerEvents: 'none', zIndex: 0 }} />
 
@@ -873,27 +729,11 @@ export default function LoginPage() {
       )}
 
       {/* ── LEFT — branding ── */}
-      <div className="hidden lg:flex flex-col w-1/2 p-12 text-slate-900 relative">
-        {/* Ilustrasi siswa — DIBUAT RESPONSIF TERHADAP RASIO GAMBAR APA PUN,
-            bukan cuma ukuran layar. Sebelumnya dipatok LEBAR (w-[38vw]) dengan
-            h-auto — cocok untuk ilustrasi TINGGI/portrait, tapi begitu diganti
-            gambar LEBAR/landscape (mis. 1634x963), tingginya ikut menciut jauh
-            lebih pendek dari yang dirancang dan posisinya jadi kelihatan
-            "mengambang"/tidak proporsional terhadap teks di atasnya — persis
-            keluhan yang dilaporkan setelah upload gambar baru.
-            FIX: batasi width DAN height sekaligus (maxWidth + maxHeight, TANPA
-            width/height eksplisit) — browser otomatis menjaga rasio aspek
-            gambar apa pun dan berhenti membesar begitu salah satu batas
-            tercapai duluan. Jadi tetap rapi baik untuk gambar tinggi (portrait)
-            maupun lebar (landscape), termasuk gambar baru yang akan menyusul
-            dari desain ChatGPT — tidak perlu diubah lagi kalau rasio gambarnya
-            beda lagi nanti. */}
-        <img
-          src="/images/siswa-sekolah.webp"
-          alt="" aria-hidden="true"
-          className="absolute left-0 bottom-0 w-auto h-auto select-none transition-transform duration-500 ease-out hover:animate-float hover:scale-[1.03] hover:drop-shadow-2xl"
-          style={{ zIndex: 1, maxWidth: 'min(38vw, 440px)', maxHeight: '42vh' }}
-        />
+      {/* Foto siswa sekarang jadi background penuh 1 layar (lihat blok
+          background di atas), jadi ilustrasi kecil yang dulu nempel di
+          pojok kiri-bawah panel ini sudah tidak dipakai lagi — supaya
+          tidak dobel dengan foto yang sama di belakang. */}
+      <div className="hidden lg:flex flex-col w-1/2 p-12 text-white relative">
         <div className="relative z-10 space-y-8">
           <div className="flex items-center gap-4 cursor-default w-fit"
             style={{ transition: 'transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1)' }}
@@ -902,33 +742,33 @@ export default function LoginPage() {
           >
             <SchoolLogo size="xl" siteInfo={siteInfo} />
             <div className="min-w-0">
-              <p className="font-bold text-2xl leading-tight line-clamp-2 text-slate-900">{displayName}</p>
-              <p className="text-slate-500 text-base">Sistem Ujian Digital Terpercaya</p>
+              <p className="font-bold text-2xl leading-tight line-clamp-2 text-white" style={{ textShadow: '0 2px 12px rgba(0,0,0,0.35)' }}>{displayName}</p>
+              <p className="text-white/85 text-base" style={{ textShadow: '0 1px 8px rgba(0,0,0,0.3)' }}>Sistem Ujian Digital Terpercaya</p>
             </div>
           </div>
 
           <div>
-            <h1 className="text-5xl xl:text-6xl font-bold leading-tight mb-4 cursor-default w-fit text-slate-900"
-              style={{ transition: 'transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1)', display: 'inline-block', transformOrigin: 'left center' }}
+            <h1 className="text-5xl xl:text-6xl font-bold leading-tight mb-4 cursor-default w-fit text-white"
+              style={{ transition: 'transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1)', display: 'inline-block', transformOrigin: 'left center', textShadow: '0 2px 16px rgba(0,0,0,0.35)' }}
               onMouseEnter={e => { (e.currentTarget as HTMLHeadingElement).style.transform = 'scale(1.08)' }}
               onMouseLeave={e => { (e.currentTarget as HTMLHeadingElement).style.transform = 'scale(1)' }}
             >
               Ujian Digital<br />
               <span style={{
-                background: 'linear-gradient(90deg, #2563eb, #0ea5e9, #14b8a6)',
+                background: 'linear-gradient(90deg, #7dd3fc, #38bdf8, #5eead4)',
                 WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
                 backgroundClip: 'text',
               }}>
                 Lebih Mudah & Adil
               </span>
             </h1>
-            <p className="text-slate-500 text-base leading-relaxed max-w-sm">
+            <p className="text-white/90 text-base leading-relaxed max-w-sm" style={{ textShadow: '0 1px 8px rgba(0,0,0,0.3)' }}>
               Sistem CBT modern{siteInfo.namaSekolah ? ` untuk ${siteInfo.namaSekolah}` : ''}{' '}
               dengan fitur anti-nyontek, penilaian otomatis, dan monitoring real-time.
             </p>
           </div>
         </div>
-        <div className="relative z-10 text-slate-400 text-xs mt-auto">
+        <div className="relative z-10 text-white/70 text-xs mt-auto" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.3)' }}>
           {siteInfo.namaSekolah ? <>{siteInfo.namaSekolah} &copy; {year}</> : <>SmartExam &copy; {year}</>}
         </div>
       </div>
@@ -947,21 +787,9 @@ export default function LoginPage() {
               </div>
             </div>
 
-            {/* Ilustrasi siswa — versi kompak khusus HP. Sebelumnya sama
-                sekali tidak tampil di layar kecil (panel branding tempat
-                gambar ini biasa muncul disembunyikan lewat `hidden lg:flex`).
-                Dibatasi TINGGI (bukan lebar) supaya tidak memakan banyak
-                ruang vertikal yang berharga di layar kecil sebelum form
-                login — lebar menyesuaikan otomatis mengikuti rasio gambar
-                apa pun (object-contain mencegah gambar gepeng/melar). */}
-            <div className="flex justify-center mb-5">
-              <img
-                src="/images/siswa-sekolah.webp"
-                alt=""
-                aria-hidden="true"
-                className="max-h-28 w-auto object-contain select-none"
-              />
-            </div>
+            {/* Foto siswa sudah jadi background penuh halaman (lihat blok
+                background fixed di atas), jadi ilustrasi kompak yang dulu
+                muncul di sini khusus HP sudah tidak dipakai lagi. */}
 
             {/* Welcome card mobile — glass */}
             <div className="login-glass-card rounded-3xl p-8 text-slate-900">
