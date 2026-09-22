@@ -100,9 +100,14 @@ export default function AdminKelasPage() {
     }
     setSaving(true)
     try {
+      // FIX (audit lanjutan — Batch 3, "identitas masih pakai nama kelas"):
+      // sertakan juga `kelasId` (id stabil, tidak berubah walau kelas
+      // di-rename) supaya server meresolusi ulang nama dari database alih-
+      // alih mempercayai `nama` yang mungkin sudah basi di state tab ini.
+      // Lihat penjelasan lengkap di api/admin/kelas/route.ts DELETE.
       await apiRequest('/api/admin/kelas', {
         method: 'DELETE',
-        body: JSON.stringify({ nama: deleteTarget.nama }),
+        body: JSON.stringify({ nama: deleteTarget.nama, kelasId: deleteTarget.id }),
       })
       showToast(`Kelas ${deleteTarget.nama} dan semua siswanya berhasil dihapus`)
       setDeleteTarget(null)
