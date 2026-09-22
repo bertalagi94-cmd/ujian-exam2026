@@ -78,9 +78,25 @@ export async function POST(req: NextRequest) {
   // pengawas) — reset-siswa/route.ts juga hanya mengubah `status`, bukan
   // `status_essay`. Sekarang keduanya diblokir di sini, sama seperti endpoint
   // essay lainnya.
-  if (siswaUjian.status === 'TERKUNCI' || siswaUjian.status === 'RESET') {
+  // BUG P0 (audit outbox "anggap berhasil/gagal permanen tanpa cek status
+  // bisnis" — sama seperti temuan di /selesai dan reset-offline-client.ts):
+  // dulu 403 di sini TIDAK menyertakan `sementara: true`, tidak seperti
+  // /sync dan /essay/mulai. Akibatnya cobaKirimPaketTertunda() di
+  // ujian-outbox.ts menandai paket essay GAGAL PERMANEN kalau endpoint ini
+  // dipanggil saat status siswa masih 'RESET' sementara (mis. rekonsiliasi
+  // R1 offline belum sempat sinkron duluan) — essay tidak pernah terkirim
+  // otomatis lagi walau R1-nya sendiri akhirnya berhasil tersinkron.
+  // RESET = sementara (bisa pulih sendiri) -> sementara: true.
+  // TERKUNCI = permanen (butuh intervensi pengawas) -> tidak.
+  if (siswaUjian.status === 'RESET') {
     return NextResponse.json(
-      { error: 'Akses ujian Anda sedang dikunci/menunggu reset. Essay tidak bisa dikirim sekarang.' },
+      { error: 'Akses ujian Anda sedang menunggu kode reset. Essay akan otomatis dikirim setelah kode reset tersinkron.', sementara: true },
+      { status: 403 }
+    )
+  }
+  if (siswaUjian.status === 'TERKUNCI') {
+    return NextResponse.json(
+      { error: 'Akses ujian Anda dikunci. Essay tidak bisa dikirim sekarang.' },
       { status: 403 }
     )
   }
