@@ -184,7 +184,29 @@ export interface ResetTertunda {
   sesiId: string
   nis: string
   nomor: number
-  /** Kode yang terbukti benar secara offline — dikirim ke server sebagai bukti saat rekonsiliasi, lalu dihapus dari antrean begitu server ACK. */
+  /**
+   * Kode yang terbukti benar secara offline — dikirim ke server sebagai
+   * bukti saat rekonsiliasi, lalu dihapus dari antrean begitu server ACK.
+   *
+   * AUDIT P0 (brief "plaintext kode di reset_pending"): plaintext DIPERLUKAN
+   * di sini, tidak bisa dihindari tanpa mengubah kontrak endpoint
+   * /api/siswa/ujian/verifikasi-reset. Server TIDAK PERNAH menyimpan kode
+   * reset di database (lihat reset-berurutan.ts — kode diturunkan
+   * deterministik lewat HMAC dari secret server), jadi satu-satunya cara
+   * server tahu "R(N) sudah dipakai" adalah menerima kode plaintext yang
+   * sama lagi dan mencocokkannya sendiri (kodeResetCocok). Tidak ada bukti
+   * lain (hash/signature) yang bisa dikirim tanpa server ikut menyimpan
+   * sesuatu yang setara dengan kode itu sendiri — dan itu perubahan
+   * arsitektur di luar scope perbaikan ini.
+   *
+   * LIFETIME: field ini hanya hidup di penyimpanan lokal (IndexedDB, dengan
+   * fallback localStorage — lihat resetPendingPut di ujian-offline-storage.ts)
+   * SELAMA offline, dan dihapus SEGERA setelah server ACK (lihat
+   * resetPendingDelete di kirimSatuReset). Tidak pernah dikirim ke mana pun
+   * selain endpoint verifikasi-reset lewat HTTPS, dan tidak pernah dicatat
+   * di localStorage progres (progressKey) yang hanya menyimpan nomor,
+   * bukan kode.
+   */
   kode: string
   eventId: string
   dibuatIso: string
