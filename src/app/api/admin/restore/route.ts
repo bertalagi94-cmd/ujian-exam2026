@@ -20,6 +20,7 @@ import {
   pkOf,
   removeFilesInChunks,
   selesaiModeMaintenanceUntukProses,
+  verifikasiTokenProses,
   type Db,
 } from '@/lib/backup-restore-shared'
 
@@ -256,17 +257,48 @@ async function actionStart(db: Db, body: Record<string, unknown>) {
   //    di sini — titik terakhir sebelum client mulai memanggil `clear`/
   //    `insert` yang benar-benar mengubah data. Dimatikan lagi di
   //    actionFinish() di bawah.
-  await mulaiModeMaintenanceUntukProses(db, 'restore')
+  //
+  //    FIX P0 (audit: token proses): token yang diterbitkan di sini HARUS
+  //    disertakan & cocok di setiap panggilan clear/insert/storage-*/finish
+  //    berikutnya (lihat requireProcessToken di bawah) — tanpa ini, action-
+  //    action tersebut bisa dipanggil langsung tanpa pernah melalui validasi
+  //    di atas sama sekali. Lihat catatan panjang di
+  //    backup-restore-shared.ts pada PENGATURAN_KEY_PROSES_TOKEN.
+  const token = await mulaiModeMaintenanceUntukProses(db, 'restore')
 
   return res({
     ok: true,
+    token,
     delete_order: DELETE_ORDER.filter(t => tablesInBackup.includes(t)),
     insert_order: INSERT_ORDER.filter(t => tablesInBackup.includes(t)),
     ada_aktivitas: akt.adaSesi || akt.adaSiswa,
   })
 }
 
+// FIX P0 (audit: actionClear/actionInsert tidak terikat proses `start`):
+// dipanggil di awal SETIAP action selain `start` yang benar-benar mengubah
+// data (clear, insert, storage-init, storage-put, storage-prune, finish).
+// Mengembalikan NextResponse error (409) kalau token tidak ada/tidak cocok/
+// proses restore tidak sedang berjalan — caller WAJIB return langsung hasil
+// ini tanpa melanjutkan ke operasi aslinya.
+async function requireProcessToken(db: Db, body: Record<string, unknown>) {
+  const valid = await verifikasiTokenProses(db, 'restore', body.token)
+  if (!valid) {
+    return res(
+      {
+        error:
+          'Tidak ada proses restore yang sedang berjalan (atau token tidak cocok/sudah kedaluwarsa). Mulai ulang restore dari awal (action "start").',
+        proses_tidak_valid: true,
+      },
+      409
+    )
+  }
+  return null
+}
+
 async function actionClear(db: Db, body: Record<string, unknown>) {
+  const gate = await requireProcessToken(db, body)
+  if (gate) return gate
   const table = String(body.table ?? '')
   if (!SCHEMA_TABLES.has(table)) return res({ error: `Tabel "${table}" tidak dikenali` }, 400)
   const err = await clearTable(db, table)
@@ -275,6 +307,8 @@ async function actionClear(db: Db, body: Record<string, unknown>) {
 }
 
 async function actionInsert(db: Db, body: Record<string, unknown>) {
+  const gate = await requireProcessToken(db, body)
+  if (gate) return gate
   const table = String(body.table ?? '')
   if (!SCHEMA_TABLES.has(table)) return res({ error: `Tabel "${table}" tidak dikenali` }, 400)
   if (!Array.isArray(body.rows)) return res({ error: 'rows harus berupa array' }, 400)
@@ -297,6 +331,8 @@ async function actionInsert(db: Db, body: Record<string, unknown>) {
 }
 
 async function actionStorageInit(db: Db, body: Record<string, unknown>) {
+  const gate = await requireProcessToken(db, body)
+  if (gate) return gate
   const bucket = String(body.bucket ?? '')
   if (!isKnownBucket(bucket)) return res({ error: 'Bucket tidak dikenali' }, 400)
 
@@ -316,6 +352,8 @@ async function actionStorageInit(db: Db, body: Record<string, unknown>) {
 }
 
 async function actionStoragePut(db: Db, body: Record<string, unknown>) {
+  const gate = await requireProcessToken(db, body)
+  if (gate) return gate
   const bucket = String(body.bucket ?? '')
   const path = body.path
   const base64 = body.base64
@@ -336,6 +374,8 @@ async function actionStoragePut(db: Db, body: Record<string, unknown>) {
 }
 
 async function actionStoragePrune(db: Db, body: Record<string, unknown>) {
+  const gate = await requireProcessToken(db, body)
+  if (gate) return gate
   const bucket = String(body.bucket ?? '')
   if (!isKnownBucket(bucket)) return res({ error: 'Bucket tidak dikenali' }, 400)
   if (!Array.isArray(body.keep)) return res({ error: 'keep harus berupa array' }, 400)
@@ -353,7 +393,9 @@ async function actionStoragePrune(db: Db, body: Record<string, unknown>) {
   return res({ ok: true, removed: stale.length })
 }
 
-async function actionFinish(db: Db) {
+async function actionFinish(db: Db, body: Record<string, unknown>) {
+  const gate = await requireProcessToken(db, body)
+  if (gate) return gate
   const warnings: string[] = []
 
   // Setel ulang sequence BIGSERIAL ke MAX(id)+1 — lihat catatan #3 di atas.
@@ -416,7 +458,7 @@ export async function POST(req: NextRequest) {
       case 'storage-prune':
         return await actionStoragePrune(db, body)
       case 'finish':
-        return await actionFinish(db)
+        return await actionFinish(db, body)
       default:
         return res({ error: 'Action tidak dikenali' }, 400)
     }
