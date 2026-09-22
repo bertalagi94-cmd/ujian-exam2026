@@ -321,3 +321,66 @@ export async function removeFilesInChunks(
   }
   return null
 }
+
+// ── Foto jawaban essay (mode KERTAS, sekarang legacy) ───────────────────────
+// FIX (audit lanjutan — Batch 3, "Storage orphan cleanup"): DELETE siswa
+// individual (api/admin/siswa/[nis]) dan DELETE kelas (api/admin/kelas)
+// sebelumnya TIDAK PERNAH membersihkan file fisik foto jawaban essay di
+// Storage sama sekali — beda dari reset admin (api/admin/reset/route.ts,
+// STORAGE_BY_TABLE) yang sudah menanganinya lewat penghapusan SELURUH folder.
+// Untuk delete per-siswa/per-kelas kita tidak bisa menghapus seluruh folder
+// (bisa mengenai foto siswa LAIN yang tidak dihapus) — jadi di sini
+// penghapusan dilakukan berdasarkan `foto_url` milik siswa yang bersangkutan
+// SAJA, dibaca dari tabel jawaban_essay_foto SEBELUM baris DB-nya dihapus.
+//
+// `foto_url` (lihat 07_essay.sql, dan cara baca yang sudah ada di
+// guru/koreksi-essay/route.ts & siswa/nilai/[id]/route.ts) berisi salah satu
+// dari dua bentuk:
+//  - path relatif di bucket PRIVAT 'jawaban-essay' (format baru), ATAU
+//  - URL publik penuh ke bucket 'assets' (format LAMA, sebelum foto essay
+//    dipindah ke bucket privat).
+export function resolveFotoEssayStorageTarget(
+  fotoUrl: string | null | undefined
+): { bucket: string; path: string } | null {
+  if (!fotoUrl) return null
+  if (fotoUrl.startsWith('http')) {
+    const marker = '/object/public/assets/'
+    const idx = fotoUrl.indexOf(marker)
+    if (idx === -1) return null
+    const path = fotoUrl.slice(idx + marker.length)
+    return isSafeStoragePath(path) ? { bucket: 'assets', path } : null
+  }
+  return isSafeStoragePath(fotoUrl) ? { bucket: 'jawaban-essay', path: fotoUrl } : null
+}
+
+/**
+ * Hapus fisik semua foto jawaban essay untuk kumpulan foto_url yang diberikan
+ * (mis. hasil SELECT foto_url dari jawaban_essay_foto untuk satu/beberapa
+ * NIS). Dikelompokkan per bucket supaya removeFilesInChunks dipanggil sekali
+ * per bucket, bukan sekali per file. foto_url yang null/tidak valid diabaikan
+ * diam-diam (bukan error — baris tanpa foto itu wajar).
+ *
+ * Mengembalikan pesan error pertama, atau null kalau semua berhasil
+ * (termasuk kalau memang tidak ada foto sama sekali). Dipanggil dengan pola
+ * FAIL-CLOSED oleh pemanggilnya: kalau ini mengembalikan error, penghapusan
+ * baris DB (lewat RPC hapus_siswa_atomik/hapus_kelas_atomik) TIDAK dilakukan
+ * — supaya foto_url-nya tidak hilang duluan sebelum sempat dihapus fisiknya.
+ */
+export async function hapusFotoEssayFisik(
+  db: Db,
+  fotoUrls: (string | null | undefined)[]
+): Promise<string | null> {
+  const byBucket = new Map<string, string[]>()
+  for (const url of fotoUrls) {
+    const target = resolveFotoEssayStorageTarget(url)
+    if (!target) continue
+    const arr = byBucket.get(target.bucket) ?? []
+    arr.push(target.path)
+    byBucket.set(target.bucket, arr)
+  }
+  for (const [bucket, paths] of byBucket) {
+    const err = await removeFilesInChunks(db, bucket, paths)
+    if (err) return err
+  }
+  return null
+}
