@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 import { generateId } from '@/lib/utils'
 import { cekSesiMapelKelasSudahMulai, pesanBankSoalTerkunci } from '@/lib/sesi-kelas'
+import { verifikasiKepemilikanMapelKelas } from '@/lib/guru-scope'
 
 export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['GURU'])
@@ -61,6 +62,17 @@ export async function POST(req: NextRequest) {
   const { user } = auth
   const db = createAdminClient()
   const body = await req.json()
+
+  // FIX BUG (IDOR): sebelumnya body.mapel_id/body.kelas_id langsung dipakai
+  // tanpa verifikasi bahwa guru ini benar-benar mengampu mapel tersebut dan
+  // kelas tersebut termasuk kelas_list mapel itu. Guru A bisa mengirim
+  // mapel_id/kelas_id milik Guru B dan server tetap membuat paket atas nama
+  // Guru A untuk mapel/kelas Guru B. Pola verifikasi sama seperti yang sudah
+  // benar di guru/paket/[id]/duplicate/route.ts — lihat src/lib/guru-scope.ts.
+  const verifikasi = await verifikasiKepemilikanMapelKelas(db, user.username, body.mapel_id, body.kelas_id)
+  if (!verifikasi.ok) {
+    return NextResponse.json({ error: verifikasi.error }, { status: verifikasi.status })
+  }
 
   // Cegah guru membuat paket soal ganda untuk mapel + kelas yang sama
   const { data: existing, error: checkError } = await db
