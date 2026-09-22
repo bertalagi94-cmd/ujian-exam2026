@@ -140,8 +140,23 @@ export async function POST(req: NextRequest) {
     ? await db.from('nilai').select('nis').in('sesi_id', semuaSesiIds).in('nis', semuaNis)
     : { data: [] }
 
+  // FIX (audit brief "Reset vs Retake" — item M; sama persis dengan
+  // src/app/api/guru/susulan/route.ts, lihat komentar lengkap di sana).
+  // Baris `nilai` untuk siswa TERKUNCI ditulis TERPISAH (dan belakangan)
+  // dari perubahan siswa_ujian.status = 'TERKUNCI' itu sendiri, jadi
+  // mengandalkan hanya baris `nilai` untuk menentukan "belum ujian" bisa
+  // salah memasukkan siswa yang sudah dikunci permanen ke sesi susulan
+  // baru kalau proses penulisan nilainya sempat terputus. Sekarang siswa
+  // dengan status TERKUNCI di sesi manapun milik jadwal ini selalu
+  // dikecualikan juga.
+  const { data: statusSemua } = semuaSesiIds.length > 0
+    ? await db.from('siswa_ujian').select('nis, status').in('sesi_id', semuaSesiIds).in('nis', semuaNis)
+    : { data: [] }
+
   const nisSudah = new Set((sudahUjian ?? []).map(n => n.nis))
-  const siswaBelum = siswaDiKelas.filter(s => !nisSudah.has(s.nis))
+  const nisTerkunci = new Set((statusSemua ?? []).filter(s => s.status === 'TERKUNCI').map(s => s.nis))
+  const nisDikecualikan = new Set([...nisSudah, ...nisTerkunci])
+  const siswaBelum = siswaDiKelas.filter(s => !nisDikecualikan.has(s.nis))
 
   if (siswaBelum.length === 0) {
     return NextResponse.json({
