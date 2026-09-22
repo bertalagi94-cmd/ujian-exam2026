@@ -4,7 +4,7 @@ import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 import { catatAktivitas } from '@/lib/aktivitas'
 import { instrumented } from '@/lib/metrik'
-import { ambilMaksReset } from '@/lib/reset-berurutan'
+import { ambilMaksReset, MAKS_RESET_ABSOLUT } from '@/lib/reset-berurutan'
 import { buatSemuaAmplopReset } from '@/lib/reset-amplop-server'
 
 // Threshold: kalau last_heartbeat device lama lebih muda dari ini,
@@ -199,6 +199,62 @@ export async function POST(req: NextRequest) {
     })
   }
 
+  // P0 FIX (fail-closed START — audit brief "resetMaterial gagal tapi valid:
+  // true"): siapkan material verifier R1..R(maksReset) SEKARANG, SEBELUM
+  // siswa_ujian ditandai AKTIF & SEBELUM waktu_mulai/waktu_mulai_awal
+  // di-stamp di bawah. Ini SENGAJA dipindah ke sini (bukan di akhir seperti
+  // sebelumnya) supaya kalau persiapan gagal dan kita menahan START, kita
+  // belum terlanjur menulis waktu_mulai_awal — jadi retry berikutnya (mis.
+  // setelah admin memperbaiki RESET_PELANGGARAN_SECRET) tidak kehilangan
+  // waktu ujian siswa akibat percobaan yang gagal ini.
+  //
+  // SEBELUMNYA (bug P0): kalau buatSemuaAmplopReset() gagal (mis. secret
+  // belum diset), resetMaterial jadi [] TAPI endpoint tetap mengembalikan
+  // `valid: true` — siswa bisa mulai ujian tanpa kemampuan reset R1/R2/R3
+  // offline sama sekali. Kalau internet lalu mati saat pelanggaran terjadi,
+  // siswa terjebak: tidak ada cara verifikasi reset secara lokal. Gerbang
+  // fail-closed sebelumnya HANYA ada di client (page.tsx) — cukup untuk
+  // client resmi, tapi tidak cukup sebagai jaminan keamanan di titik
+  // kepercayaan (trust boundary) yang benar, yaitu server. Sekarang server
+  // sendiri menolak START (valid:false) kalau sesi ini butuh reset
+  // (maksReset > 0) tapi materialnya tidak lengkap — apa pun klien yang
+  // memanggil endpoint ini.
+  //
+  // Kalau maksReset menghasilkan 0 (fitur reset memang dimatikan untuk
+  // sesi ini), TIDAK diblokir — reset offline memang tidak dibutuhkan.
+  let resetMaterial: Awaited<ReturnType<typeof buatSemuaAmplopReset>> = []
+  let maksReset = 0
+  let gagalMenyiapkanReset = false
+  try {
+    maksReset = await ambilMaksReset(db)
+  } catch (e) {
+    // Tidak bisa menentukan berapa maksReset yang seharusnya — jangan
+    // diam-diam anggap 0 (yang berarti "tidak butuh reset"), karena itu
+    // bisa salah. Fail-closed: anggap sesi ini BUTUH reset penuh supaya
+    // pemeriksaan kelengkapan di bawah menahan START, bukan meloloskannya.
+    console.error('[validasi] gagal mengambil pengaturan maksReset:', e instanceof Error ? e.message : e)
+    maksReset = MAKS_RESET_ABSOLUT
+    gagalMenyiapkanReset = true
+  }
+  if (!gagalMenyiapkanReset && maksReset > 0) {
+    try {
+      resetMaterial = await buatSemuaAmplopReset(sesi.id, nis, maksReset)
+    } catch (e) {
+      console.error('[validasi] gagal menyiapkan material reset offline:', e instanceof Error ? e.message : e)
+      resetMaterial = []
+    }
+  }
+  if (maksReset > 0 && resetMaterial.length !== maksReset) {
+    // START DITAHAN — sesi ini butuh reset offline tapi materialnya tidak
+    // lengkap/gagal dibuat. Belum ada tulisan apa pun ke siswa_ujian untuk
+    // percobaan ini, jadi aman diulang begitu server sudah siap.
+    return NextResponse.json({
+      valid: false,
+      message: 'Sistem belum siap menyiapkan data reset pelanggaran untuk mode offline pada sesi ini. ' +
+        'Ujian belum bisa dimulai. Hubungi pengawas/admin, lalu coba masukkan kode lagi.',
+    })
+  }
+
   // FIX ARSITEKTUR KRITIS (snapshot paket ke sesi): kunci paket_soal_id ini
   // ke sesi SEKALI, hanya kalau kolomnya masih NULL (siswa pertama yang
   // masuk). Guard `.is('paket_soal_id', null)` membuat ini idempotent &
@@ -318,23 +374,8 @@ export async function POST(req: NextRequest) {
   const minSubmitAktif = pgMap['minSubmitAktif'] === 'true'
   const minSubmitMenit = minSubmitAktif ? (parseInt(pgMap['minSubmitMenit']) || 45) : 0
 
-  // P0 (audit offline R1/R2/R3): siapkan material verifikasi reset SEKARANG,
-  // selagi siswa online masuk ujian — persis prinsip yang sama dengan
-  // pre-cache soal/gambar/essay-amplop. Amplop TIDAK berisi kode plaintext
-  // atau rahasia server (lihat reset-amplop-server.ts); kalau pembuatannya
-  // gagal (mis. RESET_PELANGGARAN_SECRET belum diset di env), JANGAN
-  // menggagalkan seluruh masuk-ujian — cukup kirim array kosong, dan client
-  // yang memutuskan fail-closed (reset offline tidak akan tersedia untuk
-  // sesi ini, tapi ujian tetap boleh dimulai; reset tetap bisa dipakai ONLINE
-  // seperti sebelumnya).
-  let resetMaterial: Awaited<ReturnType<typeof buatSemuaAmplopReset>> = []
-  let maksReset = 0
-  try {
-    maksReset = await ambilMaksReset(db)
-    resetMaterial = await buatSemuaAmplopReset(sesi.id, nis, maksReset)
-  } catch (e) {
-    console.error('[validasi] gagal menyiapkan material reset offline:', e instanceof Error ? e.message : e)
-  }
+  // resetMaterial/maksReset sudah disiapkan & diverifikasi lengkap di atas
+  // (sebelum siswa_ujian ditandai AKTIF) — lihat blok fail-closed START.
 
   return NextResponse.json({
     valid: true,
