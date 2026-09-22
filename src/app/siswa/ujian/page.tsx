@@ -996,18 +996,25 @@ export default function SiswaUjianPage() {
     if (phase !== 'UJIAN' && phase !== 'ESSAY_INFO' && phase !== 'ESSAY_KERJAKAN') return
     if (essayInfoBelumSiap) return
     function onKeyDown(e: KeyboardEvent) {
+      // FIX BUG (Caps Lock melewati blokir): `e.key` mengikuti karakter yang
+      // BENAR-BENAR dihasilkan, bukan tombol fisik — dengan Caps Lock aktif,
+      // menekan C menghasilkan e.key === 'C', bukan 'c'. Perbandingan
+      // case-sensitive sebelumnya (hanya 'c'/'v'/'a'/'u'/'p') membuat
+      // Ctrl+C/V/A/U/P lolos tanpa diblokir saat Caps Lock menyala. Sekarang
+      // dibandingkan dalam huruf kecil supaya kedua kondisi Caps Lock tertangkap.
+      const key = e.key.toLowerCase()
       const blockedKeys = [
-        e.ctrlKey && e.key === 'c',
-        e.ctrlKey && e.key === 'v',
-        e.ctrlKey && e.key === 'a',
-        e.ctrlKey && e.key === 'u',
-        e.ctrlKey && e.key === 'p',
-        e.ctrlKey && e.shiftKey && e.key === 'I',
-        e.ctrlKey && e.shiftKey && e.key === 'J',
-        e.ctrlKey && e.shiftKey && e.key === 'C',
-        e.key === 'F12',
-        e.key === 'PrintScreen',
-        e.altKey && e.key === 'Tab',
+        e.ctrlKey && key === 'c',
+        e.ctrlKey && key === 'v',
+        e.ctrlKey && key === 'a',
+        e.ctrlKey && key === 'u',
+        e.ctrlKey && key === 'p',
+        e.ctrlKey && e.shiftKey && key === 'i',
+        e.ctrlKey && e.shiftKey && key === 'j',
+        e.ctrlKey && e.shiftKey && key === 'c',
+        key === 'f12',
+        key === 'printscreen',
+        e.altKey && key === 'tab',
         e.metaKey,
       ]
       if (blockedKeys.some(Boolean)) {
