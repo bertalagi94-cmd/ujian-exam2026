@@ -196,15 +196,58 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  // Kunci paket_essay_id ke sesi SEKALI, hanya kalau kolomnya masih NULL —
-  // pola & alasan identik dengan snapshot paket_soal_id di validasi/route.ts.
+  // FASE 2 FIX (audit lanjutan): pola & alasan identik dengan snapshot
+  // paket_soal_id di validasi/route.ts — sebelumnya update ini tidak dicek
+  // error maupun dibaca ulang. Kalau gagal, paket_essay_id tetap NULL dan
+  // endpoint lain (essay/soal, essay/jawab, essay/amplop) yang membaca
+  // sesi.paket_essay_id langsung dari DB akan jatuh ke resolusi ulang dari
+  // mapel+kelas+DISETUJUI — yang bisa berbeda dari soalEssayUntukSnapshot
+  // yang baru saja dipakai untuk memvalidasi `jumlahSoalEssay` di atas kalau
+  // bank soal essay berubah di antara dua panggilan. status_essay TIDAK
+  // boleh maju ke MENGERJAKAN sebelum snapshot ini dipastikan konsisten.
   if (!sesi.paket_essay_id) {
     const paketEssayIdTerdeteksi = soalEssayUntukSnapshot?.[0]?.paket_essay_id ?? null
     if (paketEssayIdTerdeteksi) {
-      await db.from('sesi_ujian')
+      const { error: snapshotError } = await db.from('sesi_ujian')
         .update({ paket_essay_id: paketEssayIdTerdeteksi })
         .eq('id', sesiId)
         .is('paket_essay_id', null)
+
+      if (snapshotError) {
+        console.error('[essay/mulai] gagal menulis snapshot paket_essay_id:', snapshotError.message)
+        return NextResponse.json(
+          { error: 'Sistem gagal mengunci paket soal essay untuk sesi ini. Essay belum bisa dimulai. Coba lagi beberapa saat.' },
+          { status: 500 }
+        )
+      }
+
+      const { data: sesiVerifikasi, error: verifikasiError } = await db
+        .from('sesi_ujian')
+        .select('paket_essay_id')
+        .eq('id', sesiId)
+        .single()
+
+      if (verifikasiError || sesiVerifikasi?.paket_essay_id !== paketEssayIdTerdeteksi) {
+        console.error(
+          '[essay/mulai] verifikasi snapshot paket_essay_id gagal setelah update:',
+          verifikasiError?.message ?? `tersimpan=${sesiVerifikasi?.paket_essay_id} diharapkan=${paketEssayIdTerdeteksi}`
+        )
+        return NextResponse.json(
+          { error: 'Sistem gagal memastikan paket soal essay terkunci untuk sesi ini. Essay belum bisa dimulai. Coba lagi beberapa saat.' },
+          { status: 500 }
+        )
+      }
+    } else {
+      // soalEssayUntukSnapshot ada isinya (jumlahSoalEssay > 0) tapi semua
+      // barisnya punya paket_essay_id NULL — data tidak konsisten (soal
+      // essay disetujui tanpa paket). Jangan biarkan Essay mulai tanpa
+      // snapshot sama sekali; daripada diam-diam lanjut tanpa referensi
+      // paket yang terkunci (sama seperti celah paket_soal_id NULL di PG).
+      console.error(`[essay/mulai] sesi ${sesiId}: soal essay ditemukan tapi paket_essay_id kosong pada semuanya.`)
+      return NextResponse.json(
+        { error: 'Soal essay untuk mapel ini tidak memiliki paket yang valid. Hubungi admin.' },
+        { status: 409 }
+      )
     }
   }
 
