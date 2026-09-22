@@ -734,7 +734,7 @@ export default function LoginPage() {
           pojok kiri-bawah panel ini sudah tidak dipakai lagi — supaya
           tidak dobel dengan foto yang sama di belakang. */}
       <div className="hidden lg:flex flex-col w-1/2 p-12 text-white relative">
-        <div className="relative z-10 space-y-8">
+        <div className="relative z-10 space-y-5">
           <div className="flex items-center gap-4 cursor-default w-fit"
             style={{ transition: 'transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1)' }}
             onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.transform = 'scale(1.14)' }}
@@ -748,21 +748,25 @@ export default function LoginPage() {
           </div>
 
           <div>
-            <h1 className="text-5xl xl:text-6xl font-bold leading-tight mb-4 cursor-default w-fit text-white"
-              style={{ transition: 'transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1)', display: 'inline-block', transformOrigin: 'left center', textShadow: '0 2px 16px rgba(0,0,0,0.35)' }}
+            <h1 className="text-4xl xl:text-5xl font-bold leading-tight mb-3 cursor-default w-fit text-white"
+              style={{
+                transition: 'transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1)', display: 'inline-block', transformOrigin: 'left center',
+                textShadow: '0 2px 6px rgba(0,0,0,0.65), 0 4px 22px rgba(0,0,0,0.5)',
+              }}
               onMouseEnter={e => { (e.currentTarget as HTMLHeadingElement).style.transform = 'scale(1.08)' }}
               onMouseLeave={e => { (e.currentTarget as HTMLHeadingElement).style.transform = 'scale(1)' }}
             >
               Ujian Digital<br />
               <span style={{
-                background: 'linear-gradient(90deg, #7dd3fc, #38bdf8, #5eead4)',
+                background: 'linear-gradient(90deg, #bae6fd, #5eead4)',
                 WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
                 backgroundClip: 'text',
+                filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.7)) drop-shadow(0 5px 18px rgba(0,0,0,0.5))',
               }}>
                 Lebih Mudah & Adil
               </span>
             </h1>
-            <p className="text-white/90 text-base leading-relaxed max-w-sm" style={{ textShadow: '0 1px 8px rgba(0,0,0,0.3)' }}>
+            <p className="text-white/95 text-sm leading-relaxed max-w-xs" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.6), 0 2px 10px rgba(0,0,0,0.4)' }}>
               Sistem CBT modern{siteInfo.namaSekolah ? ` untuk ${siteInfo.namaSekolah}` : ''}{' '}
               dengan fitur anti-nyontek, penilaian otomatis, dan monitoring real-time.
             </p>
