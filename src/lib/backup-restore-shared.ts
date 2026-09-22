@@ -10,6 +10,7 @@
 // (kalau perlu) CATEGORY_MAP di reset/route.ts.
 
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { cacheDelPrefix } from '@/lib/cache'
 
 // createAdminClient() mengembalikan SupabaseClient<any>
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -130,6 +131,111 @@ export function isMissingTableError(msg: string | undefined | null): boolean {
 export function isBucketMissingError(msg: string | undefined | null): boolean {
   if (!msg) return false
   return /bucket not found/i.test(msg)
+}
+
+// ── Mode maintenance otomatis selama RESET / RESTORE ────────────────────────
+// FIX (audit brief bagian N — "Backup/Restore/Reset Admin"): sebelumnya reset
+// & restore berjalan TANPA melindungi diri dengan mode maintenance sama
+// sekali — kalau admin lupa menyalakan `maintenanceAktif` secara manual dulu
+// (di Pengaturan), siswa/guru/kepsek tetap bisa login & memakai aplikasi
+// SELAGI tabel-tabel sedang dikosongkan/ditimpa. Restore khususnya berupa
+// proses BERTAHAP (banyak request terpisah dari browser admin: start → clear
+// → insert → ... → finish) — kalau tab admin tertutup/koneksi putus di
+// tengah proses, database tertinggal dalam kondisi CAMPURAN separuh-lama-
+// separuh-baru tanpa ada penanda apa pun bahwa itu terjadi.
+//
+// Helper di bawah membuat reset/restore MENYALAKAN sendiri mode maintenance
+// tepat sebelum data mulai diubah, dan MEMATIKANNYA lagi (dikembalikan ke
+// nilai SEBELUM proses dimulai — bukan dipaksa 'false', supaya tidak
+// menimpa maintenance manual admin untuk alasan lain) setelah proses selesai
+// atau gagal. Penanda `PENGATURAN_KEY_PROSES_BERJALAN` yang masih 'true' saat
+// proses BARU hendak dimulai berarti proses SEBELUMNYA tidak pernah mencapai
+// tahap akhir (finish/cleanup) — sinyal kuat bahwa ada restore/reset yang
+// terputus dan database mungkin tidak konsisten; caller (reset/restore route)
+// wajib menampilkan peringatan ini ke admin sebelum melanjutkan.
+export const PENGATURAN_KEY_MAINTENANCE_AKTIF = 'maintenanceAktif'
+export const PENGATURAN_KEY_PROSES_BERJALAN = 'prosesDataBesarSedangBerjalan'
+export const PENGATURAN_KEY_PROSES_JENIS = 'prosesDataBesarJenis'
+export const PENGATURAN_KEY_PROSES_MULAI = 'prosesDataBesarMulaiPada'
+export const PENGATURAN_KEY_MAINTENANCE_SEBELUM = 'prosesDataBesarMaintenanceSebelumnya'
+
+const SEMUA_KEY_PROSES = [
+  PENGATURAN_KEY_PROSES_BERJALAN,
+  PENGATURAN_KEY_PROSES_JENIS,
+  PENGATURAN_KEY_PROSES_MULAI,
+  PENGATURAN_KEY_MAINTENANCE_SEBELUM,
+]
+
+export interface StatusProsesBesar {
+  sedangBerjalan: boolean
+  jenis?: string
+  mulaiPada?: string
+}
+
+/** Cek apakah ada proses reset/restore yang menandai dirinya "sedang berjalan" tapi belum pernah dituntaskan (finish/cleanup). */
+export async function cekProsesDataBesarBerjalan(db: Db): Promise<StatusProsesBesar> {
+  const { data } = await db
+    .from('pengaturan')
+    .select('key, value')
+    .in('key', [PENGATURAN_KEY_PROSES_BERJALAN, PENGATURAN_KEY_PROSES_JENIS, PENGATURAN_KEY_PROSES_MULAI])
+  const map = Object.fromEntries((data ?? []).map((r: { key: string; value: string }) => [r.key, r.value]))
+  return {
+    sedangBerjalan: map[PENGATURAN_KEY_PROSES_BERJALAN] === 'true',
+    jenis: map[PENGATURAN_KEY_PROSES_JENIS],
+    mulaiPada: map[PENGATURAN_KEY_PROSES_MULAI],
+  }
+}
+
+/**
+ * Nyalakan mode maintenance (kalau belum aktif) + tandai proses besar sedang
+ * berjalan. WAJIB dipanggil di titik terakhir sebelum data benar-benar mulai
+ * diubah (bukan di awal validasi) — lihat pemanggilnya di reset/route.ts &
+ * restore/route.ts.
+ */
+export async function mulaiModeMaintenanceUntukProses(db: Db, jenis: 'reset' | 'restore'): Promise<void> {
+  const { data: existing } = await db
+    .from('pengaturan')
+    .select('value')
+    .eq('key', PENGATURAN_KEY_MAINTENANCE_AKTIF)
+    .maybeSingle()
+  const maintenanceSebelumnya = existing?.value === 'true' ? 'true' : 'false'
+
+  await db.from('pengaturan').upsert(
+    [
+      { key: PENGATURAN_KEY_PROSES_BERJALAN, value: 'true' },
+      { key: PENGATURAN_KEY_PROSES_JENIS, value: jenis },
+      { key: PENGATURAN_KEY_PROSES_MULAI, value: new Date().toISOString() },
+      { key: PENGATURAN_KEY_MAINTENANCE_SEBELUM, value: maintenanceSebelumnya },
+      { key: PENGATURAN_KEY_MAINTENANCE_AKTIF, value: 'true' },
+    ],
+    { onConflict: 'key' }
+  )
+  // Cache pengaturan (dipakai login/route.ts, TTL 60dtk) harus langsung basi
+  // di process ini — tanpa ini pengguna lain bisa tetap lolos maintenance
+  // sampai 60 detik ke depan, persis jendela yang ingin ditutup fix ini.
+  cacheDelPrefix('pengaturan:')
+}
+
+/**
+ * Matikan mode maintenance yang dinyalakan otomatis di atas (kembalikan ke
+ * nilai SEBELUM proses dimulai) dan hapus semua penanda proses. WAJIB
+ * dipanggil di blok `finally` pemanggilnya supaya tetap jalan walau proses
+ * reset/restore gagal di tengah — idempotent, aman dipanggil walau penanda
+ * sudah tidak ada.
+ */
+export async function selesaiModeMaintenanceUntukProses(db: Db): Promise<void> {
+  const { data: sebelum } = await db
+    .from('pengaturan')
+    .select('value')
+    .eq('key', PENGATURAN_KEY_MAINTENANCE_SEBELUM)
+    .maybeSingle()
+
+  await db.from('pengaturan').upsert(
+    [{ key: PENGATURAN_KEY_MAINTENANCE_AKTIF, value: sebelum?.value === 'true' ? 'true' : 'false' }],
+    { onConflict: 'key' }
+  )
+  await db.from('pengaturan').delete().in('key', SEMUA_KEY_PROSES)
+  cacheDelPrefix('pengaturan:')
 }
 
 // ── Cek aktivitas ujian ──────────────────────────────────────────────────────
