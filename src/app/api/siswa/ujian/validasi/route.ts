@@ -168,6 +168,26 @@ export async function POST(req: NextRequest) {
 
   const isNewEntry = !siswaUjian
 
+  // FASE 7 FIX (audit lanjutan): sebelumnya registrasi siswa_ujian pertama
+  // kali (isNewEntry) menyimpan `deviceId ?? null` — kalau client tidak
+  // mengirim deviceId sama sekali, binding pertama tersimpan NULL. Proteksi
+  // device-takeover di atas (`siswaUjian?.device_id && ... !== deviceId`)
+  // butuh nilai pembanding yang sudah ada; kalau binding pertama NULL,
+  // seluruh siswa_ujian ini jadi permanent loophole — device APA PUN bisa
+  // "melanjutkan" tanpa pernah dianggap device baru, sampai suatu saat ada
+  // deviceId pertama yang tersimpan (yang sendirinya juga bisa NULL lagi
+  // kalau request device_id tidak dikirim). Sekarang: START ditolak kalau
+  // ini entry baru tapi deviceId tidak ada / bukan string yang valid.
+  if (isNewEntry) {
+    const deviceIdValid = typeof deviceId === 'string' && deviceId.trim().length >= 8
+    if (!deviceIdValid) {
+      return NextResponse.json({
+        valid: false,
+        message: 'Perangkat tidak terdeteksi dengan benar. Muat ulang halaman dan coba lagi. Jika masalah berlanjut, hubungi pengawas.',
+      })
+    }
+  }
+
   // FIX (soal lintas kelas): dulu, kalau tidak ada paket_soal yang DISETUJUI
   // untuk kombinasi mapel_id+kelas_id siswa ini (paketData null — misalnya
   // karena baris `kelas` duplikat namanya sehingga lookup kelasId di atas
@@ -265,11 +285,53 @@ export async function POST(req: NextRequest) {
   // baris ini terisi, penilaian (ambilDataSesiUntukPenilaian) dan validasi
   // siswa berikutnya SELALU memakai paket_soal_id ini — tidak peduli apa
   // yang terjadi pada status approval paket setelahnya.
+  // FASE 1 FIX (audit lanjutan): sebelumnya update ini tidak pernah dicek
+  // error-nya maupun dibaca ulang. Kalau UPDATE gagal (mis. gangguan DB
+  // sesaat), sesi.paket_soal_id tetap NULL di database padahal siswa ini
+  // sudah terlanjur dianggap "isNewEntry" dan bisa lanjut mengerjakan
+  // dengan paketData yang HANYA ada di memori proses ini. Siswa berikutnya
+  // yang masuk akan me-resolve ulang paket dari mapel+kelas+DISETUJUI, yang
+  // bisa saja sudah berubah (paket baru disetujui) — hasilnya dua siswa di
+  // sesi yang sama mengerjakan paket BERBEDA tanpa terdeteksi.
+  //
+  // Sekarang: fail-closed. UPDATE dicek errornya, lalu DIBACA ULANG dari
+  // DB untuk memastikan snapshot yang benar-benar tersimpan sama dengan
+  // paketData.id yang dipakai untuk menyusun soalList di bawah. Kalau tidak
+  // cocok (update gagal, atau race dengan siswa lain yang snapshot ke paket
+  // lain terlebih dahulu — seharusnya tidak mungkin karena resolusi
+  // deterministik di atas, tapi diperiksa juga untuk jaga-jaga), START
+  // ditolak. Belum ada baris siswa_ujian yang ditulis untuk percobaan ini,
+  // jadi aman untuk diulang.
   if (!sesi.paket_soal_id) {
-    await db.from('sesi_ujian')
+    const { error: snapshotError } = await db.from('sesi_ujian')
       .update({ paket_soal_id: paketData.id })
       .eq('id', sesi.id)
       .is('paket_soal_id', null)
+
+    if (snapshotError) {
+      console.error('[validasi] gagal menulis snapshot paket_soal_id:', snapshotError.message)
+      return NextResponse.json({
+        valid: false,
+        message: 'Sistem gagal mengunci paket soal untuk sesi ini. Ujian belum bisa dimulai. Coba lagi beberapa saat.',
+      })
+    }
+
+    const { data: sesiVerifikasi, error: verifikasiError } = await db
+      .from('sesi_ujian')
+      .select('paket_soal_id')
+      .eq('id', sesi.id)
+      .single()
+
+    if (verifikasiError || sesiVerifikasi?.paket_soal_id !== paketData.id) {
+      console.error(
+        '[validasi] verifikasi snapshot paket_soal_id gagal setelah update:',
+        verifikasiError?.message ?? `tersimpan=${sesiVerifikasi?.paket_soal_id} diharapkan=${paketData.id}`
+      )
+      return NextResponse.json({
+        valid: false,
+        message: 'Sistem gagal memastikan paket soal terkunci untuk sesi ini. Ujian belum bisa dimulai. Coba lagi beberapa saat.',
+      })
+    }
   }
 
   // Ambil soal TANPA field kunci dan pembahasan (keamanan) — selalu
