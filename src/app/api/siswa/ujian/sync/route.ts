@@ -120,8 +120,28 @@ export async function POST(req: NextRequest) {
     // di daftar itu, supaya autosave jawaban yang sah tetap jalan mulus.
     const soalIdUnik = Array.from(new Set(jawaban.map((j: { soal_id: string }) => j.soal_id)))
 
+    // FASE 1 FIX (audit lanjutan): sebelumnya sesi TANPA snapshot paket
+    // (paket_soal_id NULL) punya fallback yang meloloskan seluruh jawaban
+    // apa adanya ("jangan blokir autosave"). Itu berarti jawaban bisa
+    // diproses tanpa referensi paket yang terkunci sama sekali — persis
+    // celah yang diminta ditutup: START sekarang fail-closed (lihat
+    // validasi/route.ts, snapshot diverifikasi sebelum siswa_ujian jadi
+    // AKTIF), jadi kalau titik ini sampai menemukan paket_soal_id NULL,
+    // berarti ada kondisi tidak wajar (data lama sebelum FIX ini, atau
+    // sesi yang entah bagaimana lolos tanpa snapshot) — bukan kasus normal
+    // yang boleh dianggap "jarang terjadi, biarkan saja". Sekarang: TOLAK
+    // seluruh batch jawaban pada request ini sampai snapshot ada, alih-alih
+    // diam-diam menerimanya tanpa referensi paket yang sah.
+    if (!sesi.paket_soal_id) {
+      console.error(`[sync] sesi ${sesiId} tidak punya paket_soal_id (snapshot belum ada) — jawaban ditolak.`)
+      return NextResponse.json(
+        { error: 'Sesi ujian ini belum memiliki paket soal terkunci. Jawaban tidak bisa disimpan. Hubungi pengawas/admin.' },
+        { status: 409 }
+      )
+    }
+
     let soalIdValid = new Set<string>()
-    if (sesi.paket_soal_id && soalIdUnik.length > 0) {
+    if (soalIdUnik.length > 0) {
       const { data: soalSah, error: errSoalSah } = await db
         .from('soal')
         .select('id')
@@ -132,9 +152,7 @@ export async function POST(req: NextRequest) {
       soalIdValid = new Set((soalSah ?? []).map(s => s.id))
     }
 
-    const jawabanSahPaket = sesi.paket_soal_id
-      ? jawaban.filter((j: { soal_id: string }) => soalIdValid.has(j.soal_id))
-      : jawaban // fallback: kalau sesi belum punya snapshot paket (seharusnya jarang), jangan blokir autosave
+    const jawabanSahPaket = jawaban.filter((j: { soal_id: string }) => soalIdValid.has(j.soal_id))
 
     const jawabanDitolak = jawaban.length - jawabanSahPaket.length
 
