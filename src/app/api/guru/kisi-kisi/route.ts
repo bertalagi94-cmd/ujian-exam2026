@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 import { generateId } from '@/lib/utils'
 import { getKepsekScope } from '@/lib/kepsek-scope'
+import { verifikasiKepemilikanMapelKelas } from '@/lib/guru-scope'
 
 // GET /api/guru/kisi-kisi
 // Tampilkan kisi-kisi dari semua guru DI SEKOLAH YANG SAMA dengan guru ini.
@@ -90,15 +91,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'mapel_id, kelas_id, dan konten wajib diisi' }, { status: 400 })
   }
 
-  const { data: mapel } = await db
-    .from('mapel')
-    .select('id')
-    .eq('id', mapel_id)
-    .eq('guru_id', user.username)
-    .single()
-
-  if (!mapel) {
-    return NextResponse.json({ error: 'Anda tidak mengampu mapel ini' }, { status: 403 })
+  // FIX BUG P0 (IDOR: kisi-kisi bisa dibuat untuk kelas_id sembarang): endpoint
+  // ini sebelumnya HANYA memverifikasi mapel_id (guru_id cocok), tapi TIDAK
+  // PERNAH memverifikasi kelas_id — baik bahwa kelas itu benar-benar ada,
+  // maupun bahwa kelas itu termasuk kelas_list mapel tersebut. Guru yang
+  // mengirim request langsung (bukan lewat dropdown UI) bisa mengirim
+  // kelas_id APA PUN (termasuk milik sekolah lain) dan tetap lolos. Endpoint
+  // lain (paket PG, paket essay, soal) sudah pakai helper ini sejak awal
+  // (lihat komentar di src/lib/guru-scope.ts) — di sini terlewat, sekarang
+  // disamakan.
+  const cekKepemilikan = await verifikasiKepemilikanMapelKelas(db, user.username, mapel_id, kelas_id)
+  if (!cekKepemilikan.ok) {
+    return NextResponse.json({ error: cekKepemilikan.error }, { status: cekKepemilikan.status })
   }
 
   const { data: existing } = await db
