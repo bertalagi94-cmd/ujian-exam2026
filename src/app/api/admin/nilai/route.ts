@@ -2,10 +2,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 import { petakanEssayAktifPerSesi } from '@/app/api/guru/kirim-nilai/route'
+import { getKepsekScope } from '@/lib/kepsek-scope'
 
 export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['ADMIN', 'KEPSEK'])
   if ('error' in auth) return auth.error
+  const { user } = auth
 
   const db = createAdminClient()
   const { searchParams } = new URL(req.url)
@@ -20,6 +22,31 @@ export async function GET(req: NextRequest) {
   const page = parseInt(searchParams.get('page') ?? '1')
   const perPage = parseInt(searchParams.get('per_page') ?? '50')
 
+  // FIX BUG (P1 — kebocoran lintas sekolah): endpoint ini mengizinkan role
+  // KEPSEK tapi SEBELUM PERBAIKAN INI tidak pernah memanggil getKepsekScope()
+  // — KEPSEK bisa melihat nilai (termasuk NIS, nama siswa, nilai per mapel)
+  // untuk kelas mana pun, termasuk milik sekolah lain, lewat ?kelas=... atau
+  // bahkan tanpa parameter kelas sama sekali (semua nilai dari semua sekolah).
+  // Pola & catatan keterbatasan arsitektur sama dengan
+  // admin/analisis-ujian/route.ts — lihat komentar lengkap di file itu.
+  let kelasScopeKepsek: string[] | null = null
+  if (user.role === 'KEPSEK') {
+    const scope = await getKepsekScope(user.username)
+    if (scope.noScope) {
+      return NextResponse.json(
+        { error: 'Akun Anda belum diset sekolah/jenjangnya oleh Admin. Hubungi Admin untuk mengatur ini di menu Data Pengguna.' },
+        { status: 403 }
+      )
+    }
+    kelasScopeKepsek = scope.kelasList
+    if (kelasId && !kelasScopeKepsek.includes(kelasId)) {
+      return NextResponse.json({ error: 'Kelas tersebut berada di luar cakupan sekolah Anda' }, { status: 403 })
+    }
+    if (kelasScopeKepsek.length === 0) {
+      return NextResponse.json({ data: [], total: 0 })
+    }
+  }
+
   let query = db
     .from('nilai')
     .select('*', { count: 'exact' })
@@ -33,6 +60,7 @@ export async function GET(req: NextRequest) {
     query = query.eq('mapel_id', mapelId)
   }
   if (kelasId) query = query.eq('kelas', kelasId)
+  else if (kelasScopeKepsek) query = query.in('kelas', kelasScopeKepsek)
 
   const from = (page - 1) * perPage
   query = query.range(from, from + perPage - 1)
