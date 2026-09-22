@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
+import { getKepsekScope } from '@/lib/kepsek-scope'
 
 export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['ADMIN', 'KEPSEK'])
   if ('error' in auth) return auth.error
+  const { user } = auth
 
   const db = createAdminClient()
   const { searchParams } = new URL(req.url)
@@ -14,12 +16,59 @@ export async function GET(req: NextRequest) {
   const onlyKelas   = searchParams.get('only_kelas') === '1'
   const latest      = searchParams.get('latest') === '1'
 
+  // ── FIX BUG (P1 — kebocoran lintas sekolah) ─────────────────────────────
+  // Endpoint ini mengizinkan role KEPSEK (lihat requireRole di atas), tapi
+  // SEBELUM PERBAIKAN INI tidak pernah memanggil getKepsekScope() sama
+  // sekali — KEPSEK bisa mendapatkan daftar kelas dari SEMUA sekolah
+  // (onlyKelas), lalu meminta analisis lengkap (soal, kunci jawaban,
+  // distribusi jawaban per siswa, NIS, nama siswa) untuk kelas mana pun,
+  // termasuk kelas sekolah lain, cukup dengan mengirim ?kelas=... — bahkan
+  // tanpa parameter kelas sama sekali di jalur onlyMapel/daftar sesi.
+  //
+  // CATATAN ARSITEKTUR (lihat juga src/lib/kepsek-scope.ts dan
+  // src/lib/guru-scope.ts): scope di bawah dicocokkan lewat NAMA kelas,
+  // karena sesi_ujian.kelas menyimpan nama (bukan id) dan TIDAK punya
+  // sekolah_id sendiri. Kalau dua sekolah kebetulan punya kelas dengan nama
+  // PERSIS SAMA (mis. sama-sama "10"), pembatasan nama ini tidak bisa
+  // membedakan keduanya — itu keterbatasan desain database yang sudah ada
+  // (siswa.kelas & sesi_ujian.kelas keduanya string bebas tanpa sekolah_id),
+  // bukan sesuatu yang bisa diperbaiki tanpa migrasi skema (idealnya
+  // sesi_ujian punya kelas_id/sekolah_id sendiri). Patch ini tetap menutup
+  // celah utama: KEPSEK yang sekolahnya punya penamaan kelas yang berbeda
+  // dari sekolah lain (kasus umum) sekarang benar-benar dibatasi ke
+  // sekolahnya sendiri, alih-alih tidak dibatasi sama sekali.
+  let kelasScopeKepsek: string[] | null = null
+  if (user.role === 'KEPSEK') {
+    const scope = await getKepsekScope(user.username)
+    if (scope.noScope) {
+      return NextResponse.json(
+        { error: 'Akun Anda belum diset sekolah/jenjangnya oleh Admin. Hubungi Admin untuk mengatur ini di menu Data Pengguna.' },
+        { status: 403 }
+      )
+    }
+    kelasScopeKepsek = scope.kelasList
+    // Kalau guru/kepsek memilih kelas secara eksplisit lewat query param,
+    // kelas itu HARUS berada dalam scope sekolahnya — kalau tidak, tolak
+    // di sini juga (fail-closed), jangan biarkan lolos ke query di bawah.
+    if (filterKelas && !kelasScopeKepsek.includes(filterKelas)) {
+      return NextResponse.json({ error: 'Kelas tersebut berada di luar cakupan sekolah Anda' }, { status: 403 })
+    }
+    // Sekolah tanpa kelas sama sekali -> tidak ada data yang bisa ditampilkan.
+    if (kelasScopeKepsek.length === 0) {
+      if (onlyKelas) return NextResponse.json({ kelasList: [], adaSesi: false })
+      if (onlyMapel) return NextResponse.json({ mapelList: [], adaSesi: false })
+      return NextResponse.json({ data: [], mapelList: [] })
+    }
+  }
+
   // Jika hanya butuh daftar kelas yang punya sesi SELESAI
   if (onlyKelas) {
-    const { data: sesiSelesai } = await db
+    let sesiSelesaiQuery = db
       .from('sesi_ujian')
       .select('kelas')
       .eq('status', 'SELESAI')
+    if (kelasScopeKepsek) sesiSelesaiQuery = sesiSelesaiQuery.in('kelas', kelasScopeKepsek)
+    const { data: sesiSelesai } = await sesiSelesaiQuery
 
     const kelasSet = [...new Set((sesiSelesai ?? []).map(s => s.kelas).filter(Boolean))]
       .sort((a, b) => a.localeCompare(b, 'id', { numeric: true }))
@@ -39,6 +88,7 @@ export async function GET(req: NextRequest) {
     // Hanya tampilkan mapel yang punya minimal satu sesi SELESAI (untuk kelas yg dipilih)
     let sesiQuery = db.from('sesi_ujian').select('mapel_id').eq('status', 'SELESAI')
     if (filterKelas) sesiQuery = sesiQuery.eq('kelas', filterKelas)
+    else if (kelasScopeKepsek) sesiQuery = sesiQuery.in('kelas', kelasScopeKepsek)
     const { data: sesiSelesai } = await sesiQuery
 
     const mapelIdAda = new Set((sesiSelesai ?? []).map(s => s.mapel_id))
@@ -65,6 +115,7 @@ export async function GET(req: NextRequest) {
     .eq('status', 'SELESAI')
     .eq('mapel_id', filterMapel)
   if (filterKelas) sesiQuery2 = sesiQuery2.eq('kelas', filterKelas)
+  else if (kelasScopeKepsek) sesiQuery2 = sesiQuery2.in('kelas', kelasScopeKepsek)
   const { data: sesiList } = await sesiQuery2
     .order('waktu_mulai', { ascending: false })
   // .limit(1)  ← DIHAPUS: limit ini menyebabkan sesi lama tidak pernah tampil
