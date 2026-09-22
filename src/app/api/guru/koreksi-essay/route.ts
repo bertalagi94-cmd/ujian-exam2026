@@ -396,42 +396,48 @@ export async function PUT(req: NextRequest) {
   // essay (di)simpan/diubah di sini, `dirilis` di-reset ke false (dan
   // `dirilis_pada` dikosongkan) supaya guru WAJIB menekan Rilis lagi sebelum
   // nilai terbaru ini boleh tampil ke siswa.
-  const sudahPernahDirilis = nilaiRow.dirilis === true
+  // FIX #9 (audit lanjutan — "koreksi/nilai belum atomic"): sebelumnya
+  // UPDATE nilai, UPSERT skor_essay_siswa, dan UPDATE siswa_ujian.status_essay
+  // adalah 3 query TERPISAH. Kalau UPDATE nilai berhasil tapi UPSERT skor
+  // gagal, guru menerima error TAPI nilai.nilai_essay/nilai_total sudah
+  // terlanjur berubah di database sementara rincian skor per soal (jejak
+  // audit rubrik) tidak tersimpan. Sekarang ketiganya dijalankan dalam SATU
+  // transaksi Postgres lewat simpan_koreksi_essay_atomik() (lihat
+  // supabase/25_koreksi_essay_atomik.sql) — commit bersama atau batal
+  // bersama. Pola sama persis dengan finalisasi_pg_atomik di selesai/route.ts.
+  //
+  // FAIL CLOSED: tidak ada jalur fallback ke 3-query lama kalau RPC gagal
+  // atau migrasi 25 belum terpasang — guru menerima error & bisa mencoba
+  // lagi (retry aman: UPDATE/UPSERT di dalam RPC idempotent terhadap input
+  // yang sama).
+  const { data: rpcHasil, error: rpcError } = await db.rpc('simpan_koreksi_essay_atomik', {
+    p_sesi_id: sesiId,
+    p_nis: nis,
+    p_nilai_essay: finalNilaiEssay,
+    p_nilai_total: nilaiTotal,
+    p_lulus: lulusBaru,
+    p_dinilai_oleh: user.username,
+    p_status_essay_update: statusEssayUpdate ?? null,
+    p_skor_per_soal: skorUntukDisimpan.length > 0 ? skorUntukDisimpan : null,
+  })
 
-  const { error: nilaiError } = await db
-    .from('nilai')
-    .update({
-      nilai_essay: finalNilaiEssay,
-      nilai_total: nilaiTotal,
-      lulus: lulusBaru,
-      dinilai_pada: new Date().toISOString(),
-      dinilai_oleh: user.username,
-      dirilis: false,
-      dirilis_pada: null,
-    })
-    .eq('id', nilaiRow.id)
-
-  if (nilaiError) return NextResponse.json({ error: nilaiError.message }, { status: 500 })
-
-  // FIX (jejak audit rubrik): simpan rincian skor per soal — kosong kalau
-  // "tidak mengerjakan" karena memang tidak ada skor untuk kasus itu.
-  if (skorUntukDisimpan.length > 0) {
-    const { error: skorError } = await db.from('skor_essay_siswa').upsert(
-      skorUntukDisimpan.map(s => ({
-        sesi_id: sesiId,
-        nis,
-        soal_essay_id: s.soal_essay_id,
-        skor: s.skor,
-        updated_at: new Date().toISOString(),
-      })),
-      { onConflict: 'sesi_id,nis,soal_essay_id' }
+  if (rpcError) {
+    console.error('[koreksi-essay] simpan_koreksi_essay_atomik gagal:', rpcError.message)
+    return NextResponse.json(
+      { error: 'Gagal menyimpan koreksi essay ke server. Coba lagi beberapa saat.' },
+      { status: 500 }
     )
-    if (skorError) return NextResponse.json({ error: skorError.message }, { status: 500 })
   }
 
-  if (statusEssayUpdate) {
-    await db.from('siswa_ujian').update({ status_essay: statusEssayUpdate }).eq('sesi_id', sesiId).eq('nis', nis)
+  const hasilRpc = rpcHasil as { hasil?: string; sudah_pernah_dirilis?: boolean } | null
+  if (hasilRpc?.hasil === 'NILAI_TIDAK_ADA') {
+    return NextResponse.json({ error: 'Nilai PG siswa ini belum ada — siswa belum submit ujian PG.' }, { status: 404 })
   }
+  if (hasilRpc?.hasil !== 'OK') {
+    return NextResponse.json({ error: 'Gagal menyimpan koreksi essay (respons tidak dikenali). Coba lagi.' }, { status: 500 })
+  }
+
+  const sudahPernahDirilis = hasilRpc.sudah_pernah_dirilis === true
 
   return NextResponse.json({
     message: sudahPernahDirilis
