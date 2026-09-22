@@ -110,14 +110,26 @@ export async function POST(req: NextRequest) {
     if (terpakai >= 1 && kodeResetCocok(sesiId, nis, terpakai, kodeReset)) {
       return NextResponse.json({ valid: true, waktu_mulai: waktuMulai, message: 'Kode benar. Ujian dilanjutkan.' })
     }
-    return NextResponse.json({ valid: false, message: 'Tidak ada kode reset aktif. Hubungi pengawas.' })
+    // BUG P0 (race rekonsiliasi offline — lihat reset-offline-client.ts): ini
+    // BISA berarti siswa memang tidak butuh reset, TAPI juga bisa berarti
+    // antrean rekonsiliasi R(N) offline ini sampai ke server LEBIH DULU
+    // daripada event pelanggaran offline yang seharusnya men-set status ke
+    // 'RESET' (dua outbox berjalan paralel tanpa urutan terjamin saat
+    // koneksi pulih). Kalau kita bilang ini FINAL, client akan menghapus
+    // entri dari antrean-nya padahal reset belum pernah benar-benar
+    // tersimpan di server — pelanggaran yang menyusul lalu men-set status
+    // 'RESET' tanpa reset_terpakai pernah naik, dan siswa "tersangkut". Tandai
+    // `retryable: true` supaya client TIDAK menghapus dari antrean dan
+    // mencoba lagi setelah event pelanggaran yang tertunda selesai disinkron.
+    return NextResponse.json({ valid: false, retryable: true, message: 'Tidak ada kode reset aktif. Hubungi pengawas.' })
   }
 
   const maks = await ambilMaksReset(db)
   const nomor = terpakai + 1
   if (nomor > maks) {
     // Hanya mungkin bila batasPelanggaran diturunkan saat ujian berjalan.
-    return NextResponse.json({ valid: false, message: 'Batas reset tercapai. Hubungi pengawas.' })
+    // Ini keadaan final (bukan soal urutan/waktu) — jangan diulang otomatis.
+    return NextResponse.json({ valid: false, permanen: true, message: 'Batas reset tercapai. Hubungi pengawas.' })
   }
 
   // ── Kode salah → hitung percobaan ────────────────────────────────────────
@@ -131,14 +143,25 @@ export async function POST(req: NextRequest) {
     if (error) console.error('[verifikasi-reset] catat_reset_gagal gagal:', error.message)
     const g = (gagal ?? {}) as { hasil?: string; sisa?: number; menit?: number }
     if (g.hasil === 'DIKUNCI_SEMENTARA') {
+      // Sementara (menunggu lockout habis) — aman diulang nanti, TAPI jangan
+      // sampai retry outbox memicu percobaan salah lagi selagi terkunci; guard
+      // di atas (reset_terkunci_sampai) sudah menolak sebelum sampai sini
+      // lagi, jadi menandainya retryable di sini tidak menambah risiko.
       return NextResponse.json({
         valid: false,
+        retryable: true,
         message: `Terlalu banyak percobaan salah. Akun dikunci sementara selama ${g.menit ?? LOCKOUT_MENIT} menit. Hubungi pengawas jika perlu reset ulang.`,
       })
     }
     const sisa = typeof g.sisa === 'number' ? g.sisa : undefined
+    // Kode BENAR-BENAR ditolak (tidak cocok HMAC untuk nomor giliran saat
+    // ini) — kalau ini berasal dari antrean offline yang otomatis, mengulang
+    // terus-menerus hanya akan menghabiskan jatah percobaan siswa dan bisa
+    // mengunci akunnya sendiri. Tandai FINAL supaya client berhenti mencoba
+    // dan menyimpannya untuk audit manual, bukan menghapusnya diam-diam.
     return NextResponse.json({
       valid: false,
+      permanen: true,
       message: sisa !== undefined
         ? `Kode reset salah. Cek kembali kode dari pengawas. Sisa percobaan: ${sisa}.`
         : 'Kode reset salah. Cek kembali kode dari pengawas.',
@@ -172,11 +195,14 @@ export async function POST(req: NextRequest) {
     case 'TERKUNCI':
       return balasTerkunci()
     case 'DIKUNCI_SEMENTARA':
-      return NextResponse.json({ valid: false, message: 'Terlalu banyak percobaan salah. Coba lagi beberapa menit lagi.' })
+      return NextResponse.json({ valid: false, retryable: true, message: 'Terlalu banyak percobaan salah. Coba lagi beberapa menit lagi.' })
     case 'SESI_DITUTUP':
-      return NextResponse.json({ valid: false, message: 'Sesi ujian sudah ditutup.' })
+      // Final — sesi sudah ditutup, tidak ada gunanya mengulang.
+      return NextResponse.json({ valid: false, permanen: true, message: 'Sesi ujian sudah ditutup.' })
     default:
-      // URUTAN_SALAH (balapan dengan request lain) dan sisanya: aman diulang.
-      return NextResponse.json({ valid: false, message: 'Kode belum dapat diproses. Coba lagi.' })
+      // URUTAN_SALAH (balapan dengan request lain, mis. R2 diproses sebelum
+      // R1 sempat tersinkron) dan sisanya: ini justru kasus race yang sama
+      // dengan komentar di atas — aman dan PERLU diulang otomatis.
+      return NextResponse.json({ valid: false, retryable: true, message: 'Kode belum dapat diproses. Coba lagi.' })
   }
 }
