@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 import { generateId } from '@/lib/utils'
+import { hapusFotoEssayFisik } from '@/lib/backup-restore-shared'
 
 /**
  * GET — daftar kelas diambil otomatis dari tabel siswa.
@@ -105,26 +106,66 @@ export async function PUT(req: NextRequest) {
 
 /**
  * DELETE — hapus kelas beserta SEMUA siswa yang ada di kelas tersebut,
- * termasuk semua data turunan milik siswa-siswa itu (nilai, jawaban,
- * siswa_ujian, pelanggaran) supaya tidak ada data orphan yang nyangkut
- * setelah siswa-nya dihapus dari tabel `siswa`.
+ * termasuk semua data turunan milik siswa-siswa itu.
  *
- * Urutan hapus PENTING — harus dari data "anak" dulu sebelum hapus
- * baris `siswa` itu sendiri, karena tidak ada FK/CASCADE di schema
- * yang menangani ini secara otomatis.
+ * FIX (audit lanjutan — Batch 3, "Delete kelas"): versi lama punya 3
+ * kekurangan yang sama seperti DELETE siswa individual (lihat
+ * api/admin/siswa/[nis]/route.ts) DITAMBAH satu lagi khusus kelas:
+ *   1) Tidak menghapus data essay (jawaban_essay, jawaban_essay_foto,
+ *      skor_essay_siswa, essay_amplop_offline) maupun log_reset.
+ *   2) Beberapa DELETE terpisah TANPA transaksi — bisa gagal sebagian.
+ *   3) Tidak ada pembersihan file fisik foto essay di Storage.
+ *   4) Identitas kelas HANYA `nama` (bukan kolom unik di tabel `kelas`,
+ *      lihat 01_schema.sql) — kalau kelas pernah di-rename, client dengan
+ *      nama lama (tab lain yang belum refresh) bisa salah sasaran.
  *
- * Body: { nama: string }  (nama kelas, bukan id)
+ * Sekarang: `kelasId` (id stabil dari tabel `kelas`, sama seperti yang
+ * dikembalikan GET di atas sebagai field `id`) jadi identitas yang
+ * DIUTAMAKAN — kalau dikirim, `nama` diresolusi ULANG dari database
+ * berdasarkan id, bukan dipercaya mentah-mentah dari body request. `nama`
+ * saja tanpa `kelasId` tetap didukung untuk kompatibilitas mundur (kelas
+ * yang belum pernah punya baris di tabel `kelas` sama sekali — hanya
+ * "murni" dari nilai `siswa.kelas`).
+ *
+ * CATATAN keterbatasan yang TIDAK diperbaiki di sini (butuh migrasi skema
+ * lebih besar, di luar cakupan perbaikan ini): keanggotaan siswa tetap
+ * dicocokkan lewat `siswa.kelas` (kolom TEKS nama), BUKAN `kelas_id` — jadi
+ * walau identitas kelas yang dihapus sekarang pasti benar, siswa dengan
+ * `siswa.kelas` yang tidak sinkron ejaan/spasi dengan `kelas.nama` (data
+ * kotor) tetap tidak akan ikut ketemu. Perbaikan penuh butuh kolom
+ * `siswa.kelas_id` (FK ke `kelas.id`) di seluruh aplikasi.
+ *
+ * Semua penghapusan DB (semua siswa di kelas + baris kelas itu sendiri)
+ * sekarang jadi SATU transaksi lewat RPC hapus_kelas_atomik (lihat
+ * supabase/27_hapus_siswa_kelas_atomik.sql).
+ *
+ * Body: { nama?: string, kelasId?: string }  (minimal salah satu)
  */
 export async function DELETE(req: NextRequest) {
   const auth = requireRole(req, ['ADMIN'])
   if ('error' in auth) return auth.error
 
   const db = createAdminClient()
-  const { nama } = await req.json()
+  const body = await req.json()
+  const namaInput: string | undefined = body?.nama
+  const kelasId: string | undefined = body?.kelasId
+
+  if (!namaInput && !kelasId) {
+    return NextResponse.json({ error: 'Nama kelas atau kelasId diperlukan' }, { status: 400 })
+  }
+
+  let kelasRow: { id: string; nama: string } | null = null
+  if (kelasId) {
+    const { data, error } = await db.from('kelas').select('id, nama').eq('id', kelasId).maybeSingle()
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    if (!data) return NextResponse.json({ error: 'Kelas tidak ditemukan' }, { status: 404 })
+    kelasRow = data
+  }
+  const nama = kelasRow?.nama ?? namaInput
   if (!nama) return NextResponse.json({ error: 'Nama kelas diperlukan' }, { status: 400 })
 
-  // 1. Ambil semua NIS siswa di kelas ini — dipakai untuk membersihkan
-  //    data turunan sebelum siswa-nya sendiri dihapus.
+  // 1. Ambil semua NIS siswa di kelas ini — dipakai untuk membersihkan foto
+  //    essay di Storage sebelum baris DB-nya (termasuk foto_url-nya) hilang.
   const { data: siswaList, error: fetchError } = await db
     .from('siswa')
     .select('nis')
@@ -135,42 +176,53 @@ export async function DELETE(req: NextRequest) {
   const nisList = (siswaList ?? []).map((s) => s.nis)
 
   if (nisList.length > 0) {
-    // 2. Hapus data turunan milik siswa-siswa ini.
-    //    Urutan tidak terlalu kritis di sini (tidak ada FK antar mereka),
-    //    tapi tetap dilakukan sebelum hapus baris `siswa` agar konsisten.
-    const { error: pelanggaranError } = await db
-      .from('pelanggaran')
-      .delete()
+    const { data: fotoRows, error: fotoFetchError } = await db
+      .from('jawaban_essay_foto')
+      .select('foto_url')
       .in('nis', nisList)
-    if (pelanggaranError) return NextResponse.json({ error: pelanggaranError.message }, { status: 500 })
 
-    const { error: nilaiError } = await db
-      .from('nilai')
-      .delete()
-      .in('nis', nisList)
-    if (nilaiError) return NextResponse.json({ error: nilaiError.message }, { status: 500 })
+    if (fotoFetchError) {
+      return NextResponse.json(
+        { error: `Gagal memeriksa foto jawaban essay: ${fotoFetchError.message}` },
+        { status: 500 }
+      )
+    }
 
-    const { error: jawabanError } = await db
-      .from('jawaban')
-      .delete()
-      .in('nis', nisList)
-    if (jawabanError) return NextResponse.json({ error: jawabanError.message }, { status: 500 })
-
-    const { error: siswaUjianError } = await db
-      .from('siswa_ujian')
-      .delete()
-      .in('nis', nisList)
-    if (siswaUjianError) return NextResponse.json({ error: siswaUjianError.message }, { status: 500 })
+    // FAIL-CLOSED: kalau penghapusan Storage gagal, penghapusan DB (RPC di
+    // bawah) TIDAK dijalankan sama sekali — supaya foto_url-nya tidak
+    // hilang duluan sebelum sempat dihapus fisiknya.
+    const storageErr = await hapusFotoEssayFisik(db, (fotoRows ?? []).map((r) => r.foto_url))
+    if (storageErr) {
+      return NextResponse.json(
+        {
+          error: `Gagal menghapus file foto jawaban essay dari Storage, penghapusan kelas dibatalkan: ${storageErr}`,
+        },
+        { status: 500 }
+      )
+    }
   }
 
-  // 3. Baru sekarang hapus baris siswa itu sendiri.
-  const { error: siswaError } = await db.from('siswa').delete().eq('kelas', nama)
-  if (siswaError) return NextResponse.json({ error: siswaError.message }, { status: 500 })
+  // 2. Hapus semua siswa di kelas ini + baris kelas itu sendiri dalam SATU
+  //    transaksi. FAIL CLOSED: tidak ada fallback ke penghapusan manual
+  //    per-tabel kalau RPC gagal (mis. migrasi 27 belum dijalankan).
+  const { data: rpcHasil, error: rpcError } = await db.rpc('hapus_kelas_atomik', {
+    p_nama: nama,
+    p_kelas_id: kelasRow?.id ?? null,
+  })
 
-  // 4. Terakhir, hapus baris kelas (info wali kelas/jurusan).
-  await db.from('kelas').delete().eq('nama', nama)
+  if (rpcError) {
+    console.error('[admin/kelas DELETE] hapus_kelas_atomik gagal:', rpcError.message)
+    return NextResponse.json(
+      {
+        error: `Gagal menghapus kelas: ${rpcError.message}. Pastikan migrasi supabase/27_hapus_siswa_kelas_atomik.sql sudah dijalankan.`,
+      },
+      { status: 500 }
+    )
+  }
+
+  const jumlahSiswa = rpcHasil?.jumlah_siswa ?? nisList.length
 
   return NextResponse.json({
-    message: `Kelas ${nama}, semua siswanya, beserta data nilai/jawaban/pelanggaran terkait berhasil dihapus`,
+    message: `Kelas ${nama} beserta ${jumlahSiswa} siswa dan seluruh data terkait (nilai, jawaban PG & essay, foto, pelanggaran, log) berhasil dihapus`,
   })
 }
