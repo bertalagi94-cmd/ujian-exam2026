@@ -70,9 +70,22 @@ export async function GET(req: NextRequest) {
   // sedang menunggu kode reset pengawas tetap bisa mengambil info essay
   // (nama mapel, jumlah soal, durasi, instruksi guru) padahal seharusnya
   // sudah diblokir total, sama seperti endpoint essay lainnya.
-  if (siswaUjian.status === 'TERKUNCI' || siswaUjian.status === 'RESET') {
+  // FIX BUG (pola lama, pesan tidak dibedakan): sebelumnya RESET dan TERKUNCI
+  // dibalas dengan pesan generik yang sama, tanpa `sementara: true`. Endpoint
+  // ini dipanggil langsung oleh halaman (bukan lewat outbox yang di-retry),
+  // jadi tidak menyebabkan kehilangan data seperti bug /selesai sebelumnya --
+  // tapi siswa yang statusnya RESET (sementara, akan pulih begitu kode
+  // tersinkron) melihat pesan yang sama seperti TERKUNCI (permanen).
+  // Dibedakan supaya kartu "Coba Lagi" di client menampilkan pesan yang benar.
+  if (siswaUjian.status === 'RESET') {
     return NextResponse.json(
-      { error: 'Akses ujian Anda sedang dikunci/menunggu reset.' },
+      { error: 'Akses ujian Anda sedang menunggu kode reset dari pengawas. Akan lanjut otomatis begitu kode diproses.', sementara: true },
+      { status: 403 }
+    )
+  }
+  if (siswaUjian.status === 'TERKUNCI') {
+    return NextResponse.json(
+      { error: 'Akses ujian Anda dikunci oleh pengawas.' },
       { status: 403 }
     )
   }
