@@ -126,8 +126,38 @@ export async function POST(req: NextRequest) {
       })
     }
 
+    // BUG P0 (ditemukan via audit "apiRequest -> anggap berhasil/gagal
+    // permanen -> outbox berhenti retry" di semua endpoint offline): endpoint
+    // ini dulu membalas 403 TANPA `sementara: true` untuk KEDUA status
+    // (TERKUNCI maupun RESET) sekaligus, tidak seperti /sync dan
+    // /essay/mulai yang sudah membedakannya. Akibatnya cobaKirimPaketTertunda
+    // di ujian-outbox.ts (lihat sementara403 di sana) menandai SELURUH paket
+    // ujian (PG + essay) sebagai GAGAL PERMANEN begitu /selesai dipanggil
+    // SAAT status siswa masih 'RESET' (mis. karena rekonsiliasi R1 offline
+    // belum sempat sinkron duluan -- lihat reset-offline-client.ts). Paket
+    // yang sudah GAGAL tidak dicoba lagi otomatis oleh penjaga latar
+    // belakang (mulaiPenjagaOutbox men-skip status GAGAL) -- jadi walau R1
+    // dan pelanggaran akhirnya tersinkron dan status siswa kembali AKTIF,
+    // ujian TETAP tidak pernah terfinalisasi sampai ada yang menekan tombol
+    // "Kirim Sekarang" manual. Ini penyebab utama gejala "status di pengawas
+    // tetap belum SELESAI" walau semuanya akhirnya tersinkron.
+    //
+    // RESET bersifat SEMENTARA (bisa pulih sendiri begitu R1 tersinkron) ->
+    // sementara: true supaya outbox tetap retry otomatis. TERKUNCI bersifat
+    // PERMANEN (siswa memang dihentikan, butuh intervensi pengawas) -> TIDAK
+    // diberi sementara: true, supaya outbox berhenti retry seperti semula.
+    if (siswaUjianCheck.status === 'RESET') {
+      return NextResponse.json(
+        {
+          error: 'Akses ujian Anda sedang menunggu kode reset. Ujian akan otomatis diselesaikan setelah kode reset tersinkron.',
+          sementara: true,
+        },
+        { status: 403 }
+      )
+    }
+
     return NextResponse.json(
-      { error: 'Akses ujian Anda sedang dikunci/menunggu reset. Ujian tidak bisa diselesaikan sekarang.' },
+      { error: 'Akses ujian Anda dikunci. Ujian tidak bisa diselesaikan sekarang.' },
       { status: 403 }
     )
   }
