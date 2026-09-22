@@ -54,7 +54,12 @@ export async function precacheGambarSoal(
     const gagal: string[] = []
     for (const url of unik) {
       const rec = await ambilAsset(url).catch(() => null)
-      if (rec?.status === 'ASSET_READY') berhasil++
+      // P0 FIX (audit gambar-offline): konsisten dengan pengecekan di jalur
+      // online di bawah — entri yang mimeType-nya bukan `image/*` (mis.
+      // tersisa dari sebelum perbaikan ini, atau korup) tidak dianggap siap
+      // walau statusnya ASSET_READY, supaya tidak menggerbang START dengan
+      // aset yang sebenarnya bukan gambar.
+      if (rec?.status === 'ASSET_READY' && rec.blob.size > 0 && rec.mimeType.startsWith('image/')) berhasil++
       else gagal.push(url)
     }
     return { total: unik.length, berhasil, gagal, siap: gagal.length === 0 }
@@ -67,7 +72,20 @@ export async function precacheGambarSoal(
     unik.map(async (url) => {
       try {
         const existing = await ambilAsset(url).catch(() => null)
-        if (existing?.status === 'ASSET_READY' && existing.blob.size > 0) {
+        // P0 FIX (audit gambar-offline): sebelumnya entri lama dianggap
+        // valid hanya dari `status === 'ASSET_READY' && blob.size > 0` —
+        // tidak memeriksa mimeType-nya. Entri yang SEBELUM perbaikan ini
+        // sempat lolos tanpa validasi Content-Type (mis. tersimpan sebagai
+        // 'application/octet-stream' generik, lihat fallback lama di
+        // `simpanAsset` di bawah) tetap dianggap "sudah siap" selamanya dan
+        // tidak pernah diverifikasi ulang. Sekarang entri lama seperti itu
+        // dianggap TIDAK valid dan diunduh ulang supaya tervalidasi dengan
+        // aturan Content-Type yang baru.
+        if (
+          existing?.status === 'ASSET_READY' &&
+          existing.blob.size > 0 &&
+          existing.mimeType.startsWith('image/')
+        ) {
           berhasil++
           return
         }
@@ -75,12 +93,25 @@ export async function precacheGambarSoal(
         // IndexedDB, tidak perlu double-cache lewat HTTP cache browser.
         const res = await fetch(url, { cache: 'no-store' })
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        // P0 FIX (audit gambar-offline): sebelumnya HANYA `res.ok` +
+        // `blob.size > 0` yang diperiksa — respons 200 OK berisi body TIDAK
+        // KOSONG tapi BUKAN gambar (mis. halaman error/login HTML dari
+        // proxy/CDN, atau JSON error dari storage provider yang tetap
+        // mengembalikan status 200) akan LOLOS validasi dan tersimpan
+        // sebagai "berhasil" — padahal kalau nanti ditampilkan sebagai
+        // <img>, itu bukan gambar sama sekali. Sekarang Content-Type WAJIB
+        // diawali `image/`; kalau tidak, dianggap gagal (bukan diam-diam
+        // disimpan sebagai aset yang rusak).
+        const contentType = res.headers.get('content-type') ?? ''
+        if (!contentType.toLowerCase().startsWith('image/')) {
+          throw new Error(`Content-Type bukan gambar: "${contentType || '(kosong)'}"`)
+        }
         const blob = await res.blob()
         if (blob.size === 0) throw new Error('Berkas kosong')
         await simpanAsset({
           url,
           blob,
-          mimeType: blob.type || 'application/octet-stream',
+          mimeType: contentType,
           size: blob.size,
           savedAtIso: new Date().toISOString(),
           status: 'ASSET_READY',
@@ -108,7 +139,12 @@ export async function ambilGambarDariCache(url: string | null | undefined): Prom
   if (!url) return null
   try {
     const rec = await ambilAsset(url)
-    if (!rec || rec.status !== 'ASSET_READY') return null
+    // P0 FIX (audit gambar-offline): jangan render blob yang mimeType-nya
+    // bukan gambar (entri lama sebelum validasi Content-Type ditambahkan,
+    // atau korup) — perlakukan sebagai "belum tersedia" supaya pemanggil
+    // (GambarSoalOffline.tsx) menampilkan status error yang jelas, bukan
+    // <img> rusak tanpa jejak.
+    if (!rec || rec.status !== 'ASSET_READY' || !rec.mimeType.startsWith('image/')) return null
     return URL.createObjectURL(rec.blob)
   } catch {
     return null
