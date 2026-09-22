@@ -279,33 +279,123 @@ export async function resetMaterialGet<T>(key: string): Promise<T | null> {
   })
 }
 
+// ── P0 (audit brief "plaintext kode reset_pending"): fallback localStorage
+// untuk STORE_RESET_PENDING, KHUSUS store ini (bukan STORE_RESET_MATERIAL).
+// Alasan: entri di reset_pending berisi `kode` reset plaintext (lihat
+// ResetTertunda di reset-offline-client.ts) — ini SATU-SATUNYA tempat kode
+// plaintext boleh singgah, dan HANYA sesaat, karena:
+//   - kode ini SUDAH terbukti benar lewat verifikasi amplop offline (murni
+//     lokal, lihat verifikasiKodeResetOffline) — bukan kode yang "belum
+//     tepercaya";
+//   - server TIDAK PERNAH menyimpan kode reset di database (diturunkan
+//     deterministik via HMAC, lihat reset-berurutan.ts) — jadi rekonsiliasi
+//     ke /api/siswa/ujian/verifikasi-reset SATU-SATUNYA cara server tahu
+//     "kode ke-N sudah dipakai" adalah menerima kode plaintext itu lagi dan
+//     mencocokkannya sendiri. Tidak ada desain lain (mis. hash/signature)
+//     yang bisa dipakai TANPA mengubah kontrak endpoint verifikasi-reset
+//     yang sudah ada (di luar scope perbaikan ini per arahan "jangan
+//     refactor besar");
+//   - LIFETIME: entri (termasuk kode plaintext-nya) dihapus SEGERA setelah
+//     server ACK (lihat resetPendingDelete di kirimSatuReset) — TIDAK
+//     pernah bertahan lebih lama dari waktu offline yang benar-benar
+//     dibutuhkan sampai koneksi pulih & rekonsiliasi sukses.
+//
+// GAP YANG DIPERBAIKI DI SINI: sebelumnya resetPendingPut/Delete/GetAllValues
+// HANYA memakai IndexedDB, TANPA fallback — beda dengan STORE_RESET_MATERIAL
+// yang punya fallback localStorage di reset-offline-client.ts. Kalau
+// IndexedDB gagal total (mis. mode privat sangat ketat) tepat saat siswa
+// baru saja membuktikan R(N) benar secara offline, progres lokal
+// (ambilTerpakaiLokal, disimpan lewat localStorage terpisah) TETAP maju,
+// TAPI catatan untuk direkonsiliasi ke server HILANG tanpa jejak — server
+// tidak akan pernah tahu R(N) sudah dipakai (reset_terpakai di server tetap
+// tertinggal), padahal client sudah menganggapnya terpakai. Ini melanggar
+// requirement "Jangan sampai satu reset dihitung dua kali" versi
+// terbaliknya: reset dihitung di client tapi TIDAK PERNAH sampai ke server.
+// Sekarang STORE_RESET_PENDING punya fallback localStorage yang sama
+// prinsipnya dengan STORE_RESET_MATERIAL, supaya kode plaintext yang SUDAH
+// terlanjur perlu disimpan sementara itu tidak hilang gara-gara IndexedDB
+// bermasalah — mengorbankan durabilitas di sini sama saja mengorbankan
+// fungsi rekonsiliasi itu sendiri.
+const LS_RESET_PENDING_FALLBACK_KEY = 'reset_pending_ls_fallback_v1'
+
+function bacaFallbackResetPending<T>(): Record<string, T> {
+  try {
+    const raw = localStorage.getItem(LS_RESET_PENDING_FALLBACK_KEY)
+    return raw ? (JSON.parse(raw) as Record<string, T>) : {}
+  } catch {
+    return {}
+  }
+}
+
+function tulisFallbackResetPending<T>(map: Record<string, T>): void {
+  try { localStorage.setItem(LS_RESET_PENDING_FALLBACK_KEY, JSON.stringify(map)) } catch { /* abaikan */ }
+}
+
 export async function resetPendingPut<T>(key: string, value: T): Promise<void> {
-  const db = await bukaDb()
-  await new Promise<void>((resolve, reject) => {
-    const tx = db.transaction(STORE_RESET_PENDING, 'readwrite')
-    tx.objectStore(STORE_RESET_PENDING).put(value, key)
-    tx.oncomplete = () => resolve()
-    tx.onerror = () => reject(tx.error ?? new Error('Gagal menyimpan antrean reset'))
-  })
+  try {
+    const db = await bukaDb()
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(STORE_RESET_PENDING, 'readwrite')
+      tx.objectStore(STORE_RESET_PENDING).put(value, key)
+      tx.oncomplete = () => resolve()
+      tx.onerror = () => reject(tx.error ?? new Error('Gagal menyimpan antrean reset'))
+    })
+  } catch {
+    // IndexedDB gagal total — fallback localStorage (lihat catatan di atas).
+    const map = bacaFallbackResetPending<T>()
+    map[key] = value
+    tulisFallbackResetPending(map)
+  }
 }
 
 export async function resetPendingDelete(key: string): Promise<void> {
-  const db = await bukaDb()
-  await new Promise<void>((resolve, reject) => {
-    const tx = db.transaction(STORE_RESET_PENDING, 'readwrite')
-    tx.objectStore(STORE_RESET_PENDING).delete(key)
-    tx.oncomplete = () => resolve()
-    tx.onerror = () => reject(tx.error ?? new Error('Gagal menghapus antrean reset'))
-  })
+  try {
+    const db = await bukaDb()
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(STORE_RESET_PENDING, 'readwrite')
+      tx.objectStore(STORE_RESET_PENDING).delete(key)
+      tx.oncomplete = () => resolve()
+      tx.onerror = () => reject(tx.error ?? new Error('Gagal menghapus antrean reset'))
+    })
+  } catch {
+    // Best-effort — tetap lanjut bersihkan fallback LS di bawah.
+  }
+  // Bersihkan juga dari fallback LS (kalau entrinya memang tersimpan di
+  // sana, atau tersisa dari percobaan sebelumnya) — supaya kode plaintext
+  // tidak tertinggal di dua tempat sekaligus.
+  const map = bacaFallbackResetPending<unknown>()
+  if (key in map) {
+    delete map[key]
+    tulisFallbackResetPending(map)
+  }
 }
 
-/** Semua value yang tersimpan di antrean reset offline saat ini. */
+/** Semua value yang tersimpan di antrean reset offline saat ini (IndexedDB + fallback LS, tanpa duplikat). */
 export async function resetPendingGetAllValues<T>(): Promise<T[]> {
-  const db = await bukaDb()
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE_RESET_PENDING, 'readonly')
-    const req = tx.objectStore(STORE_RESET_PENDING).getAll()
-    req.onsuccess = () => resolve((req.result as T[]) ?? [])
-    req.onerror = () => reject(req.error ?? new Error('Gagal membaca antrean reset'))
-  })
+  let nilaiIdb: T[] = []
+  let kunciIdb = new Set<string>()
+  try {
+    const db = await bukaDb()
+    const hasil = await new Promise<{ keys: IDBValidKey[]; values: T[] }>((resolve, reject) => {
+      const tx = db.transaction(STORE_RESET_PENDING, 'readonly')
+      const store = tx.objectStore(STORE_RESET_PENDING)
+      const reqKeys = store.getAllKeys()
+      const reqValues = store.getAll()
+      tx.oncomplete = () => resolve({ keys: reqKeys.result ?? [], values: (reqValues.result as T[]) ?? [] })
+      tx.onerror = () => reject(tx.error ?? new Error('Gagal membaca antrean reset'))
+    })
+    nilaiIdb = hasil.values
+    kunciIdb = new Set(hasil.keys.map(String))
+  } catch {
+    // Lanjut dengan fallback LS saja.
+  }
+
+  const mapLs = bacaFallbackResetPending<T>()
+  // Kalau key yang sama SUDAH ada di IndexedDB (mis. berhasil ditulis ulang
+  // ke sana setelah sempat gagal), jangan dobel — utamakan IndexedDB.
+  const nilaiLs = Object.entries(mapLs)
+    .filter(([k]) => !kunciIdb.has(k))
+    .map(([, v]) => v)
+
+  return [...nilaiIdb, ...nilaiLs]
 }
