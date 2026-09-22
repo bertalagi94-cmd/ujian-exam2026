@@ -146,8 +146,29 @@ export async function POST(req: NextRequest) {
     ? await db.from('nilai').select('nis').in('sesi_id', semuaSesiIds).in('nis', semuaNis)
     : { data: [] }
 
+  // FIX (audit brief "Reset vs Retake" — item M): sebelumnya kelayakan
+  // susulan HANYA dicek dari keberadaan baris `nilai`. Baris `nilai` untuk
+  // siswa yang TERKUNCI permanen (pelanggaran melebihi batas reset) ditulis
+  // OLEH tuntaskanSiswaTerkunci() (src/lib/kunci-siswa.ts) SETELAH RPC
+  // atomik catat_pelanggaran_atomik (migrasi 24) sudah men-set
+  // siswa_ujian.status = 'TERKUNCI' — dua langkah terpisah, bukan satu
+  // transaksi. Kalau proses kedua gagal/terputus (restart server, timeout
+  // function, dsb) SEBELUM baris `nilai` sempat tertulis, siswa itu
+  // berstatus TERKUNCI permanen di DB tapi belum punya baris `nilai` sama
+  // sekali — dan sebelum perbaikan ini, filter di bawah akan salah
+  // menganggapnya "belum ujian", sehingga bisa ikut dimasukkan ke sesi
+  // susulan baru (yang sesi_id-nya berbeda, jadi status TERKUNCI di sesi
+  // lama tidak ikut terbawa). Sekarang: siswa dengan siswa_ujian.status =
+  // 'TERKUNCI' di SALAH SATU sesi milik jadwal ini SELALU dikecualikan,
+  // terlepas dari apakah baris `nilai`-nya sudah tertulis atau belum.
+  const { data: statusSemua } = semuaSesiIds.length > 0
+    ? await db.from('siswa_ujian').select('nis, status').in('sesi_id', semuaSesiIds).in('nis', semuaNis)
+    : { data: [] }
+
   const nisSudah = new Set((sudahUjian ?? []).map(n => n.nis))
-  const siswaBelum = siswaDiKelas.filter(s => !nisSudah.has(s.nis))
+  const nisTerkunci = new Set((statusSemua ?? []).filter(s => s.status === 'TERKUNCI').map(s => s.nis))
+  const nisDikecualikan = new Set([...nisSudah, ...nisTerkunci])
+  const siswaBelum = siswaDiKelas.filter(s => !nisDikecualikan.has(s.nis))
 
   if (siswaBelum.length === 0) {
     return NextResponse.json({
