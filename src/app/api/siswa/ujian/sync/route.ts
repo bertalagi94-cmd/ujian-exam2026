@@ -373,9 +373,20 @@ export async function GET(req: NextRequest) {
     .eq('nis', user.nis!)
     .single()
 
-  if (siswaUjian && (siswaUjian.status === 'TERKUNCI' || siswaUjian.status === 'RESET')) {
+  // FIX BUG (pola lama, pesan tidak dibedakan): lihat catatan yang sama di
+  // essay/info/route.ts — RESET bersifat sementara, TERKUNCI permanen. Ini
+  // GET read-only (pulihkan progres saat refresh), bukan bagian outbox yang
+  // di-retry, jadi tidak menyebabkan kehilangan data -- hanya pesannya yang
+  // dulu tidak jelas bagi siswa yang statusnya cuma sementara.
+  if (siswaUjian?.status === 'RESET') {
     return NextResponse.json(
-      { error: 'Akses ujian Anda sedang dikunci/menunggu reset.' },
+      { error: 'Akses ujian Anda sedang menunggu kode reset dari pengawas. Akan lanjut otomatis begitu kode diproses.', sementara: true },
+      { status: 403 }
+    )
+  }
+  if (siswaUjian?.status === 'TERKUNCI') {
+    return NextResponse.json(
+      { error: 'Akses ujian Anda dikunci oleh pengawas.' },
       { status: 403 }
     )
   }
