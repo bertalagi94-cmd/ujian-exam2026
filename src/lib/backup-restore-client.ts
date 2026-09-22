@@ -369,7 +369,7 @@ export async function runRestore(
 
   // ── 1. START — validasi menyeluruh SEBELUM ada data yang dihapus ───────────
   report(1, 'Memverifikasi file backup…')
-  const plan = await callApi<{ delete_order: string[]; insert_order: string[] }>(
+  const plan = await callApi<{ token: string; delete_order: string[]; insert_order: string[] }>(
     '/api/admin/restore',
     {
       method: 'POST',
@@ -410,7 +410,7 @@ export async function runRestore(
     const t = plan.delete_order[i]
     report(3 + Math.round(((i + 1) / plan.delete_order.length) * 12), `Mengosongkan tabel ${t}…`)
     try {
-      await callApi('/api/admin/restore', { method: 'POST', body: { action: 'clear', table: t } })
+      await callApi('/api/admin/restore', { method: 'POST', body: { action: 'clear', table: t, token: plan.token } })
     } catch (e) {
       fatal(`Gagal mengosongkan tabel ${t}`, e)
     }
@@ -425,7 +425,7 @@ export async function runRestore(
       try {
         const r = await callApi<{ inserted: number }>('/api/admin/restore', {
           method: 'POST',
-          body: { action: 'insert', table: t, rows: batch },
+          body: { action: 'insert', table: t, rows: batch, token: plan.token },
         })
         inserted += r.inserted ?? batch.length
       } catch (e) {
@@ -448,7 +448,7 @@ export async function runRestore(
     if (list.length === 0) continue
 
     try {
-      await callApi('/api/admin/restore', { method: 'POST', body: { action: 'storage-init', bucket } })
+      await callApi('/api/admin/restore', { method: 'POST', body: { action: 'storage-init', bucket, token: plan.token } })
     } catch (e) {
       errors.push(`storage/${bucket}: ${e instanceof Error ? e.message : 'gagal menyiapkan bucket'}`)
       doneAssets += list.length
@@ -461,7 +461,7 @@ export async function runRestore(
         if (!asset?.path || typeof asset.base64 !== 'string') throw new Error('data file tidak valid')
         await callApi('/api/admin/restore', {
           method: 'POST',
-          body: { action: 'storage-put', bucket, path: asset.path, contentType: asset.contentType, base64: asset.base64 },
+          body: { action: 'storage-put', bucket, path: asset.path, contentType: asset.contentType, base64: asset.base64, token: plan.token },
         })
         storageRestored++
       } catch (e) {
@@ -478,7 +478,7 @@ export async function runRestore(
       try {
         await callApi('/api/admin/restore', {
           method: 'POST',
-          body: { action: 'storage-prune', bucket, keep: list.map(a => a.path) },
+          body: { action: 'storage-prune', bucket, keep: list.map(a => a.path), token: plan.token },
         })
       } catch (e) {
         warnings.push(`Bucket "${bucket}": gagal membersihkan file lama (${e instanceof Error ? e.message : 'error'}).`)
@@ -492,7 +492,7 @@ export async function runRestore(
   try {
     const fin = await callApi<{ warnings?: string[] }>('/api/admin/restore', {
       method: 'POST',
-      body: { action: 'finish' },
+      body: { action: 'finish', token: plan.token },
     })
     warnings.push(...(fin.warnings ?? []))
   } catch (e) {
