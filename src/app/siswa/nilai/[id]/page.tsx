@@ -14,6 +14,9 @@ interface RincianSoal {
   gambar_pertanyaan?: string | null
   gambar_opsi_a?: string | null; gambar_opsi_b?: string | null; gambar_opsi_c?: string | null
   gambar_opsi_d?: string | null; gambar_opsi_e?: string | null
+  // FASE 5 FIX (audit lanjutan): soal yang tidak dijawab sekarang tetap
+  // dikirim server (bukan dihilangkan dari daftar) — `dijawab: false`.
+  dijawab: boolean
   benar: boolean
 }
 
@@ -60,7 +63,13 @@ export default function RincianNilaiPage() {
   const router = useRouter()
   const params = useParams<{ id: string }>()
   const [nilai, setNilai] = useState<NilaiDetail | null>(null)
-  const [rincian, setRincian] = useState<RincianSoal[]>([])
+  // FASE 3 FIX (audit lanjutan): `rincian` sekarang bisa null — server
+  // sengaja tidak mengirim rincian jawaban/kebenaran selama sesi ujian
+  // masih BERJALAN (lihat komentar di /api/siswa/nilai/[id]/route.ts),
+  // supaya siswa yang sudah submit duluan tidak bisa dipakai untuk
+  // membocorkan kunci jawaban ke teman yang masih mengerjakan.
+  const [rincian, setRincian] = useState<RincianSoal[] | null>(null)
+  const [rincianBelumTersedia, setRincianBelumTersedia] = useState(false)
   const [rincianEssay, setRincianEssay] = useState<RincianEssaySoal[] | null>(null)
   const [essayFotoUrl, setEssayFotoUrl] = useState<string | null>(null)
   const [essayModeJawaban, setEssayModeJawaban] = useState<string | null>(null)
@@ -70,13 +79,15 @@ export default function RincianNilaiPage() {
   const load = useCallback(async () => {
     try {
       const res = await apiRequest<{
-        nilai: NilaiDetail; rincian: RincianSoal[]
+        nilai: NilaiDetail; rincian: RincianSoal[] | null
+        rincian_belum_tersedia?: boolean
         rincianEssay: RincianEssaySoal[] | null
         essayFotoUrl: string | null
         essayModeJawaban: string | null
       }>(`/api/siswa/nilai/${params.id}`)
       setNilai(res.nilai)
       setRincian(res.rincian)
+      setRincianBelumTersedia(Boolean(res.rincian_belum_tersedia))
       setRincianEssay(res.rincianEssay)
       setEssayFotoUrl(res.essayFotoUrl)
       setEssayModeJawaban(res.essayModeJawaban)
@@ -250,7 +261,21 @@ export default function RincianNilaiPage() {
         </div>
       )}
 
+      {/* FASE 3 FIX (audit lanjutan): selama sesi ujian masih BERJALAN,
+          server tidak mengirim rincian PG sama sekali (`rincian: null`) —
+          tampilkan pesan penjelas alih-alih daftar kosong yang membingungkan. */}
+      {rincianBelumTersedia && (
+        <div className="card bg-amber-50/60 border-amber-100">
+          <p className="text-sm text-slate-700">
+            Rincian jawaban pilihan ganda akan tersedia setelah sesi ujian ini
+            selesai untuk semua peserta, supaya jawaban yang benar tidak
+            bocor ke peserta lain yang masih mengerjakan.
+          </p>
+        </div>
+      )}
+
       {/* Daftar soal */}
+      {rincian && rincian.length > 0 && (
       <div className="space-y-4">
         {rincianEssay && rincianEssay.length > 0 && (
           <h2 className="text-lg font-semibold text-slate-800">Rincian Jawaban Pilihan Ganda</h2>
@@ -259,7 +284,11 @@ export default function RincianNilaiPage() {
           <div key={s.no} className="card">
             <div className="flex items-center justify-between gap-2 mb-4">
               <span className="badge-blue font-semibold">Soal {s.no}</span>
-              {s.benar ? (
+              {!s.dijawab ? (
+                <span className="badge badge-yellow flex items-center gap-1">
+                  <XCircle className="w-3.5 h-3.5" /> Tidak Dijawab
+                </span>
+              ) : s.benar ? (
                 <span className="badge badge-green flex items-center gap-1">
                   <CheckCircle2 className="w-3.5 h-3.5" /> Benar
                 </span>
@@ -310,6 +339,7 @@ export default function RincianNilaiPage() {
           </div>
         ))}
       </div>
+      )}
     </div>
   )
 }
