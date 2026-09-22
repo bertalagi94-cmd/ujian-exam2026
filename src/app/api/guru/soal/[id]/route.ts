@@ -52,9 +52,23 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
     return NextResponse.json({ error: errorKunci }, { status: 400 })
   }
 
+  // FIX BUG (IDOR): sebelumnya mapel_id/kelas_id di UPDATE diambil langsung
+  // dari body request tanpa verifikasi apa pun — guru pemilik soal ini bisa
+  // mengirim mapel_id/kelas_id MILIK GURU LAIN dan server memindahkan soal
+  // tersebut ke mapel/kelas itu (soal tetap tercatat guru_id = guru asli,
+  // tapi mapel_id/kelas_id berubah jadi milik pihak lain).
+  //
+  // Form edit soal di frontend (src/app/guru/paket/page.tsx, handleSaveEditSoal)
+  // TIDAK PERNAH mengirim mapel_id/kelas_id sama sekali — field itu memang
+  // bukan bagian dari form edit soal (soal selalu tetap berada di mapel+kelas
+  // paket asalnya). Jadi mapel_id/kelas_id di sini SENGAJA tidak lagi diambil
+  // dari body sama sekali; selalu dipertahankan dari nilai lama (`existing`)
+  // supaya endpoint ini tidak bisa dipakai memindahkan soal ke mapel/kelas
+  // lain lewat panggilan API langsung, tanpa menghapus fitur apa pun yang
+  // benar-benar dipakai UI.
   const { error } = await db.from('soal').update({
-    mapel_id: body.mapel_id,
-    kelas_id: body.kelas_id,
+    mapel_id: existing.mapel_id,
+    kelas_id: existing.kelas_id,
     teks: stripHtmlTags(body.teks),
     // FIX: gunakan nama kolom yang sama dengan POST dan SELECT (gambar_pertanyaan, gambar_opsi_*)
     // Bug sebelumnya memakai gambar_url / gambar_a–e (nama lama) sehingga gambar hilang setelah diedit
