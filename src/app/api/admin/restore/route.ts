@@ -10,13 +10,16 @@ import {
   SCHEMA_TABLES,
   TRUNCATE_TABLES,
   cekAktivitasUjian,
+  cekProsesDataBesarBerjalan,
   isBucketMissingError,
   isKnownBucket,
   isMissingTableError,
   isSafeStoragePath,
   listBucketFiles,
+  mulaiModeMaintenanceUntukProses,
   pkOf,
   removeFilesInChunks,
+  selesaiModeMaintenanceUntukProses,
   type Db,
 } from '@/lib/backup-restore-shared'
 
@@ -46,6 +49,16 @@ import {
 //   6. Storage dikosongkan dulu baru diisi. Sekarang upload dulu, dan file
 //      lama yang tidak ada di backup baru dihapus (`storage-prune`) HANYA kalau
 //      semua upload sukses.
+//   7. FIX (audit brief bagian N): tidak ada perlindungan mode maintenance
+//      sama sekali — siswa/guru/kepsek tetap bisa memakai aplikasi SELAGI
+//      restore bertahap sedang berjalan, dan kalau tab admin tertutup/koneksi
+//      putus di tengah proses (antara `clear` dan `insert` suatu tabel),
+//      database tertinggal dalam kondisi campuran separuh-lama-separuh-baru
+//      tanpa penanda apa pun. Sekarang `start` menyalakan mode maintenance
+//      sendiri tepat sebelum data mulai diubah (dikembalikan lagi di
+//      `finish`), dan `start` berikutnya akan menolak (kecuali force=true)
+//      kalau menemukan proses sebelumnya yang tidak pernah mencapai `finish`
+//      — lihat src/lib/backup-restore-shared.ts.
 //
 // PROTOKOL (semua POST JSON, hanya ADMIN):
 //   { action:'start',  force?, allow_incomplete?, meta }  → plan / 409 / 412 / 422
@@ -219,6 +232,32 @@ async function actionStart(db: Db, body: Record<string, unknown>) {
     )
   }
 
+  // 6. FIX (audit brief bagian N): DETEKSI RESTORE/RESET SEBELUMNYA YANG
+  //    TERPUTUS. Penanda "sedang berjalan" yang masih menyala berarti proses
+  //    sebelumnya tidak pernah mencapai `finish` — database mungkin dalam
+  //    kondisi campuran yang tidak konsisten. Tolak dulu (kecuali force)
+  //    supaya admin sadar & memeriksa manual sebelum restore baru menimpanya
+  //    lagi tanpa disadari. Dicek di sini (BELUM ada data yang diubah).
+  if (!force) {
+    const prosesSebelumnya = await cekProsesDataBesarBerjalan(db)
+    if (prosesSebelumnya.sedangBerjalan) {
+      return res(
+        {
+          error: `Proses ${prosesSebelumnya.jenis ?? 'reset/restore'} sebelumnya (dimulai ${prosesSebelumnya.mulaiPada ?? 'waktu tidak diketahui'}) tampak TIDAK PERNAH SELESAI — kemungkinan terputus di tengah jalan (tab tertutup, koneksi putus, server restart). Database mungkin berada dalam kondisi tidak konsisten. Periksa data secara manual dulu sebelum melanjutkan, atau konfirmasi paksa untuk tetap lanjut.`,
+          proses_sebelumnya_belum_selesai: true,
+          proses_sebelumnya: prosesSebelumnya,
+        },
+        409
+      )
+    }
+  }
+
+  // 7. FIX (audit brief bagian N): nyalakan mode maintenance sendiri TEPAT
+  //    di sini — titik terakhir sebelum client mulai memanggil `clear`/
+  //    `insert` yang benar-benar mengubah data. Dimatikan lagi di
+  //    actionFinish() di bawah.
+  await mulaiModeMaintenanceUntukProses(db, 'restore')
+
   return res({
     ok: true,
     delete_order: DELETE_ORDER.filter(t => tablesInBackup.includes(t)),
@@ -325,6 +364,15 @@ async function actionFinish(db: Db) {
       `PENTING: sinkronisasi sequence gagal (${error.message}). Jalankan SELECT sinkron_sequence_setelah_restore(); di Supabase SQL Editor sebelum ujian berikutnya, kalau tidak penyimpanan jawaban bisa gagal.`
     )
   }
+
+  // FIX (audit brief bagian N): matikan mode maintenance yang dinyalakan
+  // sendiri di actionStart() — dikembalikan ke nilai SEBELUM restore dimulai,
+  // bukan dipaksa 'false', dan hapus penanda "sedang berjalan". Ini titik
+  // yang menandai restore benar-benar tuntas; kalau titik ini tidak pernah
+  // tercapai (client tidak pernah memanggil `finish`), penanda tetap menyala
+  // dengan sengaja — itulah sinyal "restore terputus" untuk percobaan
+  // `start` berikutnya (lihat cekProsesDataBesarBerjalan di actionStart).
+  await selesaiModeMaintenanceUntukProses(db)
 
   // In-memory cache (lib/cache.ts) berisi data lama sampai TTL habis.
   cacheDel('admin:dashboard')
