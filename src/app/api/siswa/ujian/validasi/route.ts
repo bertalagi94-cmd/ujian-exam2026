@@ -336,47 +336,93 @@ export async function POST(req: NextRequest) {
 
   // Ambil soal TANPA field kunci dan pembahasan (keamanan) — selalu
   // di-scope ke paket_id yang sudah dipastikan milik kelas siswa di atas.
-  const soalQuery = db
+  //
+  // FIX #6 (audit lanjutan — "START menulis siswa_ujian AKTIF sebelum soal
+  // dipastikan ada"): sebelumnya query soal ini dijalankan PARALEL dengan
+  // upsert/update siswa_ujian jadi status AKTIF (lewat Promise.all), dan
+  // pengecekan `!soalList?.length` baru terjadi SETELAH keduanya selesai.
+  // Akibatnya siswa bisa sempat tercatat AKTIF di database padahal soal
+  // ternyata kosong dan START pada akhirnya gagal (valid:false) — status
+  // AKTIF itu "nyangkut" tanpa siswa benar-benar bisa mengerjakan apa pun.
+  // Sekarang: soal diambil & divalidasi dulu, TIDAK ADA tulisan apa pun ke
+  // siswa_ujian sebelum baris ini lolos.
+  const { data: soalList } = await db
     .from('soal')
     .select('id, paket_id, mapel_id, teks, opsi_a, opsi_b, opsi_c, opsi_d, opsi_e, jumlah_opsi, gambar_pertanyaan, gambar_opsi_a, gambar_opsi_b, gambar_opsi_c, gambar_opsi_d, gambar_opsi_e, status')
     .eq('mapel_id', sesi.mapel_id)
     .eq('status', 'DISETUJUI')
     .eq('paket_id', paketData.id)
 
+  if (!soalList?.length) return NextResponse.json({ valid: false, message: 'Tidak ada soal tersedia untuk ujian ini. Pastikan paket soal sudah disetujui.' })
+
   const now = new Date().toISOString()
 
-  const [{ data: soalList }, siswaUjianWriteResult] = await Promise.all([
-    soalQuery,
-    isNewEntry
-      ? db.from('siswa_ujian').upsert({
-          sesi_id: sesi.id, nis,
-          waktu_daftar: now,
-          waktu_mulai: now,
-          waktu_mulai_awal: now,
-          status: 'AKTIF',
-          device_id: deviceId ?? null,
-          last_heartbeat: now,
-        }, { onConflict: 'sesi_id,nis', ignoreDuplicates: false })
-      : db.from('siswa_ujian').update({
-          status: 'AKTIF',
-          device_id: deviceId ?? siswaUjian?.device_id ?? null,
-          last_heartbeat: now,
-        }).eq('sesi_id', sesi.id).eq('nis', nis),
-  ])
+  // FIX #5 (audit lanjutan — "race jumlah_peserta"): sebelumnya keputusan
+  // "ini entry baru" (isNewEntry) berasal dari SELECT siswa_ujian di AWAL
+  // request (baris atas), lalu dipakai untuk memilih INSERT vs UPDATE dan
+  // untuk memutuskan apakah memanggil increment_jumlah_peserta. Dua request
+  // bersamaan untuk NIS yang sama bisa dua-duanya membaca "belum ada baris"
+  // pada SELECT awal itu, dua-duanya dianggap isNewEntry=true, dan
+  // dua-duanya memanggil increment — padahal constraint unik (sesi_id,nis)
+  // membuat hanya SATU baris siswa_ujian yang sebenarnya baru. Counter jadi
+  // lebih besar dari jumlah siswa asli.
+  //
+  // Sekarang: keputusan "benar-benar baru" TIDAK lagi berasal dari SELECT di
+  // awal, melainkan dari HASIL INSERT itu sendiri — upsert dengan
+  // `ignoreDuplicates: true` (INSERT ... ON CONFLICT DO NOTHING di level
+  // Postgres) hanya mengembalikan baris kalau INSERT benar-benar terjadi.
+  // Kalau baris sudah ada (baik karena memang siswa lama, atau karena
+  // request lain memenangkan race INSERT ini persis sepersekian detik
+  // sebelumnya), tidak ada baris yang dikembalikan — hanya SATU request yang
+  // pernah melihat baris hasil INSERT untuk (sesi_id, nis) tertentu, jadi
+  // hanya request itu yang boleh increment counter & mencatat MULAI_UJIAN.
+  const { data: insertedRows, error: insertError } = await db
+    .from('siswa_ujian')
+    .upsert({
+      sesi_id: sesi.id, nis,
+      waktu_daftar: now,
+      waktu_mulai: now,
+      waktu_mulai_awal: now,
+      status: 'AKTIF',
+      device_id: deviceId ?? null,
+      last_heartbeat: now,
+    }, { onConflict: 'sesi_id,nis', ignoreDuplicates: true })
+    .select('nis')
 
-  if (siswaUjianWriteResult.error) {
+  if (insertError) {
     return NextResponse.json(
       { valid: false, message: 'Gagal mendaftarkan Anda ke sesi ujian. Coba lagi beberapa saat.' },
       { status: 500 }
     )
   }
 
-  // Catat "mulai ujian" HANYA saat benar-benar pertama kali masuk sesi ini
-  // (isNewEntry) — bukan setiap kali endpoint ini dipanggil ulang (mis.
-  // refresh halaman, retry jaringan), supaya log tidak banjir event yang
-  // sama berulang-ulang untuk satu siswa yang sama.
-  if (isNewEntry) {
+  const benarBenarBaru = (insertedRows?.length ?? 0) > 0
+
+  if (!benarBenarBaru) {
+    // Baris sudah ada sebelum request ini (siswa lama, atau kalah race
+    // INSERT barusan) — UPDATE seperti biasa. SENGAJA tidak menyentuh
+    // waktu_mulai_awal: itu referensi timer tunggal milik entry PERTAMA
+    // yang asli, harus tetap stabil walau siswa refresh/reconnect/di-reset.
+    const { error: updateError } = await db.from('siswa_ujian').update({
+      status: 'AKTIF',
+      device_id: deviceId ?? siswaUjian?.device_id ?? null,
+      last_heartbeat: now,
+    }).eq('sesi_id', sesi.id).eq('nis', nis)
+
+    if (updateError) {
+      return NextResponse.json(
+        { valid: false, message: 'Gagal mendaftarkan Anda ke sesi ujian. Coba lagi beberapa saat.' },
+        { status: 500 }
+      )
+    }
+  }
+
+  // Catat "mulai ujian" & naikkan jumlah_peserta HANYA pada request yang
+  // benar-benar memenangkan INSERT (benarBenarBaru) — bukan lagi berdasarkan
+  // isNewEntry dari SELECT awal yang rentan race (lihat FIX #5 di atas).
+  if (benarBenarBaru) {
     catatAktivitas(db, nis, 'MULAI_UJIAN', `Siswa ${user.nama} mulai ujian ${mapel?.nama ?? sesi.mapel_id} (${sesi.kelas})`)
+    db.rpc('increment_jumlah_peserta', { sesi_id_param: sesi.id })
   }
 
   // ── Tutup race condition login bersamaan ──────────────────────────────────
@@ -384,7 +430,7 @@ export async function POST(req: NextRequest) {
   // Kalau berbeda (device lain "menang" dalam race bersamaan), tolak device ini.
   //
   // FIX BUG (anti-device bisa dilewati dengan tidak mengirim deviceId):
-  // sebelumnya query verifikasi ini hanya dijalankan `if (deviceId)` — login
+  // sebelumnya kondisi ini hanya dijalankan `if (deviceId)` — login
   // tanpa deviceId melewatkan verifikasi ulang ini sama sekali. Sekarang
   // selalu dijalankan; device_id yang tersimpan tetap dibandingkan dengan
   // `deviceId` request ini (termasuk kalau `deviceId` kosong/undefined, yang
@@ -404,13 +450,6 @@ export async function POST(req: NextRequest) {
     }
   }
   // ─────────────────────────────────────────────────────────────────────────
-
-  if (!soalList?.length) return NextResponse.json({ valid: false, message: 'Tidak ada soal tersedia untuk ujian ini. Pastikan paket soal sudah disetujui.' })
-
-  // Increment jumlah_peserta di background
-  if (isNewEntry) {
-    db.rpc('increment_jumlah_peserta', { sesi_id_param: sesi.id })
-  }
 
   // Acak soal
   const shouldAcak = paketData?.acak === 'YA'
