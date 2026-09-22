@@ -6,10 +6,13 @@ import {
   DELETE_ORDER,
   TRUNCATE_TABLES,
   cekAktivitasUjian,
+  cekProsesDataBesarBerjalan,
   isMissingTableError,
   listBucketFiles,
+  mulaiModeMaintenanceUntukProses,
   pkOf,
   removeFilesInChunks,
+  selesaiModeMaintenanceUntukProses,
   type Db,
 } from '@/lib/backup-restore-shared'
 
@@ -225,6 +228,25 @@ export async function POST(req: NextRequest) {
   }
   // ─────────────────────────────────────────────────────────────────────────
 
+  // ── FIX (audit brief bagian N): DETEKSI PROSES SEBELUMNYA YANG TERPUTUS ──
+  // Kalau penanda "sedang berjalan" masih menyala, reset/restore SEBELUMNYA
+  // tidak pernah mencapai tahap akhir (mis. server crash/redeploy di tengah
+  // jalan) — database mungkin dalam kondisi campuran yang tidak konsisten.
+  // Tampilkan peringatan tegas dulu sebelum mengizinkan reset baru menimpa
+  // kondisi itu tanpa admin sadar. `force` yang sama dipakai admin untuk
+  // melewati peringatan ini (konsisten dengan pengecekan aktivitas di atas).
+  if (!force) {
+    const prosesSebelumnya = await cekProsesDataBesarBerjalan(db)
+    if (prosesSebelumnya.sedangBerjalan) {
+      return NextResponse.json({
+        error: `Proses ${prosesSebelumnya.jenis ?? 'reset/restore'} sebelumnya (dimulai ${prosesSebelumnya.mulaiPada ?? 'waktu tidak diketahui'}) tampak TIDAK PERNAH SELESAI — kemungkinan terputus di tengah jalan (server restart, koneksi putus, dsb). Database mungkin berada dalam kondisi tidak konsisten. Periksa data secara manual dulu sebelum melanjutkan, atau konfirmasi paksa untuk tetap lanjut.`,
+        proses_sebelumnya_belum_selesai: true,
+        proses_sebelumnya: prosesSebelumnya,
+      }, { status: 409 })
+    }
+  }
+  // ─────────────────────────────────────────────────────────────────────────
+
   const effectiveCategories = categories.includes('semua')
     ? ['semua' as ResetCategory]
     : categories
@@ -238,32 +260,50 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const errors: string[] = []
-  const deleted: string[] = []
-  const storageDone = new Set<string>()
+  // ── FIX (audit brief bagian N): MODE MAINTENANCE OTOMATIS SELAMA RESET ──
+  // Sebelumnya reset berjalan tanpa melindungi diri sama sekali — siswa/guru/
+  // kepsek tetap bisa memakai aplikasi SELAGI tabel-tabel sedang dikosongkan,
+  // kecuali admin ingat menyalakan maintenance manual lebih dulu. Sekarang
+  // reset menyalakan sendiri (dan mengembalikan lagi di `finally`, apa pun
+  // hasilnya — sukses, gagal sebagian, atau exception tak terduga).
+  await mulaiModeMaintenanceUntukProses(db, 'reset')
+  try {
+    const errors: string[] = []
+    const deleted: string[] = []
+    const storageDone = new Set<string>()
 
-  for (const table of tablesToDelete) {
-    const err = await clearTable(db, table, storageDone)
-    if (err) {
-      errors.push(err)
-    } else {
-      deleted.push(table)
+    for (const table of tablesToDelete) {
+      const err = await clearTable(db, table, storageDone)
+      if (err) {
+        errors.push(err)
+      } else {
+        deleted.push(table)
+      }
     }
+
+    if (errors.length > 0 && deleted.length === 0) {
+      return NextResponse.json({ error: 'Reset gagal', details: errors }, { status: 500 })
+    }
+
+    // Endpoint dashboard dan beberapa endpoint pengaturan memakai in-memory
+    // cache (lib/cache.ts, TTL 30–60 detik). Tanpa ini admin masih melihat
+    // data lama sampai TTL habis.
+    cacheDel('admin:dashboard')
+    if (tablesToDelete.includes('pengaturan')) cacheDelPrefix('pengaturan:')
+
+    return NextResponse.json({
+      message: errors.length > 0 ? 'Reset selesai dengan beberapa error' : 'Reset berhasil',
+      deleted,
+      errors: errors.length > 0 ? errors : undefined,
+    }, { status: errors.length > 0 ? 207 : 200 })
+  } finally {
+    // Catatan: kalau kategori yang direset mencakup 'pengaturan' (langsung
+    // atau lewat 'semua'), tabel `pengaturan` — termasuk penanda proses ini
+    // sendiri — sudah ikut terhapus di loop atas (pengaturan sengaja
+    // diproses PALING AKHIR, lihat DELETE_ORDER). Itu bukan masalah:
+    // selesaiModeMaintenanceUntukProses() memakai upsert, jadi baris
+    // `maintenanceAktif` cukup ditulis ulang (default 'false', konsisten
+    // dengan maksud reset kategori 'pengaturan' sendiri: kembali ke default).
+    await selesaiModeMaintenanceUntukProses(db)
   }
-
-  if (errors.length > 0 && deleted.length === 0) {
-    return NextResponse.json({ error: 'Reset gagal', details: errors }, { status: 500 })
-  }
-
-  // Endpoint dashboard dan beberapa endpoint pengaturan memakai in-memory cache
-  // (lib/cache.ts, TTL 30–60 detik). Tanpa ini admin masih melihat data lama
-  // sampai TTL habis.
-  cacheDel('admin:dashboard')
-  if (tablesToDelete.includes('pengaturan')) cacheDelPrefix('pengaturan:')
-
-  return NextResponse.json({
-    message: errors.length > 0 ? 'Reset selesai dengan beberapa error' : 'Reset berhasil',
-    deleted,
-    errors: errors.length > 0 ? errors : undefined,
-  }, { status: errors.length > 0 ? 207 : 200 })
 }
