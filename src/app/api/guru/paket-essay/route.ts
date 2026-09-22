@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 import { generateId } from '@/lib/utils'
 import { cekSesiMapelKelasSudahMulai, pesanBankSoalTerkunci } from '@/lib/sesi-kelas'
+import { verifikasiKepemilikanMapelKelas } from '@/lib/guru-scope'
 
 export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['GURU'])
@@ -62,6 +63,15 @@ export async function POST(req: NextRequest) {
 
   if (!body.mapel_id || !body.kelas_id) {
     return NextResponse.json({ error: 'Mata pelajaran dan kelas wajib diisi' }, { status: 400 })
+  }
+
+  // FIX BUG (IDOR): sama seperti guru/paket/route.ts — sebelumnya endpoint
+  // ini hanya mengecek field terisi, tidak pernah memverifikasi bahwa mapel
+  // tersebut diampu guru ini dan kelas termasuk kelas_list-nya. Lihat
+  // src/lib/guru-scope.ts.
+  const verifikasi = await verifikasiKepemilikanMapelKelas(db, user.username, body.mapel_id, body.kelas_id)
+  if (!verifikasi.ok) {
+    return NextResponse.json({ error: verifikasi.error }, { status: verifikasi.status })
   }
 
   const modeJawaban = body.mode_jawaban === 'KERTAS' ? 'KERTAS' : 'DIGITAL'
