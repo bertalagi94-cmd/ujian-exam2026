@@ -874,14 +874,25 @@ export default function LoginPage() {
 
       {/* ── LEFT — branding ── */}
       <div className="hidden lg:flex flex-col w-1/2 p-12 text-slate-900 relative">
-        {/* Ilustrasi siswa — ukuran diperkecil supaya tidak menimpa paragraf teks
-            "Sistem CBT modern..." di atasnya (sebelumnya w-[52vw] max-w-[660px]
-            terlalu besar dan bagian atas ilustrasi naik menutupi teks). */}
+        {/* Ilustrasi siswa — DIBUAT RESPONSIF TERHADAP RASIO GAMBAR APA PUN,
+            bukan cuma ukuran layar. Sebelumnya dipatok LEBAR (w-[38vw]) dengan
+            h-auto — cocok untuk ilustrasi TINGGI/portrait, tapi begitu diganti
+            gambar LEBAR/landscape (mis. 1634x963), tingginya ikut menciut jauh
+            lebih pendek dari yang dirancang dan posisinya jadi kelihatan
+            "mengambang"/tidak proporsional terhadap teks di atasnya — persis
+            keluhan yang dilaporkan setelah upload gambar baru.
+            FIX: batasi width DAN height sekaligus (maxWidth + maxHeight, TANPA
+            width/height eksplisit) — browser otomatis menjaga rasio aspek
+            gambar apa pun dan berhenti membesar begitu salah satu batas
+            tercapai duluan. Jadi tetap rapi baik untuk gambar tinggi (portrait)
+            maupun lebar (landscape), termasuk gambar baru yang akan menyusul
+            dari desain ChatGPT — tidak perlu diubah lagi kalau rasio gambarnya
+            beda lagi nanti. */}
         <img
           src="/images/siswa-sekolah.webp"
           alt="" aria-hidden="true"
-          className="absolute left-0 w-[38vw] max-w-[440px] min-w-[260px] h-auto select-none transition-transform duration-500 ease-out hover:animate-float hover:scale-[1.03] hover:drop-shadow-2xl"
-          style={{ zIndex: 1, bottom: '0%' }}
+          className="absolute left-0 bottom-0 w-auto h-auto select-none transition-transform duration-500 ease-out hover:animate-float hover:scale-[1.03] hover:drop-shadow-2xl"
+          style={{ zIndex: 1, maxWidth: 'min(38vw, 440px)', maxHeight: '42vh' }}
         />
         <div className="relative z-10 space-y-8">
           <div className="flex items-center gap-4 cursor-default w-fit"
@@ -934,6 +945,22 @@ export default function LoginPage() {
                 <p className="font-bold text-slate-900 text-base leading-tight line-clamp-2">{displayName}</p>
                 {!siteInfo.namaSekolah && <p className="text-slate-500 text-xs">Sistem Ujian Digital Terpercaya</p>}
               </div>
+            </div>
+
+            {/* Ilustrasi siswa — versi kompak khusus HP. Sebelumnya sama
+                sekali tidak tampil di layar kecil (panel branding tempat
+                gambar ini biasa muncul disembunyikan lewat `hidden lg:flex`).
+                Dibatasi TINGGI (bukan lebar) supaya tidak memakan banyak
+                ruang vertikal yang berharga di layar kecil sebelum form
+                login — lebar menyesuaikan otomatis mengikuti rasio gambar
+                apa pun (object-contain mencegah gambar gepeng/melar). */}
+            <div className="flex justify-center mb-5">
+              <img
+                src="/images/siswa-sekolah.webp"
+                alt=""
+                aria-hidden="true"
+                className="max-h-28 w-auto object-contain select-none"
+              />
             </div>
 
             {/* Welcome card mobile — glass */}
