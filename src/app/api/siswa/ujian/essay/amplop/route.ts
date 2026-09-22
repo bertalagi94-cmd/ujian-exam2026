@@ -56,8 +56,16 @@ export async function GET(req: NextRequest) {
     .single()
 
   if (!siswaUjian) return NextResponse.json({ error: 'Data ujian Anda tidak ditemukan' }, { status: 404 })
-  if (siswaUjian.status === 'TERKUNCI' || siswaUjian.status === 'RESET') {
-    return NextResponse.json({ error: 'Akses ujian Anda sedang dikunci/menunggu reset.' }, { status: 403 })
+  // FIX BUG (pola lama, pesan tidak dibedakan): lihat catatan yang sama di
+  // essay/info/route.ts — RESET bersifat sementara, TERKUNCI permanen.
+  if (siswaUjian.status === 'RESET') {
+    return NextResponse.json(
+      { error: 'Akses ujian Anda sedang menunggu kode reset dari pengawas. Akan lanjut otomatis begitu kode diproses.', sementara: true },
+      { status: 403 }
+    )
+  }
+  if (siswaUjian.status === 'TERKUNCI') {
+    return NextResponse.json({ error: 'Akses ujian Anda dikunci oleh pengawas.' }, { status: 403 })
   }
   if (siswaUjian.device_id && siswaUjian.device_id !== deviceId) {
     return NextResponse.json({ error: 'Sesi ujian Anda sedang aktif di perangkat lain.' }, { status: 409 })
