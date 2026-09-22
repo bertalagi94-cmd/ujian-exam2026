@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { ChevronLeft, CheckCircle2, XCircle, PenSquare, ImageIcon } from 'lucide-react'
+import { ChevronLeft, CheckCircle2, XCircle, PenSquare, ImageIcon, Lock } from 'lucide-react'
 import { PageLoader, EmptyState, Badge } from '@/components/ui'
 import { apiRequest, formatDateTime, nilaiColor, hitungGrade } from '@/lib/utils'
 
@@ -35,6 +35,11 @@ interface NilaiDetail {
   nilai_final?: number
   grade_final?: string
   lulus_final?: boolean
+  // P0 (audit brief "nilai 0 tapi rincian ada jawaban benar"): true kalau
+  // status ujian siswa TERKUNCI karena pelanggaran (sumber kebenaran dari
+  // server, lihat /api/siswa/nilai/[id]/route.ts) — dipakai untuk
+  // menampilkan banner penjelasan sebelum rincian soal.
+  dihentikan_pelanggaran?: boolean
 }
 
 // FITUR (Rincian jawaban essay per soal): ditampilkan hanya kalau guru sudah
@@ -158,6 +163,26 @@ export default function RincianNilaiPage() {
           <div className="text-sm text-slate-500">{formatDateTime(nilai.timestamp)}</div>
         </div>
       </div>
+
+      {/* P0 (audit brief "nilai 0 tapi rincian ada jawaban benar"): banner
+          penjelasan SEBELUM rincian soal, supaya siswa tidak bingung melihat
+          badge "Benar" di beberapa nomor padahal nilai akhirnya 0. Status
+          diambil dari server (dihentikan_pelanggaran), bukan ditebak dari
+          nilai==0 (nilai wajar juga bisa 0 kalau semua jawaban salah). */}
+      {nilai.dihentikan_pelanggaran && (
+        <div className="card bg-red-50/60 border-red-100">
+          <div className="flex items-center gap-2 text-red-700 font-semibold mb-1.5">
+            <Lock className="w-4 h-4" /> Hasil Ujian — Ujian Dihentikan
+          </div>
+          <p className="text-sm text-slate-700">
+            Ujian ini dihentikan karena pelanggaran aturan ujian. Oleh karena itu, nilai akhir
+            ditetapkan <strong>0</strong>, meskipun terdapat beberapa jawaban yang tercatat benar.
+          </p>
+          <p className="text-sm text-slate-500 mt-1.5">
+            Rincian di bawah ini menunjukkan jawaban yang tersimpan sebelum ujian dihentikan.
+          </p>
+        </div>
+      )}
 
       {/* BUG FIX (nilai remedial tidak masuk ke akun siswa): catatan dari
           guru saat menyimpan nilai remedial (kalau diisi) sebelumnya tidak
