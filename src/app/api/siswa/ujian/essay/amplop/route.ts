@@ -93,17 +93,52 @@ export async function GET(req: NextRequest) {
   let paketEssayId: string | null = sesi.paket_essay_id ?? null
   let soalFinal = soalMentah
   if (!paketEssayId) {
-    paketEssayId = soalMentah[0]?.paket_essay_id ?? null
-    if (paketEssayId) {
-      await db.from('sesi_ujian')
-        .update({ paket_essay_id: paketEssayId })
+    const paketEssayIdTerdeteksi = soalMentah[0]?.paket_essay_id ?? null
+    if (paketEssayIdTerdeteksi) {
+      // FASE 2 FIX (audit lanjutan): sebelumnya update ini tidak dicek
+      // error-nya sama sekali — kalau gagal, `paketEssayId` tetap memakai
+      // nilai lokal yang TIDAK BENAR-BENAR tersimpan di DB, tapi amplop
+      // (yang dienkripsi & diserahkan ke siswa untuk offline) tetap dibuat
+      // memakai nilai itu. Kalau nanti essay/mulai atau siswa lain
+      // me-resolve ulang snapshot dan bank soal essay sudah berubah, amplop
+      // yang sudah beredar di client bisa mereferensikan paket yang berbeda
+      // dari yang akhirnya benar-benar dilayani essay/soal. Sekarang:
+      // fail-closed — kalau update gagal, jangan keluarkan amplop sama
+      // sekali.
+      const { error: snapshotError } = await db.from('sesi_ujian')
+        .update({ paket_essay_id: paketEssayIdTerdeteksi })
         .eq('id', sesiId)
         .is('paket_essay_id', null)
-      // Kalau ada race dan siswa lain sudah mengunci paket berbeda, baca ulang.
-      const { data: sesiBaru } = await db.from('sesi_ujian').select('paket_essay_id').eq('id', sesiId).single()
-      if (sesiBaru?.paket_essay_id && sesiBaru.paket_essay_id !== paketEssayId) {
-        paketEssayId = sesiBaru.paket_essay_id
+
+      if (snapshotError) {
+        console.error('[essay/amplop] gagal menulis snapshot paket_essay_id:', snapshotError.message)
+        return NextResponse.json(
+          { error: 'Sistem gagal mengunci paket soal essay untuk sesi ini. Amplop belum bisa disiapkan. Coba lagi beberapa saat.' },
+          { status: 500 }
+        )
       }
+
+      // Baca ulang untuk memastikan nilai yang BENAR-BENAR tersimpan —
+      // baik untuk konfirmasi write kita sendiri berhasil, maupun untuk
+      // kasus race di mana siswa lain sudah mengunci paket lain lebih dulu.
+      const { data: sesiBaru, error: verifikasiError } = await db
+        .from('sesi_ujian')
+        .select('paket_essay_id')
+        .eq('id', sesiId)
+        .single()
+
+      if (verifikasiError || !sesiBaru?.paket_essay_id) {
+        console.error(
+          '[essay/amplop] verifikasi snapshot paket_essay_id gagal setelah update:',
+          verifikasiError?.message ?? 'paket_essay_id masih NULL setelah update'
+        )
+        return NextResponse.json(
+          { error: 'Sistem gagal memastikan paket soal essay terkunci untuk sesi ini. Amplop belum bisa disiapkan. Coba lagi beberapa saat.' },
+          { status: 500 }
+        )
+      }
+
+      paketEssayId = sesiBaru.paket_essay_id
       soalFinal = soalMentah.filter(s => s.paket_essay_id === paketEssayId)
       if (soalFinal.length === 0) {
         const { data: soalPaket } = await db.from('soal_essay')
@@ -111,6 +146,12 @@ export async function GET(req: NextRequest) {
           .eq('paket_essay_id', paketEssayId).eq('status', 'DISETUJUI')
         soalFinal = soalPaket ?? []
       }
+    } else {
+      // Ada soal essay DISETUJUI (soalMentah tidak kosong) tapi semuanya
+      // punya paket_essay_id NULL — data tidak konsisten, jangan keluarkan
+      // amplop tanpa snapshot paket yang jelas.
+      console.error(`[essay/amplop] sesi ${sesiId}: soal essay ditemukan tapi paket_essay_id kosong pada semuanya.`)
+      return NextResponse.json({ ada: false, alasan: 'BELUM_ADA_SOAL' })
     }
   }
   soalFinal = [...soalFinal].sort((a, b) => (a.urutan ?? 0) - (b.urutan ?? 0))
