@@ -93,8 +93,12 @@ Aturan migrasi:
   ditelan diam-diam (`ujian-outbox.ts`). Siswa harus diperingatkan.
 - Validasi cache gambar hanya `res.ok` + `blob.size > 0`; belum memeriksa
   `Content-Type: image/*` (HTML error dengan HTTP 200 lolos).
-- Data pengawas (kode ujian, kode reset) **tidak** disimpan lokal; halaman
-  Mode Pengawas tidak berfungsi penuh saat offline.
+- ~~Data pengawas (kode ujian, kode reset) tidak disimpan lokal~~ — SUDAH
+  diperbaiki: kode reset R1–R3 diambil sekali saat online lewat
+  `GET /api/pengawas/sesi/[id]/kode-reset` dan dipakai offline dari situ.
+  Lihat bagian RESET CODE SYSTEM. (Kalau ada bagian lain halaman Mode
+  Pengawas yang masih butuh koneksi terus-menerus, itu belum ditelusuri di
+  audit ini — cek `src/app/pengawas/` kalau relevan.)
 
 ## ANTI-CHEAT
 
@@ -125,26 +129,43 @@ Aturan migrasi:
 
 ## RESET CODE SYSTEM
 
-**Kondisi sekarang:** satu kode reset 7 karakter dibuat **saat pengawas
-menekan reset**, secara online (`api/pengawas/sesi/[id]/reset-siswa`), dicatat
-di `log_reset`, diverifikasi server (`api/siswa/ujian/verifikasi-reset`).
-Jika saat pengawas menekan reset level pelanggaran saat itu sudah
-`>= batasPelanggaran` (pengaturan, default 3), siswa **dikunci permanen**
-(`TERKUNCI`) dan tidak diberi kode lanjut — artinya sekarang pelanggaran ke-3
-sudah mengakhiri ujian, sedangkan target desain: pelanggaran ke-4.
-Kode dibuat dengan `Math.random()`.
+**Sudah diimplementasikan (target desain lama SUDAH tercapai — bagian ini
+sebelumnya tertinggal dari kode, jangan percaya versi lama dari riwayat
+chat/patch):**
 
-**Target desain (belum diimplementasikan):**
+- Kode R1/R2/R3 (7 karakter) diturunkan deterministik lewat **HMAC-SHA256**
+  (`src/lib/reset-berurutan.ts`, `hitungKodeReset`), **bukan** `Math.random()`.
+  Tidak ada kode yang tersimpan mentah di database.
+- Urutan & sekali-pakai dijaga atomik oleh penghitung
+  `siswa_ujian.reset_terpakai` di database
+  (`konsumsi_reset_berurutan`, `supabase/24_reset_berurutan.sql`); R2 ditolak
+  sebelum R1 dipakai, dst.
+- **Pelanggaran #1 → R1, #2 → R2, #3 → R3, #4 → siswa dikunci permanen
+  (`TERKUNCI`) otomatis**, diputuskan atomik di `catat_pelanggaran_atomik`
+  (lihat `supabase/24_reset_berurutan.sql` baris ~8, ~121). Ini sudah pelanggaran
+  ke-4, bukan ke-3.
+- Perangkat siswa memverifikasi kode **offline** tanpa server: amplop
+  terenkripsi (PBKDF2 600rb iterasi) dikirim & disimpan lokal sejak siswa
+  masuk ujian (`src/lib/reset-amplop-shared.ts`,
+  `src/lib/reset-offline-client.ts`), dibuka lokal dengan kode dari pengawas,
+  lalu hasil reset yang berhasil diverifikasi offline diantrekan untuk
+  direkonsiliasi ke server begitu online lagi (idempoten, satu-per-satu,
+  tidak pernah melompati entri gagal).
+- Perangkat pengawas mengambil **semua** kode R1–R3 untuk seluruh siswa
+  sesi SEKALI saat sesi dibuka/online
+  (`GET /api/pengawas/sesi/[id]/kode-reset`), lalu memakainya offline dari
+  situ. Kode **tidak pernah** dikirim ke perangkat siswa dari endpoint ini.
+- Jenis kode terpisah: alur ini (Reset 1/2/3, untuk pelanggaran anti-cheat)
+  berbeda dari Kode Ujian (masuk ujian, divalidasi di
+  `api/siswa/ujian/validasi`) dan Kode Darurat Essay
+  (`essay-amplop-shared.ts`, alur terpisah, lihat bagian ESSAY).
 
-- Saat sesi dibuka, sistem menyiapkan per siswa: Kode Ujian, Kode Reset
-  Darurat, Reset 1, Reset 2, Reset 3 — tersedia offline (IndexedDB) di
-  perangkat pengawas.
-- Pelanggaran #1 → R1, #2 → R2, #3 → R3, **#4 → ujian otomatis selesai**.
-  Kode sekali pakai, berurutan, idempotent.
-- Perangkat siswa memverifikasi kode offline memakai **hash** (jangan kirim
-  kode asli ke siswa).
-- Pembuatan kode wajib memakai `crypto` (bukan `Math.random`).
-- Jenis kode dipisah: Kode Ujian ≠ Reset Darurat ≠ Reset 1/2/3.
+**Yang masih perlu diverifikasi/diaudit lebih lanjut (bukan berarti bug,
+tapi belum ditelusuri ulang setelah refactor ini):** audit end-to-end alur
+offline lengkap (amplop rusak/korup di IndexedDB, perangkat pengawas
+kehilangan cache sebelum sempat online sekali, race antara pelaporan
+pelanggaran offline dan pemakaian kode reset offline) belum ada catatan
+hasil pengujian eksplisit di repo ini.
 
 ## ESSAY
 
