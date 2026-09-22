@@ -1136,7 +1136,7 @@ export default function ModePengawasPage() {
                                             <button
                                               key={n}
                                               onClick={() => handleTampilkanKodeReset(sesiId, sw, n)}
-                                              title={dipakai ? `R${n} sudah dipakai` : giliran ? `Tampilkan kode R${n} (berlaku sekarang)` : `Tampilkan kode R${n} (belum berlaku)`}
+                                              title={dipakai ? `R${n} sudah dipakai` : giliran ? `Tampilkan kode R${n} (berlaku sekarang)` : `Tampilkan kode R${n} (menurut data server terakhir — bisa basi kalau siswa sedang offline)`}
                                               className={`text-xs font-bold px-2 py-1 rounded-lg border ${cls}`}
                                             >
                                               R{n}
@@ -1410,7 +1410,16 @@ export default function ModePengawasPage() {
                 <p className="text-xs text-red-500 font-semibold mb-4">🚨 Semua kode reset sudah terpakai. Pelanggaran berikutnya menutup ujian siswa ini.</p>
               )}
               {belumBerlaku && (
-                <p className="text-xs text-amber-600 mb-4">Siswa harus memakai <strong>R{giliran}</strong> lebih dulu. Kode ini akan ditolak sekarang.</p>
+                <p className="text-xs text-amber-600 mb-4">
+                  Menurut data server terakhir, siswa belum memakai <strong>R{giliran}</strong>.{' '}
+                  <strong>Catatan:</strong> info ini bisa basi kalau perangkat siswa sedang{' '}
+                  <strong>offline</strong> — server baru tahu kode reset sebelumnya sudah dipakai
+                  setelah perangkat siswa kembali online dan tersinkron. Kalau menurut Anda ini
+                  memang pelanggaran ke-{k.nomor} yang sebenarnya (kode bernomor lebih rendah
+                  sudah Anda berikan sebelumnya walau siswa offline), kode ini tetap boleh
+                  diberikan — perangkat siswa memverifikasinya sendiri secara lokal, terlepas
+                  dari apa yang ditampilkan di sini.
+                </p>
               )}
               {!dipakai && !belumBerlaku && (
                 <>
