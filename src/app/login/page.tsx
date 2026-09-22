@@ -360,6 +360,7 @@ export default function LoginPage() {
   const [showGuide, setShowGuide] = useState(false)
   const [showQA, setShowQA] = useState(false)
   const [showAktivitas, setShowAktivitas] = useState(false)
+  const [mobileLoginOpen, setMobileLoginOpen] = useState(false)
   const [activeRole, setActiveRole] = useState('admin')
   const [openQA, setOpenQA] = useState<string | null>(null)
 
@@ -783,17 +784,60 @@ export default function LoginPage() {
 
           {/* ── MOBILE ── */}
           <div className="lg:hidden">
-            <div className="flex items-center gap-3 mb-6 justify-center">
+            {!mobileLoginOpen ? (
+              /* ── State tertutup: cuma 1 tombol "Login" di tengah, supaya
+                  foto siswa full-screen di belakang tetap kelihatan jelas
+                  di HP, bukan ketutup form. Panduan/Q&A/Aktivitas tetap
+                  bisa diakses lewat 3 pil kecil di bawah tombol. ── */
+              <div className="flex flex-col items-center justify-center gap-7 py-10 text-center">
+                <div className="flex flex-col items-center gap-3">
+                  <SchoolLogo size="lg" siteInfo={siteInfo} />
+                  <div>
+                    <p className="font-bold text-white text-lg leading-tight" style={{ textShadow: '0 2px 10px rgba(0,0,0,0.5)' }}>{displayName}</p>
+                    <p className="text-white/85 text-xs mt-0.5" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.45)' }}>Sistem Ujian Digital Terpercaya</p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setMobileLoginOpen(true)}
+                  className="btn-login-drape flex items-center justify-center gap-2 px-12 py-4 rounded-full text-white font-bold text-base tracking-wide"
+                  style={{ boxShadow: '0 8px 32px rgba(37,99,235,0.4), 0 0 50px rgba(20,184,166,0.25)' }}
+                >
+                  <Lock className="w-5 h-5 opacity-90" />
+                  Login
+                </button>
+
+                <div className="flex gap-2 w-full max-w-xs">
+                  <button type="button" onClick={() => setShowGuide(true)}
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-slate-600 hover:text-slate-900 bg-white/85 border border-white/60 text-xs font-medium transition-all">
+                    <BookMarked className="w-3.5 h-3.5" /> Panduan
+                  </button>
+                  <button type="button" onClick={() => setShowQA(true)}
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-slate-600 hover:text-slate-900 bg-white/85 border border-white/60 text-xs font-medium transition-all">
+                    <HelpCircle className="w-3.5 h-3.5" /> Q&amp;A
+                  </button>
+                  <button type="button" onClick={() => { setShowAktivitas(true); loadAktivitas() }}
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-sky-700 hover:text-sky-900 bg-sky-50/90 border border-sky-200 text-xs font-medium transition-all">
+                    <Activity className="w-3.5 h-3.5" /> Aktivitas
+                  </button>
+                </div>
+              </div>
+            ) : (
+            <>
+            <div className="flex items-center gap-3 mb-6 justify-center relative">
               <SchoolLogo size="sm" siteInfo={siteInfo} />
               <div className="min-w-0 text-left">
                 <p className="font-bold text-slate-900 text-base leading-tight line-clamp-2">{displayName}</p>
                 {!siteInfo.namaSekolah && <p className="text-slate-500 text-xs">Sistem Ujian Digital Terpercaya</p>}
               </div>
+              {/* Tombol kembali — sembunyikan form, tampilkan foto lagi */}
+              <button type="button" onClick={() => setMobileLoginOpen(false)}
+                className="absolute right-0 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full flex items-center justify-center bg-white/80 text-slate-500 hover:text-slate-800 hover:bg-white transition-all"
+                aria-label="Tutup form login">
+                <X className="w-4 h-4" />
+              </button>
             </div>
-
-            {/* Foto siswa sudah jadi background penuh halaman (lihat blok
-                background fixed di atas), jadi ilustrasi kompak yang dulu
-                muncul di sini khusus HP sudah tidak dipakai lagi. */}
 
             {/* Welcome card mobile — glass */}
             <div className="login-glass-card rounded-3xl p-8 text-slate-900">
@@ -872,6 +916,7 @@ export default function LoginPage() {
               </div>
             </div>
 
+            {/* Panduan / Q&A / Lihat Aktivitas — 3 pil senada, warna Aktivitas dibedakan */}
             <div className="flex gap-2 mt-4">
               <button type="button" onClick={() => setShowGuide(true)}
                 className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-slate-500 hover:text-slate-800 bg-white/70 border border-slate-200 hover:border-slate-300 text-xs font-medium transition-all">
@@ -881,22 +926,13 @@ export default function LoginPage() {
                 className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-slate-500 hover:text-slate-800 bg-white/70 border border-slate-200 hover:border-slate-300 text-xs font-medium transition-all">
                 <HelpCircle className="w-3.5 h-3.5" /> Q&amp;A
               </button>
+              <button type="button" onClick={() => { setShowAktivitas(true); loadAktivitas() }}
+                className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-sky-600 hover:text-sky-800 bg-sky-50/80 border border-sky-200 hover:border-sky-300 text-xs font-medium transition-all">
+                <Activity className="w-3.5 h-3.5" /> Aktivitas
+              </button>
             </div>
-
-            {/* Tombol Lihat Aktivitas — mobile */}
-            <button
-              type="button"
-              onClick={() => { setShowAktivitas(true); loadAktivitas() }}
-              className="mt-3 w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-semibold transition-all"
-              style={{
-                background: 'linear-gradient(135deg, rgba(14,165,233,0.12) 0%, rgba(20,184,166,0.12) 100%)',
-                border: '1px solid rgba(14,165,233,0.3)',
-                color: '#0284c7',
-              }}
-            >
-              <Activity className="w-3.5 h-3.5" />
-              Lihat Aktivitas
-            </button>
+            </>
+            )}
           </div>
 
           {/* ── DESKTOP: efek kain + welcome card premium ── */}
