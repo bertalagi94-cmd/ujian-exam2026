@@ -173,10 +173,20 @@ hasil pengujian eksplisit di repo ini.
   menulis di kertas; akses kirim dibuka pengawas, `buka-akses-essay`).
 - Alur: PG selesai → nilai PG disimpan tapi disembunyikan → fase essay →
   kirim → nilai dibuka. Guru mengoreksi lewat `koreksi-essay`.
-- **Celah yang diketahui:** `essay/jawab` masih memakai `updated_at`
-  (timestamp), belum `revisi`; belum ada flush autosave sebelum kirim;
-  finalisasi essay belum lewat RPC atomik; `essay/kirim` melewati cek device
-  bila `device_id` di database masih null.
+- **Sudah diperbaiki (README lama tertinggal):** `handleKirimEssay()` di
+  `siswa/ujian/page.tsx` sekarang `await` hasil autosave terakhir
+  (`syncJawabanEssay()`) sebelum memanggil `essay/kirim`, dan membedakan
+  kegagalan jaringan (tidak memblokir siswa, jawaban diantrekan ke outbox
+  permanen) dari penolakan sah server 409/403 (memblokir dengan pesan jelas).
+- **Celah yang masih diketahui:** `essay/jawab` masih memakai `updated_at`
+  (timestamp) untuk autosave, belum migrasi ke `revisi` seperti jawaban PG —
+  jadi konflik multi-device untuk essay masih diselesaikan pakai jam, bukan
+  penghitung monoton; finalisasi essay (`essay/kirim`) belum lewat RPC atomik
+  (masih 2+ query terpisah dengan penyempitan celah race manual, lihat
+  komentar di `essay/kirim/route.ts`); `essay/kirim` sengaja melewati cek
+  device kalau `device_id` di database masih null (data lama sebelum
+  device-lock ada) — bukan lubang baru, tapi tetap berarti device-lock tidak
+  berlaku penuh untuk baris `siswa_ujian` semacam itu.
 
 ## DEVICE LOCK
 
