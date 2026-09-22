@@ -223,58 +223,41 @@ export async function PATCH(req: NextRequest) {
     const { data: siswa } = await db.from('siswa').select('nama').eq('nis', nis).single()
     if (!siswa) return NextResponse.json({ error: 'Siswa tidak ditemukan' }, { status: 404 })
 
-    // Set TERKUNCI
-    await db.from('siswa_ujian')
-      .update({ status: 'TERKUNCI' })
-      .eq('sesi_id', sesiId)
-      .eq('nis', nis)
+    // FIX (audit lanjutan — Batch 3 "kunci_permanen belum atomic"): sebelumnya
+    // 5 tulisan terpisah (UPDATE siswa_ujian, cek+INSERT nilai, UPDATE
+    // waktu_selesai, UPDATE pelanggaran, INSERT log_reset) dijalankan satu-satu
+    // TANPA memeriksa error sama sekali — kalau salah satu gagal, admin tetap
+    // melihat pesan sukses walau state database bisa timpang (mis. status
+    // TERKUNCI tersimpan tapi nilai gagal ter-insert). Sekarang semuanya
+    // dijalankan dalam SATU transaksi Postgres lewat kunci_permanen_atomik()
+    // (lihat supabase/26_kunci_permanen_atomik.sql) — commit bersama atau
+    // batal bersama, dan hasilnya DIPERIKSA sebelum melaporkan sukses.
+    const { data: rpcHasil, error: rpcError } = await db.rpc('kunci_permanen_atomik', {
+      p_sesi_id: sesiId,
+      p_nis: nis,
+      p_nilai_id_baru: generateId('NIL'),
+      p_reset_oleh: auth.user?.username ?? 'admin',
+      p_catatan: catatan ?? null,
+    })
 
-    // Cek nilai sudah ada?
-    const { data: nilaiExist } = await db.from('nilai').select('id').eq('sesi_id', sesiId).eq('nis', nis).single()
-    if (!nilaiExist) {
-      const { data: sesi } = await db.from('sesi_ujian').select('mapel_id, kelas').eq('id', sesiId).single()
-      if (sesi) {
-        const { data: mapel } = await db.from('mapel').select('kkm').eq('id', sesi.mapel_id).single()
-        await db.from('nilai').insert({
-          id: generateId('NIL'),
-          sesi_id: sesiId,
-          nis,
-          mapel_id: sesi.mapel_id,
-          kelas: sesi.kelas,
-          benar: 0,
-          total: 0,
-          nilai: 0,
-          grade: 'E',
-          lulus: false,
-          kkm: mapel?.kkm ?? 75,
-          timestamp: new Date().toISOString(),
-        })
-        // PENTING: jangan ubah status jadi 'SELESAI' di sini.
-        // Status harus tetap 'TERKUNCI' (sudah di-set di atas) agar:
-        // - validasi/route.ts tetap memblokir akses & menampilkan pesan "dikunci permanen"
-        // - dashboard pengawas/guru tetap menandai siswa ini dengan indikator terkunci
-        // Cukup catat waktu selesainya saja.
-        await db.from('siswa_ujian')
-          .update({ waktu_selesai: new Date().toISOString() })
-          .eq('sesi_id', sesiId)
-          .eq('nis', nis)
-      }
+    if (rpcError) {
+      console.error('[admin/pelanggaran] kunci_permanen_atomik gagal:', rpcError.message)
+      return NextResponse.json(
+        { error: 'Gagal mengunci siswa secara permanen. Coba lagi beberapa saat.' },
+        { status: 500 }
+      )
     }
 
-    // Tandai semua pelanggaran siswa ini sudah ditindaklanjuti
-    await db.from('pelanggaran')
-      .update({ status: 'SUDAH_DITINDAKLANJUTI' })
-      .eq('sesi_id', sesiId)
-      .eq('nis', nis)
-
-    // Log
-    await db.from('log_reset').insert({
-      nis,
-      reset_oleh: auth.user?.username ?? 'admin',
-      alasan: `sesi:${sesiId} — Dikunci permanen oleh ADMIN${catatan ? ': ' + catatan : ''}`,
-      password_baru: '-',
-      digunakan: true,
-    })
+    const hasilRpc = rpcHasil as { hasil?: string } | null
+    if (hasilRpc?.hasil === 'SISWA_UJIAN_TIDAK_ADA') {
+      return NextResponse.json({ error: 'Siswa belum terdaftar di sesi ini' }, { status: 404 })
+    }
+    if (hasilRpc?.hasil === 'SESI_TIDAK_ADA') {
+      return NextResponse.json({ error: 'Sesi tidak ditemukan' }, { status: 404 })
+    }
+    if (hasilRpc?.hasil !== 'OK') {
+      return NextResponse.json({ error: 'Gagal mengunci siswa (respons tidak dikenali). Coba lagi.' }, { status: 500 })
+    }
 
     return NextResponse.json({
       success: true,
