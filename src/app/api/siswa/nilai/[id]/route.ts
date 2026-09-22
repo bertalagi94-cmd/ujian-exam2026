@@ -42,6 +42,18 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     return NextResponse.json({ error: 'Data nilai tidak ditemukan' }, { status: 404 })
   }
 
+  // P0 FIX (audit brief "nilai 0 tapi rincian ada jawaban benar"): status
+  // TERKUNCI di siswa_ujian adalah SUMBER KEBENARAN untuk menjelaskan kenapa
+  // nilai akhir 0 padahal ada jawaban benar — jangan menebak dari nilai==0
+  // saja (nilai wajar bisa 0 karena semua salah, bukan karena pelanggaran).
+  const { data: siswaUjianRow } = await db
+    .from('siswa_ujian')
+    .select('status')
+    .eq('sesi_id', nilai.sesi_id)
+    .eq('nis', nilai.nis)
+    .maybeSingle()
+  const dihentikanPelanggaran = siswaUjianRow?.status === 'TERKUNCI'
+
   const essayDirilis = nilai.dirilis === true
   const essayAktifMap = await petakanEssayAktifPerSesi(db, [nilai.sesi_id])
   const essayAktif = nilai.sesi_id ? (essayAktifMap.get(nilai.sesi_id) ?? false) : false
@@ -69,6 +81,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     nilai_final: nilaiFinal,
     grade_final: gradeFinal,
     lulus_final: lulusFinal,
+    dihentikan_pelanggaran: dihentikanPelanggaran,
   }
 
   // FITUR (Rincian jawaban essay per soal): sebelumnya halaman rincian nilai
