@@ -384,9 +384,30 @@ export async function POST(req: NextRequest) {
           { error: 'Anda belum terdaftar sebagai peserta ujian ini.' },
           { status: 403 }
         )
+      // FIX BUG P0 (migrasi 28): hasil ini dulu bernama 'SISWA_TERKUNCI' untuk
+      // KEDUA status (TERKUNCI maupun RESET), dan dibalas 403 di sini TANPA
+      // `sementara: true` apa pun penyebabnya. Cek ulang status di dalam
+      // finalisasi_pg_atomik ini sengaja dibuat SEMPIT untuk menutup race
+      // antara pengecekan awal (di atas, sebelum RPC) dan commit nilai --
+      // jadi race yang sama (pelanggaran/reset tersinkron TEPAT sebelum
+      // commit) justru PALING SERING kena di sini, bukan di pengecekan awal.
+      // Akibatnya cobaKirimPaketTertunda() di ujian-outbox.ts menandai paket
+      // GAGAL PERMANEN dan berhenti retry walau status siswa akan pulih
+      // sendiri begitu reset tersinkron -- gejala "jawaban tertunda tidak
+      // terkirim lagi" yang persis sama dengan bug yang sudah diperbaiki di
+      // pengecekan awal, hanya lolos karena berada di cabang yang berbeda.
+      // Sekarang dibedakan sama seperti pengecekan awal: RESET = sementara.
+      case 'SISWA_RESET':
+        return NextResponse.json(
+          {
+            error: 'Akses ujian Anda sedang menunggu kode reset. Ujian akan otomatis diselesaikan setelah kode reset tersinkron.',
+            sementara: true,
+          },
+          { status: 403 }
+        )
       case 'SISWA_TERKUNCI':
         return NextResponse.json(
-          { error: 'Akses ujian Anda sedang dikunci/menunggu reset. Ujian tidak bisa diselesaikan sekarang.' },
+          { error: 'Akses ujian Anda dikunci. Ujian tidak bisa diselesaikan sekarang.' },
           { status: 403 }
         )
       default:
