@@ -210,6 +210,17 @@ export function Sidebar({ navItems, role, roleColor, roleLabel, accent = '#0891b
   const logout = useCallback(() => {
     localStorage.removeItem('token')
     localStorage.removeItem('user')
+    // FIX (audit Device Binding, temuan 🟠): ujian_device_id sebelumnya TIDAK
+    // pernah dihapus saat logout, sehingga di komputer/browser bersama (mis.
+    // lab sekolah) nilai device_id lama tetap tersimpan dan bisa "diwariskan"
+    // ke siswa berikutnya yang login di perangkat/browser yang sama. Ini
+    // bukan pengikatan kriptografis (device_id tetap bisa disalin manual lewat
+    // DevTools oleh pihak yang punya kredensial siswa lain), tapi mengurangi
+    // jejak paling mudah: begitu siswa menekan Logout, device_id lama tidak
+    // lagi ada untuk "ditemukan" begitu saja oleh siswa berikutnya di
+    // perangkat yang sama. Login berikutnya (siswa mana pun) akan membuat
+    // device_id BARU (lihat getDeviceId() di siswa/ujian/page.tsx).
+    localStorage.removeItem('ujian_device_id')
     hapusCadanganLihatSebagai()
     router.push('/login')
   }, [router])
