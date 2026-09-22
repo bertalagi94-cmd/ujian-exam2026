@@ -102,11 +102,21 @@ async function pastikanJawabanTersinkron(
     return { sinkron: (res.totalSynced ?? 0) >= entries.length }
   } catch (err: unknown) {
     const status = (err as { status?: number } | undefined)?.status
-    // 409 (sesi ditutup/diambil alih perangkat lain) tidak akan pernah
-    // berhasil diulang — biarkan pemanggil menandai GAGAL, bukan retry
-    // selamanya. Kegagalan jaringan murni (tanpa status) tetap "belum
-    // sinkron" dan layak dicoba lagi nanti.
-    if (status && status !== 500 && status !== 502 && status !== 503 && status !== 504) {
+    // FIX (bug: paket ditandai GAGAL PERMANEN padahal koneksi ada): daftar
+    // status "sementara" di sini dulu HANYA 500/502/503/504 — beda dan lebih
+    // sempit dari daftar yang dipakai catch block cobaKirimPaketTertunda() di
+    // bawah (yang juga mengizinkan 408/429/403-sementara). Akibatnya kalau
+    // /sync (bukan /selesai atau /essay/kirim) yang gagal duluan dengan
+    // status itu, paket LANGSUNG dianggap "ditolak server secara sah" dan
+    // ditandai GAGAL permanen ("hubungi pengawas") walau penyebabnya cuma
+    // server sesaat sibuk (429 rate limit saat banyak siswa submit
+    // bersamaan, 408 request timeout) atau siswa TERKUNCI/RESET sementara
+    // (403 dengan data.sementara = true, lihat rute /sync — kondisi ini bisa
+    // pulih sendiri setelah pengawas menangani, sama seperti essay/mulai).
+    // Samakan definisi "sementara" di sini dengan catch block di bawah.
+    const sementara403 = (err as { data?: { sementara?: boolean } } | undefined)?.data?.sementara === true
+    const sementara = !status || status >= 500 || status === 408 || status === 429 || sementara403
+    if (!sementara) {
       return { sinkron: false, permanentReject: true }
     }
     return { sinkron: false }
