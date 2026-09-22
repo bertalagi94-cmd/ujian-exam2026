@@ -627,17 +627,28 @@ export default function LoginPage() {
     >
       {/* ── Background foto siswa full 1 layar — di belakang SEMUA elemen.
           `fixed inset-0` supaya tetap penuh & tidak ikut scroll, termasuk
-          saat mode Layar Penuh (fullscreen browser). object-cover menjaga
-          rasio gambar 1672x941 apa pun tanpa gepeng, object-position
-          "center 30%" menjaga wajah/tubuh siswa tetap kelihatan meski
-          bagian tepi ter-crop di layar yang rasionya beda. -z-10 memastikan
-          lapisan ini paling belakang. ── */}
-      <div className="fixed inset-0 -z-10 overflow-hidden">
+          saat mode Layar Penuh (fullscreen browser).
+          DESKTOP (lg+): object-cover — layar lebar sudah cukup proporsional
+          dengan rasio asli foto (1672x941), jadi aman di-crop dikit.
+          MOBILE: rasio layar HP jauh lebih sempit & tinggi dari foto, kalau
+          dipaksa object-cover, foto ter-zoom ekstrem sampai cuma 1-2 siswa
+          yang kelihatan (tepi kiri-kanan hilang). FIX: foto ditampilkan
+          UTUH (w-full h-auto, tanpa crop) nempel di bawah layar, supaya
+          seluruh rombongan siswa tetap kelihatan. Ruang kosong di atas
+          foto diisi gradasi biru langit senada supaya menyatu rapi. ── */}
+      <div className="fixed inset-0 -z-10 overflow-hidden" style={{ background: 'linear-gradient(180deg, #bfe3fb 0%, #d9eefc 35%, #e8f6fb 55%)' }}>
+        {/* Versi desktop — cover penuh, sedikit crop wajar */}
         <img
           src="/images/siswa-sekolah.webp"
           alt="" aria-hidden="true"
-          className="absolute inset-0 w-full h-full object-cover"
+          className="hidden lg:block absolute inset-0 w-full h-full object-cover"
           style={{ objectPosition: 'center 30%' }}
+        />
+        {/* Versi mobile — foto utuh tanpa crop, nempel di bawah layar */}
+        <img
+          src="/images/siswa-sekolah.webp"
+          alt="" aria-hidden="true"
+          className="lg:hidden absolute bottom-0 left-0 w-full h-auto"
         />
         {/* Tint biru lembut supaya teks & kartu login tetap kontras di atas foto */}
         <div className="absolute inset-0" style={{
