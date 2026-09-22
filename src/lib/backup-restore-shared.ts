@@ -10,6 +10,7 @@
 // (kalau perlu) CATEGORY_MAP di reset/route.ts.
 
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { randomBytes, timingSafeEqual } from 'node:crypto'
 import { cacheDelPrefix } from '@/lib/cache'
 
 // createAdminClient() mengembalikan SupabaseClient<any>
@@ -158,12 +159,34 @@ export const PENGATURAN_KEY_PROSES_BERJALAN = 'prosesDataBesarSedangBerjalan'
 export const PENGATURAN_KEY_PROSES_JENIS = 'prosesDataBesarJenis'
 export const PENGATURAN_KEY_PROSES_MULAI = 'prosesDataBesarMulaiPada'
 export const PENGATURAN_KEY_MAINTENANCE_SEBELUM = 'prosesDataBesarMaintenanceSebelumnya'
+// FIX P0 (audit: actionClear/actionInsert tidak terikat proses `start`):
+// sebelumnya `mulaiModeMaintenanceUntukProses` hanya menyalakan mode
+// maintenance & menandai "proses sedang berjalan" di `pengaturan`, TANPA
+// menerbitkan bukti kepemilikan apa pun. Endpoint restore bertahap
+// (clear/insert/storage-*/finish di restore/route.ts) hanya memeriksa role
+// ADMIN + nama tabel — sehingga permintaan `clear`/`insert` bisa dipanggil
+// LANGSUNG oleh siapa pun yang punya token ADMIN, TANPA pernah memanggil
+// `start` sama sekali. Semua validasi keras di `actionStart` (backup tidak
+// lengkap ditolak, jumlah baris harus cocok, proses lain yang belum selesai
+// terdeteksi) jadi sekadar formalitas bagi client yang jujur — tidak
+// ditegakkan server terhadap request yang menyimpang dari urutan itu, dan
+// mode maintenance pun tidak dijamin aktif saat tabel benar-benar diubah.
+//
+// Sekarang `mulaiModeMaintenanceUntukProses` juga menerbitkan TOKEN acak
+// (disimpan di `pengaturan`, dikembalikan ke client HANYA lewat respons
+// `start`) yang WAJIB disertakan & cocok persis di setiap panggilan
+// clear/insert/storage-*/finish berikutnya (lihat verifikasiTokenProses &
+// pemakaiannya di restore/route.ts). Proses reset (reset/route.ts) tetap
+// satu request tunggal — tidak mengekspos clear/insert terpisah — jadi tidak
+// perlu memeriksa token ini, cukup mengabaikan nilai kembaliannya.
+export const PENGATURAN_KEY_PROSES_TOKEN = 'prosesDataBesarToken'
 
 const SEMUA_KEY_PROSES = [
   PENGATURAN_KEY_PROSES_BERJALAN,
   PENGATURAN_KEY_PROSES_JENIS,
   PENGATURAN_KEY_PROSES_MULAI,
   PENGATURAN_KEY_MAINTENANCE_SEBELUM,
+  PENGATURAN_KEY_PROSES_TOKEN,
 ]
 
 export interface StatusProsesBesar {
@@ -188,17 +211,21 @@ export async function cekProsesDataBesarBerjalan(db: Db): Promise<StatusProsesBe
 
 /**
  * Nyalakan mode maintenance (kalau belum aktif) + tandai proses besar sedang
- * berjalan. WAJIB dipanggil di titik terakhir sebelum data benar-benar mulai
- * diubah (bukan di awal validasi) — lihat pemanggilnya di reset/route.ts &
- * restore/route.ts.
+ * berjalan, dan terbitkan token kepemilikan acak untuk proses ini. WAJIB
+ * dipanggil di titik terakhir sebelum data benar-benar mulai diubah (bukan
+ * di awal validasi) — lihat pemanggilnya di reset/route.ts & restore/route.ts.
+ * Mengembalikan token yang baru diterbitkan (restore/route.ts mengirimkannya
+ * ke client lewat respons `start`; reset/route.ts boleh mengabaikannya karena
+ * tidak mengekspos langkah terpisah yang perlu diverifikasi).
  */
-export async function mulaiModeMaintenanceUntukProses(db: Db, jenis: 'reset' | 'restore'): Promise<void> {
+export async function mulaiModeMaintenanceUntukProses(db: Db, jenis: 'reset' | 'restore'): Promise<string> {
   const { data: existing } = await db
     .from('pengaturan')
     .select('value')
     .eq('key', PENGATURAN_KEY_MAINTENANCE_AKTIF)
     .maybeSingle()
   const maintenanceSebelumnya = existing?.value === 'true' ? 'true' : 'false'
+  const token = randomBytes(24).toString('hex')
 
   await db.from('pengaturan').upsert(
     [
@@ -207,6 +234,7 @@ export async function mulaiModeMaintenanceUntukProses(db: Db, jenis: 'reset' | '
       { key: PENGATURAN_KEY_PROSES_MULAI, value: new Date().toISOString() },
       { key: PENGATURAN_KEY_MAINTENANCE_SEBELUM, value: maintenanceSebelumnya },
       { key: PENGATURAN_KEY_MAINTENANCE_AKTIF, value: 'true' },
+      { key: PENGATURAN_KEY_PROSES_TOKEN, value: token },
     ],
     { onConflict: 'key' }
   )
@@ -214,6 +242,34 @@ export async function mulaiModeMaintenanceUntukProses(db: Db, jenis: 'reset' | '
   // di process ini — tanpa ini pengguna lain bisa tetap lolos maintenance
   // sampai 60 detik ke depan, persis jendela yang ingin ditutup fix ini.
   cacheDelPrefix('pengaturan:')
+  return token
+}
+
+/**
+ * Verifikasi bahwa `token` yang dikirim client cocok PERSIS dengan token
+ * proses `jenis` yang sedang berjalan (diterbitkan oleh
+ * mulaiModeMaintenanceUntukProses). Dipakai restore/route.ts di setiap action
+ * bertahap (clear, insert, storage-init, storage-put, storage-prune, finish)
+ * supaya action itu TIDAK BISA dipanggil tanpa pernah melalui `start` yang
+ * sah — lihat catatan panjang di atas PENGATURAN_KEY_PROSES_TOKEN.
+ * Perbandingan panjang-tetap (timingSafeEqual) supaya token tidak bisa
+ * ditebak lewat selisih waktu respons.
+ */
+export async function verifikasiTokenProses(db: Db, jenis: 'reset' | 'restore', token: unknown): Promise<boolean> {
+  if (typeof token !== 'string' || !token) return false
+  const { data } = await db
+    .from('pengaturan')
+    .select('key, value')
+    .in('key', [PENGATURAN_KEY_PROSES_BERJALAN, PENGATURAN_KEY_PROSES_JENIS, PENGATURAN_KEY_PROSES_TOKEN])
+  const map = Object.fromEntries((data ?? []).map((r: { key: string; value: string }) => [r.key, r.value]))
+  if (map[PENGATURAN_KEY_PROSES_BERJALAN] !== 'true') return false
+  if (map[PENGATURAN_KEY_PROSES_JENIS] !== jenis) return false
+  const tokenTersimpan = map[PENGATURAN_KEY_PROSES_TOKEN]
+  if (typeof tokenTersimpan !== 'string' || !tokenTersimpan) return false
+  const a = Buffer.from(tokenTersimpan, 'utf8')
+  const b = Buffer.from(token, 'utf8')
+  if (a.length !== b.length) return false
+  return timingSafeEqual(a, b)
 }
 
 /**
