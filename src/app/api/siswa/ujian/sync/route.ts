@@ -80,8 +80,14 @@ export async function POST(req: NextRequest) {
   }
 
   if (siswaUjian.status === 'TERKUNCI' || siswaUjian.status === 'RESET') {
+    // FIX: sertakan `sementara: true` (disamakan dengan essay/mulai) supaya
+    // outbox client (pastikanJawabanTersinkron di ujian-outbox.ts) tidak
+    // menganggap ini penolakan permanen. TERKUNCI/RESET bisa pulih sendiri
+    // begitu pengawas menangani — sebelumnya field ini tidak ada di sini,
+    // jadi client langsung menandai paket GAGAL permanen ("hubungi
+    // pengawas") walau kondisinya sebenarnya sementara.
     return NextResponse.json(
-      { error: 'Akses ujian Anda sedang dikunci/menunggu reset. Jawaban tidak bisa disimpan.' },
+      { error: 'Akses ujian Anda sedang dikunci/menunggu reset. Jawaban tidak bisa disimpan.', sementara: true },
       { status: 403 }
     )
   }
