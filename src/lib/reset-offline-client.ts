@@ -178,7 +178,21 @@ export async function verifikasiKodeResetOffline(
 }
 
 // ── Antrean rekonsiliasi (dikirim ke server begitu online) ─────────────────
-export type StatusResetTertunda = 'BELUM_TERKIRIM' | 'MENGIRIM' | 'MENUNGGU_JARINGAN'
+// BUG P0 (audit race outbox pelanggaran vs outbox reset, lihat kirimSatuReset
+// di bawah): tambah 'GAGAL' — dulu modul ini HANYA punya BELUM_TERKIRIM /
+// MENGIRIM / MENUNGGU_JARINGAN dan men-treat SEMUA respons non-exception dari
+// server (termasuk `valid: false`) sebagai sukses lalu MENGHAPUS entri dari
+// antrean. Itu salah pada dua kasus:
+//   1) server menolak sementara karena event pelanggaran yang seharusnya
+//      men-set status siswa ke 'RESET' belum sempat tersinkron duluan (dua
+//      outbox jalan paralel tanpa urutan terjamin) -> harus DIULANG, bukan
+//      dihapus.
+//   2) server menolak PERMANEN (kode benar-benar salah / sesi ditutup / batas
+//      reset tercapai) -> jangan diulang otomatis (bisa menghabiskan jatah
+//      percobaan siswa sampai terkunci), tapi juga jangan dihapus diam-diam
+//      -> simpan sebagai GAGAL untuk jejak audit, sama seperti pola di
+//      pelanggaran-outbox.ts.
+export type StatusResetTertunda = 'BELUM_TERKIRIM' | 'MENGIRIM' | 'MENUNGGU_JARINGAN' | 'GAGAL'
 
 export interface ResetTertunda {
   sesiId: string
@@ -274,6 +288,18 @@ function statusSementara(status: number | undefined): boolean {
  *
  * BERHENTI pada entri pertama yang belum berhasil — TIDAK melompat ke nomor
  * berikutnya, supaya urutan R1→R2→R3 yang disyaratkan server tetap terjaga.
+ *
+ * BUG P0 (diperbaiki — lihat catatan di StatusResetTertunda): versi
+ * sebelumnya menghapus entri dari antrean begitu request TIDAK melempar
+ * exception, TANPA memeriksa `res.valid`. Endpoint ini membalas HTTP 200
+ * dengan `valid: false` untuk kasus "belum ada reset aktif" (mis. karena
+ * event pelanggaran yang seharusnya men-set status siswa ke 'RESET' belum
+ * sempat tersinkron dari outbox pelanggaran — dua outbox berjalan paralel
+ * tanpa urutan terjamin saat koneksi pulih). Menghapus entri di kasus itu
+ * membuat R1 offline HILANG dari antrean padahal server belum pernah
+ * benar-benar mencatatnya — siswa lalu "tersangkut" (pengawas melihat butuh
+ * reset lagi, ujian tidak bisa difinalisasi). Sekarang HANYA `valid: true`
+ * yang dianggap sukses; selain itu dicek `res.retryable` / `res.permanen`.
  */
 async function kirimSatuReset(entri: ResetTertunda): Promise<boolean> {
   const current: ResetTertunda = {
@@ -285,18 +311,45 @@ async function kirimSatuReset(entri: ResetTertunda): Promise<boolean> {
   try { await resetPendingPut(pendingKey(current.sesiId, current.nis, current.nomor), current) } catch { /* abaikan */ }
 
   try {
-    await apiRequest<{ valid: boolean; message?: string }>('/api/siswa/ujian/verifikasi-reset', {
-      method: 'POST',
-      body: JSON.stringify({ sesiId: current.sesiId, kodeReset: current.kode }),
-    })
-    // valid:true ATAU valid:false-tapi-sudah-terpakai (server memperlakukan
-    // resend kode yang sama sebagai idempoten, lihat verifikasi-reset/route.ts)
-    // — dua-duanya berarti server sudah/akan konsisten dengan progres lokal.
-    // Kegagalan bisnis yang genuinely tidak akan pernah berhasil (kode ditolak
-    // permanen) sangat tidak mungkin terjadi di sini karena kode ini SUDAH
-    // terbukti benar lewat amplop; tetap dihapus supaya antrean tidak macet.
-    await resetPendingDelete(pendingKey(current.sesiId, current.nis, current.nomor))
-    return true
+    const res = await apiRequest<{ valid: boolean; retryable?: boolean; permanen?: boolean; message?: string }>(
+      '/api/siswa/ujian/verifikasi-reset',
+      {
+        method: 'POST',
+        body: JSON.stringify({ sesiId: current.sesiId, kodeReset: current.kode }),
+      }
+    )
+
+    if (res.valid) {
+      // Sukses sungguhan (server mengonfirmasi kode ini tercatat/idempoten).
+      await resetPendingDelete(pendingKey(current.sesiId, current.nis, current.nomor))
+      return true
+    }
+
+    if (res.permanen) {
+      // Server menolak FINAL (kode salah / sesi ditutup / batas reset
+      // tercapai). Jangan diulang otomatis — simpan sebagai GAGAL untuk
+      // jejak audit, tapi hentikan retry supaya tidak menghabiskan jatah
+      // percobaan siswa atau memblokir antrean selamanya.
+      try {
+        await resetPendingPut(pendingKey(current.sesiId, current.nis, current.nomor), {
+          ...current,
+          status: 'GAGAL',
+          pesanTerakhir: res.message ?? 'Server menolak kode reset secara permanen.',
+        })
+      } catch { /* abaikan */ }
+      return true // boleh dilewati oleh flush loop (lihat filter status GAGAL)
+    }
+
+    // res.retryable (atau field tidak dikenal dari server versi lama) —
+    // anggap sementara: coba lagi nanti, JANGAN dihapus dari antrean.
+    try {
+      await resetPendingPut(pendingKey(current.sesiId, current.nis, current.nomor), {
+        ...current,
+        status: 'MENUNGGU_JARINGAN',
+        pesanTerakhir: res.message ?? 'Belum bisa diproses server, akan dicoba lagi.',
+      })
+    } catch { /* abaikan */ }
+    return false
   } catch (err: unknown) {
     const status = (err as { status?: number } | undefined)?.status
     if (statusSementara(status)) {
@@ -335,8 +388,18 @@ export function mulaiPenjagaResetOffline(): () => void {
 
   const flushSemua = async () => {
     for (const entri of await ambilSemuaResetTertunda()) {
+      // Sudah ditolak PERMANEN sebelumnya (lihat kirimSatuReset) — tidak
+      // dicoba lagi otomatis, tetap tersimpan untuk audit manual. Lanjut ke
+      // nomor berikutnya (jangan break di sini) supaya entri final seperti
+      // ini tidak mengunci antrean selamanya.
+      if (entri.status === 'GAGAL') continue
+      // kirimSatuReset() mengembalikan true baik untuk sukses ASLI (valid)
+      // maupun untuk penolakan PERMANEN (disimpan sbg GAGAL) — dua-duanya
+      // "selesai diproses" sehingga aman lanjut ke nomor berikutnya. Hanya
+      // `false` (sementara/perlu diulang) yang menghentikan loop supaya
+      // urutan R1→R2→R3 tetap terjaga.
       const lanjut = await kirimSatuReset(entri)
-      if (!lanjut) break // jaga urutan: jangan coba nomor berikutnya dulu
+      if (!lanjut) break
     }
   }
 
