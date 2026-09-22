@@ -5,6 +5,7 @@ import { generateId, stripHtmlTags } from '@/lib/utils'
 import { cekSesiMapelKelasSudahMulai, pesanBankSoalTerkunci } from '@/lib/sesi-kelas'
 import { catatAktivitas } from '@/lib/aktivitas'
 import { validasiKunciOpsi } from '@/lib/validasi-soal'
+import { verifikasiKepemilikanMapelKelas, verifikasiKepemilikanPaketSoal } from '@/lib/guru-scope'
 
 export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['GURU'])
@@ -55,6 +56,24 @@ export async function POST(req: NextRequest) {
 
   const db = createAdminClient()
   const body = await req.json()
+
+  // FIX BUG (IDOR — dua celah sekaligus): sebelumnya endpoint ini langsung
+  // memakai body.mapel_id/body.kelas_id/body.paket_id untuk insert tanpa
+  // verifikasi apa pun.
+  //   Masalah A: guru bisa mengirim mapel_id/kelas_id milik guru lain, soal
+  //   masuk ke mapel/kelas yang bukan kewenangannya.
+  //   Masalah B: guru bisa mengirim paket_id milik guru lain (tidak ada
+  //   `.eq('guru_id', user.username)` untuk paket), sehingga bisa menyisipkan
+  //   soal ke paket milik guru lain.
+  // Keduanya diverifikasi di sini SEBELUM insert — lihat src/lib/guru-scope.ts.
+  const verifikasiMapelKelas = await verifikasiKepemilikanMapelKelas(db, user.username, body.mapel_id, body.kelas_id)
+  if (!verifikasiMapelKelas.ok) {
+    return NextResponse.json({ error: verifikasiMapelKelas.error }, { status: verifikasiMapelKelas.status })
+  }
+  const verifikasiPaket = await verifikasiKepemilikanPaketSoal(db, user.username, body.paket_id, body.mapel_id, body.kelas_id)
+  if (!verifikasiPaket.ok) {
+    return NextResponse.json({ error: verifikasiPaket.error }, { status: verifikasiPaket.status })
+  }
 
   // Validasi: teks opsi wajib diisi KECUALI kalau gambar opsi sudah ada.
   // Opsi D dan E opsional sepenuhnya (tergantung jumlah_opsi).
