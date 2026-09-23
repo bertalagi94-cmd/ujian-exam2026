@@ -88,6 +88,11 @@ const ROLES = [
         icon: <BarChart2 className="w-4 h-4" />,
         detail: 'Tab Pengaturan Ujian mengatur batas pelanggaran dan jumlah opsi jawaban. Tab Maintenance mengaktifkan mode perbaikan. Lakukan backup rutin di tab Backup & Restore sebelum tahun ajaran baru atau sebelum reset. Reset data per kategori dilakukan di tab Reset Data.',
       },
+      {
+        title: 'Lihat Sebagai & Cetak Kartu Siswa',
+        icon: <Eye className="w-4 h-4" />,
+        detail: 'Tombol "Lihat Sebagai" di halaman Data Siswa/Data Pengguna memungkinkan admin masuk sebagai guru, kepala sekolah, atau siswa tertentu untuk membantu troubleshooting — otomatis kembali ke akun Admin setelah 2 jam, dan akun yang sedang "dilihat" akan melihat banner pemberitahuan. Menu Cetak (kartu ujian/kartu siswa) ada di halaman Pengaturan untuk mencetak kartu peserta ujian.',
+      },
     ],
   },
   {
@@ -169,6 +174,11 @@ const ROLES = [
         icon: <Shield className="w-4 h-4" />,
         detail: 'Muncul di sidebar hanya untuk guru yang punya jadwal jaga. "Jadwal Pengawasan" menampilkan sesi yang akan diawasi. "Mode Pengawas" dipakai untuk membuka sesi, memantau peserta secara real-time, mereset siswa yang kena pelanggaran (memberi kode lanjut), membuka/menutup akses mulai soal essay, dan menutup sesi.',
       },
+      {
+        title: 'Mengawasi Ujian saat Internet Mati (Mode Offline)',
+        icon: <Radio className="w-4 h-4" />,
+        detail: 'Kalau internet sekolah mati total, jawaban pilihan ganda siswa tetap aman — tersimpan dulu di perangkat siswa dan otomatis terkirim begitu koneksi kembali, jadi pengawas tidak perlu tindakan khusus untuk PG. Untuk soal essay, tombol "Tampilkan Kode Darurat" di Mode Pengawas akan menampilkan kode khusus per sesi — bacakan atau tuliskan kode ini di papan tulis (JANGAN lewat chat/internet) supaya siswa bisa membuka soal essay secara offline tanpa menunggu server. Begitu internet pulih, sistem otomatis menyinkronkan waktu mulai dan jawaban essay siswa yang tadinya offline.',
+      },
     ],
   },
   {
@@ -195,17 +205,27 @@ const ROLES = [
       {
         title: 'Mengerjakan Ujian',
         icon: <ClipboardList className="w-4 h-4" />,
-        detail: 'Klik "Mulai Ujian" saat jadwal aktif. Kerjakan soal pilihan ganda dalam waktu yang tersedia — jawaban tersimpan otomatis. Jangan menutup tab atau berpindah aplikasi karena bisa tercatat sebagai pelanggaran.',
+        detail: 'Klik "Mulai Ujian" saat jadwal aktif. Ujian otomatis berjalan dalam mode layar penuh (fullscreen) — jangan keluar dari mode ini, menutup tab, atau berpindah aplikasi karena bisa tercatat sebagai pelanggaran. Kerjakan soal pilihan ganda dalam waktu yang tersedia; jawaban tersimpan otomatis di server. Ujian hanya boleh dibuka di satu perangkat pada satu waktu — kalau Anda login ujian yang sama di perangkat/browser lain, sesi di perangkat pertama akan otomatis terputus.',
+      },
+      {
+        title: 'Jika Internet Terputus (Mode Offline)',
+        icon: <Radio className="w-4 h-4" />,
+        detail: 'Jawaban pilihan ganda tetap tersimpan di perangkat Anda dan otomatis terkirim ulang begitu koneksi kembali — status pengiriman bisa dipantau atau dipicu manual lewat menu "Pengiriman Tertunda" (muncul di sidebar hanya saat ada antrean). Untuk soal essay, jika internet mati total sebelum akses essay dibuka, minta "kode darurat" ke pengawas ruangan (dibacakan langsung, bukan lewat internet) untuk membuka soal essay secara offline; begitu internet pulih, jawaban dan waktu pengerjaan akan otomatis disinkronkan ke server.',
       },
       {
         title: 'Soal Essay (jika ada)',
         icon: <ClipboardList className="w-4 h-4" />,
-        detail: 'Setelah soal pilihan ganda selesai, jika mata pelajaran punya soal essay akan ada tahap info essay terlebih dulu, lalu tahap mengerjakan essay. Essay bisa dalam mode digital (diketik di sistem) atau kertas, tergantung pengaturan guru. Mengerjakan essay baru bisa dimulai setelah pengawas membuka akses.',
+        detail: 'Setelah soal pilihan ganda selesai, jika mata pelajaran punya soal essay akan ada tahap info essay terlebih dulu, lalu tahap mengerjakan essay. Essay bisa dalam mode digital (diketik di sistem) atau kertas, tergantung pengaturan guru. Mengerjakan essay baru bisa dimulai setelah pengawas membuka akses (atau lewat kode darurat jika offline).',
       },
       {
         title: 'Melihat Nilai',
         icon: <BarChart2 className="w-4 h-4" />,
         detail: 'Setelah ujian selesai dan nilai diproses, Anda bisa melihat nilai dan status kelulusan di menu Nilai. Jika mata pelajaran punya soal essay, nilai total baru muncul setelah guru selesai memeriksa essay dan merilis nilainya. Kisi-kisi soal juga tersedia sebagai panduan belajar.',
+      },
+      {
+        title: 'Profil Saya',
+        icon: <User className="w-4 h-4" />,
+        detail: 'Menu "Profil Saya" menampilkan biodata lengkap Anda (kelas, wali kelas, tempat/tanggal lahir, dll) dan memungkinkan Anda mengganti password sendiri kapan saja tanpa perlu minta admin, cukup dengan memasukkan password lama.',
       },
     ],
   },
@@ -241,7 +261,7 @@ const QA_ITEMS = [
     items: [
       {
         q: 'Saya lupa password, bagaimana cara reset?',
-        a: 'Siswa: minta guru atau admin untuk reset password. Guru dan Kepala Sekolah: minta admin untuk reset di menu Data Pengguna. Admin: hubungi pengelola sistem atau reset melalui database Supabase.',
+        a: 'Siswa: kalau masih ingat password lama, ganti sendiri lewat menu "Profil Saya". Kalau benar-benar lupa (tidak tahu password lama), minta guru atau admin untuk reset. Guru dan Kepala Sekolah: minta admin untuk reset di menu Data Pengguna. Admin: hubungi pengelola sistem atau reset melalui database Supabase.',
       },
       {
         q: 'Username saya apa?',
@@ -275,6 +295,22 @@ const QA_ITEMS = [
         q: 'Saya tidak sengaja menutup tab saat ujian, bagaimana?',
         a: 'Buka kembali browser dan login ulang, lalu akses kembali halaman ujian. Ini akan tercatat sebagai pelanggaran dan ujian Anda dihentikan sementara — minta kode 7 karakter ke pengawas untuk melanjutkan dari soal terakhir.',
       },
+      {
+        q: 'Kenapa ujian harus dalam mode layar penuh (fullscreen)?',
+        a: 'Ini bagian dari sistem anti-kecurangan — keluar dari layar penuh dihitung sama seperti berpindah tab, yaitu sebagai pelanggaran. Jika perangkat Anda tidak mendukung mode layar penuh (beberapa browser di iPhone/iPad), beritahu pengawas sebelum ujian dimulai.',
+      },
+      {
+        q: 'Bisakah saya mengerjakan ujian yang sama di HP dan laptop sekaligus?',
+        a: 'Tidak. Satu sesi ujian hanya boleh aktif di satu perangkat. Kalau Anda login ke ujian yang sama di perangkat kedua, sesi di perangkat pertama otomatis terputus (diambil alih). Gunakan satu perangkat saja sampai ujian selesai.',
+      },
+      {
+        q: 'Internet mati total dan soal essay belum sempat dibuka, apa yang harus dilakukan?',
+        a: 'Tetap tenang, jangan tutup browser. Minta "kode darurat" ke pengawas ruangan — kode ini dibacakan langsung/ditulis di papan, bukan dikirim lewat internet — lalu masukkan kode tersebut untuk membuka soal essay secara offline. Begitu internet pulih, jawaban dan waktu pengerjaan Anda otomatis disinkronkan ke server.',
+      },
+      {
+        q: 'Ada menu "Pengiriman Tertunda", itu untuk apa?',
+        a: 'Menu ini hanya muncul kalau ada jawaban/paket ujian Anda yang belum berhasil terkirim ke server (biasanya karena internet sempat putus). Sistem akan terus mencoba mengirim ulang secara otomatis; Anda juga bisa menekan "Kirim Sekarang" di menu ini untuk mencoba lebih cepat. Jawaban yang sudah tersimpan tidak akan hilang.',
+      },
     ],
   },
   {
@@ -303,6 +339,10 @@ const QA_ITEMS = [
         q: 'Data sekolah hilang setelah reset',
         a: 'Jika reset "Semua Data" dilakukan, semua pengaturan termasuk nama sekolah dan logo akan terhapus. Isi kembali di halaman Informasi Sekolah (dibuka lewat kartu di atas tab Pengaturan). Selalu lakukan backup di tab Backup & Restore sebelum melakukan reset apapun.',
       },
+      {
+        q: 'Internet sekolah mati total saat ujian berlangsung, bagaimana pengawas harus bertindak?',
+        a: 'Untuk soal pilihan ganda, tidak perlu tindakan khusus — jawaban siswa tersimpan di perangkat masing-masing dan terkirim otomatis begitu internet kembali. Untuk soal essay, buka Mode Pengawas lalu tekan "Tampilkan Kode Darurat", dan bacakan/tuliskan kode tersebut di papan tulis (jangan lewat grup chat/internet) agar siswa bisa membuka soal essay secara offline. Begitu koneksi pulih, sistem otomatis menyinkronkan data essay siswa yang tadi offline.',
+      },
     ],
   },
   {
@@ -322,6 +362,14 @@ const QA_ITEMS = [
       {
         q: 'Apakah soal bisa digunakan ulang untuk ujian berikutnya?',
         a: 'Soal PG dan essay dibuat langsung di dalam satu paket lewat menu Buat Soal, jadi tidak ada bank soal terpisah yang bisa dipakai lintas paket. Yang bisa dilakukan adalah menduplikasi paket soal yang sudah ada untuk ujian susulan atau semester berikutnya.',
+      },
+      {
+        q: 'Apa itu fitur "Lihat Sebagai" untuk admin?',
+        a: 'Fitur ini memungkinkan admin login sementara sebagai akun guru, kepala sekolah, atau siswa tertentu — berguna untuk mengecek atau memperbaiki masalah dari sudut pandang user tersebut tanpa perlu tahu passwordnya. Sesi ini otomatis berakhir setelah 2 jam, dan pemilik akun akan melihat notifikasi bahwa akunnya sedang dilihat oleh admin.',
+      },
+      {
+        q: 'Satu guru mengajar di lebih dari satu sekolah/jenjang, apakah bisa?',
+        a: 'Bisa. Admin dapat menautkan satu akun guru ke lebih dari satu sekolah di menu Data Pengguna, sehingga guru tersebut bisa melihat kelas dan kisi-kisi dari semua sekolah yang diampu dalam satu akun yang sama.',
       },
     ],
   },
