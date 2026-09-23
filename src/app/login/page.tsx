@@ -428,6 +428,11 @@ export default function LoginPage() {
   const [showQA, setShowQA] = useState(false)
   const [showAktivitas, setShowAktivitas] = useState(false)
   const [mobileLoginOpen, setMobileLoginOpen] = useState(false)
+  // Foto khusus HP (potret) — jika file /images/siswa-sekolah-mobile.png
+  // belum ada di repo, otomatis fallback ke foto landscape yang sudah ada
+  // (dengan komposisi crop+awan yang sudah berjalan sekarang), supaya tidak
+  // muncul ikon gambar rusak sebelum aset barunya di-upload.
+  const [mobileHeroReady, setMobileHeroReady] = useState(true)
   const [activeRole, setActiveRole] = useState('admin')
   const [openQA, setOpenQA] = useState<string | null>(null)
 
@@ -712,21 +717,39 @@ export default function LoginPage() {
           className="hidden lg:block absolute inset-0 w-full h-full object-cover"
           style={{ objectPosition: 'center 30%' }}
         />
-        {/* Versi mobile — cover, condong kiri, strip ~46% tinggi layar */}
-        <img
-          src="/images/siswa-sekolah.webp"
-          alt="" aria-hidden="true"
-          className="lg:hidden absolute bottom-0 left-0 w-full h-[46vh] object-cover"
-          style={{ minHeight: 340, maxHeight: 520, objectPosition: 'left top' }}
-        />
-        {/* Awan lembut mobile — mengisi celah langit di atas foto supaya
-            tidak polos, senada dengan referensi desain. Dekoratif murni,
-            tidak memengaruhi layout/komponen fungsional. */}
-        <div className="lg:hidden absolute inset-x-0 top-0" style={{ height: '54vh' }} aria-hidden="true">
-          <div className="absolute rounded-full" style={{ width: 190, height: 60, top: '14%', left: '-8%', background: 'rgba(255,255,255,0.55)', filter: 'blur(14px)' }} />
-          <div className="absolute rounded-full" style={{ width: 140, height: 46, top: '24%', right: '-6%', background: 'rgba(255,255,255,0.45)', filter: 'blur(12px)' }} />
-          <div className="absolute rounded-full" style={{ width: 220, height: 70, top: '38%', left: '18%', background: 'rgba(255,255,255,0.35)', filter: 'blur(16px)' }} />
-        </div>
+        {/* Versi mobile — pakai foto POTRET khusus HP (jika sudah di-upload
+            ke /public/images/siswa-sekolah-mobile.png), full 1 layar tanpa
+            perlu awan tambahan karena rasionya sudah pas untuk HP. */}
+        {mobileHeroReady && (
+          <img
+            src="/images/siswa-sekolah-mobile.png"
+            alt="" aria-hidden="true"
+            onError={() => setMobileHeroReady(false)}
+            className="lg:hidden absolute inset-0 w-full h-full object-cover"
+            style={{ objectPosition: 'center top' }}
+          />
+        )}
+        {/* ── Fallback: dipakai HANYA jika siswa-sekolah-mobile.png belum
+            ada di repo — foto landscape yang sudah ada di-crop condong
+            kiri + awan dekoratif mengisi celah, supaya tetap terlihat baik
+            sebelum aset foto potret HP di-upload. ── */}
+        {!mobileHeroReady && (
+          <>
+            <img
+              src="/images/siswa-sekolah.webp"
+              alt="" aria-hidden="true"
+              className="lg:hidden absolute bottom-0 left-0 w-full h-[48vh] object-cover"
+              style={{ minHeight: 340, maxHeight: 540, objectPosition: 'left top' }}
+            />
+            <div className="lg:hidden absolute inset-x-0 top-0 bottom-0 overflow-hidden" aria-hidden="true">
+              <div className="absolute rounded-full" style={{ width: '78vw', height: '16vh', top: '10%', left: '-20vw', background: 'rgba(255,255,255,0.55)', filter: 'blur(7vw)' }} />
+              <div className="absolute rounded-full" style={{ width: '60vw', height: '13vh', top: '19%', right: '-18vw', background: 'rgba(255,255,255,0.42)', filter: 'blur(6vw)' }} />
+              <div className="absolute rounded-full" style={{ width: '95vw', height: '19vh', top: '29%', left: '-8vw', background: 'rgba(255,255,255,0.32)', filter: 'blur(8vw)' }} />
+              <div className="absolute rounded-full" style={{ width: '70vw', height: '15vh', top: '40%', right: '-14vw', background: 'rgba(255,255,255,0.34)', filter: 'blur(7vw)' }} />
+              <div className="absolute rounded-full" style={{ width: '90vw', height: '17vh', top: '50%', left: '2vw', background: 'rgba(255,255,255,0.26)', filter: 'blur(7.5vw)' }} />
+            </div>
+          </>
+        )}
         {/* Tint biru lembut supaya teks & kartu login tetap kontras di atas foto */}
         <div className="absolute inset-0" style={{
           background: 'linear-gradient(180deg, rgba(4,32,74,0.30) 0%, rgba(4,32,74,0.05) 20%, rgba(4,32,74,0.05) 55%, rgba(4,32,74,0.55) 100%)',
