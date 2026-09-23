@@ -375,6 +375,25 @@ const QA_ITEMS = [
   },
 ]
 
+function DevCredit() {
+  return (
+    <div className="flex justify-center mt-3">
+      <div
+        className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full"
+        style={{
+          background: 'rgba(14,165,233,0.08)',
+          border: '1px solid rgba(14,165,233,0.25)',
+        }}
+      >
+        <span className="text-[11px] font-medium text-slate-500">Developed By</span>
+        <span className="text-[11px] font-bold" style={{ color: '#0369a1' }}>
+          @Tasrif A. Abbas
+        </span>
+      </div>
+    </div>
+  )
+}
+
 function SchoolLogo({ size, siteInfo }: { size: 'sm' | 'lg' | 'xl'; siteInfo: SiteInfo }) {
   const dim = size === 'xl' ? 'w-16 h-16' : size === 'lg' ? 'w-14 h-14' : 'w-10 h-10'
   const iconDim = size === 'xl' ? 'w-8 h-8' : size === 'lg' ? 'w-7 h-7' : 'w-5 h-5'
@@ -1000,20 +1019,6 @@ export default function LoginPage() {
               <div className="text-center border-t border-slate-100 pt-4">
                 <p className="font-bold text-slate-700 text-sm">{displayName}</p>
                 {siteInfo.kota && <p className="text-slate-400 text-xs mt-0.5">{siteInfo.kota}</p>}
-                <p className="text-[11px] mt-2 text-slate-400 flex items-center justify-center gap-1.5">
-                  <span className="opacity-70">Developed By</span>
-                  <span
-                    className="font-semibold"
-                    style={{
-                      background: 'linear-gradient(90deg, #0ea5e9, #14b8a6)',
-                      WebkitBackgroundClip: 'text',
-                      WebkitTextFillColor: 'transparent',
-                      backgroundClip: 'text',
-                    }}
-                  >
-                    @Tasrif A. Abbas
-                  </span>
-                </p>
               </div>
             </div>
 
@@ -1032,6 +1037,7 @@ export default function LoginPage() {
                 <Activity className="w-3.5 h-3.5" /> Aktivitas
               </button>
             </div>
+            <DevCredit />
             </>
             )}
           </div>
@@ -1134,21 +1140,8 @@ export default function LoginPage() {
                 <div className="border-t border-slate-100 pt-4">
                   <p className="font-bold text-slate-700 text-sm">{displayName}</p>
                   {siteInfo.kota && <p className="text-slate-400 text-xs mt-0.5">{siteInfo.kota}</p>}
-                  <p className="text-[11px] mt-2 text-slate-400 flex items-center justify-center gap-1.5">
-                    <span className="opacity-70">Developed By</span>
-                    <span
-                      className="font-semibold"
-                      style={{
-                        background: 'linear-gradient(90deg, #0ea5e9, #14b8a6)',
-                        WebkitBackgroundClip: 'text',
-                        WebkitTextFillColor: 'transparent',
-                        backgroundClip: 'text',
-                      }}
-                    >
-                      @Tasrif A. Abbas
-                    </span>
-                  </p>
                 </div>
+                <DevCredit />
               </div>
             </div>
 
@@ -1278,6 +1271,7 @@ export default function LoginPage() {
                       <Activity className="w-3.5 h-3.5" />
                       Lihat Aktivitas
                     </button>
+                    <DevCredit />
                   </div>
                 </div>
               </div>
