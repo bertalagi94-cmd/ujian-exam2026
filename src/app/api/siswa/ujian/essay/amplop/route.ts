@@ -18,7 +18,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 import { cacheGet, cacheSet } from '@/lib/cache'
-import { buatAmplop } from '@/lib/essay-amplop-server'
+import { buatAmplop, ambilGambarSebagaiDataUrl } from '@/lib/essay-amplop-server'
 import type { EssayAmplop, IsiAmplopEssay } from '@/lib/essay-amplop-shared'
 
 export async function GET(req: NextRequest) {
@@ -189,7 +189,18 @@ export async function GET(req: NextRequest) {
         modeJawaban: sesi.info_json.essay_mode_jawaban,
         instruksi: sesi.info_json.essay_instruksi ?? null,
       },
-      soal: soalFinal.map(s => ({ id: s.id, teks: s.teks, gambar_url: s.gambar_url ?? null, urutan: s.urutan })),
+      // FIX (audit: gambar essay gagal dimuat saat offline/kode darurat):
+      // sertakan byte gambar (data URL) di dalam amplop, bukan cuma URL-nya —
+      // lihat catatan lengkap di essay-amplop-shared.ts (`gambar_data`) dan
+      // ambilGambarSebagaiDataUrl (essay-amplop-server.ts). Diambil paralel;
+      // satu gambar gagal/timeout tidak menggagalkan soal lain (null saja).
+      soal: await Promise.all(soalFinal.map(async s => ({
+        id: s.id,
+        teks: s.teks,
+        gambar_url: s.gambar_url ?? null,
+        gambar_data: s.gambar_url ? await ambilGambarSebagaiDataUrl(s.gambar_url) : null,
+        urutan: s.urutan,
+      }))),
     }
     amplop = await buatAmplop(sesiId, isi)
     cacheSet(cacheKey, amplop, 60)
