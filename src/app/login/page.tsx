@@ -241,15 +241,15 @@ const QA_ITEMS = [
     items: [
       {
         q: 'Apa itu SmartExam?',
-        a: 'SmartExam adalah sistem ujian berbasis komputer (CBT) yang dirancang khusus untuk sekolah. Memungkinkan guru membuat soal, menjadwalkan ujian, dan siswa mengerjakan ujian secara online dengan pengawasan real-time.',
+        a: 'SmartExam adalah sistem ujian berbasis komputer (CBT) yang dirancang khusus untuk sekolah — bisa dikerjakan lewat HP maupun laptop/komputer. Memungkinkan guru membuat soal, menjadwalkan ujian, dan siswa mengerjakan ujian secara online dengan pengawasan real-time.',
       },
       {
         q: 'Browser apa yang direkomendasikan?',
-        a: 'Google Chrome atau Mozilla Firefox versi terbaru. Hindari menggunakan browser lama atau Internet Explorer. Pastikan JavaScript aktif dan koneksi internet stabil selama ujian.',
+        a: 'Kebanyakan siswa mengerjakan ujian lewat HP, jadi gunakan Chrome versi terbaru di Android atau Safari versi terbaru di iPhone/iPad. Di laptop/komputer, gunakan Google Chrome atau Mozilla Firefox versi terbaru. Hindari browser lama, dan pastikan JavaScript aktif.',
       },
       {
         q: 'Apakah bisa digunakan di HP?',
-        a: 'Bisa, aplikasi sudah responsif untuk layar HP. Namun untuk pengalaman terbaik terutama saat mengerjakan ujian, disarankan menggunakan laptop atau komputer.',
+        a: 'Bisa, dan justru inilah cara paling umum siswa mengerjakan ujian — tampilan dan sistem anti-kecurangan (layar penuh, deteksi pindah aplikasi, dll) sudah dirancang untuk HP, bukan cuma laptop. Pastikan baterai cukup, HP tidak dalam mode hemat baterai/data yang agresif, dan notifikasi lain di-silent dulu supaya tidak terpicu pindah aplikasi.',
       },
     ],
   },
@@ -289,15 +289,15 @@ const QA_ITEMS = [
       },
       {
         q: 'Internet saya putus saat ujian, bagaimana?',
-        a: 'Jangan panik. Hubungkan kembali internet secepat mungkin. Jawaban yang sudah dijawab tetap tersimpan. Jika waktu ujian belum habis, Anda bisa melanjutkan setelah koneksi kembali. Beritahu pengawas jika ada kendala teknis.',
+        a: 'Jangan panik, dan JANGAN keluar dari layar ujian untuk membuka pengaturan WiFi/data — itu justru akan terdeteksi sebagai pelanggaran (keluar dari mode layar penuh/pindah aplikasi). Cukup tetap diam di halaman ujian: jawaban yang sudah dijawab tetap tersimpan di HP/laptop Anda dan otomatis terkirim begitu koneksi kembali (misalnya WiFi menyambung ulang sendiri). Kalau koneksi tidak kunjung kembali sendiri dan Anda terpaksa harus membuka pengaturan HP secara manual, beri tahu pengawas ruangan DULU sebelum melakukannya — supaya pengawas paham situasinya dan bisa langsung memberi kode lanjut begitu Anda kembali ke layar ujian.',
       },
       {
         q: 'Saya tidak sengaja menutup tab saat ujian, bagaimana?',
-        a: 'Buka kembali browser dan login ulang, lalu akses kembali halaman ujian. Ini akan tercatat sebagai pelanggaran dan ujian Anda dihentikan sementara — minta kode 7 karakter ke pengawas untuk melanjutkan dari soal terakhir.',
+        a: 'Buka kembali browser (di HP: buka lagi aplikasi/browsernya) dan login ulang, lalu akses kembali halaman ujian. Ini akan tercatat sebagai pelanggaran dan ujian Anda dihentikan sementara — minta kode 7 karakter ke pengawas untuk melanjutkan dari soal terakhir.',
       },
       {
         q: 'Kenapa ujian harus dalam mode layar penuh (fullscreen)?',
-        a: 'Ini bagian dari sistem anti-kecurangan — keluar dari layar penuh dihitung sama seperti berpindah tab, yaitu sebagai pelanggaran. Jika perangkat Anda tidak mendukung mode layar penuh (beberapa browser di iPhone/iPad), beritahu pengawas sebelum ujian dimulai.',
+        a: 'Ini bagian dari sistem anti-kecurangan — keluar dari layar penuh dihitung sama seperti berpindah tab/aplikasi, yaitu sebagai pelanggaran. Di HP, ini juga berarti membuka Kontrol Cepat/Notifikasi, mengganti WiFi, membalas chat, atau menekan tombol Home akan langsung tercatat sebagai pelanggaran. Jika perangkat Anda tidak mendukung mode layar penuh sama sekali (beberapa browser di iPhone/iPad), beritahu pengawas sebelum ujian dimulai.',
       },
       {
         q: 'Bisakah saya mengerjakan ujian yang sama di HP dan laptop sekaligus?',
@@ -305,7 +305,7 @@ const QA_ITEMS = [
       },
       {
         q: 'Internet mati total dan soal essay belum sempat dibuka, apa yang harus dilakukan?',
-        a: 'Tetap tenang, jangan tutup browser. Minta "kode darurat" ke pengawas ruangan — kode ini dibacakan langsung/ditulis di papan, bukan dikirim lewat internet — lalu masukkan kode tersebut untuk membuka soal essay secara offline. Begitu internet pulih, jawaban dan waktu pengerjaan Anda otomatis disinkronkan ke server.',
+        a: 'Tetap tenang, tetap di layar ujian (jangan keluar aplikasi). Minta "kode darurat" ke pengawas ruangan — kode ini dibacakan langsung/ditulis di papan, bukan dikirim lewat internet — lalu masukkan kode tersebut untuk membuka soal essay secara offline. Begitu internet pulih, jawaban dan waktu pengerjaan Anda otomatis disinkronkan ke server.',
       },
       {
         q: 'Ada menu "Pengiriman Tertunda", itu untuk apa?',
