@@ -10,7 +10,7 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
   if ('error' in auth) return auth.error
 
   const db = createAdminClient()
-  const { nama, role, status, no_hp, nip, sekolah_id, is_tester } = await req.json()
+  const { nama, role, status, no_hp, nip, sekolah_id, sekolah_ids, is_tester } = await req.json()
 
   // Role akun yang sah hanya 4 ini — lihat catatan di POST /api/admin/users
   // dan src/lib/auth.ts. "Pengawas" tidak boleh diset lewat edit juga.
@@ -28,23 +28,41 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
     return NextResponse.json({ error: "is_tester harus 'YES' atau 'NO'" }, { status: 400 })
   }
 
+  // FIX (multi-sekolah): sekolah_id (kolom tunggal) sekarang HANYA dipakai
+  // untuk KEPSEK. Untuk GURU, sekolah disinkronkan ke tabel relasi
+  // `guru_sekolah` (migrasi 24) di bawah, karena satu guru bisa mengajar
+  // di lebih dari satu sekolah/jenjang.
   const { error } = await db.from('users').update({
     nama: nama ? String(nama).toUpperCase() : undefined,
     role: role || undefined,
     status: status || undefined,
     no_hp: no_hp !== undefined ? (no_hp ? String(no_hp).trim() : null) : undefined,
     nip: nip !== undefined ? String(nip ?? '').trim() : undefined,
-    // FIX BUG: sama seperti di POST /api/admin/users — sebelumnya sekolah_id
-    // dipaksa null untuk role selain KEPSEK, padahal getKepsekScope() (dipakai
-    // juga oleh endpoint GURU seperti guru/kisi-kisi) butuh users.sekolah_id
-    // terisi untuk akun GURU. Tanpa fix ini, admin tidak pernah bisa
-    // menghilangkan pesan "Akun Anda belum diset sekolah/jenjangnya" di
-    // akun guru manapun, walau kelasnya sudah diset sekolahnya.
-    sekolah_id: (role === 'KEPSEK' || role === 'GURU') ? (sekolah_id || null) : null,
+    sekolah_id: role === 'KEPSEK' ? (sekolah_id || null) : null,
     is_tester: is_tester || undefined,
   }).eq('username', params.username)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // Sinkronkan daftar sekolah guru: hapus relasi lama, ganti dengan yang
+  // baru dikirim dari form. Kalau role bukan GURU (lagi), atau sekolah_ids
+  // tidak dikirim sama sekali, relasi lama tetap dihapus supaya tidak ada
+  // sisa sekolah dari role sebelumnya (mis. GURU diubah jadi ADMIN).
+  if (role !== undefined) {
+    const { error: hapusError } = await db.from('guru_sekolah').delete().eq('username', params.username)
+    if (hapusError) {
+      return NextResponse.json({ message: 'Data berhasil diperbarui, tapi gagal menyinkronkan daftar sekolah', warning: hapusError.message })
+    }
+    if (role === 'GURU' && Array.isArray(sekolah_ids) && sekolah_ids.length > 0) {
+      const rows = [...new Set(sekolah_ids.map((id: string) => String(id)))]
+        .map(id => ({ username: params.username, sekolah_id: id }))
+      const { error: relasiError } = await db.from('guru_sekolah').insert(rows)
+      if (relasiError) {
+        return NextResponse.json({ message: 'Data berhasil diperbarui, tapi gagal menyimpan daftar sekolah', warning: relasiError.message })
+      }
+    }
+  }
+
   return NextResponse.json({ message: 'Data berhasil diperbarui' })
 }
 
