@@ -32,7 +32,35 @@ export async function GET(req: NextRequest) {
   const { data, error } = await query
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ data: data ?? [] })
+
+  // Lampirkan daftar sekolah guru (many-to-many, lihat migrasi 24) supaya
+  // halaman admin bisa menampilkan semua sekolah yang diajar tiap guru,
+  // bukan cuma satu seperti sekolah_id milik Kepsek.
+  const guruUsernames = (data ?? []).filter(u => u.role === 'GURU').map(u => u.username)
+  let relasiByUsername = new Map<string, { id: string; label: string; nama_sekolah: string }[]>()
+  if (guruUsernames.length > 0) {
+    const { data: relasiRows, error: relasiError } = await db
+      .from('guru_sekolah')
+      .select('username, sekolah:sekolah_id(id, label, nama_sekolah)')
+      .in('username', guruUsernames)
+    if (relasiError) return NextResponse.json({ error: relasiError.message }, { status: 500 })
+    relasiByUsername = (relasiRows ?? []).reduce((map, row: { username: string; sekolah: unknown }) => {
+      const sekolah = row.sekolah as { id: string; label: string; nama_sekolah: string } | null
+      if (!sekolah) return map
+      const list = map.get(row.username) ?? []
+      list.push(sekolah)
+      map.set(row.username, list)
+      return map
+    }, relasiByUsername)
+  }
+
+  const enriched = (data ?? []).map(u => {
+    if (u.role !== 'GURU') return u
+    const list = relasiByUsername.get(u.username) ?? []
+    return { ...u, sekolah_list: list, sekolah_ids: list.map(s => s.id) }
+  })
+
+  return NextResponse.json({ data: enriched })
 }
 
 export async function POST(req: NextRequest) {
@@ -41,7 +69,7 @@ export async function POST(req: NextRequest) {
 
   const db = createAdminClient()
   const body = await req.json()
-  const { username, nama, role, password, status, no_hp, nip, sekolah_id } = body
+  const { username, nama, role, password, status, no_hp, nip, sekolah_id, sekolah_ids } = body
 
   if (!username || !nama || !role || !password) {
     return NextResponse.json({ error: 'Username, nama, role, dan password wajib diisi' }, { status: 400 })
@@ -58,6 +86,11 @@ export async function POST(req: NextRequest) {
 
   const password_hash = await bcrypt.hash(String(password), 10)
 
+  // FIX (multi-sekolah): sekolah_id (kolom tunggal) sekarang HANYA dipakai
+  // untuk KEPSEK (satu kepsek = satu sekolah yang diawasi). Untuk GURU,
+  // sekolah disimpan di tabel relasi many-to-many `guru_sekolah` (migrasi
+  // 24) lewat sekolah_ids di bawah, karena satu guru bisa mengajar di lebih
+  // dari satu sekolah/jenjang.
   const { error } = await db.from('users').insert({
     username: String(username).trim(),
     nama: String(nama).toUpperCase(),
@@ -66,19 +99,28 @@ export async function POST(req: NextRequest) {
     status: status ?? 'AKTIF',
     no_hp: no_hp ? String(no_hp).trim() : null,
     nip: nip ? String(nip).trim() : '',
-    // FIX BUG: sebelumnya sekolah_id HANYA diizinkan untuk role KEPSEK,
-    // padahal endpoint guru (mis. guru/kisi-kisi) memakai getKepsekScope()
-    // generik yang membaca users.sekolah_id apa pun rolenya. Akibatnya
-    // TIDAK ADA akun GURU yang bisa diset sekolahnya lewat menu ini, dan
-    // guru selalu mendapat pesan "Akun Anda belum diset sekolah/jenjangnya"
-    // meski kelasnya sendiri sudah diset sekolahnya oleh Admin. Sekarang
-    // GURU dan KEPSEK sama-sama boleh diisi; role lain (ADMIN) tetap null.
-    sekolah_id: (role === 'KEPSEK' || role === 'GURU') ? (sekolah_id || null) : null,
+    sekolah_id: role === 'KEPSEK' ? (sekolah_id || null) : null,
   })
 
   if (error) {
     if (error.code === '23505') return NextResponse.json({ error: 'Username sudah digunakan' }, { status: 409 })
     return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+
+  // Simpan daftar sekolah untuk akun GURU (many-to-many, lihat migrasi 24).
+  if (role === 'GURU' && Array.isArray(sekolah_ids) && sekolah_ids.length > 0) {
+    const rows = [...new Set(sekolah_ids.map((id: string) => String(id)))]
+      .map(id => ({ username: String(username).trim(), sekolah_id: id }))
+    const { error: relasiError } = await db.from('guru_sekolah').insert(rows)
+    // User utamanya sudah berhasil dibuat — kalau relasi sekolah gagal
+    // (mis. sekolah_id tidak valid), laporkan tapi jangan pura-pura user
+    // gagal dibuat juga.
+    if (relasiError) {
+      return NextResponse.json({
+        message: 'Pengguna berhasil ditambahkan, tapi gagal menyimpan daftar sekolah',
+        warning: relasiError.message,
+      }, { status: 201 })
+    }
   }
 
   return NextResponse.json({ message: 'Pengguna berhasil ditambahkan' }, { status: 201 })
