@@ -1144,11 +1144,17 @@ export default function LoginPage() {
                 <div
                   className="rounded-b-3xl p-6"
                   style={{
-                    background: 'rgba(255, 255, 255, 0.95)',
-                    backdropFilter: 'blur(24px)', WebkitBackdropFilter: 'blur(24px)',
-                    border: '1px solid rgba(226,232,240,0.9)',
+                    background: 'rgba(255, 255, 255, 0.4)',
+                    backdropFilter: 'blur(30px) saturate(180%)', WebkitBackdropFilter: 'blur(30px) saturate(180%)',
+                    border: '1px solid rgba(255,255,255,0.65)',
                     borderTop: 'none',
-                    boxShadow: '0 32px 80px rgba(15,23,42,0.16), 0 0 0 1px rgba(255,255,255,0.5)',
+                    boxShadow: `
+                      0 32px 80px rgba(15,23,42,0.24),
+                      0 2px 4px rgba(15,23,42,0.08),
+                      inset 0 -2px 0 rgba(15,23,42,0.10),
+                      inset 2px 0 0 rgba(255,255,255,0.4),
+                      inset -2px 0 0 rgba(15,23,42,0.07)
+                    `,
                   }}
                 >
                   {/* Bar tutup */}
