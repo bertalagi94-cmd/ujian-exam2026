@@ -2060,10 +2060,12 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
                   <button onClick={() => { setDupId(p.id); setDupKelas('') }} className="btn-ghost !px-2 !py-1 !text-[11px] lg:!px-3 lg:!py-1.5 lg:!text-xs !rounded-lg text-slate-600" title="Duplikasi paket ke kelas lain">
                     <Copy className="w-3 h-3 lg:w-3.5 lg:h-3.5" /> Duplikasi
                   </button>
+                  <button onClick={() => bukaKelolaSoal(p)} className="btn-primary !px-2 !py-1 !text-[11px] lg:!px-3 lg:!py-1.5 lg:!text-xs !rounded-lg">
+                    Kelola Soal <ChevronRight className="w-3 h-3 lg:w-3.5 lg:h-3.5" />
+                  </button>
                   {['DRAFT', 'DITOLAK'].includes(p.status) && (
-                    <button onClick={() => bukaKirim(p.id)}
-                      className="inline-flex items-center gap-1.5 !px-2 !py-1 !text-[11px] lg:!px-3 lg:!py-1.5 lg:!text-xs !rounded-lg font-semibold text-white bg-emerald-600 hover:bg-emerald-700 active:scale-95 transition-all shadow-sm">
-                      <Send className="w-3 h-3 lg:w-3.5 lg:h-3.5" /> {p.status === 'DITOLAK' ? 'Kirim Ulang' : 'Kirim'}
+                    <button onClick={() => setHapusPaketId(p.id)} className="btn-ghost !px-2 !py-1 !text-[11px] lg:!px-3 lg:!py-1.5 lg:!text-xs !rounded-lg text-red-600 hover:bg-red-50" title="Hapus paket">
+                      <Trash2 className="w-3 h-3 lg:w-3.5 lg:h-3.5" /> Hapus
                     </button>
                   )}
                   {p.status === 'MENUNGGU' && (
@@ -2072,13 +2074,11 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
                     </button>
                   )}
                   {['DRAFT', 'DITOLAK'].includes(p.status) && (
-                    <button onClick={() => setHapusPaketId(p.id)} className="btn-ghost !px-2 !py-1 !text-[11px] lg:!px-3 lg:!py-1.5 lg:!text-xs !rounded-lg text-red-600 hover:bg-red-50" title="Hapus paket">
-                      <Trash2 className="w-3 h-3 lg:w-3.5 lg:h-3.5" /> Hapus
+                    <button onClick={() => bukaKirim(p.id)}
+                      className="inline-flex items-center gap-1.5 !px-2 !py-1 !text-[11px] lg:!px-3 lg:!py-1.5 lg:!text-xs !rounded-lg font-semibold text-white bg-emerald-600 hover:bg-emerald-700 active:scale-95 transition-all shadow-sm">
+                      <Send className="w-3 h-3 lg:w-3.5 lg:h-3.5" /> {p.status === 'DITOLAK' ? 'Kirim Ulang' : 'Kirim'}
                     </button>
                   )}
-                  <button onClick={() => bukaKelolaSoal(p)} className="btn-primary !px-2 !py-1 !text-[11px] lg:!px-3 lg:!py-1.5 lg:!text-xs !rounded-lg">
-                    Kelola Soal <ChevronRight className="w-3 h-3 lg:w-3.5 lg:h-3.5" />
-                  </button>
                 </div>
               </div>
             </div>
