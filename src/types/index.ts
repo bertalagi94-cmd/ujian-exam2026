@@ -26,6 +26,11 @@ export interface User {
   nip?: string
   sekolah_id?: string | null
   sekolah?: { id: string; label: string; nama_sekolah: string } | null
+  // Guru bisa mengajar di lebih dari satu sekolah/jenjang sekaligus (mis.
+  // jenjang SMP dan SMA dalam satu yayasan) — disimpan di tabel relasi
+  // `guru_sekolah`, terpisah dari `sekolah_id` tunggal milik Kepsek.
+  sekolah_ids?: string[]
+  sekolah_list?: { id: string; label: string; nama_sekolah: string }[]
 }
 
 export interface Siswa {
