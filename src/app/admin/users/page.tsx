@@ -97,7 +97,11 @@ export default function AdminUsersPage() {
     const payload = {
       ...Object.fromEntries(fd.entries()),
       nip: formNip,
-      sekolah_id: formRole === 'KEPSEK' ? (formSekolahId || null) : null,
+      // FIX BUG: sebelumnya hanya KEPSEK yang boleh punya sekolah_id, padahal
+      // endpoint guru (mis. guru/kisi-kisi) juga butuh users.sekolah_id untuk
+      // menentukan lingkup kelas yang boleh dilihat guru tersebut. Tanpa ini,
+      // akun GURU selamanya dapat pesan "Akun Anda belum diset sekolah/jenjangnya".
+      sekolah_id: (formRole === 'KEPSEK' || formRole === 'GURU') ? (formSekolahId || null) : null,
       // Hanya kirim saat edit (bukan tambah baru) — kolom checkbox cuma
       // muncul di form edit.
       ...(editData?.username ? { is_tester: formIsTester ? 'YES' : 'NO' } : {}),
@@ -330,7 +334,11 @@ export default function AdminUsersPage() {
                 className="select"
                 required
                 value={formRole}
-                onChange={e => { setFormRole(e.target.value); if (e.target.value !== 'KEPSEK') setFormSekolahId('') }}
+                onChange={e => {
+                  const nextRole = e.target.value
+                  setFormRole(nextRole)
+                  if (nextRole !== 'KEPSEK' && nextRole !== 'GURU') setFormSekolahId('')
+                }}
               >
                 {ALL_ROLES.map(r => <option key={r} value={r}>{r}</option>)}
               </select>
@@ -369,18 +377,24 @@ export default function AdminUsersPage() {
             )}
           </div>
 
-          {/* Sekolah yang diawasi — HANYA untuk Kepsek */}
-          {formRole === 'KEPSEK' && (
+          {/* Sekolah — untuk Kepsek (sekolah yang diawasi) dan Guru (sekolah
+              tempat guru mengajar). FIX BUG: field ini dulu hanya muncul
+              untuk KEPSEK, padahal endpoint guru (mis. guru/kisi-kisi) juga
+              memfilter data berdasarkan users.sekolah_id milik guru yang
+              login — akibatnya akun GURU tidak pernah bisa diset sekolahnya
+              dan selalu mendapat pesan "belum diset sekolah/jenjangnya". */}
+          {(formRole === 'KEPSEK' || formRole === 'GURU') && (
             <div>
               <label className="label flex items-center gap-1">
-                <Building2 className="w-3.5 h-3.5" /> Sekolah yang Diawasi *
+                <Building2 className="w-3.5 h-3.5" />
+                {formRole === 'KEPSEK' ? 'Sekolah yang Diawasi *' : 'Sekolah'}
               </label>
               {sekolahList.length > 0 ? (
                 <select
                   className="select"
                   value={formSekolahId}
                   onChange={e => setFormSekolahId(e.target.value)}
-                  required
+                  required={formRole === 'KEPSEK'}
                 >
                   <option value="">-- Pilih Sekolah --</option>
                   {sekolahList.map(s => (
@@ -393,7 +407,9 @@ export default function AdminUsersPage() {
                 </div>
               )}
               <p className="text-xs text-slate-400 mt-1">
-                Kepsek hanya dapat melihat data kelas yang terdaftar di sekolah ini.
+                {formRole === 'KEPSEK'
+                  ? 'Kepsek hanya dapat melihat data kelas yang terdaftar di sekolah ini.'
+                  : 'Guru hanya dapat melihat/membuat kisi-kisi dan data lain untuk kelas yang terdaftar di sekolah ini. Wajib diisi agar fitur kisi-kisi dan sejenisnya berfungsi.'}
               </p>
             </div>
           )}
