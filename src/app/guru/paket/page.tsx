@@ -2165,9 +2165,18 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
 // per mapel dari daftar paket (satu mapel bisa punya beberapa paket kalau
 // diajar di beberapa kelas — jumlah soalnya dijumlahkan semua kelas).
 interface RingkasanMapel { nama: string; jumlahSoal: number }
-interface RingkasanSoal { totalMapel: number; totalSoal: number; perMapel: RingkasanMapel[] }
+interface RingkasanSoal {
+  totalMapel: number
+  totalSoal: number
+  perMapel: RingkasanMapel[]
+  // FITUR (badge "belum dikirim" di pojok kartu PG/Essay): jumlah total
+  // paket (semua status) dan berapa di antaranya masih DRAFT/DITOLAK —
+  // yaitu paket yang belum (atau perlu dikirim ulang) ke admin.
+  totalPaket: number
+  belumKirim: number
+}
 
-function agregasiRingkasan(pakets: { mapel_id: string; nama_mapel?: string; jumlah_soal: number }[]): RingkasanSoal {
+function agregasiRingkasan(pakets: { mapel_id: string; nama_mapel?: string; jumlah_soal: number; status?: string }[]): RingkasanSoal {
   const perMapelMap: Record<string, RingkasanMapel> = {}
   for (const p of pakets) {
     const key = p.mapel_id
@@ -2179,7 +2188,29 @@ function agregasiRingkasan(pakets: { mapel_id: string; nama_mapel?: string; juml
     totalMapel: perMapel.length,
     totalSoal: perMapel.reduce((sum, m) => sum + m.jumlahSoal, 0),
     perMapel,
+    totalPaket: pakets.length,
+    belumKirim: pakets.filter(p => p.status === 'DRAFT' || p.status === 'DITOLAK').length,
   }
+}
+
+// Badge kecil di pojok kanan atas kartu PG/Essay: merah kalau masih ada
+// paket berstatus DRAFT/DITOLAK (belum terkirim ke admin), hijau kalau
+// semua paket yang ada sudah terkirim (MENUNGGU/DISETUJUI). Tidak tampil
+// sama sekali kalau guru belum pernah membuat paket sama sekali.
+function PaketBelumKirimBadge({ ringkasan, loading }: { ringkasan: RingkasanSoal | null; loading: boolean }) {
+  if (loading || !ringkasan || ringkasan.totalPaket === 0) return null
+  if (ringkasan.belumKirim > 0) {
+    return (
+      <span className="absolute top-3 right-3 z-10 inline-flex items-center gap-1 rounded-full bg-red-500 text-white text-[10px] font-semibold px-2 py-1 shadow-sm">
+        {ringkasan.belumKirim} Paket Soal Belum Dikirim
+      </span>
+    )
+  }
+  return (
+    <span className="absolute top-3 right-3 z-10 inline-flex items-center gap-1 rounded-full bg-emerald-500 text-white text-[10px] font-semibold px-2 py-1 shadow-sm">
+      Semua Paket Soal Sudah Terkirim
+    </span>
+  )
 }
 
 // Jumlah baris mapel yang ditampilkan langsung di kartu sebelum dipangkas
@@ -2467,6 +2498,7 @@ export default function GuruBuatSoalPage() {
                        p-7 min-h-[220px]
                        ${kartuScaleClass('pg')}`}
           >
+            <PaketBelumKirimBadge ringkasan={ringkasanPg} loading={loadingRingkasan} />
             <div className="w-14 h-14 rounded-2xl bg-brand-50 text-brand-600 flex items-center justify-center flex-shrink-0 mb-5">
               <ListChecks className="w-7 h-7" />
             </div>
@@ -2499,6 +2531,7 @@ export default function GuruBuatSoalPage() {
                        p-7 min-h-[220px]
                        ${kartuScaleClass('essay')}`}
           >
+            <PaketBelumKirimBadge ringkasan={ringkasanEssay} loading={loadingRingkasan} />
             <div className="w-14 h-14 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center flex-shrink-0 mb-5">
               <PenSquare className="w-7 h-7" />
             </div>
