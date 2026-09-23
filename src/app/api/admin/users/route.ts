@@ -66,7 +66,14 @@ export async function POST(req: NextRequest) {
     status: status ?? 'AKTIF',
     no_hp: no_hp ? String(no_hp).trim() : null,
     nip: nip ? String(nip).trim() : '',
-    sekolah_id: role === 'KEPSEK' ? (sekolah_id || null) : null,
+    // FIX BUG: sebelumnya sekolah_id HANYA diizinkan untuk role KEPSEK,
+    // padahal endpoint guru (mis. guru/kisi-kisi) memakai getKepsekScope()
+    // generik yang membaca users.sekolah_id apa pun rolenya. Akibatnya
+    // TIDAK ADA akun GURU yang bisa diset sekolahnya lewat menu ini, dan
+    // guru selalu mendapat pesan "Akun Anda belum diset sekolah/jenjangnya"
+    // meski kelasnya sendiri sudah diset sekolahnya oleh Admin. Sekarang
+    // GURU dan KEPSEK sama-sama boleh diisi; role lain (ADMIN) tetap null.
+    sekolah_id: (role === 'KEPSEK' || role === 'GURU') ? (sekolah_id || null) : null,
   })
 
   if (error) {
