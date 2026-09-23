@@ -1000,6 +1000,20 @@ export default function LoginPage() {
               <div className="text-center border-t border-slate-100 pt-4">
                 <p className="font-bold text-slate-700 text-sm">{displayName}</p>
                 {siteInfo.kota && <p className="text-slate-400 text-xs mt-0.5">{siteInfo.kota}</p>}
+                <p className="text-[11px] mt-2 text-slate-400 flex items-center justify-center gap-1.5">
+                  <span className="opacity-70">Developed By</span>
+                  <span
+                    className="font-semibold"
+                    style={{
+                      background: 'linear-gradient(90deg, #0ea5e9, #14b8a6)',
+                      WebkitBackgroundClip: 'text',
+                      WebkitTextFillColor: 'transparent',
+                      backgroundClip: 'text',
+                    }}
+                  >
+                    @Tasrif A. Abbas
+                  </span>
+                </p>
               </div>
             </div>
 
@@ -1120,6 +1134,20 @@ export default function LoginPage() {
                 <div className="border-t border-slate-100 pt-4">
                   <p className="font-bold text-slate-700 text-sm">{displayName}</p>
                   {siteInfo.kota && <p className="text-slate-400 text-xs mt-0.5">{siteInfo.kota}</p>}
+                  <p className="text-[11px] mt-2 text-slate-400 flex items-center justify-center gap-1.5">
+                    <span className="opacity-70">Developed By</span>
+                    <span
+                      className="font-semibold"
+                      style={{
+                        background: 'linear-gradient(90deg, #0ea5e9, #14b8a6)',
+                        WebkitBackgroundClip: 'text',
+                        WebkitTextFillColor: 'transparent',
+                        backgroundClip: 'text',
+                      }}
+                    >
+                      @Tasrif A. Abbas
+                    </span>
+                  </p>
                 </div>
               </div>
             </div>
