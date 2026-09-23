@@ -308,7 +308,7 @@ export function Sidebar({ navItems, role, roleColor, roleLabel, accent = '#0891b
 }
 
 // ── Helper: fetch badge count ─────────────────────────────────────────────────
-function useBadgeCounts(role: 'ADMIN' | 'GURU') {
+function useBadgeCounts(role: 'ADMIN' | 'GURU' | 'SISWA') {
   const [counts, setCounts] = useState<Record<string, number>>({})
 
   // BUG FIX #3a: The dependency array had `role` in it, which meant every time
@@ -451,9 +451,35 @@ export function GuruSidebar() {
     apiRequest('/api/notif', { method: 'POST', timeoutMs: 8_000 }).catch(() => {})
   }, [pathname])
 
+  // FITUR (badge "Kisi-kisi baru dari rekan kerja"): pola yang sama persis
+  // dengan notifSentRef di atas untuk /guru/soal — begitu guru membuka menu
+  // Kisi-kisi, tandai sudah dibaca (sekali per kunjungan, bukan tiap render)
+  // supaya angka badge langsung hilang dan tidak muncul lagi untuk
+  // kisi-kisi yang sama.
+  const kisiKisiNotifSentRef = useRef(false)
+  useEffect(() => {
+    const onKisiKisiPage = pathname?.startsWith('/guru/kisi-kisi')
+    if (!onKisiKisiPage) {
+      kisiKisiNotifSentRef.current = false
+      return
+    }
+    if (kisiKisiNotifSentRef.current) return
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
+    if (!token) return
+    kisiKisiNotifSentRef.current = true
+    apiRequest('/api/notif', { method: 'POST', body: JSON.stringify({ type: 'kisi_kisi' }), timeoutMs: 8_000 })
+      .then(() => window.dispatchEvent(new Event('notif-changed')))
+      .catch(() => {})
+  }, [pathname])
+
   const navItems: NavItem[] = [
     { label: 'Dashboard', href: '/guru', icon: LayoutDashboard },
-    { label: 'Kisi-kisi', href: '/guru/kisi-kisi', icon: FileText },
+    {
+      label: 'Kisi-kisi',
+      href: '/guru/kisi-kisi',
+      icon: FileText,
+      badge: counts.kisiKisiBaru || undefined,
+    },
     {
       // FIX (konsolidasi menu): menu "Bank Soal" (/guru/soal) digabung ke
       // sini — satu tempat untuk PG & Essay: buat, edit, kirim, tarik,
@@ -522,6 +548,8 @@ export function KepsekSidebar() {
 }
 
 export function SiswaSidebar() {
+  const counts = useBadgeCounts('SISWA')
+  const pathname = usePathname()
   const [adaJadwalHariIni, setAdaJadwalHariIni] = useState(true) // default true agar tidak kedip saat load
   // FIX (belum ada antrean "ujian belum terkirim" yang permanen — temuan #2):
   // badge jumlah paket tertunda di menu, dibaca dari outbox lokal (bukan
@@ -579,9 +607,33 @@ export function SiswaSidebar() {
     return () => { batal = true; clearInterval(interval) }
   }, [])
 
+  // FITUR (badge "Kisi-kisi baru"): pola sama seperti GuruSidebar — begitu
+  // siswa membuka menu Kisi-kisi, tandai sudah dibaca (sekali per kunjungan)
+  // supaya angka badge langsung hilang.
+  const kisiKisiNotifSentRef = useRef(false)
+  useEffect(() => {
+    const onKisiKisiPage = pathname?.startsWith('/siswa/kisi-kisi')
+    if (!onKisiKisiPage) {
+      kisiKisiNotifSentRef.current = false
+      return
+    }
+    if (kisiKisiNotifSentRef.current) return
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
+    if (!token) return
+    kisiKisiNotifSentRef.current = true
+    apiRequest('/api/notif', { method: 'POST', body: JSON.stringify({ type: 'kisi_kisi' }), timeoutMs: 8_000 })
+      .then(() => window.dispatchEvent(new Event('notif-changed')))
+      .catch(() => {})
+  }, [pathname])
+
   const navItems: NavItem[] = [
     { label: 'Beranda', href: '/siswa', icon: LayoutDashboard },
-    { label: 'Kisi-kisi', href: '/siswa/kisi-kisi', icon: FileText },
+    {
+      label: 'Kisi-kisi',
+      href: '/siswa/kisi-kisi',
+      icon: FileText,
+      badge: counts.kisiKisiBaru || undefined,
+    },
     ...(adaJadwalHariIni ? [{ label: 'Mulai Ujian', href: '/siswa/ujian', icon: BookOpen } as NavItem] : []),
     ...(jumlahTertunda > 0
       ? [{ label: 'Pengiriman Tertunda', href: '/siswa/pengiriman-tertunda', icon: Send, badge: jumlahTertunda } as NavItem]
