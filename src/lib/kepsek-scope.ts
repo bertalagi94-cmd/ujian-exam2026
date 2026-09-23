@@ -80,3 +80,52 @@ export async function getKepsekScope(username: string): Promise<KepsekScope> {
 
   return { kelasList, sekolahId, noScope: false }
 }
+
+/**
+ * Versi multi-sekolah dari getKepsekScope(), khusus untuk akun GURU.
+ *
+ * Beda dengan Kepsek (satu kepsek = satu sekolah yang diawasi), seorang
+ * guru bisa mengajar di lebih dari satu sekolah/jenjang sekaligus (mis.
+ * SMP dan SMA dalam satu yayasan). Karena itu scope guru dibaca dari tabel
+ * relasi many-to-many `guru_sekolah` (lihat migrasi 24), bukan dari kolom
+ * tunggal `users.sekolah_id` yang tetap dipakai apa adanya untuk Kepsek.
+ */
+export interface GuruScope {
+  kelasList: string[]     // nama-nama kelas yang boleh diakses (gabungan semua sekolah guru ini)
+  sekolahIds: string[]    // semua sekolah_id yang diajar guru ini
+  noScope: boolean        // true = guru belum diset sekolah manapun
+}
+
+export async function getGuruSekolahScope(username: string): Promise<GuruScope> {
+  const db = createAdminClient()
+
+  // 1. Ambil semua sekolah yang diajar guru ini
+  const { data: relasiRows, error: relasiError } = await db
+    .from('guru_sekolah')
+    .select('sekolah_id')
+    .eq('username', username)
+
+  if (relasiError) {
+    throw new Error(`Gagal memuat data sekolah akun ini: ${relasiError.message}`)
+  }
+
+  const sekolahIds = [...new Set((relasiRows ?? []).map(r => r.sekolah_id))]
+
+  if (sekolahIds.length === 0) {
+    return { kelasList: [], sekolahIds: [], noScope: true }
+  }
+
+  // 2. Ambil semua kelas yang terikat ke salah satu sekolah tersebut
+  const { data: kelasRows, error: kelasError } = await db
+    .from('kelas')
+    .select('nama')
+    .in('sekolah_id', sekolahIds)
+
+  if (kelasError) {
+    throw new Error(`Gagal memuat daftar kelas sekolah: ${kelasError.message}`)
+  }
+
+  const kelasList = [...new Set((kelasRows ?? []).map(k => k.nama))]
+
+  return { kelasList, sekolahIds, noScope: false }
+}
