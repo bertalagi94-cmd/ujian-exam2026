@@ -1144,8 +1144,8 @@ export default function LoginPage() {
                 <div
                   className="rounded-b-3xl p-6"
                   style={{
-                    background: 'rgba(255, 255, 255, 0.4)',
-                    backdropFilter: 'blur(30px) saturate(180%)', WebkitBackdropFilter: 'blur(30px) saturate(180%)',
+                    background: 'rgba(255, 255, 255, 0.26)',
+                    backdropFilter: 'blur(14px) saturate(180%)', WebkitBackdropFilter: 'blur(14px) saturate(180%)',
                     border: '1px solid rgba(255,255,255,0.65)',
                     borderTop: 'none',
                     boxShadow: `
@@ -1166,7 +1166,7 @@ export default function LoginPage() {
                     </button>
                   </div>
 
-                  <div className="mb-4">
+                  <div className="mb-4 text-center">
                     <h2 className="text-xl font-bold text-slate-900">Selamat Datang</h2>
                     <p className="text-slate-500 text-sm mt-1">Masuk ke akun Anda untuk melanjutkan</p>
                   </div>
