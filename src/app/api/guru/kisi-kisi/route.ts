@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 import { generateId } from '@/lib/utils'
-import { getKepsekScope } from '@/lib/kepsek-scope'
+import { getGuruSekolahScope } from '@/lib/kepsek-scope'
 import { verifikasiKepemilikanMapelKelas } from '@/lib/guru-scope'
 
 // GET /api/guru/kisi-kisi
@@ -11,17 +11,23 @@ import { verifikasiKepemilikanMapelKelas } from '@/lib/guru-scope'
 // FIX: sebelumnya endpoint ini mengambil SEMUA baris kisi_kisi tanpa
 // filter (komentar lama: "1 aplikasi = 1 sekolah"), jadi guru di satu
 // sekolah ikut melihat kisi-kisi milik guru dari sekolah/jenjang lain.
-// Sekarang dibatasi ke kelas-kelas yang berada di sekolah_id milik guru
-// ini — pola yang sama dengan kepsek/kisi-kisi/route.ts. getKepsekScope
-// di sini dipakai secara generik (hanya membaca users.sekolah_id, tidak
-// bergantung role), bukan berarti guru "meminjam" scope kepsek.
+// Sekarang dibatasi ke kelas-kelas yang berada di sekolah-sekolah milik
+// guru ini — pola yang sama dengan kepsek/kisi-kisi/route.ts.
+//
+// FIX (multi-sekolah): sebelumnya scope guru dibaca lewat getKepsekScope()
+// generik yang hanya mengizinkan SATU sekolah per akun (kolom tunggal
+// users.sekolah_id). Padahal ada guru yang mengajar di lebih dari satu
+// jenjang/sekolah sekaligus. Sekarang pakai getGuruSekolahScope(), yang
+// membaca tabel relasi many-to-many `guru_sekolah` (migrasi 24) sehingga
+// guru bisa melihat kisi-kisi di SEMUA sekolah yang diampunya, bukan cuma
+// satu.
 export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['GURU'])
   if ('error' in auth) return auth.error
   const { user } = auth
   const db = createAdminClient()
 
-  const scope = await getKepsekScope(user.username)
+  const scope = await getGuruSekolahScope(user.username)
   if (scope.noScope) {
     return NextResponse.json({
       scopeWarning: 'Akun Anda belum diset sekolah/jenjangnya oleh Admin. Hubungi Admin untuk mengatur ini di menu Data Pengguna.',
