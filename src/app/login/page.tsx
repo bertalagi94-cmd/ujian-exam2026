@@ -697,13 +697,14 @@ export default function LoginPage() {
           saat mode Layar Penuh (fullscreen browser).
           DESKTOP (lg+): object-cover — layar lebar sudah cukup proporsional
           dengan rasio asli foto (1672x941), jadi aman di-crop dikit.
-          MOBILE: rasio layar HP jauh lebih sempit & tinggi dari foto, kalau
-          dipaksa object-cover, foto ter-zoom ekstrem sampai cuma 1-2 siswa
-          yang kelihatan (tepi kiri-kanan hilang). FIX: foto ditampilkan
-          UTUH (w-full h-auto, tanpa crop) nempel di bawah layar, supaya
-          seluruh rombongan siswa tetap kelihatan. Ruang kosong di atas
-          foto diisi gradasi biru langit senada supaya menyatu rapi. ── */}
-      <div className="fixed inset-0 -z-10 overflow-hidden" style={{ background: 'linear-gradient(180deg, #bfe3fb 0%, #d9eefc 35%, #e8f6fb 55%)' }}>
+          MOBILE: foto (1672x941, landscape) di-cover ke sebuah strip
+          setinggi ~46vh nempel di bawah layar, condong ke KIRI (objectPosition
+          left) — supaya rombongan siswa (yang posisinya di sisi kiri foto)
+          tetap terlihat utuh kepala-sampai-kaki & ukurannya besar/jelas,
+          alih-alih di-shrink w-full h-auto (yang menyisakan area kosong
+          sangat luas di atas). Ruang di atas foto diisi gradasi biru
+          langit senada + konten (tagline & brand) supaya tidak polos. ── */}
+      <div className="fixed inset-0 -z-10 overflow-hidden" style={{ background: 'linear-gradient(180deg, #4fa8e8 0%, #7cc3f0 18%, #bfe3fb 38%, #d9eefc 55%, #e8f6fb 70%)' }}>
         {/* Versi desktop — cover penuh, sedikit crop wajar */}
         <img
           src="/images/siswa-sekolah.webp"
@@ -711,12 +712,21 @@ export default function LoginPage() {
           className="hidden lg:block absolute inset-0 w-full h-full object-cover"
           style={{ objectPosition: 'center 30%' }}
         />
-        {/* Versi mobile — foto utuh tanpa crop, nempel di bawah layar */}
+        {/* Versi mobile — cover, condong kiri, strip ~46% tinggi layar */}
         <img
           src="/images/siswa-sekolah.webp"
           alt="" aria-hidden="true"
-          className="lg:hidden absolute bottom-0 left-0 w-full h-auto"
+          className="lg:hidden absolute bottom-0 left-0 w-full h-[46vh] object-cover"
+          style={{ minHeight: 340, maxHeight: 520, objectPosition: 'left top' }}
         />
+        {/* Awan lembut mobile — mengisi celah langit di atas foto supaya
+            tidak polos, senada dengan referensi desain. Dekoratif murni,
+            tidak memengaruhi layout/komponen fungsional. */}
+        <div className="lg:hidden absolute inset-x-0 top-0" style={{ height: '54vh' }} aria-hidden="true">
+          <div className="absolute rounded-full" style={{ width: 190, height: 60, top: '14%', left: '-8%', background: 'rgba(255,255,255,0.55)', filter: 'blur(14px)' }} />
+          <div className="absolute rounded-full" style={{ width: 140, height: 46, top: '24%', right: '-6%', background: 'rgba(255,255,255,0.45)', filter: 'blur(12px)' }} />
+          <div className="absolute rounded-full" style={{ width: 220, height: 70, top: '38%', left: '18%', background: 'rgba(255,255,255,0.35)', filter: 'blur(16px)' }} />
+        </div>
         {/* Tint biru lembut supaya teks & kartu login tetap kontras di atas foto */}
         <div className="absolute inset-0" style={{
           background: 'linear-gradient(180deg, rgba(4,32,74,0.30) 0%, rgba(4,32,74,0.05) 20%, rgba(4,32,74,0.05) 55%, rgba(4,32,74,0.55) 100%)',
@@ -891,42 +901,70 @@ export default function LoginPage() {
           {/* ── MOBILE ── */}
           <div className="lg:hidden">
             {!mobileLoginOpen ? (
-              /* ── State tertutup: cuma 1 tombol "Login" di tengah, supaya
-                  foto siswa full-screen di belakang tetap kelihatan jelas
-                  di HP, bukan ketutup form. Panduan/Q&A/Aktivitas tetap
-                  bisa diakses lewat 3 pil kecil di bawah tombol. ── */
-              <div className="flex flex-col items-center justify-center gap-7 py-10 text-center">
-                <div className="flex flex-col items-center gap-3">
-                  <SchoolLogo size="lg" siteInfo={siteInfo} />
-                  <div>
-                    <p className="font-bold text-white text-lg leading-tight" style={{ textShadow: '0 2px 10px rgba(0,0,0,0.5)' }}>{displayName}</p>
-                    <p className="text-white/85 text-xs mt-0.5" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.45)' }}>Sistem Ujian Digital Terpercaya</p>
+              /* ── State tertutup — layout full-bleed ala "kampus modern":
+                  tagline di kiri-atas, brand (logo+nama) di kanan-atas,
+                  panel Login + 3 pil (Panduan/Q&A/Aktivitas) menempel di
+                  kanan-bawah di atas foto siswa. `fixed inset-0` supaya
+                  elemen menempel ke tepi layar HP, lepas dari centering
+                  container di atasnya (foto siswa full-screen tetap
+                  kelihatan jelas di belakang, tidak ketutup form). ── */
+              <div className="fixed inset-0 z-10 flex flex-col justify-between p-5"
+                style={{
+                  paddingTop: 'calc(env(safe-area-inset-top, 0px) + 1.1rem)',
+                  paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 1.5rem)',
+                }}
+              >
+                {/* Baris atas: tagline (kiri) + brand (kanan) */}
+                <div className="flex items-start justify-between gap-3">
+                  <div className="max-w-[54%]">
+                    <p className="text-white font-semibold text-lg leading-snug italic"
+                      style={{ textShadow: '0 2px 10px rgba(0,0,0,0.45)' }}>
+                      Ujian Hari Ini<br />untuk Masa Depan<br />yang Lebih Baik
+                    </p>
+                    <span className="block w-16 h-[3px] rounded-full mt-2" style={{ background: '#fbbf24' }} />
+                  </div>
+                  <div className="flex flex-col items-end text-right gap-1.5 flex-shrink-0">
+                    <SchoolLogo size="lg" siteInfo={siteInfo} />
+                    <div>
+                      <p className="font-bold text-white text-lg leading-tight" style={{ textShadow: '0 2px 10px rgba(0,0,0,0.5)' }}>{displayName}</p>
+                      <p className="text-white/85 text-[11px] mt-0.5" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.45)' }}>Sistem Ujian Digital Terpercaya</p>
+                    </div>
                   </div>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => setMobileLoginOpen(true)}
-                  className="btn-login-drape flex items-center justify-center gap-2 px-12 py-4 rounded-full text-white font-bold text-base tracking-wide"
-                  style={{ boxShadow: '0 8px 32px rgba(37,99,235,0.4), 0 0 50px rgba(20,184,166,0.25)' }}
+                {/* Panel bawah-kanan: Login + 3 pil */}
+                <div className="self-end w-full max-w-[230px] flex flex-col gap-2.5 rounded-3xl p-3.5"
+                  style={{
+                    background: 'rgba(255,255,255,0.22)',
+                    backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)',
+                    border: '1px solid rgba(255,255,255,0.35)',
+                    boxShadow: '0 12px 40px rgba(4,32,74,0.25)',
+                  }}
                 >
-                  <Lock className="w-5 h-5 opacity-90" />
-                  Login
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => setMobileLoginOpen(true)}
+                    className="btn-login-drape flex items-center justify-center gap-2 px-6 py-3.5 rounded-full text-white font-bold text-sm tracking-wide"
+                    style={{ boxShadow: '0 8px 32px rgba(37,99,235,0.4), 0 0 50px rgba(20,184,166,0.25)' }}
+                  >
+                    <Lock className="w-4 h-4 opacity-90" />
+                    Login
+                  </button>
 
-                <div className="flex gap-2 w-full max-w-xs">
-                  <button type="button" onClick={() => setShowGuide(true)}
-                    className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-slate-600 hover:text-slate-900 bg-white/85 border border-white/60 text-xs font-medium transition-all">
-                    <BookMarked className="w-3.5 h-3.5" /> Panduan
-                  </button>
-                  <button type="button" onClick={() => setShowQA(true)}
-                    className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-slate-600 hover:text-slate-900 bg-white/85 border border-white/60 text-xs font-medium transition-all">
-                    <HelpCircle className="w-3.5 h-3.5" /> Q&amp;A
-                  </button>
-                  <button type="button" onClick={() => { setShowAktivitas(true); loadAktivitas() }}
-                    className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-sky-700 hover:text-sky-900 bg-sky-50/90 border border-sky-200 text-xs font-medium transition-all">
-                    <Activity className="w-3.5 h-3.5" /> Aktivitas
-                  </button>
+                  <div className="flex gap-2">
+                    <button type="button" onClick={() => setShowGuide(true)}
+                      className="flex-1 flex flex-col items-center justify-center gap-1 py-2.5 rounded-xl text-slate-600 hover:text-slate-900 bg-white/90 border border-white/60 text-[10px] font-medium transition-all">
+                      <BookMarked className="w-4 h-4" /> Panduan
+                    </button>
+                    <button type="button" onClick={() => setShowQA(true)}
+                      className="flex-1 flex flex-col items-center justify-center gap-1 py-2.5 rounded-xl text-slate-600 hover:text-slate-900 bg-white/90 border border-white/60 text-[10px] font-medium transition-all">
+                      <HelpCircle className="w-4 h-4" /> Q&amp;A
+                    </button>
+                    <button type="button" onClick={() => { setShowAktivitas(true); loadAktivitas() }}
+                      className="flex-1 flex flex-col items-center justify-center gap-1 py-2.5 rounded-xl text-sky-700 hover:text-sky-900 bg-sky-50/95 border border-sky-200 text-[10px] font-medium transition-all">
+                      <Activity className="w-4 h-4" /> Aktivitas
+                    </button>
+                  </div>
                 </div>
               </div>
             ) : (
