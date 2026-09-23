@@ -66,7 +66,22 @@ export interface IsiAmplopEssay {
     modeJawaban: 'DIGITAL' | 'KERTAS'
     instruksi: string | null
   }
-  soal: { id: string; teks: string; gambar_url: string | null; urutan: number }[]
+  // FIX (audit: gambar essay gagal dimuat saat offline murni/kode darurat):
+  // `gambar_url` saja TIDAK CUKUP untuk jalur offline. URL itu memang
+  // ada di amplop sejak awal PG (lihat essay/amplop/route.ts), tapi ISI
+  // gambarnya (byte-nya) sengaja BARU boleh diunduh setelah amplop dibuka —
+  // dan pada saat itu, kalau siswa memakai kode darurat, internet memang
+  // sudah mati total (itulah alasan kode darurat dipakai). Akibatnya
+  // precacheGambarSoal() tidak pernah punya kesempatan mengunduh gambar
+  // essay sama sekali di jalur offline murni.
+  // Perbaikannya: sertakan BYTE gambar (data URL base64) di dalam amplop
+  // terenkripsi itu sendiri — aman karena seluruh amplop sudah terenkripsi
+  // AES-256-GCM, jadi menambah data di dalamnya tidak menambah risiko baru.
+  // `gambar_data` null berarti soal tidak bergambar ATAU pengambilan gambar
+  // di server gagal/kelewat besar (lihat ambilGambarSebagaiDataUrl) — dalam
+  // kasus itu jalur online (gambar_url + precacheGambarSoal) tetap jadi
+  // cadangan seperti sebelumnya.
+  soal: { id: string; teks: string; gambar_url: string | null; gambar_data: string | null; urutan: number }[]
 }
 
 /** Additional Authenticated Data — mengikat amplop ke sesi tertentu supaya tidak bisa ditukar antar sesi. */
