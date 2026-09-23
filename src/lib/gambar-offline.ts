@@ -161,4 +161,39 @@ export async function statusGambar(url: string | null | undefined): Promise<Asse
   }
 }
 
+/**
+ * Simpan gambar yang datanya SUDAH ADA di tangan (data URL base64) langsung
+ * ke IndexedDB, TANPA fetch ke jaringan sama sekali.
+ *
+ * FIX (audit: gambar essay gagal dimuat saat offline/kode darurat): dipakai
+ * untuk gambar soal essay yang datang dari dalam amplop terenkripsi (lihat
+ * `gambar_data` di essay-amplop-shared.ts) — begitu amplop didekripsi
+ * (proses lokal, tidak butuh internet), byte gambarnya sudah ada di memori,
+ * jadi tinggal disimpan ke IndexedDB dengan `url` sebagai kunci supaya
+ * `ambilGambarDariCache`/`GambarSoalOffline` menemukannya persis seperti
+ * gambar yang diunduh lewat precacheGambarSoal biasa.
+ *
+ * `fetch(dataUrl)` di sini TIDAK menyentuh jaringan — data: URL diproses
+ * sepenuhnya di dalam browser.
+ */
+export async function simpanGambarBase64(url: string, dataUrl: string): Promise<boolean> {
+  if (!url || !dataUrl) return false
+  try {
+    const res = await fetch(dataUrl)
+    const blob = await res.blob()
+    if (blob.size === 0 || !blob.type.toLowerCase().startsWith('image/')) return false
+    await simpanAsset({
+      url,
+      blob,
+      mimeType: blob.type,
+      size: blob.size,
+      savedAtIso: new Date().toISOString(),
+      status: 'ASSET_READY',
+    })
+    return true
+  } catch {
+    return false
+  }
+}
+
 export { isOnline as gambarOfflineIsOnline }
