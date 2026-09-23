@@ -11,7 +11,7 @@ import {
   ambilStatusOffline, simpanStatusOffline, hapusStatusOffline,
   EnkripsiTidakDidukungError,
 } from '@/lib/essay-amplop-client'
-import { PANJANG_KODE_DARURAT, type EssayAmplop } from '@/lib/essay-amplop-shared'
+import { PANJANG_KODE_DARURAT, type EssayAmplop, type IsiAmplopEssay } from '@/lib/essay-amplop-shared'
 import { mergeJawabanRevisi, nextRevisi, type EntriServer, type EntriLokal } from '@/lib/jawaban-merge'
 import {
   simpanKlaimPgSelesaiOffline, ambilKlaimPgSelesaiOffline, hapusKlaimPgSelesaiOffline,
@@ -28,7 +28,7 @@ import {
 import { healthCheckStorage } from '@/lib/ujian-offline-storage'
 import { trustedNow } from '@/lib/clock-offset'
 // FIX (gambar soal belum jadi asset offline): lihat src/lib/gambar-offline.ts.
-import { precacheGambarSoal } from '@/lib/gambar-offline'
+import { precacheGambarSoal, simpanGambarBase64 } from '@/lib/gambar-offline'
 // P0 (audit reset offline R1/R2/R3): simpan & verifikasi amplop reset secara
 // lokal. Lihat src/lib/reset-offline-client.ts untuk desain lengkap.
 import {
@@ -2025,11 +2025,7 @@ export default function SiswaUjianPage() {
     }
 
     setJaringanBermasalah(true)
-    await masukKeHalamanEssayOffline(
-      isi as unknown as Parameters<typeof masukKeHalamanEssayOffline>[0],
-      terpilih.sesiId,
-      terpilih.waktuMulai
-    )
+    await masukKeHalamanEssayOffline(isi, terpilih.sesiId, terpilih.waktuMulai)
     return true
   }
 
@@ -2815,15 +2811,35 @@ export default function SiswaUjianPage() {
   // Padanan masukKeHalamanEssay() tapi TANPA request ke server: soal & info
   // datang dari dalam amplop, waktu mulai dari jam perangkat. Server baru
   // diberi tahu belakangan lewat laporkanBukaOffline() (rekonsiliasi).
+  //
+  // FIX (audit: gambar essay gagal dimuat saat offline/kode darurat): `isi`
+  // sekarang bertipe IsiAmplopEssay langsung (bukan lagi di-cast paksa ke
+  // SoalEssay[]) supaya `gambar_data` (byte gambar, sudah ada di amplop,
+  // lihat essay-amplop-shared.ts) ikut terbawa. Byte itu disimpan ke
+  // IndexedDB DI SINI, SEBELUM essayList/phase di-set, supaya begitu
+  // <GambarSoalOffline> pertama kali render, gambarnya SUDAH ada di
+  // penyimpanan lokal — tidak perlu (dan tidak bisa, karena memang sedang
+  // offline) mengunduh dari jaringan sama sekali.
   async function masukKeHalamanEssayOffline(
-    isi: { info: Omit<EssayInfo, 'statusEssay' | 'aksesMulaiDibuka'>; soal: SoalEssay[] },
+    isi: IsiAmplopEssay,
     sesiId: string,
     waktuMulaiIso: string
   ) {
+    await Promise.all(
+      isi.soal.map(s =>
+        s.gambar_url && s.gambar_data
+          ? simpanGambarBase64(s.gambar_url, s.gambar_data).catch(() => false)
+          : Promise.resolve(false)
+      )
+    )
+
     const info: EssayInfo = { ...isi.info, statusEssay: 'MENGERJAKAN', aksesMulaiDibuka: true }
     setEssayInfo(info)
     essayInfoRef.current = info
-    setEssayList([...isi.soal].sort((a, b) => a.urutan - b.urutan))
+    const soalUntukTampilan: SoalEssay[] = isi.soal.map(({ id, teks, gambar_url, urutan }) => ({
+      id, teks, gambar_url, urutan,
+    }))
+    setEssayList(soalUntukTampilan.sort((a, b) => a.urutan - b.urutan))
 
     waktuMulaiEssayRef.current = waktuMulaiIso
     const terpakai = Math.floor((trustedNow() - new Date(waktuMulaiIso).getTime()) / 1000)
@@ -2883,11 +2899,7 @@ export default function SiswaUjianPage() {
       const waktuMulai = status.waktuMulaiClient ?? new Date().toISOString()
       simpanStatusOffline(currentSesi.sesiId, nis, { ...status, waktuMulaiClient: waktuMulai, kode: kodeBersih })
       setKodeDarurat('')
-      await masukKeHalamanEssayOffline(
-        isi as unknown as Parameters<typeof masukKeHalamanEssayOffline>[0],
-        currentSesi.sesiId,
-        waktuMulai
-      )
+      await masukKeHalamanEssayOffline(isi, currentSesi.sesiId, waktuMulai)
     } catch (err) {
       setKodeDaruratError(
         err instanceof EnkripsiTidakDidukungError
