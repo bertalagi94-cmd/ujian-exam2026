@@ -39,6 +39,9 @@ export default function AdminUsersPage() {
   const [formRole, setFormRole] = useState<string>('GURU')
   const [formNip, setFormNip] = useState('')
   const [formSekolahId, setFormSekolahId] = useState('')
+  // Guru bisa mengajar di lebih dari satu sekolah/jenjang, jadi dipilih
+  // lewat checkbox (multi) — beda dengan Kepsek yang tetap dropdown tunggal.
+  const [formSekolahIds, setFormSekolahIds] = useState<string[]>([])
   const [formIsTester, setFormIsTester] = useState(false)
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [resetId, setResetId] = useState<string | null>(null)
@@ -78,6 +81,7 @@ export default function AdminUsersPage() {
     setFormRole('GURU')
     setFormNip('')
     setFormSekolahId('')
+    setFormSekolahIds([])
     setFormIsTester(false)
     setModalOpen(true)
   }
@@ -87,6 +91,7 @@ export default function AdminUsersPage() {
     setFormRole(u.role)
     setFormNip(u.nip ?? '')
     setFormSekolahId(u.sekolah_id ?? '')
+    setFormSekolahIds(u.sekolah_ids ?? [])
     setFormIsTester(u.is_tester === 'YES')
     setModalOpen(true)
   }
@@ -97,11 +102,11 @@ export default function AdminUsersPage() {
     const payload = {
       ...Object.fromEntries(fd.entries()),
       nip: formNip,
-      // FIX BUG: sebelumnya hanya KEPSEK yang boleh punya sekolah_id, padahal
-      // endpoint guru (mis. guru/kisi-kisi) juga butuh users.sekolah_id untuk
-      // menentukan lingkup kelas yang boleh dilihat guru tersebut. Tanpa ini,
-      // akun GURU selamanya dapat pesan "Akun Anda belum diset sekolah/jenjangnya".
-      sekolah_id: (formRole === 'KEPSEK' || formRole === 'GURU') ? (formSekolahId || null) : null,
+      // Kepsek: satu sekolah (dropdown tunggal). Guru: bisa lebih dari satu
+      // sekolah/jenjang sekaligus, jadi dikirim sebagai array sekolah_ids
+      // (disimpan di tabel relasi guru_sekolah, lihat migrasi 24).
+      sekolah_id: formRole === 'KEPSEK' ? (formSekolahId || null) : null,
+      sekolah_ids: formRole === 'GURU' ? formSekolahIds : [],
       // Hanya kirim saat edit (bukan tambah baru) — kolom checkbox cuma
       // muncul di form edit.
       ...(editData?.username ? { is_tester: formIsTester ? 'YES' : 'NO' } : {}),
@@ -259,13 +264,25 @@ export default function AdminUsersPage() {
                       <span className={`badge ${roleColors[u.role] ?? 'badge-slate'}`}>{u.role}</span>
                     </td>
                     <td>
-                      {u.role === 'KEPSEK' ? (
+                      {u.role === 'KEPSEK' && (
                         u.sekolah ? (
                           <span className="badge badge-blue">{u.sekolah.label}</span>
                         ) : (
                           <span className="text-xs text-amber-600">Belum diset</span>
                         )
-                      ) : (
+                      )}
+                      {u.role === 'GURU' && (
+                        u.sekolah_list && u.sekolah_list.length > 0 ? (
+                          <div className="flex flex-wrap gap-1">
+                            {u.sekolah_list.map(s => (
+                              <span key={s.id} className="badge badge-blue">{s.label}</span>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-amber-600">Belum diset</span>
+                        )
+                      )}
+                      {u.role !== 'KEPSEK' && u.role !== 'GURU' && (
                         <span className="text-slate-300 text-xs">—</span>
                       )}
                     </td>
@@ -337,7 +354,8 @@ export default function AdminUsersPage() {
                 onChange={e => {
                   const nextRole = e.target.value
                   setFormRole(nextRole)
-                  if (nextRole !== 'KEPSEK' && nextRole !== 'GURU') setFormSekolahId('')
+                  if (nextRole !== 'KEPSEK') setFormSekolahId('')
+                  if (nextRole !== 'GURU') setFormSekolahIds([])
                 }}
               >
                 {ALL_ROLES.map(r => <option key={r} value={r}>{r}</option>)}
@@ -377,24 +395,23 @@ export default function AdminUsersPage() {
             )}
           </div>
 
-          {/* Sekolah — untuk Kepsek (sekolah yang diawasi) dan Guru (sekolah
-              tempat guru mengajar). FIX BUG: field ini dulu hanya muncul
-              untuk KEPSEK, padahal endpoint guru (mis. guru/kisi-kisi) juga
-              memfilter data berdasarkan users.sekolah_id milik guru yang
-              login — akibatnya akun GURU tidak pernah bisa diset sekolahnya
-              dan selalu mendapat pesan "belum diset sekolah/jenjangnya". */}
-          {(formRole === 'KEPSEK' || formRole === 'GURU') && (
+          {/* Sekolah — Kepsek (satu sekolah yang diawasi, dropdown tunggal)
+              vs Guru (bisa lebih dari satu sekolah/jenjang sekaligus, mis.
+              guru yang mengajar di SMP dan SMA yayasan yang sama — jadi
+              dipilih lewat checkbox, disimpan di tabel relasi
+              guru_sekolah). */}
+          {formRole === 'KEPSEK' && (
             <div>
               <label className="label flex items-center gap-1">
                 <Building2 className="w-3.5 h-3.5" />
-                {formRole === 'KEPSEK' ? 'Sekolah yang Diawasi *' : 'Sekolah'}
+                Sekolah yang Diawasi *
               </label>
               {sekolahList.length > 0 ? (
                 <select
                   className="select"
                   value={formSekolahId}
                   onChange={e => setFormSekolahId(e.target.value)}
-                  required={formRole === 'KEPSEK'}
+                  required
                 >
                   <option value="">-- Pilih Sekolah --</option>
                   {sekolahList.map(s => (
@@ -407,9 +424,41 @@ export default function AdminUsersPage() {
                 </div>
               )}
               <p className="text-xs text-slate-400 mt-1">
-                {formRole === 'KEPSEK'
-                  ? 'Kepsek hanya dapat melihat data kelas yang terdaftar di sekolah ini.'
-                  : 'Guru hanya dapat melihat/membuat kisi-kisi dan data lain untuk kelas yang terdaftar di sekolah ini. Wajib diisi agar fitur kisi-kisi dan sejenisnya berfungsi.'}
+                Kepsek hanya dapat melihat data kelas yang terdaftar di sekolah ini.
+              </p>
+            </div>
+          )}
+
+          {formRole === 'GURU' && (
+            <div>
+              <label className="label flex items-center gap-1">
+                <Building2 className="w-3.5 h-3.5" />
+                Sekolah (boleh pilih lebih dari satu)
+              </label>
+              {sekolahList.length > 0 ? (
+                <div className="space-y-1.5 border border-slate-200 rounded-lg p-2.5 max-h-40 overflow-y-auto">
+                  {sekolahList.map(s => (
+                    <label key={s.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={formSekolahIds.includes(s.id)}
+                        onChange={e => {
+                          setFormSekolahIds(prev =>
+                            e.target.checked ? [...prev, s.id] : prev.filter(id => id !== s.id)
+                          )
+                        }}
+                      />
+                      <span>{s.label} — {s.nama_sekolah}</span>
+                    </label>
+                  ))}
+                </div>
+              ) : (
+                <div className="input bg-slate-50 text-slate-400">
+                  Belum ada sekolah — tambahkan di Pengaturan → Sekolah &amp; Jenjang
+                </div>
+              )}
+              <p className="text-xs text-slate-400 mt-1">
+                Guru hanya dapat melihat/membuat kisi-kisi dan data lain untuk kelas di sekolah-sekolah yang dicentang. Centang lebih dari satu jika guru mengajar di beberapa jenjang. Wajib diisi minimal satu agar fitur kisi-kisi dan sejenisnya berfungsi.
               </p>
             </div>
           )}
