@@ -91,6 +91,44 @@ async function ambilKunciSesi(sesiId: string): Promise<Buffer> {
   return kunci
 }
 
+// FIX (audit: gambar essay gagal dimuat saat offline/kode darurat): unduh
+// gambar soal DI SERVER (saat amplop dibuat, sekali per sesi+paket — lihat
+// cache di essay/amplop/route.ts) dan sertakan byte-nya sebagai data URL
+// base64 di dalam isi amplop yang akan dienkripsi. Ini menghilangkan
+// ketergantungan pada koneksi SISWA saat amplop dibuka lewat kode darurat,
+// yang menurut desainnya justru dipakai TEPAT saat siswa tidak online sama
+// sekali (lihat komentar `gambar_data` di essay-amplop-shared.ts).
+//
+// Batas waktu & ukuran sengaja dijaga longgar tapi tetap ada (fail-safe):
+// kalau gagal/timeout/kelewat besar, kembalikan null saja (bukan melempar
+// error) — amplop tetap terbentuk tanpa data gambar itu, dan jalur online
+// (gambar_url + precacheGambarSoal di client) tetap jadi cadangan seperti
+// sebelum perbaikan ini. Batas ukuran disamakan dengan batas upload gambar
+// soal (lihat src/app/api/guru/soal/upload/route.ts, 2MB) supaya konsisten.
+const GAMBAR_AMPLOP_TIMEOUT_MS = 8_000
+const GAMBAR_AMPLOP_MAKS_BYTE = 2 * 1024 * 1024
+
+export async function ambilGambarSebagaiDataUrl(url: string): Promise<string | null> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), GAMBAR_AMPLOP_TIMEOUT_MS)
+  try {
+    const res = await fetch(url, { signal: controller.signal })
+    if (!res.ok) return null
+    const contentType = (res.headers.get('content-type') ?? '').toLowerCase()
+    if (!contentType.startsWith('image/')) return null
+    const buf = Buffer.from(await res.arrayBuffer())
+    if (buf.length === 0 || buf.length > GAMBAR_AMPLOP_MAKS_BYTE) return null
+    return `data:${contentType};base64,${buf.toString('base64')}`
+  } catch {
+    // Timeout, jaringan gagal, atau URL tidak bisa diakses server — jangan
+    // gagalkan pembuatan amplop, cukup lewati data gambarnya (lihat catatan
+    // fail-safe di atas).
+    return null
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 /**
  * Bungkus isi essay menjadi amplop AES-256-GCM.
  * Format `ct` = ciphertext || tag(16 byte) — persis yang diminta WebCrypto
