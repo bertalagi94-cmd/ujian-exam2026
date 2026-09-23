@@ -34,7 +34,13 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
     status: status || undefined,
     no_hp: no_hp !== undefined ? (no_hp ? String(no_hp).trim() : null) : undefined,
     nip: nip !== undefined ? String(nip ?? '').trim() : undefined,
-    sekolah_id: role === 'KEPSEK' ? (sekolah_id || null) : null,
+    // FIX BUG: sama seperti di POST /api/admin/users — sebelumnya sekolah_id
+    // dipaksa null untuk role selain KEPSEK, padahal getKepsekScope() (dipakai
+    // juga oleh endpoint GURU seperti guru/kisi-kisi) butuh users.sekolah_id
+    // terisi untuk akun GURU. Tanpa fix ini, admin tidak pernah bisa
+    // menghilangkan pesan "Akun Anda belum diset sekolah/jenjangnya" di
+    // akun guru manapun, walau kelasnya sudah diset sekolahnya.
+    sekolah_id: (role === 'KEPSEK' || role === 'GURU') ? (sekolah_id || null) : null,
     is_tester: is_tester || undefined,
   }).eq('username', params.username)
 
