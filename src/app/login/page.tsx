@@ -832,8 +832,36 @@ export default function LoginPage() {
             </p>
           </div>
         </div>
-        <div className="relative z-10 text-white/70 text-xs mt-auto" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.3)' }}>
-          {siteInfo.namaSekolah ? <>{siteInfo.namaSekolah} &copy; {year}</> : <>SmartExam &copy; {year}</>}
+        <div className="relative z-10 mt-auto space-y-3">
+          <div
+            className="inline-flex items-center gap-2 px-3.5 py-2 rounded-full w-fit"
+            style={{
+              background: 'rgba(255,255,255,0.10)',
+              border: '1px solid rgba(255,255,255,0.28)',
+              backdropFilter: 'blur(10px)',
+              WebkitBackdropFilter: 'blur(10px)',
+              boxShadow: '0 4px 18px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.2)',
+            }}
+          >
+            <Radio className="w-3.5 h-3.5 text-white/85 flex-shrink-0" />
+            <span className="text-xs" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.5)', color: 'rgba(255,255,255,0.9)' }}>
+              Tetap lancar mode{' '}
+              <span style={{
+                fontWeight: 800, letterSpacing: '0.05em',
+                background: 'linear-gradient(90deg, #7dd3fc, #5eead4)',
+                WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text',
+              }}>ONLINE</span>
+              {' '}maupun{' '}
+              <span style={{
+                fontWeight: 800, letterSpacing: '0.05em',
+                background: 'linear-gradient(90deg, #fbbf24, #fb923c)',
+                WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text',
+              }}>OFFLINE</span>
+            </span>
+          </div>
+          <div className="text-white/70 text-xs" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.3)' }}>
+            {siteInfo.namaSekolah ? <>{siteInfo.namaSekolah} &copy; {year}</> : <>SmartExam &copy; {year}</>}
+          </div>
         </div>
       </div>
 
