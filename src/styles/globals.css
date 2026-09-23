@@ -342,16 +342,21 @@
   animation: mascotWave 0.45s ease-in-out infinite;
 }
 
-/* ── Glass card (login welcome card) — tema terang ───────────────────── */
+/* ── Glass card (login welcome card) — tema terang, efek kaca transparan
+   dengan sedikit emboss (highlight tipis di sisi atas, bayangan halus di
+   sisi bawah) supaya kartu terasa sedikit "timbul" tanpa berlebihan. ── */
 .login-glass-card {
-  background: rgba(255, 255, 255, 0.92);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  border: 1px solid rgba(226, 232, 240, 0.8);
+  background: rgba(255, 255, 255, 0.58);
+  backdrop-filter: blur(26px) saturate(165%);
+  -webkit-backdrop-filter: blur(26px) saturate(165%);
+  border: 1px solid rgba(255, 255, 255, 0.55);
   box-shadow:
-    0 24px 60px rgba(15,23,42,0.12),
-    0 0 0 1px rgba(255,255,255,0.5),
-    inset 0 1px 0 rgba(255,255,255,0.6);
+    0 24px 60px rgba(15, 23, 42, 0.18),
+    0 2px 4px rgba(15, 23, 42, 0.07),
+    inset 0 1.5px 0 rgba(255, 255, 255, 0.9),
+    inset 0 -1.5px 0 rgba(15, 23, 42, 0.06),
+    inset 1px 0 0 rgba(255, 255, 255, 0.35),
+    inset -1px 0 0 rgba(15, 23, 42, 0.04);
 }
 
 /* ── Versi ringan khusus mobile: tampilan serupa tanpa backdrop-filter,
