@@ -359,11 +359,11 @@ export default function GuruKisiKisiPage() {
             <X className="w-4 h-4" /> Kembali
           </button>
           <div className="flex-1">
-            <h1 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+            <h1 className="text-xl font-bold text-slate-800 flex items-center gap-2 subheader-title">
               <GraduationCap className="w-5 h-5 text-emerald-600" />
               {selectedKelas}
             </h1>
-            <p className="text-sm text-slate-500 mt-0.5">
+            <p className="text-sm subheader-subtitle mt-0.5">
               {kisiDiKelas.length} kisi-kisi tersedia
             </p>
           </div>
@@ -436,10 +436,10 @@ export default function GuruKisiKisiPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+          <h1 className="text-xl font-bold text-slate-800 flex items-center gap-2 subheader-title">
             <FileText className="w-5 h-5 text-emerald-600" /> Kisi-kisi
           </h1>
-          <p className="text-sm text-slate-500 mt-0.5">Kelola dan bagikan kisi-kisi ujian ke siswa</p>
+          <p className="text-sm subheader-subtitle mt-0.5">Kelola dan bagikan kisi-kisi ujian ke siswa</p>
         </div>
         <button onClick={openBuat} className="btn-primary flex items-center gap-2">
           <Plus className="w-4 h-4" /> Buat Kisi-kisi
