@@ -25,6 +25,7 @@ import { kunciIdentitasTab, identitasTabBerubah } from '@/lib/identitas-tab'
 import { AlertTriangle } from 'lucide-react'
 import { mulaiPemantauJaringan } from '@/lib/status-jaringan'
 import { StatusJaringanBar } from '@/components/shared/StatusJaringanBar'
+import { DashboardPhotoBackground } from '@/components/shared/DashboardPhotoBackground'
 
 export default function SiswaLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter()
@@ -81,6 +82,10 @@ export default function SiswaLayout({ children }: { children: React.ReactNode })
 
   return (
     <div className="flex min-h-screen bg-surface-50">
+      {/* Latar kaca transparan (opsional, lihat saklar di Beranda) — non-aktif
+          otomatis saat sedang mengerjakan ujian supaya tidak mengganggu
+          konsentrasi siswa. */}
+      <DashboardPhotoBackground tint="#0891b2" active={!isUjian} />
       {identitasBerubah && (
         <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/70 p-4">
           <div className="max-w-md rounded-2xl bg-white p-6 shadow-xl text-center">
