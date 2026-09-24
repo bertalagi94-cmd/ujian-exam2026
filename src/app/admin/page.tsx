@@ -6,7 +6,6 @@ import { StatCard, PageLoader, Badge, StatusBadge } from '@/components/ui'
 import { apiRequest, formatDateTime, nilaiColor } from '@/lib/utils'
 import MonitoringPanel from '@/components/shared/MonitoringPanel'
 import NetworkFlowMonitor from '@/components/shared/NetworkFlowMonitor'
-import { TransparentBgToggle } from '@/components/shared/TransparentBgToggle'
 
 interface DashboardData {
   stats: {
@@ -85,8 +84,6 @@ export default function AdminDashboard() {
             : 'Dashboard Admin'}
         </p>
       </div>
-
-      <TransparentBgToggle accent="#0891b2" />
 
       {/* Stats Grid */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
