@@ -78,8 +78,8 @@ export default function PengirimanTertundaPage() {
   return (
     <div className="max-w-2xl mx-auto animate-fade-in">
       <div className="mb-6">
-        <h1 className="text-xl font-bold text-slate-900">Pengiriman Ujian Tertunda</h1>
-        <p className="text-sm text-slate-500 mt-1">
+        <h1 className="text-xl font-bold text-slate-900" style={{ textShadow: '0 1px 2px rgba(255,255,255,0.75), 0 1px 16px rgba(255,255,255,0.55)' }}>Pengiriman Ujian Tertunda</h1>
+        <p className="text-sm text-slate-600 font-medium mt-1" style={{ textShadow: '0 1px 2px rgba(255,255,255,0.85), 0 1px 12px rgba(255,255,255,0.6)' }}>
           Ujian yang jawabannya sudah aman tersimpan tetapi belum berhasil dikonfirmasi ke server
           karena masalah koneksi. Halaman ini tetap menampilkan daftar ini walau Anda menutup dan
           membuka kembali aplikasi — sistem juga otomatis mencoba mengirim ulang di latar belakang.
