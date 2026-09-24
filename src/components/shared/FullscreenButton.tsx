@@ -66,7 +66,7 @@ export function FullscreenButton() {
   return (
     <button
       onClick={toggle}
-      className="fixed top-4 right-4 z-30 btn-secondary btn-sm shadow-card-md bg-white"
+      className="btn-secondary btn-sm shadow-card-md bg-white"
       title={fs ? 'Keluar dari layar penuh' : 'Tampilkan layar penuh'}
     >
       {fs ? <Minimize className="w-3.5 h-3.5" /> : <Maximize className="w-3.5 h-3.5" />}
