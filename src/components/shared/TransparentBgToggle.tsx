@@ -9,41 +9,38 @@ interface TransparentBgToggleProps {
 }
 
 /**
- * Kartu saklar di halaman Beranda untuk menyalakan/mematikan efek latar
+ * Saklar mengambang (compact pill) untuk menyalakan/mematikan efek latar
  * kaca transparan (foto siswa buram) di seluruh dashboard akun ini.
- * Tersimpan per-browser (localStorage) & langsung berlaku di semua
- * halaman tanpa perlu reload.
+ * Diletakkan berdampingan dengan tombol layar penuh di pojok kanan-atas
+ * agar tidak memakan tempat di badan halaman. Tersimpan per-browser
+ * (localStorage) & langsung berlaku di semua halaman tanpa perlu reload.
  */
 export function TransparentBgToggle({ accent = '#0ea5e9' }: TransparentBgToggleProps) {
   const [enabled, setEnabled] = useDashboardBgPref()
 
   return (
-    <div className="card flex items-center justify-between gap-4">
-      <div className="flex items-center gap-3 min-w-0">
-        <div
-          className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-          style={{ background: `${accent}1a` }}
-        >
-          <Sparkles className="w-5 h-5" style={{ color: accent }} />
-        </div>
-        <div className="min-w-0">
-          <p className="text-sm font-semibold text-slate-800">Efek Transparan</p>
-        </div>
-      </div>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={enabled}
-        aria-label="Aktifkan latar kaca transparan"
-        onClick={() => setEnabled(!enabled)}
-        className="relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors duration-200"
+    <button
+      type="button"
+      role="switch"
+      aria-checked={enabled}
+      aria-label="Aktifkan latar kaca transparan"
+      title={enabled ? 'Matikan efek transparan' : 'Aktifkan efek transparan'}
+      onClick={() => setEnabled(!enabled)}
+      className="group inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white/95 backdrop-blur-sm shadow-card-md pl-2 pr-1 py-1 transition-all duration-200 hover:shadow-card-lg"
+    >
+      <Sparkles
+        className="w-3.5 h-3.5 transition-colors duration-200"
+        style={{ color: enabled ? accent : '#94a3b8' }}
+      />
+      <span
+        className="relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors duration-300"
         style={{ background: enabled ? accent : '#e2e8f0' }}
       >
         <span
-          className="inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform duration-200"
-          style={{ transform: enabled ? 'translateX(22px)' : 'translateX(4px)' }}
+          className="inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow-sm transition-transform duration-300 ease-out"
+          style={{ transform: enabled ? 'translateX(17px)' : 'translateX(3px)' }}
         />
-      </button>
-    </div>
+      </span>
+    </button>
   )
 }
