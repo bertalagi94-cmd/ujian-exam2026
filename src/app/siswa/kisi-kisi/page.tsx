@@ -64,10 +64,10 @@ export default function SiswaKisiKisiPage() {
   return (
     <div className="max-w-3xl mx-auto">
       <div className="mb-6">
-        <h1 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+        <h1 className="text-xl font-bold text-slate-800 flex items-center gap-2 subheader-title">
           <FileText className="w-5 h-5 text-cyan-600" /> Kisi-kisi Ujian
         </h1>
-        <p className="text-sm text-slate-500 mt-0.5">Kisi-kisi mata pelajaran untuk kelasmu</p>
+        <p className="text-sm subheader-subtitle mt-0.5">Kisi-kisi mata pelajaran untuk kelasmu</p>
       </div>
 
       {error && (
