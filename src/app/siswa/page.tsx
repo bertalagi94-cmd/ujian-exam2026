@@ -6,6 +6,7 @@ import { BookOpen, BarChart3, Calendar, Trophy, Clock, ArrowRight } from 'lucide
 import { StatCard, PageLoader, StatusBadge } from '@/components/ui'
 import { apiRequest, formatDate, nilaiColor } from '@/lib/utils'
 import { Nilai, Jadwal } from '@/types'
+import { TransparentBgToggle } from '@/components/shared/TransparentBgToggle'
 
 interface SiswaDashData {
   stats: { totalUjian: number; rataRata: number; nilaiTertinggi: number; nilaiTerendah: number }
@@ -61,6 +62,8 @@ export default function SiswaDashboard() {
           </Link>
         </div>
       </div>
+
+      <TransparentBgToggle accent="#0891b2" />
 
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
