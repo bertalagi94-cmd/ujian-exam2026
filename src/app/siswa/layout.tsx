@@ -111,12 +111,20 @@ export default function SiswaLayout({ children }: { children: React.ReactNode })
       )}
       <ViewAsBanner />
       <DipantauBanner />
-      {!isUjian && <SiswaSidebar />}
-      <main className={`flex-1 min-w-0 ${isUjian ? 'p-0' : 'p-6 lg:p-8 pt-16 lg:pt-8'}`}>
-        {children}
-        {/* Ruang kosong setinggi bar jaringan (fixed di bawah) supaya tombol paling bawah tidak tertutup. */}
-        {isUjian && <div className="h-7" aria-hidden="true" />}
-      </main>
+      {/* Pembungkus ini WAJIB ada (sama seperti di layout admin/guru/kepsek):
+          DashboardPhotoBackground di atas pakai position:fixed dengan
+          z-index:0. Tanpa div ber-z-index eksplisit di sini, sidebar & main
+          (yang statis, tanpa z-index) justru dilukis SEBELUM layer foto
+          dalam urutan stacking CSS, sehingga foto blur malah menutupi
+          seluruh konten dashboard. */}
+      <div className="relative z-10 flex w-full">
+        {!isUjian && <SiswaSidebar />}
+        <main className={`flex-1 min-w-0 ${isUjian ? 'p-0' : 'p-6 lg:p-8 pt-16 lg:pt-8'}`}>
+          {children}
+          {/* Ruang kosong setinggi bar jaringan (fixed di bawah) supaya tombol paling bawah tidak tertutup. */}
+          {isUjian && <div className="h-7" aria-hidden="true" />}
+        </main>
+      </div>
       {isUjian && <StatusJaringanBar />}
     </div>
   )
