@@ -3,7 +3,7 @@
 import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { KepsekSidebar } from '@/components/shared/Sidebar'
-import { FullscreenButton } from '@/components/shared/FullscreenButton'
+import { TopBarControls } from '@/components/shared/TopBarControls'
 import { ViewAsBanner } from '@/components/shared/ViewAsBanner'
 import { DashboardPhotoBackground } from '@/components/shared/DashboardPhotoBackground'
 
@@ -72,7 +72,7 @@ export default function KepsekLayout({ children }: { children: React.ReactNode }
       </svg>
       <div className="relative z-10 flex w-full">
         <KepsekSidebar />
-        <FullscreenButton />
+        <TopBarControls accent="#7c3aed" />
         <main className="flex-1 min-w-0 p-6 lg:p-8 pt-16 lg:pt-16">{children}</main>
       </div>
     </div>
