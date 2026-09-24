@@ -487,3 +487,21 @@
     display: none;
   }
 }
+
+/* ── Teks berjalan di bawah form login (desktop) — dulu headline statis
+   "Ujian Digital / Lebih Mudah & Adil" di panel kiri, sekarang jadi running
+   text tipis di bawah kartu login. Dibuat dari 2 salinan teks berdampingan
+   (lihat markup di login/page.tsx) yang digeser bareng -50% supaya
+   loop-nya mulus tanpa jeda/lompatan. ── */
+@keyframes loginMarquee {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+.login-marquee-track {
+  animation: loginMarquee 16s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .login-marquee-track {
+    animation: none;
+  }
+}
