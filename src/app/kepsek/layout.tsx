@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { KepsekSidebar } from '@/components/shared/Sidebar'
 import { FullscreenButton } from '@/components/shared/FullscreenButton'
 import { ViewAsBanner } from '@/components/shared/ViewAsBanner'
+import { DashboardPhotoBackground } from '@/components/shared/DashboardPhotoBackground'
 
 export default function KepsekLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter()
@@ -18,6 +19,9 @@ export default function KepsekLayout({ children }: { children: React.ReactNode }
       background: 'linear-gradient(135deg, #ede9fe 0%, #f5f3ff 35%, #faf5ff 70%, #f5f3ff 100%)',
     }}>
       <ViewAsBanner />
+      {/* Latar kaca transparan (opsional, lihat saklar di Beranda) — foto
+          siswa yang sama seperti di halaman login, diburamkan + tint ungu. */}
+      <DashboardPhotoBackground tint="#7c3aed" />
       {/* Decorative SVG mesh — pure SVG, zero JS, zero server cost */}
       <svg aria-hidden="true" className="pointer-events-none fixed inset-0 w-full h-full" style={{ zIndex: 0, opacity: 0.5 }}
         viewBox="0 0 1440 900" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
