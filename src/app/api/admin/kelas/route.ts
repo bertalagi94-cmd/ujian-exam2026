@@ -3,19 +3,22 @@ import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 import { generateId } from '@/lib/utils'
 import { hapusFotoEssayFisik } from '@/lib/backup-restore-shared'
+import { cachedFetch, cacheDelPrefix } from '@/lib/cache'
 
 /**
  * GET — daftar kelas diambil otomatis dari tabel siswa.
  * Info tambahan (wali_kelas, jurusan) digabung dari tabel kelas jika ada.
  */
-export async function GET(req: NextRequest) {
-  const auth = requireRole(req, ['ADMIN', 'GURU', 'KEPSEK'])
-  if ('error' in auth) return auth.error
-
+// PERF: endpoint ini dipanggil dari 7 halaman berbeda (Jadwal, Siswa, Kelas,
+// Mapel, Nilai, Kisi-kisi, Paket Soal Guru) — setiap kali salah satu halaman
+// itu dibuka, seluruh tabel `siswa` (kolom `kelas`) ditarik lalu dihitung
+// per-kelas di JS. Daftar kelas jarang berubah dalam hitungan detik, jadi
+// hasilnya di-cache 30 detik (pola & durasi sama persis dengan
+// /api/admin/dashboard) supaya tidak query ulang tiap kali halaman dibuka.
+// Cache di-invalidate otomatis begitu PUT/DELETE di bawah mengubah data
+// kelas. Logika penghitungan/penggabungan datanya sendiri TIDAK diubah.
+async function fetchKelasData(tester: boolean, semua: boolean) {
   const db = createAdminClient()
-  const { searchParams } = new URL(req.url)
-  const tester = searchParams.get('tester') === 'true'
-  const semua = searchParams.get('all') === 'true'
 
   // 1. Hitung jumlah siswa per kelas. ?all=true -> hitung dari SEMUA siswa
   // (reguler + tester), dipakai oleh halaman yang butuh daftar kelas lengkap
@@ -31,7 +34,10 @@ export async function GET(req: NextRequest) {
   }
   const { data: siswaData, error: siswaError } = await siswaQuery
 
-  if (siswaError) return NextResponse.json({ error: siswaError.message }, { status: 500 })
+  // Dilempar sebagai error biasa (bukan NextResponse) supaya cachedFetch tidak
+  // ikut menyimpan hasil gagal ke cache — GET() di bawah yang menangkapnya
+  // dan mengembalikan response 500 yang sama persis seperti sebelumnya.
+  if (siswaError) throw new Error(siswaError.message)
 
   const kelasCount: Record<string, number> = {}
   for (const s of siswaData ?? []) {
@@ -39,7 +45,7 @@ export async function GET(req: NextRequest) {
   }
 
   if (Object.keys(kelasCount).length === 0) {
-    return NextResponse.json({ data: [] })
+    return { data: [] as unknown[] }
   }
 
   // 2. Ambil info wali_kelas, jurusan, sekolah_id dari tabel kelas (opsional)
@@ -60,7 +66,32 @@ export async function GET(req: NextRequest) {
     }))
     .sort((a, b) => a.nama.localeCompare(b.nama, 'id', { numeric: true }))
 
-  return NextResponse.json({ data: result })
+  return { data: result }
+}
+
+export async function GET(req: NextRequest) {
+  const auth = requireRole(req, ['ADMIN', 'GURU', 'KEPSEK'])
+  if ('error' in auth) return auth.error
+
+  const { searchParams } = new URL(req.url)
+  const tester = searchParams.get('tester') === 'true'
+  const semua = searchParams.get('all') === 'true'
+
+  try {
+    // Cache 30 dtk per kombinasi parameter (tester/semua) — endpoint ini
+    // dipanggil berulang dari banyak halaman yang jarang butuh data ter-update
+    // detik itu juga. Key mengikutkan tester & semua supaya ketiga variannya
+    // (reguler/tester/all) tidak saling tertimpa di cache.
+    const result = await cachedFetch(
+      `admin:kelas:${tester}:${semua}`,
+      30,
+      () => fetchKelasData(tester, semua)
+    )
+    return NextResponse.json(result)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Gagal mengambil data kelas'
+    return NextResponse.json({ error: message }, { status: 500 })
+  }
 }
 
 /**
@@ -100,6 +131,8 @@ export async function PUT(req: NextRequest) {
     })
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   }
+
+  cacheDelPrefix('admin:kelas:')
 
   return NextResponse.json({ message: 'Data kelas berhasil disimpan' })
 }
@@ -221,6 +254,8 @@ export async function DELETE(req: NextRequest) {
   }
 
   const jumlahSiswa = rpcHasil?.jumlah_siswa ?? nisList.length
+
+  cacheDelPrefix('admin:kelas:')
 
   return NextResponse.json({
     message: `Kelas ${nama} beserta ${jumlahSiswa} siswa dan seluruh data terkait (nilai, jawaban PG & essay, foto, pelanggaran, log) berhasil dihapus`,
