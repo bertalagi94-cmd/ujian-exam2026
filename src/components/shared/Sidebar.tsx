@@ -5,12 +5,13 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import {
   LayoutDashboard, Users, BookOpen, Calendar, ClipboardList,
-  BarChart3, Settings, LogOut, Menu, X, ChevronRight,
+  BarChart3, Settings, LogOut, Menu, X, ChevronRight, ChevronLeft,
   GraduationCap, School, Bell, User, FileText, Eye, ShieldAlert,
   FileBarChart, CheckSquare, Send
 } from 'lucide-react'
 import { cn, apiRequest } from '@/lib/utils'
 import { AuthUser } from '@/types'
+import { useSidebarCollapsedPref } from '@/lib/sidebar-collapsed-pref'
 // FIX (belum ada antrean "ujian belum terkirim" yang permanen — temuan #2):
 // dipakai untuk badge jumlah paket tertunda di menu SiswaSidebar.
 import { ambilSemuaPaketTertunda } from '@/lib/ujian-outbox'
@@ -174,6 +175,10 @@ export function Sidebar({ navItems, role, roleColor, roleLabel, accent = '#0891b
   const [open, setOpen] = useState(false)
   const [user, setUser] = useState<AuthUser | null>(null)
   const [siteInfo, setSiteInfo] = useState<SiteInfo>({ namaSekolah: '', logoUrl: '' })
+  // Sembunyikan/tampilkan sidebar khusus tampilan desktop/laptop, supaya
+  // halaman bisa dibuat lebih lebar seperti aplikasi web pada umumnya.
+  // Tidak berlaku untuk drawer mobile (menu tetap muncul via tombol ☰).
+  const [collapsed, setCollapsed] = useSidebarCollapsedPref()
 
   useEffect(() => {
     const stored = localStorage.getItem('user')
@@ -282,27 +287,61 @@ export function Sidebar({ navItems, role, roleColor, roleLabel, accent = '#0891b
         </div>
       )}
 
-      {/* Desktop sidebar — frosted glass with role-tinted gradient wash */}
-      <aside className="hidden lg:flex flex-col w-60 h-screen sticky top-0 flex-shrink-0"
+      {/* Desktop sidebar — frosted glass with role-tinted gradient wash.
+          Lebar dianimasikan ke 0 saat disembunyikan (overflow-hidden supaya
+          isinya ikut ter-"gulung", bukan cuma ditumpuk transparan), konten
+          di dalamnya dikunci lebar 240px supaya tidak ikut menyusut/kusut
+          selama animasi berjalan. */}
+      <aside
+        className="hidden lg:flex flex-col h-screen sticky top-0 flex-shrink-0 overflow-hidden transition-[width] duration-300 ease-in-out"
         style={{
+          width: collapsed ? 0 : 240,
           background: `linear-gradient(165deg, ${accent}1A 0%, rgba(255,255,255,0.78) 50%, ${accent}0D 100%)`,
           backdropFilter: 'blur(20px)',
           WebkitBackdropFilter: 'blur(20px)',
-          borderRight: `1px solid ${accent}26`,
-          boxShadow: `4px 0 24px ${accent}14`,
+          borderRight: collapsed ? 'none' : `1px solid ${accent}26`,
+          boxShadow: collapsed ? 'none' : `4px 0 24px ${accent}14`,
         }}
       >
-        <SidebarContent
-          navItems={navItems}
-          roleColor={roleColor}
-          roleLabel={roleLabel}
-          accent={accent}
-          user={user}
-          siteInfo={siteInfo}
-          onClose={handleClose}
-          onLogout={logout}
-        />
+        <div style={{ width: 240 }} className="h-full flex-shrink-0">
+          <SidebarContent
+            navItems={navItems}
+            roleColor={roleColor}
+            roleLabel={roleLabel}
+            accent={accent}
+            user={user}
+            siteInfo={siteInfo}
+            onClose={handleClose}
+            onLogout={logout}
+          />
+        </div>
       </aside>
+
+      {/* Tombol sembunyikan/tampilkan — khusus desktop/laptop. Posisinya
+          "menempel" di tepi kanan sidebar dan otomatis geser ke kiri
+          (menempel tepi layar) saat sidebar disembunyikan, jadi selalu
+          mudah ditemukan untuk memunculkan menu lagi. */}
+      <button
+        type="button"
+        onClick={() => setCollapsed(!collapsed)}
+        className="hidden lg:flex fixed z-30 items-center justify-center w-6 h-12 rounded-r-xl transition-[left] duration-300 ease-in-out"
+        style={{
+          top: '50%',
+          transform: 'translateY(-50%)',
+          left: collapsed ? 0 : 240,
+          background: 'rgba(255,255,255,0.92)',
+          border: `1px solid ${accent}33`,
+          borderLeft: collapsed ? `1px solid ${accent}33` : 'none',
+          backdropFilter: 'blur(12px)',
+          WebkitBackdropFilter: 'blur(12px)',
+          boxShadow: `2px 2px 10px ${accent}22`,
+          color: accent,
+        }}
+        title={collapsed ? 'Tampilkan menu' : 'Sembunyikan menu'}
+        aria-label={collapsed ? 'Tampilkan menu' : 'Sembunyikan menu'}
+      >
+        {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+      </button>
     </>
   )
 }
