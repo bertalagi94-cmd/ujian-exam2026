@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback } from 'react'
 import { BookOpen, ClipboardList, BarChart3, CheckCircle, Clock, XCircle, TrendingUp } from 'lucide-react'
 import { StatCard, PageLoader, StatusBadge, Badge } from '@/components/ui'
 import { apiRequest, formatDate, nilaiColor } from '@/lib/utils'
-import { TransparentBgToggle } from '@/components/shared/TransparentBgToggle'
 
 interface GuruDashData {
   stats: {
@@ -67,8 +66,6 @@ export default function GuruDashboard() {
         <h1 className="page-title">Selamat Datang, {namaGuru.split(' ')[0]}</h1>
         <p className="page-subtitle">Kelola soal dan pantau perkembangan siswa Anda</p>
       </div>
-
-      <TransparentBgToggle accent="#059669" />
 
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
