@@ -73,10 +73,10 @@ export default function KepsekKisiKisiPage() {
     <div className="max-w-5xl mx-auto">
       {/* Header */}
       <div className="mb-6">
-        <h1 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+        <h1 className="text-xl font-bold text-slate-800 flex items-center gap-2 subheader-title">
           <FileText className="w-5 h-5 text-purple-600" /> Kisi-kisi
         </h1>
-        <p className="text-sm text-slate-500 mt-0.5">
+        <p className="text-sm subheader-subtitle mt-0.5">
           Pantau kisi-kisi yang dibuat dan dikirim guru ke siswa, dari semua mapel dan kelas di jenjang Anda.
         </p>
       </div>
