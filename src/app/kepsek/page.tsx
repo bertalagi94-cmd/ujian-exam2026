@@ -8,7 +8,6 @@ import {
 } from 'lucide-react'
 import { StatCard, PageLoader, EmptyState, Badge, ScopeWarningBanner } from '@/components/ui'
 import { apiRequest, nilaiColor } from '@/lib/utils'
-import { TransparentBgToggle } from '@/components/shared/TransparentBgToggle'
 
 interface JadwalHariIni {
   id: string
@@ -135,8 +134,6 @@ export default function KepsekDashboard() {
           <CalendarClock className="w-4 h-4" /> Lihat Semua Jadwal
         </Link>
       </div>
-
-      <TransparentBgToggle accent="#7c3aed" />
 
       {data?.scopeWarning && <ScopeWarningBanner message={data.scopeWarning} />}
 
