@@ -499,7 +499,7 @@ export default function LoginPage() {
             >
               Ujian Digital<br />
               <span style={{
-                background: 'linear-gradient(90deg, #e0f2fe, #7dd3fc, #38bdf8)',
+                background: 'linear-gradient(90deg, #fff9c4, #ffe066, #ffd23f)',
                 WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
                 backgroundClip: 'text',
                 filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.75)) drop-shadow(0 5px 18px rgba(0,0,0,0.55))',
