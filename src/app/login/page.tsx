@@ -2,14 +2,23 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
+import dynamic from 'next/dynamic'
 import {
-  Eye, EyeOff, BookOpen, Lock, User, AlertCircle,
-  X, ChevronDown, ChevronUp, Shield, GraduationCap, Users, UserCheck,
-  BookMarked, LayoutDashboard, ClipboardList, BarChart2, Settings,
-  HelpCircle, AlertTriangle, CheckCircle, Info, Monitor,
-  Activity, Clock, CalendarDays, Trophy, Loader2, Radio,
+  Eye, EyeOff, BookOpen, Lock, User, AlertCircle, X,
+  Shield, BarChart2, BookMarked, CheckCircle, Monitor,
+  Activity, Radio, HelpCircle,
   Maximize, Minimize,
 } from 'lucide-react'
+import WitaClock from '@/components/login/WitaClock'
+
+// PERF: modal Panduan/QA/Aktivitas berisi cukup banyak JSX + data (FAQ,
+// langkah panduan per role) yang hanya dibutuhkan KALAU tombolnya diklik.
+// Dengan next/dynamic({ ssr: false }), kode ini dipisah ke chunk JS
+// terpisah dan baru di-download saat modal pertama kali dibuka — tidak
+// lagi ikut initial bundle halaman /login.
+const GuideModal = dynamic(() => import('@/components/login/GuideModal'), { ssr: false })
+const QAModal = dynamic(() => import('@/components/login/QAModal'), { ssr: false })
+const AktivitasModal = dynamic(() => import('@/components/login/AktivitasModal'), { ssr: false })
 
 interface SiteInfo {
   namaSekolah: string
@@ -45,336 +54,8 @@ interface JuaraItem {
   nilai_rata: number
 }
 
-// ─── DATA PANDUAN ────────────────────────────────────────────────────────────
-const ROLES = [
-  {
-    id: 'admin',
-    label: 'Admin',
-    color: 'from-violet-500 to-purple-600',
-    bgLight: 'bg-violet-50',
-    border: 'border-violet-200',
-    text: 'text-violet-700',
-    icon: <Shield className="w-5 h-5" />,
-    badge: 'bg-violet-100 text-violet-700',
-    desc: 'Pengelola sistem secara keseluruhan. Memiliki akses penuh ke semua fitur.',
-    steps: [
-      {
-        title: 'Login & Dashboard',
-        icon: <LayoutDashboard className="w-4 h-4" />,
-        detail: 'Login menggunakan username dan password admin. Dashboard menampilkan statistik total siswa, guru, soal, jadwal aktif, dan rata-rata nilai ujian.',
-      },
-      {
-        title: 'Informasi Sekolah',
-        icon: <Settings className="w-4 h-4" />,
-        detail: 'Isi nama sekolah, NPSN, nama kepala sekolah, alamat, dan upload logo di halaman Informasi Sekolah (dibuka lewat kartu di atas tab Pengaturan). Sistem mendukung lebih dari satu sekolah.',
-      },
-      {
-        title: 'Kelola Kelas & Mata Pelajaran',
-        icon: <BookMarked className="w-4 h-4" />,
-        detail: 'Buat kelas (contoh: VII-A, VIII-B) dan mata pelajaran terlebih dahulu sebelum menambahkan data lainnya. Ini menjadi fondasi data siswa dan jadwal ujian.',
-      },
-      {
-        title: 'Kelola Siswa & Data Pengguna',
-        icon: <GraduationCap className="w-4 h-4" />,
-        detail: 'Tambah siswa satu per satu atau via import Excel (tombol import + template Excel ada di halaman Data Siswa). Buat akun guru dan kepala sekolah di menu Data Pengguna. Password default bisa di-reset kapan saja.',
-      },
-      {
-        title: 'Jadwal, Validasi Soal & Pelanggaran',
-        icon: <ClipboardList className="w-4 h-4" />,
-        detail: 'Buat jadwal ujian dan tentukan paket soal yang digunakan. Validasi paket soal yang diajukan guru di menu Validasi Soal sebelum bisa dipakai. Pantau daftar pelanggaran siswa di menu Pelanggaran, dan lihat rekap nilai di menu Rekap Nilai / Analisis Ujian / Laporan Lengkap.',
-      },
-      {
-        title: 'Pengaturan Ujian, Maintenance & Backup',
-        icon: <BarChart2 className="w-4 h-4" />,
-        detail: 'Tab Pengaturan Ujian mengatur batas pelanggaran dan jumlah opsi jawaban. Tab Maintenance mengaktifkan mode perbaikan. Lakukan backup rutin di tab Backup & Restore sebelum tahun ajaran baru atau sebelum reset. Reset data per kategori dilakukan di tab Reset Data.',
-      },
-      {
-        title: 'Lihat Sebagai & Cetak Kartu Siswa',
-        icon: <Eye className="w-4 h-4" />,
-        detail: 'Tombol "Lihat Sebagai" di halaman Data Siswa/Data Pengguna memungkinkan admin masuk sebagai guru, kepala sekolah, atau siswa tertentu untuk membantu troubleshooting — otomatis kembali ke akun Admin setelah 2 jam, dan akun yang sedang "dilihat" akan melihat banner pemberitahuan. Menu Cetak (kartu ujian/kartu siswa) ada di halaman Pengaturan untuk mencetak kartu peserta ujian.',
-      },
-    ],
-  },
-  {
-    id: 'kepsek',
-    label: 'Kepala Sekolah',
-    color: 'from-blue-500 to-cyan-600',
-    bgLight: 'bg-blue-50',
-    border: 'border-blue-200',
-    text: 'text-blue-700',
-    icon: <UserCheck className="w-5 h-5" />,
-    badge: 'bg-blue-100 text-blue-700',
-    desc: 'Akses monitoring dan laporan. Tidak dapat mengubah data operasional.',
-    steps: [
-      {
-        title: 'Dashboard Kepala Sekolah',
-        icon: <LayoutDashboard className="w-4 h-4" />,
-        detail: 'Lihat ringkasan statistik ujian sekolah: jumlah ujian, rata-rata nilai, tingkat kelulusan, dan perkembangan per mata pelajaran.',
-      },
-      {
-        title: 'Monitoring Ujian',
-        icon: <ClipboardList className="w-4 h-4" />,
-        detail: 'Pantau sesi ujian yang sedang berlangsung secara real-time — siapa yang sudah mengerjakan, siapa yang belum, dan siapa yang terkena pelanggaran.',
-      },
-      {
-        title: 'Hasil Ujian',
-        icon: <BarChart2 className="w-4 h-4" />,
-        detail: 'Akses rekap nilai per kelas, per mata pelajaran, dan per siswa. Lihat analisis distribusi nilai dan persentase kelulusan untuk pengambilan keputusan.',
-      },
-      {
-        title: 'Jadwal Ujian',
-        icon: <BookMarked className="w-4 h-4" />,
-        detail: 'Lihat daftar jadwal ujian yang telah dibuat — tanggal, mata pelajaran, kelas yang terlibat, dan status (belum dimulai / sedang berlangsung / selesai).',
-      },
-      {
-        title: 'Data Kelas, Guru & Mapel, Kisi-kisi',
-        icon: <BookMarked className="w-4 h-4" />,
-        detail: 'Lihat daftar kelas, daftar guru beserta mata pelajaran yang diampu, dan kisi-kisi soal yang sudah dibuat guru untuk setiap mata pelajaran.',
-      },
-    ],
-  },
-  {
-    id: 'guru',
-    label: 'Guru',
-    color: 'from-emerald-500 to-teal-600',
-    bgLight: 'bg-emerald-50',
-    border: 'border-emerald-200',
-    text: 'text-emerald-700',
-    icon: <Users className="w-5 h-5" />,
-    badge: 'bg-emerald-100 text-emerald-700',
-    desc: 'Membuat soal, paket soal, dan memantau ujian mata pelajaran yang diampu.',
-    steps: [
-      {
-        title: 'Kisi-Kisi',
-        icon: <BarChart2 className="w-4 h-4" />,
-        detail: 'Buat dan kelola kisi-kisi soal sebagai panduan pembuatan soal sesuai kompetensi dasar. Kisi-kisi juga bisa diakses siswa sebagai bahan belajar.',
-      },
-      {
-        title: 'Buat Soal',
-        icon: <ClipboardList className="w-4 h-4" />,
-        detail: 'Menu "Buat Soal" menggantikan Bank Soal + Paket Soal yang terpisah — sekarang jadi satu tempat. Buat soal pilihan ganda dan soal essay langsung di dalam paket, tentukan jumlah soal, urutan tampil, dan waktu pengerjaan, lalu kirim, tarik, atau duplikasi paket dari halaman yang sama. Paket perlu divalidasi admin sebelum bisa dipakai.',
-      },
-      {
-        title: 'Penilaian',
-        icon: <BarChart2 className="w-4 h-4" />,
-        detail: 'Satu menu dengan tiga tab: Periksa Jawaban Essay (koreksi manual jawaban essay), Rekap Nilai (nilai gabungan PG + essay per siswa), dan Kirim Nilai ke Wali Kelas.',
-      },
-      {
-        title: 'Analisis Ujian',
-        icon: <BarChart2 className="w-4 h-4" />,
-        detail: 'Lihat analisis butir soal — soal mana yang mudah atau sulit, dan distribusi pilihan jawaban siswa — untuk evaluasi kualitas soal.',
-      },
-      {
-        title: 'Wali Kelas',
-        icon: <Users className="w-4 h-4" />,
-        detail: 'Muncul di sidebar hanya untuk guru yang ditugaskan sebagai wali kelas. Digunakan untuk memantau dan menerima kiriman nilai siswa di kelas yang diampu.',
-      },
-      {
-        title: 'Jadwal Pengawasan & Mode Pengawas',
-        icon: <Shield className="w-4 h-4" />,
-        detail: 'Muncul di sidebar hanya untuk guru yang punya jadwal jaga. "Jadwal Pengawasan" menampilkan sesi yang akan diawasi. "Mode Pengawas" dipakai untuk membuka sesi, memantau peserta secara real-time, mereset siswa yang kena pelanggaran (memberi kode lanjut), membuka/menutup akses mulai soal essay, dan menutup sesi.',
-      },
-      {
-        title: 'Mengawasi Ujian saat Internet Mati (Mode Offline)',
-        icon: <Radio className="w-4 h-4" />,
-        detail: 'Kalau internet sekolah mati total, jawaban pilihan ganda siswa tetap aman — tersimpan dulu di perangkat siswa dan otomatis terkirim begitu koneksi kembali, jadi pengawas tidak perlu tindakan khusus untuk PG. Untuk soal essay, tombol "Tampilkan Kode Darurat" di Mode Pengawas akan menampilkan kode khusus per sesi — bacakan atau tuliskan kode ini di papan tulis (JANGAN lewat chat/internet) supaya siswa bisa membuka soal essay secara offline tanpa menunggu server. Begitu internet pulih, sistem otomatis menyinkronkan waktu mulai dan jawaban essay siswa yang tadinya offline.',
-      },
-    ],
-  },
-  {
-    id: 'siswa',
-    label: 'Siswa',
-    color: 'from-orange-500 to-amber-500',
-    bgLight: 'bg-orange-50',
-    border: 'border-orange-200',
-    text: 'text-orange-700',
-    icon: <GraduationCap className="w-5 h-5" />,
-    badge: 'bg-orange-100 text-orange-700',
-    desc: 'Mengikuti ujian online dan melihat nilai hasil ujian.',
-    steps: [
-      {
-        title: 'Login Siswa',
-        icon: <User className="w-4 h-4" />,
-        detail: 'Gunakan NIS (Nomor Induk Siswa) sebagai username. Password default biasanya adalah NIS Anda. Hubungi admin/guru jika lupa password.',
-      },
-      {
-        title: 'Dashboard & Jadwal',
-        icon: <LayoutDashboard className="w-4 h-4" />,
-        detail: 'Lihat jadwal ujian yang akan datang. Ujian hanya bisa diakses sesuai jadwal yang ditetapkan — tidak bisa dikerjakan sebelum atau sesudah waktu yang ditentukan.',
-      },
-      {
-        title: 'Mengerjakan Ujian',
-        icon: <ClipboardList className="w-4 h-4" />,
-        detail: 'Klik "Mulai Ujian" saat jadwal aktif. Ujian otomatis berjalan dalam mode layar penuh (fullscreen) — jangan keluar dari mode ini, menutup tab, atau berpindah aplikasi karena bisa tercatat sebagai pelanggaran. Kerjakan soal pilihan ganda dalam waktu yang tersedia; jawaban tersimpan otomatis di server. Ujian hanya boleh dibuka di satu perangkat pada satu waktu — kalau Anda login ujian yang sama di perangkat/browser lain, sesi di perangkat pertama akan otomatis terputus.',
-      },
-      {
-        title: 'Jika Internet Terputus (Mode Offline)',
-        icon: <Radio className="w-4 h-4" />,
-        detail: 'Jawaban pilihan ganda tetap tersimpan di perangkat Anda dan otomatis terkirim ulang begitu koneksi kembali — status pengiriman bisa dipantau atau dipicu manual lewat menu "Pengiriman Tertunda" (muncul di sidebar hanya saat ada antrean). Untuk soal essay, jika internet mati total sebelum akses essay dibuka, minta "kode darurat" ke pengawas ruangan (dibacakan langsung, bukan lewat internet) untuk membuka soal essay secara offline; begitu internet pulih, jawaban dan waktu pengerjaan akan otomatis disinkronkan ke server.',
-      },
-      {
-        title: 'Soal Essay (jika ada)',
-        icon: <ClipboardList className="w-4 h-4" />,
-        detail: 'Setelah soal pilihan ganda selesai, jika mata pelajaran punya soal essay akan ada tahap info essay terlebih dulu, lalu tahap mengerjakan essay. Essay bisa dalam mode digital (diketik di sistem) atau kertas, tergantung pengaturan guru. Mengerjakan essay baru bisa dimulai setelah pengawas membuka akses (atau lewat kode darurat jika offline).',
-      },
-      {
-        title: 'Melihat Nilai',
-        icon: <BarChart2 className="w-4 h-4" />,
-        detail: 'Setelah ujian selesai dan nilai diproses, Anda bisa melihat nilai dan status kelulusan di menu Nilai. Jika mata pelajaran punya soal essay, nilai total baru muncul setelah guru selesai memeriksa essay dan merilis nilainya. Kisi-kisi soal juga tersedia sebagai panduan belajar.',
-      },
-      {
-        title: 'Profil Saya',
-        icon: <User className="w-4 h-4" />,
-        detail: 'Menu "Profil Saya" menampilkan biodata lengkap Anda (kelas, wali kelas, tempat/tanggal lahir, dll) dan memungkinkan Anda mengganti password sendiri kapan saja tanpa perlu minta admin, cukup dengan memasukkan password lama.',
-      },
-    ],
-  },
-]
-
-// ─── DATA Q&A ─────────────────────────────────────────────────────────────────
-const QA_ITEMS = [
-  {
-    category: 'Umum',
-    icon: <Info className="w-4 h-4" />,
-    color: 'text-blue-600',
-    bg: 'bg-blue-50',
-    items: [
-      {
-        q: 'Apa itu SmartExam?',
-        a: 'SmartExam adalah sistem ujian berbasis komputer (CBT) yang dirancang khusus untuk sekolah — bisa dikerjakan lewat HP maupun laptop/komputer. Memungkinkan guru membuat soal, menjadwalkan ujian, dan siswa mengerjakan ujian secara online dengan pengawasan real-time.',
-      },
-      {
-        q: 'Browser apa yang direkomendasikan?',
-        a: 'Kebanyakan siswa mengerjakan ujian lewat HP, jadi gunakan Chrome versi terbaru di Android atau Safari versi terbaru di iPhone/iPad. Di laptop/komputer, gunakan Google Chrome atau Mozilla Firefox versi terbaru. Hindari browser lama, dan pastikan JavaScript aktif.',
-      },
-      {
-        q: 'Apakah bisa digunakan di HP?',
-        a: 'Bisa, dan justru inilah cara paling umum siswa mengerjakan ujian — tampilan dan sistem anti-kecurangan (layar penuh, deteksi pindah aplikasi, dll) sudah dirancang untuk HP, bukan cuma laptop. Pastikan baterai cukup, HP tidak dalam mode hemat baterai/data yang agresif, dan notifikasi lain di-silent dulu supaya tidak terpicu pindah aplikasi.',
-      },
-    ],
-  },
-  {
-    category: 'Login & Akun',
-    icon: <Lock className="w-4 h-4" />,
-    color: 'text-violet-600',
-    bg: 'bg-violet-50',
-    items: [
-      {
-        q: 'Saya lupa password, bagaimana cara reset?',
-        a: 'Siswa: kalau masih ingat password lama, ganti sendiri lewat menu "Profil Saya". Kalau benar-benar lupa (tidak tahu password lama), minta guru atau admin untuk reset. Guru dan Kepala Sekolah: minta admin untuk reset di menu Data Pengguna. Admin: hubungi pengelola sistem atau reset melalui database Supabase.',
-      },
-      {
-        q: 'Username saya apa?',
-        a: 'Siswa menggunakan NIS (Nomor Induk Siswa). Guru dan Kepala Sekolah menggunakan username yang dibuat oleh Admin saat pembuatan akun. Tidak ada peran "Pengawas" tersendiri — pengawas adalah guru yang ditugaskan menjaga sesi ujian tertentu.',
-      },
-      {
-        q: 'Status ujian saya "RESET" / saya diminta kode, apa yang harus dilakukan?',
-        a: 'Setiap pelanggaran (berpindah tab, keluar layar, dll) langsung menghentikan ujian sementara sampai Anda meminta kode 7 karakter ke pengawas ruangan. Kalau jumlah pelanggaran sudah melebihi batas yang ditentukan sekolah, pengawas bisa memilih mengunci akun secara permanen untuk sesi itu — hubungi pengawas atau admin jika ini terjadi.',
-      },
-    ],
-  },
-  {
-    category: 'Saat Ujian',
-    icon: <ClipboardList className="w-4 h-4" />,
-    color: 'text-emerald-600',
-    bg: 'bg-emerald-50',
-    items: [
-      {
-        q: 'Apakah jawaban tersimpan otomatis?',
-        a: 'Ya, setiap jawaban yang dipilih langsung tersimpan ke server secara otomatis. Tidak perlu khawatir jika tiba-tiba koneksi terputus sebentar — jawaban yang sudah dijawab tetap tersimpan.',
-      },
-      {
-        q: 'Apa yang dimaksud dengan pelanggaran?',
-        a: 'Sistem mendeteksi jika siswa berpindah tab, meminimalkan jendela browser, atau mencoba membuka aplikasi lain. Setiap deteksi langsung menghentikan ujian Anda sementara (status RESET) — bukan menunggu sampai batas terlampaui. Untuk lanjut, Anda perlu kode 7 karakter dari pengawas. Batas jumlah pelanggaran yang ditentukan sekolah dipakai pengawas untuk memutuskan apakah akun perlu dikunci permanen.',
-      },
-      {
-        q: 'Internet saya putus saat ujian, bagaimana?',
-        a: 'Jangan panik, dan JANGAN keluar dari layar ujian untuk membuka pengaturan WiFi/data — itu justru akan terdeteksi sebagai pelanggaran (keluar dari mode layar penuh/pindah aplikasi). Cukup tetap diam di halaman ujian: jawaban yang sudah dijawab tetap tersimpan di HP/laptop Anda dan otomatis terkirim begitu koneksi kembali (misalnya WiFi menyambung ulang sendiri). Kalau koneksi tidak kunjung kembali sendiri dan Anda terpaksa harus membuka pengaturan HP secara manual, beri tahu pengawas ruangan DULU sebelum melakukannya — supaya pengawas paham situasinya dan bisa langsung memberi kode lanjut begitu Anda kembali ke layar ujian.',
-      },
-      {
-        q: 'Saya tidak sengaja menutup tab saat ujian, bagaimana?',
-        a: 'Buka kembali browser (di HP: buka lagi aplikasi/browsernya) dan login ulang, lalu akses kembali halaman ujian. Ini akan tercatat sebagai pelanggaran dan ujian Anda dihentikan sementara — minta kode 7 karakter ke pengawas untuk melanjutkan dari soal terakhir.',
-      },
-      {
-        q: 'Kenapa ujian harus dalam mode layar penuh (fullscreen)?',
-        a: 'Ini bagian dari sistem anti-kecurangan — keluar dari layar penuh dihitung sama seperti berpindah tab/aplikasi, yaitu sebagai pelanggaran. Di HP, ini juga berarti membuka Kontrol Cepat/Notifikasi, mengganti WiFi, membalas chat, atau menekan tombol Home akan langsung tercatat sebagai pelanggaran. Jika perangkat Anda tidak mendukung mode layar penuh sama sekali (beberapa browser di iPhone/iPad), beritahu pengawas sebelum ujian dimulai.',
-      },
-      {
-        q: 'Bisakah saya mengerjakan ujian yang sama di HP dan laptop sekaligus?',
-        a: 'Tidak. Satu sesi ujian hanya boleh aktif di satu perangkat. Kalau Anda login ke ujian yang sama di perangkat kedua, sesi di perangkat pertama otomatis terputus (diambil alih). Gunakan satu perangkat saja sampai ujian selesai.',
-      },
-      {
-        q: 'Internet mati total dan soal essay belum sempat dibuka, apa yang harus dilakukan?',
-        a: 'Tetap tenang, tetap di layar ujian (jangan keluar aplikasi). Minta "kode darurat" ke pengawas ruangan — kode ini dibacakan langsung/ditulis di papan, bukan dikirim lewat internet — lalu masukkan kode tersebut untuk membuka soal essay secara offline. Begitu internet pulih, jawaban dan waktu pengerjaan Anda otomatis disinkronkan ke server.',
-      },
-      {
-        q: 'Ada menu "Pengiriman Tertunda", itu untuk apa?',
-        a: 'Menu ini hanya muncul kalau ada jawaban/paket ujian Anda yang belum berhasil terkirim ke server (biasanya karena internet sempat putus). Sistem akan terus mencoba mengirim ulang secara otomatis; Anda juga bisa menekan "Kirim Sekarang" di menu ini untuk mencoba lebih cepat. Jawaban yang sudah tersimpan tidak akan hilang.',
-      },
-    ],
-  },
-  {
-    category: 'Skenario Darurat',
-    icon: <AlertTriangle className="w-4 h-4" />,
-    color: 'text-red-600',
-    bg: 'bg-red-50',
-    items: [
-      {
-        q: 'Listrik mati di tengah ujian, apa yang harus dilakukan?',
-        a: 'Beritahu pengawas segera. Pengawas dapat mencatat kejadian dan melaporkan ke admin. Admin atau guru bisa memberikan ujian susulan dengan kode akses baru melalui fitur Susulan. Jawaban sebelum listrik mati tetap tersimpan.',
-      },
-      {
-        q: 'Server error / halaman tidak bisa diakses',
-        a: 'Coba refresh halaman (F5). Jika masih error, tunggu beberapa menit dan coba lagi. Beritahu pengawas dan admin. Admin bisa cek status server di Supabase Dashboard. Pastikan tidak ada proses heavy seperti import data besar yang sedang berjalan.',
-      },
-      {
-        q: 'Siswa tidak muncul di daftar sesi ujian',
-        a: 'Kemungkinan penyebab: (1) siswa belum terdaftar di kelas yang dijadwalkan, (2) kelas siswa tidak sesuai dengan jadwal ujian, (3) siswa baru ditambahkan setelah sesi dibuat. Hubungi admin untuk memverifikasi data siswa dan kelas.',
-      },
-      {
-        q: 'Nilai tidak muncul setelah ujian selesai',
-        a: 'Pastikan siswa benar-benar mengklik "Selesai Ujian", bukan hanya menutup browser. Jika sudah selesai namun nilai belum muncul, coba refresh halaman. Untuk mata pelajaran yang punya soal essay, nilai total memang baru tampil setelah guru memeriksa essay dan merilis nilainya di menu Penilaian. Admin atau guru bisa cek di menu Rekap Nilai apakah data sudah masuk.',
-      },
-      {
-        q: 'Data sekolah hilang setelah reset',
-        a: 'Jika reset "Semua Data" dilakukan, semua pengaturan termasuk nama sekolah dan logo akan terhapus. Isi kembali di halaman Informasi Sekolah (dibuka lewat kartu di atas tab Pengaturan). Selalu lakukan backup di tab Backup & Restore sebelum melakukan reset apapun.',
-      },
-      {
-        q: 'Internet sekolah mati total saat ujian berlangsung, bagaimana pengawas harus bertindak?',
-        a: 'Untuk soal pilihan ganda, tidak perlu tindakan khusus — jawaban siswa tersimpan di perangkat masing-masing dan terkirim otomatis begitu internet kembali. Untuk soal essay, buka Mode Pengawas lalu tekan "Tampilkan Kode Darurat", dan bacakan/tuliskan kode tersebut di papan tulis (jangan lewat grup chat/internet) agar siswa bisa membuka soal essay secara offline. Begitu koneksi pulih, sistem otomatis menyinkronkan data essay siswa yang tadi offline.',
-      },
-    ],
-  },
-  {
-    category: 'Admin & Teknis',
-    icon: <Settings className="w-4 h-4" />,
-    color: 'text-slate-600',
-    bg: 'bg-slate-50',
-    items: [
-      {
-        q: 'Berapa banyak siswa yang bisa menggunakan sistem bersamaan?',
-        a: 'Bergantung pada paket Supabase yang digunakan. Paket gratis mendukung hingga ratusan koneksi bersamaan. Untuk sekolah besar, pertimbangkan upgrade ke paket berbayar untuk performa optimal.',
-      },
-      {
-        q: 'Bagaimana cara import data siswa massal?',
-        a: 'Gunakan tombol import di halaman Data Siswa (bukan menu Import terpisah). Unduh template Excel yang tersedia di sana, isi data siswa sesuai format (NIS, nama, kelas, dll), lalu upload kembali. Sistem akan memvalidasi dan memasukkan data secara otomatis.',
-      },
-      {
-        q: 'Apakah soal bisa digunakan ulang untuk ujian berikutnya?',
-        a: 'Soal PG dan essay dibuat langsung di dalam satu paket lewat menu Buat Soal, jadi tidak ada bank soal terpisah yang bisa dipakai lintas paket. Yang bisa dilakukan adalah menduplikasi paket soal yang sudah ada untuk ujian susulan atau semester berikutnya.',
-      },
-      {
-        q: 'Apa itu fitur "Lihat Sebagai" untuk admin?',
-        a: 'Fitur ini memungkinkan admin login sementara sebagai akun guru, kepala sekolah, atau siswa tertentu — berguna untuk mengecek atau memperbaiki masalah dari sudut pandang user tersebut tanpa perlu tahu passwordnya. Sesi ini otomatis berakhir setelah 2 jam, dan pemilik akun akan melihat notifikasi bahwa akunnya sedang dilihat oleh admin.',
-      },
-      {
-        q: 'Satu guru mengajar di lebih dari satu sekolah/jenjang, apakah bisa?',
-        a: 'Bisa. Admin dapat menautkan satu akun guru ke lebih dari satu sekolah di menu Data Pengguna, sehingga guru tersebut bisa melihat kelas dan kisi-kisi dari semua sekolah yang diampu dalam satu akun yang sama.',
-      },
-    ],
-  },
-]
-
+// PERF: ROLES & QA_ITEMS dipindah ke RolesData.tsx / QaData.tsx (dipakai
+// oleh GuideModal / QAModal yang di-lazy-load), tidak lagi didefinisikan di sini.
 function DevCredit() {
   return (
     <div className="flex justify-center mt-3">
@@ -428,34 +109,11 @@ export default function LoginPage() {
   const [showQA, setShowQA] = useState(false)
   const [showAktivitas, setShowAktivitas] = useState(false)
   const [mobileLoginOpen, setMobileLoginOpen] = useState(false)
-  // Foto khusus HP (potret) — jika file /images/siswa-sekolah-mobile.png
+  // Foto khusus HP (potret) — jika file /images/siswa-sekolah-mobile.webp
   // belum ada di repo, otomatis fallback ke foto landscape yang sudah ada
   // (dengan komposisi crop+awan yang sudah berjalan sekarang), supaya tidak
   // muncul ikon gambar rusak sebelum aset barunya di-upload.
   const [mobileHeroReady, setMobileHeroReady] = useState(true)
-  const [activeRole, setActiveRole] = useState('admin')
-  const [openQA, setOpenQA] = useState<string | null>(null)
-
-  // Aktivitas state
-  const [aktivitasLoading, setAktivitasLoading] = useState(false)
-  const [ujianBerlangsung, setUjianBerlangsung] = useState<UjianBerlangsung[]>([])
-  const [jadwalList, setJadwalList] = useState<JadwalItem[]>([])
-  const [juaraList, setJuaraList] = useState<JuaraItem[]>([])
-  const [aktivitasTab, setAktivitasTab] = useState<'ujian' | 'jadwal' | 'juara'>('ujian')
-
-  async function loadAktivitas() {
-    setAktivitasLoading(true)
-    try {
-      const res = await fetch('/api/public/aktivitas?t=' + Date.now(), { cache: 'no-store' })
-      const json = await res.json()
-      setUjianBerlangsung(json.ujianBerlangsung || [])
-      setJadwalList(json.jadwal || [])
-      setJuaraList(json.juaraPerKelas || [])
-    } catch { /* ignore */ } finally {
-      setAktivitasLoading(false)
-    }
-  }
-
   // ── Fullscreen ────────────────────────────────────────────────────────────
   const [isFs, setIsFs] = useState(false)
   useEffect(() => {
@@ -624,10 +282,22 @@ export default function LoginPage() {
         ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.strokeStyle = `rgba(255,255,255,${b.alpha * 1.2})`; ctx.lineWidth = 1; ctx.stroke()
         ctx.beginPath(); ctx.arc(b.x - b.r * 0.28, b.y - b.r * 0.32, b.r * 0.18, 0, Math.PI * 2); ctx.fillStyle = `rgba(255,255,255,${b.alpha * 1.8})`; ctx.fill()
       }
-      raf = requestAnimationFrame(draw)
+      if (document.visibilityState === 'visible') { raf = requestAnimationFrame(draw) }
     }
+    // PERF: hentikan animasi saat tab tidak aktif/di-minimize, dan lanjutkan
+    // lagi begitu tab aktif kembali — sebelumnya requestAnimationFrame terus
+    // berjalan tanpa henti walau halaman tidak terlihat.
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') { draw() }
+      else { cancelAnimationFrame(raf) }
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
     draw()
-    return () => { cancelAnimationFrame(raf); window.removeEventListener('resize', resize) }
+    return () => {
+      cancelAnimationFrame(raf)
+      window.removeEventListener('resize', resize)
+      document.removeEventListener('visibilitychange', handleVisibility)
+    }
   }, [])
 
   useEffect(() => {
@@ -670,20 +340,6 @@ export default function LoginPage() {
   const displayName = siteInfo.namaSekolah || 'SmartExam'
   const year = new Date().getFullYear()
 
-  const [witaTime, setWitaTime] = useState<{ day: string; date: string; time: string }>({ day: '', date: '', time: '' })
-  useEffect(() => {
-    const DAYS = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu']
-    const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Ags', 'Sep', 'Okt', 'Nov', 'Des']
-    const tick = () => {
-      const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Makassar' }))
-      const h = String(now.getHours()).padStart(2, '0'), m = String(now.getMinutes()).padStart(2, '0'), s = String(now.getSeconds()).padStart(2, '0')
-      setWitaTime({ day: DAYS[now.getDay()], date: `${now.getDate()} ${MONTHS[now.getMonth()]} ${now.getFullYear()}`, time: `${h}:${m}:${s}` })
-    }
-    tick(); const id = setInterval(tick, 1000); return () => clearInterval(id)
-  }, [])
-
-  const activeRoleData = ROLES.find(r => r.id === activeRole) ?? ROLES[0]
-
   // 4 fitur untuk grid card
   const FITUR = [
     { icon: <Shield className="w-5 h-5" />, label: 'Anti-Nyontek', color: '#a855f7', bg: 'rgba(168,85,247,0.15)' },
@@ -718,18 +374,18 @@ export default function LoginPage() {
           style={{ objectPosition: 'center 30%' }}
         />
         {/* Versi mobile — pakai foto POTRET khusus HP (jika sudah di-upload
-            ke /public/images/siswa-sekolah-mobile.png), full 1 layar tanpa
+            ke /public/images/siswa-sekolah-mobile.webp), full 1 layar tanpa
             perlu awan tambahan karena rasionya sudah pas untuk HP. */}
         {mobileHeroReady && (
           <img
-            src="/images/siswa-sekolah-mobile.png"
+            src="/images/siswa-sekolah-mobile.webp"
             alt="" aria-hidden="true"
             onError={() => setMobileHeroReady(false)}
             className="lg:hidden absolute inset-0 w-full h-full object-cover"
             style={{ objectPosition: 'center top' }}
           />
         )}
-        {/* ── Fallback: dipakai HANYA jika siswa-sekolah-mobile.png belum
+        {/* ── Fallback: dipakai HANYA jika siswa-sekolah-mobile.webp belum
             ada di repo — foto landscape yang sudah ada di-crop condong
             kiri + awan dekoratif mengisi celah, supaya tetap terlihat baik
             sebelum aset foto potret HP di-upload. ── */}
@@ -810,35 +466,8 @@ export default function LoginPage() {
         }
       </button>
 
-      {/* ── Jam WITA — sudut kanan atas, di kiri tombol fullscreen ── */}
-      {witaTime.time && (
-        <div
-          className="absolute top-4 z-20 hidden lg:flex items-center gap-3 select-none"
-          style={{
-            right: isFs ? '11rem' : '12.5rem',
-            background: 'rgba(255,255,255,0.85)',
-            backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
-            border: '1.5px solid rgba(56,189,248,0.35)', borderRadius: '16px',
-            padding: '10px 18px 10px 14px',
-            boxShadow: '0 4px 24px rgba(56,189,248,0.18), 0 0 0 1px rgba(255,255,255,0.5), inset 0 1px 0 rgba(255,255,255,0.6)',
-          }}
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
-            <circle cx="12" cy="12" r="9.5" stroke="#0ea5e9" strokeWidth="2" />
-            <path d="M12 7v5.5l3.5 2" stroke="#0284c7" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-          <span style={{ fontSize: '14px', color: '#334155', fontWeight: 600, letterSpacing: '0.02em', lineHeight: 1 }}>
-            {witaTime.day}, {witaTime.date}
-          </span>
-          <span style={{ width: '1.5px', height: '18px', background: 'rgba(56,189,248,0.3)', flexShrink: 0, borderRadius: '2px' }} />
-          <span style={{ fontSize: '17px', fontWeight: 800, letterSpacing: '0.08em', color: '#0284c7', fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>
-            {witaTime.time}
-          </span>
-          <span style={{ fontSize: '10.5px', fontWeight: 700, letterSpacing: '0.1em', color: '#0c4a6e', background: 'linear-gradient(135deg, rgba(56,189,248,0.25), rgba(20,184,166,0.2))', borderRadius: '7px', padding: '3px 7px', lineHeight: 1.3, border: '1px solid rgba(56,189,248,0.3)' }}>
-            WITA
-          </span>
-        </div>
-      )}
+      {/* ── Jam WITA — komponen terpisah agar tick 1 detik tidak me-render ulang seluruh halaman ── */}
+      <WitaClock isFs={isFs} />
 
       {/* ── LEFT — branding ── */}
       {/* Foto siswa sekarang jadi background penuh 1 layar (lihat blok
@@ -983,7 +612,7 @@ export default function LoginPage() {
                       className="flex-1 flex flex-col items-center justify-center gap-1 py-2.5 rounded-xl text-slate-600 hover:text-slate-900 bg-white/90 border border-white/60 text-[10px] font-medium transition-all">
                       <HelpCircle className="w-4 h-4" /> Q&amp;A
                     </button>
-                    <button type="button" onClick={() => { setShowAktivitas(true); loadAktivitas() }}
+                    <button type="button" onClick={() => { setShowAktivitas(true) }}
                       className="flex-1 flex flex-col items-center justify-center gap-1 py-2.5 rounded-xl text-sky-700 hover:text-sky-900 bg-sky-50/95 border border-sky-200 text-[10px] font-medium transition-all">
                       <Activity className="w-4 h-4" /> Aktivitas
                     </button>
@@ -1093,7 +722,7 @@ export default function LoginPage() {
                 className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-slate-500 hover:text-slate-800 bg-white/70 border border-slate-200 hover:border-slate-300 text-xs font-medium transition-all">
                 <HelpCircle className="w-3.5 h-3.5" /> Q&amp;A
               </button>
-              <button type="button" onClick={() => { setShowAktivitas(true); loadAktivitas() }}
+              <button type="button" onClick={() => { setShowAktivitas(true) }}
                 className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-sky-600 hover:text-sky-800 bg-sky-50/80 border border-sky-200 hover:border-sky-300 text-xs font-medium transition-all">
                 <Activity className="w-3.5 h-3.5" /> Aktivitas
               </button>
@@ -1185,7 +814,7 @@ export default function LoginPage() {
                 {/* Tombol Lihat Aktivitas — closed state desktop */}
                 <button
                   type="button"
-                  onClick={e => { e.stopPropagation(); setShowAktivitas(true); loadAktivitas() }}
+                  onClick={e => { e.stopPropagation(); setShowAktivitas(true) }}
                   className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl mb-4 text-xs font-semibold transition-all"
                   style={{
                     background: 'linear-gradient(135deg, rgba(14,165,233,0.12) 0%, rgba(20,184,166,0.12) 100%)',
@@ -1321,7 +950,7 @@ export default function LoginPage() {
                     {/* Tombol Lihat Aktivitas — desktop */}
                     <button
                       type="button"
-                      onClick={() => { setShowAktivitas(true); loadAktivitas(); resetIdleTimer() }}
+                      onClick={() => { setShowAktivitas(true); resetIdleTimer() }}
                       className="w-full flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-semibold transition-all"
                       style={{
                         background: 'linear-gradient(135deg, rgba(14,165,233,0.12) 0%, rgba(20,184,166,0.12) 100%)',
@@ -1347,420 +976,16 @@ export default function LoginPage() {
         </div>
       </div>
 
-      {/* ══════════════════ MODAL: PANDUAN ══════════════════ */}
       {showGuide && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
-          style={{ backdropFilter: 'blur(8px)', background: 'rgba(10,4,30,0.80)' }}
-          onClick={e => { if (e.target === e.currentTarget) setShowGuide(false) }}
-        >
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
-            <div className="px-4 sm:px-6 py-4 sm:py-5 border-b border-slate-100 flex items-center justify-between flex-shrink-0">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center flex-shrink-0">
-                  <BookMarked className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
-                </div>
-                <div>
-                  <h2 className="font-bold text-slate-900 text-base sm:text-lg">Panduan Penggunaan</h2>
-                  <p className="text-xs text-slate-400">SmartExam — Sistem Ujian Digital</p>
-                </div>
-              </div>
-              <button type="button" onClick={() => setShowGuide(false)}
-                className="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors flex-shrink-0">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="flex flex-col sm:flex-row flex-1 overflow-hidden">
-              <div className="sm:w-44 flex-shrink-0 sm:border-r border-b sm:border-b-0 border-slate-100 sm:py-4 overflow-x-auto sm:overflow-y-auto">
-                <div className="flex sm:flex-col gap-1 p-2 sm:p-0 min-w-max sm:min-w-0">
-                  {ROLES.map(role => (
-                    <button key={role.id} type="button" onClick={() => setActiveRole(role.id)}
-                      className={`flex items-center gap-2 sm:gap-2.5 px-3 sm:px-4 py-2 sm:py-3 rounded-xl sm:rounded-none text-left transition-all text-xs sm:text-sm font-medium whitespace-nowrap sm:whitespace-normal sm:w-full sm:border-r-2 ${
-                        activeRole === role.id
-                          ? `${role.bgLight} ${role.text} border ${role.border} sm:border-0 sm:border-r-2`
-                          : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700 border border-transparent'
-                      }`}
-                    >
-                      <span className={`w-6 h-6 sm:w-7 sm:h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                        activeRole === role.id ? `bg-gradient-to-br ${role.color} text-white` : 'bg-slate-100 text-slate-400'
-                      }`}>{role.icon}</span>
-                      {role.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="flex-1 overflow-y-auto p-4 sm:p-6">
-                <div className={`rounded-2xl p-4 sm:p-5 mb-4 sm:mb-6 bg-gradient-to-br ${activeRoleData.color} text-white`}>
-                  <div className="flex items-center gap-3 mb-2">
-                    <div className="w-9 h-9 sm:w-10 sm:h-10 bg-white/20 rounded-xl flex items-center justify-center flex-shrink-0">{activeRoleData.icon}</div>
-                    <div>
-                      <h3 className="font-bold text-base sm:text-lg">{activeRoleData.label}</h3>
-                      <p className="text-white/80 text-xs sm:text-sm">{activeRoleData.desc}</p>
-                    </div>
-                  </div>
-                </div>
-                <div className="space-y-3">
-                  {activeRoleData.steps.map((step, i) => (
-                    <div key={i} className={`rounded-xl border ${activeRoleData.border} ${activeRoleData.bgLight} p-3 sm:p-4`}>
-                      <div className="flex items-start gap-3">
-                        <div className={`w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-gradient-to-br ${activeRoleData.color} text-white flex items-center justify-center flex-shrink-0 mt-0.5`}>{step.icon}</div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${activeRoleData.badge}`}>{i + 1}</span>
-                            <h4 className={`font-semibold text-sm ${activeRoleData.text}`}>{step.title}</h4>
-                          </div>
-                          <p className="text-sm text-slate-600 leading-relaxed">{step.detail}</p>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                <div className="mt-4 sm:mt-5 p-3 sm:p-4 rounded-xl bg-slate-50 border border-slate-200 flex items-start gap-3">
-                  <CheckCircle className="w-4 h-4 text-emerald-500 flex-shrink-0 mt-0.5" />
-                  <p className="text-xs text-slate-500 leading-relaxed">Butuh bantuan lebih lanjut? Hubungi administrator sistem atau lihat section <strong>Q&A / Bantuan</strong>.</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="px-4 sm:px-6 py-3 sm:py-4 border-t border-slate-100 flex items-center justify-between flex-shrink-0 gap-2">
-              <p className="text-xs text-slate-400 hidden sm:block">SmartExam &copy; {year}</p>
-              <div className="flex gap-2 w-full sm:w-auto">
-                <button type="button" onClick={() => { setShowGuide(false); setShowQA(true) }}
-                  className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 sm:px-4 py-2 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 text-sm font-medium transition-colors">
-                  <HelpCircle className="w-4 h-4" /> Q&amp;A
-                </button>
-                <button type="button" onClick={() => setShowGuide(false)}
-                  className="flex-1 sm:flex-none px-4 py-2 rounded-xl bg-brand-600 text-white text-sm font-medium hover:bg-brand-700 transition-colors">Tutup</button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <GuideModal year={year} onClose={() => setShowGuide(false)} onOpenQA={() => { setShowGuide(false); setShowQA(true) }} />
       )}
 
-      {/* ══════════════════ MODAL: Q&A ══════════════════ */}
       {showQA && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
-          style={{ backdropFilter: 'blur(8px)', background: 'rgba(10,4,30,0.80)' }}
-          onClick={e => { if (e.target === e.currentTarget) setShowQA(false) }}
-        >
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
-            <div className="px-4 sm:px-6 py-4 sm:py-5 border-b border-slate-100 flex items-center justify-between flex-shrink-0">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center flex-shrink-0">
-                  <HelpCircle className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
-                </div>
-                <div>
-                  <h2 className="font-bold text-slate-900 text-base sm:text-lg">Q&A / Bantuan</h2>
-                  <p className="text-xs text-slate-400">Pertanyaan yang sering diajukan & skenario darurat</p>
-                </div>
-              </div>
-              <button type="button" onClick={() => setShowQA(false)}
-                className="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors flex-shrink-0">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-5 sm:space-y-6">
-              {QA_ITEMS.map((section) => (
-                <div key={section.category}>
-                  <div className={`flex items-center gap-2 px-3 py-2 rounded-xl ${section.bg} mb-3`}>
-                    <span className={section.color}>{section.icon}</span>
-                    <h3 className={`font-semibold text-sm ${section.color}`}>{section.category}</h3>
-                  </div>
-                  <div className="space-y-2">
-                    {section.items.map((item, i) => {
-                      const key = `${section.category}-${i}`
-                      const isOpen = openQA === key
-                      return (
-                        <div key={i} className="border border-slate-200 rounded-xl overflow-hidden">
-                          <button type="button" onClick={() => setOpenQA(isOpen ? null : key)}
-                            className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left hover:bg-slate-50 transition-colors">
-                            <span className="text-sm font-medium text-slate-800">{item.q}</span>
-                            {isOpen ? <ChevronUp className="w-4 h-4 text-slate-400 flex-shrink-0" /> : <ChevronDown className="w-4 h-4 text-slate-400 flex-shrink-0" />}
-                          </button>
-                          {isOpen && (
-                            <div className={`px-4 pb-4 pt-1 ${section.bg} border-t border-slate-100`}>
-                              <p className="text-sm text-slate-600 leading-relaxed">{item.a}</p>
-                            </div>
-                          )}
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-              ))}
-              <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
-                <div className="flex items-start gap-3">
-                  <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
-                  <div>
-                    <h4 className="font-semibold text-amber-800 text-sm mb-1">Masalah tidak terdaftar di sini?</h4>
-                    <p className="text-amber-700 text-sm leading-relaxed">Segera hubungi <strong>Administrator Sistem</strong> sekolah Anda. Untuk masalah teknis kritis, administrator perlu menghubungi pengelola sistem untuk penanganan lebih lanjut.</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="px-4 sm:px-6 py-3 sm:py-4 border-t border-slate-100 flex items-center justify-between flex-shrink-0 gap-2">
-              <p className="text-xs text-slate-400 hidden sm:block">SmartExam &copy; {year}</p>
-              <div className="flex gap-2 w-full sm:w-auto">
-                <button type="button" onClick={() => { setShowQA(false); setShowGuide(true) }}
-                  className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 sm:px-4 py-2 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 text-sm font-medium transition-colors">
-                  <BookMarked className="w-4 h-4" /> Panduan
-                </button>
-                <button type="button" onClick={() => setShowQA(false)}
-                  className="flex-1 sm:flex-none px-4 py-2 rounded-xl bg-brand-600 text-white text-sm font-medium hover:bg-brand-700 transition-colors">Tutup</button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <QAModal year={year} onClose={() => setShowQA(false)} onOpenGuide={() => { setShowQA(false); setShowGuide(true) }} />
       )}
 
-      {/* ══════════════════ MODAL: AKTIVITAS ══════════════════ */}
       {showAktivitas && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
-          style={{ backdropFilter: 'blur(8px)', background: 'rgba(10,4,30,0.82)' }}
-          onClick={e => { if (e.target === e.currentTarget) setShowAktivitas(false) }}
-        >
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
-
-            {/* Header */}
-            <div className="px-5 sm:px-6 py-4 sm:py-5 border-b border-slate-100 flex items-center justify-between flex-shrink-0">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center flex-shrink-0">
-                  <Activity className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
-                </div>
-                <div>
-                  <h2 className="font-bold text-slate-900 text-base sm:text-lg">Aktivitas Ujian</h2>
-                  <p className="text-xs text-slate-400">Informasi real-time sekolah</p>
-                </div>
-              </div>
-              <button type="button" onClick={() => setShowAktivitas(false)}
-                className="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors flex-shrink-0">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Tab bar */}
-            <div className="flex gap-1 px-5 sm:px-6 pt-3 pb-0 flex-shrink-0 overflow-x-auto">
-              {[
-                { key: 'ujian', label: 'Ujian Berlangsung', icon: <Radio className="w-3.5 h-3.5" /> },
-                { key: 'jadwal', label: 'Jadwal Hari Ini & Besok', icon: <CalendarDays className="w-3.5 h-3.5" /> },
-                { key: 'juara', label: 'Juara Per Kelas', icon: <Trophy className="w-3.5 h-3.5" /> },
-              ].map(tab => (
-                <button key={tab.key} type="button"
-                  onClick={() => setAktivitasTab(tab.key as typeof aktivitasTab)}
-                  className={`flex items-center gap-1.5 px-3 py-2 rounded-t-xl text-xs font-semibold border-b-2 transition-all whitespace-nowrap ${
-                    aktivitasTab === tab.key
-                      ? 'border-emerald-500 text-emerald-700 bg-emerald-50'
-                      : 'border-transparent text-slate-400 hover:text-slate-600 hover:bg-slate-50'
-                  }`}
-                >
-                  {tab.icon}
-                  <span className="hidden sm:inline">{tab.label}</span>
-                  <span className="sm:hidden">{tab.key === 'ujian' ? 'Live' : tab.key === 'jadwal' ? 'Jadwal' : 'Juara'}</span>
-                </button>
-              ))}
-            </div>
-            <div className="h-px bg-slate-100 flex-shrink-0 mx-5 sm:mx-6" />
-
-            {/* Content */}
-            <div className="flex-1 overflow-y-auto p-5 sm:p-6">
-              {aktivitasLoading ? (
-                <div className="flex flex-col items-center justify-center py-16 gap-3 text-slate-400">
-                  <Loader2 className="w-8 h-8 animate-spin text-emerald-400" />
-                  <p className="text-sm">Memuat data...</p>
-                </div>
-              ) : (
-                <>
-                  {/* ── Tab: Ujian Berlangsung ── */}
-                  {aktivitasTab === 'ujian' && (
-                    <div>
-                      {ujianBerlangsung.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center py-14 gap-3">
-                          <div className="w-14 h-14 rounded-2xl bg-slate-100 flex items-center justify-center">
-                            <Radio className="w-7 h-7 text-slate-300" />
-                          </div>
-                          <p className="text-slate-400 text-sm font-medium">Tidak ada ujian yang sedang berlangsung</p>
-                          <p className="text-slate-300 text-xs">Ujian aktif akan muncul di sini secara real-time</p>
-                        </div>
-                      ) : (
-                        <div className="space-y-3">
-                          <div className="flex items-center gap-2 mb-3">
-                            <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-red-50 border border-red-200 text-red-600 text-xs font-semibold">
-                              <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-                              {ujianBerlangsung.length} sesi aktif
-                            </span>
-                          </div>
-                          {ujianBerlangsung.map(u => (
-                            <div key={u.id} className="rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-teal-50 p-4">
-                              <div className="flex items-start gap-3">
-                                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center flex-shrink-0">
-                                  <ClipboardList className="w-4 h-4 text-white" />
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                  <p className="font-bold text-slate-900 text-sm">{u.mapel}</p>
-                                  <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-1">
-                                    <span className="flex items-center gap-1 text-xs text-slate-500">
-                                      <GraduationCap className="w-3 h-3" /> Kelas {u.kelas}
-                                    </span>
-                                    {u.sekolah && u.sekolah !== '-' && (
-                                      <span className="px-1.5 py-0.5 rounded-md bg-emerald-100 text-emerald-700 text-[10px] font-semibold">
-                                        {u.sekolah}
-                                      </span>
-                                    )}
-                                    <span className="flex items-center gap-1 text-xs text-slate-500">
-                                      <Users className="w-3 h-3" /> Pengawas: <span className="font-medium text-slate-700 ml-1">{u.pengawas}</span>
-                                    </span>
-                                    <span className="flex items-center gap-1 text-xs text-slate-400">
-                                      <Clock className="w-3 h-3" /> Mulai: {new Date(u.waktu_mulai).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
-                                    </span>
-                                  </div>
-                                </div>
-                                <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-100 text-red-600 text-[10px] font-bold flex-shrink-0">
-                                  <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" /> LIVE
-                                </span>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* ── Tab: Jadwal Hari Ini & Besok ── */}
-                  {aktivitasTab === 'jadwal' && (
-                    <div>
-                      {jadwalList.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center py-14 gap-3">
-                          <div className="w-14 h-14 rounded-2xl bg-slate-100 flex items-center justify-center">
-                            <CalendarDays className="w-7 h-7 text-slate-300" />
-                          </div>
-                          <p className="text-slate-400 text-sm font-medium">Tidak ada jadwal untuk hari ini dan besok</p>
-                        </div>
-                      ) : (
-                        <div className="space-y-5">
-                          {(['today', 'tomorrow'] as const).map(which => {
-                            const items = jadwalList.filter(j => which === 'today' ? j.isToday : !j.isToday)
-                            if (items.length === 0) return null
-                            const tanggalLabel = items[0].tanggal
-                            const label = which === 'today' ? 'Hari Ini' : 'Besok'
-                            return (
-                              <div key={which}>
-                                <div className={`flex items-center gap-2 px-3 py-2 rounded-xl mb-3 ${which === 'today' ? 'bg-blue-50' : 'bg-amber-50'}`}>
-                                  <CalendarDays className={`w-4 h-4 ${which === 'today' ? 'text-blue-500' : 'text-amber-500'}`} />
-                                  <span className={`font-semibold text-sm ${which === 'today' ? 'text-blue-700' : 'text-amber-700'}`}>{label}</span>
-                                  <span className={`text-xs ${which === 'today' ? 'text-blue-400' : 'text-amber-400'}`}>— {tanggalLabel}</span>
-                                </div>
-                                <div className="space-y-2">
-                                  {items.map(j => (
-                                    <div key={j.id} className="rounded-xl border border-slate-200 bg-white p-3.5 flex items-center gap-3">
-                                      <div className={`w-1 self-stretch rounded-full flex-shrink-0 ${
-                                        j.status === 'BERJALAN' ? 'bg-emerald-400' : j.status === 'SELESAI' ? 'bg-slate-300' : 'bg-blue-400'
-                                      }`} />
-                                      <div className="flex-1 min-w-0">
-                                        <p className="font-semibold text-slate-800 text-sm">{j.mapel}</p>
-                                        <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5">
-                                          <span className="flex items-center gap-1 text-xs text-slate-500">
-                                            <GraduationCap className="w-3 h-3" /> Kelas {j.kelas}
-                                          </span>
-                                          {j.sekolah && j.sekolah !== '-' && (
-                                            <span className="px-1.5 py-0.5 rounded-md bg-blue-100 text-blue-700 text-[10px] font-semibold">
-                                              {j.sekolah}
-                                            </span>
-                                          )}
-                                          <span className="flex items-center gap-1 text-xs text-slate-500">
-                                            <Clock className="w-3 h-3" /> {j.jam}
-                                          </span>
-                                        </div>
-                                      </div>
-                                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold flex-shrink-0 ${
-                                        j.status === 'BERJALAN' ? 'bg-emerald-100 text-emerald-700' :
-                                        j.status === 'SELESAI' ? 'bg-slate-100 text-slate-500' :
-                                        'bg-blue-100 text-blue-700'
-                                      }`}>
-                                        {j.status === 'BERJALAN' ? 'Berlangsung' : j.status === 'SELESAI' ? 'Selesai' : 'Terjadwal'}
-                                      </span>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            )
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* ── Tab: Juara Per Kelas ── */}
-                  {aktivitasTab === 'juara' && (
-                    <div>
-                      {juaraList.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center py-14 gap-3">
-                          <div className="w-14 h-14 rounded-2xl bg-slate-100 flex items-center justify-center">
-                            <Trophy className="w-7 h-7 text-slate-300" />
-                          </div>
-                          <p className="text-slate-400 text-sm font-medium">Belum ada data nilai untuk ditampilkan</p>
-                          <p className="text-slate-300 text-xs">Juara per kelas dihitung dari akumulasi semua mata pelajaran</p>
-                        </div>
-                      ) : (
-                        <div className="space-y-3">
-                          <p className="text-xs text-slate-400 mb-3">Berdasarkan rata-rata nilai akumulasi semua mata pelajaran</p>
-                          {juaraList.map((j, idx) => (
-                            <div key={j.kelas} className="rounded-2xl border border-slate-200 bg-white p-4 flex items-center gap-4">
-                              <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
-                                idx === 0 ? 'bg-gradient-to-br from-yellow-400 to-amber-500' :
-                                idx === 1 ? 'bg-gradient-to-br from-slate-400 to-slate-500' :
-                                idx === 2 ? 'bg-gradient-to-br from-orange-400 to-amber-600' :
-                                'bg-gradient-to-br from-slate-100 to-slate-200'
-                              }`}>
-                                {idx < 3
-                                  ? <Trophy className="w-5 h-5 text-white" />
-                                  : <span className="text-xs font-bold text-slate-500">{idx + 1}</span>
-                                }
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <p className="font-bold text-slate-900 text-sm">{j.nama_siswa}</p>
-                                <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1.5">
-                                  <span className="flex items-center gap-1"><GraduationCap className="w-3 h-3" /> Kelas {j.kelas}</span>
-                                  {j.sekolah && j.sekolah !== '-' && (
-                                    <span className="px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-700 text-[10px] font-semibold">
-                                      {j.sekolah}
-                                    </span>
-                                  )}
-                                </p>
-                              </div>
-                              <div className="text-right flex-shrink-0">
-                                <p className={`text-2xl font-black ${
-                                  j.nilai_rata >= 90 ? 'text-emerald-600' :
-                                  j.nilai_rata >= 75 ? 'text-blue-600' :
-                                  'text-orange-500'
-                                }`}>{j.nilai_rata}</p>
-                                <p className="text-[10px] text-slate-400">rata-rata</p>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-
-            {/* Footer */}
-            <div className="px-5 sm:px-6 py-3 sm:py-4 border-t border-slate-100 flex items-center justify-between flex-shrink-0 gap-2">
-              <button type="button" onClick={loadAktivitas} disabled={aktivitasLoading}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 text-xs font-medium transition-all disabled:opacity-50">
-                <Loader2 className={`w-3.5 h-3.5 ${aktivitasLoading ? 'animate-spin' : ''}`} />
-                Refresh
-              </button>
-              <button type="button" onClick={() => setShowAktivitas(false)}
-                className="px-5 py-2 rounded-xl bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 transition-colors">
-                Tutup
-              </button>
-            </div>
-          </div>
-        </div>
+        <AktivitasModal onClose={() => setShowAktivitas(false)} />
       )}
     </div>
   )
