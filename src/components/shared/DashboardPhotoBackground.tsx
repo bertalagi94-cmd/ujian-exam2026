@@ -26,24 +26,29 @@ export function DashboardPhotoBackground({ tint, active = true }: DashboardPhoto
 
   return (
     <div className="fixed inset-0 overflow-hidden pointer-events-none" style={{ zIndex: 0 }} aria-hidden="true">
-      {/* Foto — di-scale sedikit supaya tepi hasil blur tidak menampakkan area kosong */}
+      {/* Foto — di-scale sedikit supaya tepi hasil blur tidak menampakkan area kosong.
+          Blur dijaga tipis (bukan 18px) supaya fotonya masih benar-benar terlihat,
+          senada dengan kaca form login (bukan cuma warna pastel polos). */}
       <div
         className="absolute inset-0"
         style={{
           backgroundImage: "url('/images/siswa-sekolah.webp')",
           backgroundSize: 'cover',
           backgroundPosition: 'center',
-          transform: 'scale(1.1)',
-          filter: 'blur(18px) saturate(110%)',
+          transform: 'scale(1.06)',
+          filter: 'blur(8px) saturate(115%)',
         }}
       />
-      {/* Tint kaca — senada warna role, menjaga kontras konten di atasnya */}
+      {/* Tint kaca — tipis, sekadar penanda warna khas role + sedikit
+          keputihan di pojok supaya judul halaman yang tidak berada di
+          dalam kartu tetap kebaca. Kartu (.card) sendiri sudah solid putih,
+          jadi lapisan ini TIDAK perlu menutupi foto sampai pudar. */}
       <div
         className="absolute inset-0"
         style={{
-          background: `linear-gradient(135deg, ${hexToRgba(tint, 0.5)} 0%, rgba(255,255,255,0.78) 55%, rgba(255,255,255,0.9) 100%)`,
-          backdropFilter: 'blur(2px) saturate(140%)',
-          WebkitBackdropFilter: 'blur(2px) saturate(140%)',
+          background: `linear-gradient(135deg, ${hexToRgba(tint, 0.4)} 0%, ${hexToRgba(tint, 0.18)} 45%, rgba(255,255,255,0.22) 100%)`,
+          backdropFilter: 'blur(1px) saturate(150%)',
+          WebkitBackdropFilter: 'blur(1px) saturate(150%)',
         }}
       />
     </div>
