@@ -263,8 +263,8 @@ export default function WaliKelasPage() {
             </div>
             <span className="text-xs font-semibold text-emerald-600 uppercase tracking-wider">Wali Kelas</span>
           </div>
-          <h1 className="text-2xl font-bold text-slate-900">Kelas {kelas.nama}</h1>
-          <p className="text-slate-500 text-sm mt-0.5">
+          <h1 className="page-title">Kelas {kelas.nama}</h1>
+          <p className="page-subtitle">
             {totalSiswa} siswa · {totalMapel} mata pelajaran
             {kelas.jurusan && kelas.jurusan !== '-' ? ` · ${kelas.jurusan}` : ''}
           </p>
