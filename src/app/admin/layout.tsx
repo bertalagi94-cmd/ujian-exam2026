@@ -4,6 +4,7 @@ import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { AdminSidebar } from '@/components/shared/Sidebar'
 import { FullscreenButton } from '@/components/shared/FullscreenButton'
+import { DashboardPhotoBackground } from '@/components/shared/DashboardPhotoBackground'
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter()
@@ -21,6 +22,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     <div className="flex min-h-screen" style={{
       background: 'linear-gradient(135deg, #cffafe 0%, #e0f7fa 35%, #f0f9ff 70%, #ecfeff 100%)',
     }}>
+      {/* Latar kaca transparan (opsional, lihat saklar di Beranda) — foto
+          siswa yang sama seperti di halaman login, diburamkan + tint cyan. */}
+      <DashboardPhotoBackground tint="#0891b2" />
       {/* Decorative SVG mesh — pure SVG, zero JS, zero server cost */}
       <svg aria-hidden="true" className="pointer-events-none fixed inset-0 w-full h-full" style={{ zIndex: 0, opacity: 0.5 }}
         viewBox="0 0 1440 900" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
