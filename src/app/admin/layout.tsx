@@ -3,7 +3,7 @@
 import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { AdminSidebar } from '@/components/shared/Sidebar'
-import { FullscreenButton } from '@/components/shared/FullscreenButton'
+import { TopBarControls } from '@/components/shared/TopBarControls'
 import { DashboardPhotoBackground } from '@/components/shared/DashboardPhotoBackground'
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
@@ -84,7 +84,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       </svg>
       <div className="relative z-10 flex w-full">
         <AdminSidebar />
-        <FullscreenButton />
+        <TopBarControls accent="#0891b2" />
         <main className="flex-1 min-w-0 p-6 lg:p-8 pt-16 lg:pt-16">
           {children}
         </main>
