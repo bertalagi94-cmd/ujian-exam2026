@@ -444,8 +444,8 @@ export default function JadwalPengawasanPage() {
             </div>
             <span className="text-xs font-semibold text-indigo-600 uppercase tracking-wider">Jadwal Pengawasan</span>
           </div>
-          <h1 className="text-2xl font-bold text-slate-900">Jadwal Mengawas Ujian</h1>
-          <p className="text-slate-500 text-sm mt-0.5">Daftar seluruh jadwal ujian yang Anda awasi</p>
+          <h1 className="page-title">Jadwal Mengawas Ujian</h1>
+          <p className="page-subtitle">Daftar seluruh jadwal ujian yang Anda awasi</p>
         </div>
         <button
           onClick={() => load(true)}
