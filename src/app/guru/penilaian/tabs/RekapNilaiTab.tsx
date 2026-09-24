@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import * as XLSX from 'xlsx'
 import { Download, BarChart3, Trophy, TrendingUp, Users, CheckCircle, AlertTriangle, ShieldCheck, Pencil, Save, Lock } from 'lucide-react'
 import { PageLoader, EmptyState, SearchInput, StatCard, Modal, Toast } from '@/components/ui'
 import { apiRequest, formatDateTime, nilaiColor } from '@/lib/utils'
@@ -137,6 +136,11 @@ export function RekapNilaiTab({ onDataChanged }: { onDataChanged?: () => void } 
     if (!mapelList.length) return
     setExporting(true)
     try {
+      // PERF: xlsx (~600KB) dimuat baru sekarang, saat guru benar-benar klik
+      // tombol export — sebelumnya static import ikut membesarkan bundle JS
+      // awal tab ini padahal belum tentu dipakai.
+      const XLSX = await import('xlsx')
+
       // Selalu ambil data LENGKAP (tanpa filter mapel/kelas yang sedang aktif di
       // tabel) supaya setiap sheet mapel berisi rekap penuh, bukan cuma sebagian
       // yang kebetulan sedang tersaring di tampilan.
