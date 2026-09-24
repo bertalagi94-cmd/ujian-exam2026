@@ -489,24 +489,6 @@ export default function LoginPage() {
           </div>
 
           <div>
-            <h1 className="text-4xl xl:text-5xl font-bold leading-tight mb-3 cursor-default w-fit text-white"
-              style={{
-                transition: 'transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1)', display: 'inline-block', transformOrigin: 'left center',
-                textShadow: '0 2px 6px rgba(0,0,0,0.65), 0 4px 22px rgba(0,0,0,0.5)',
-              }}
-              onMouseEnter={e => { (e.currentTarget as HTMLHeadingElement).style.transform = 'scale(1.08)' }}
-              onMouseLeave={e => { (e.currentTarget as HTMLHeadingElement).style.transform = 'scale(1)' }}
-            >
-              Ujian Digital<br />
-              <span style={{
-                background: 'linear-gradient(90deg, #fff9c4, #ffe066, #ffd23f)',
-                WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
-                backgroundClip: 'text',
-                filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.75)) drop-shadow(0 5px 18px rgba(0,0,0,0.55))',
-              }}>
-                Lebih Mudah & Adil
-              </span>
-            </h1>
             <p className="text-white/95 text-sm leading-relaxed max-w-xs" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.6), 0 2px 10px rgba(0,0,0,0.4)' }}>
               Sistem CBT modern{siteInfo.namaSekolah ? ` untuk ${siteInfo.namaSekolah}` : ''}{' '}
               dengan fitur anti-nyontek, penilaian otomatis, dan monitoring real-time.
@@ -966,6 +948,41 @@ export default function LoginPage() {
                 </div>
               </div>
             )}
+          </div>
+
+          {/* ── Teks berjalan — dulu headline besar "Ujian Digital / Lebih
+              Mudah & Adil" di panel kiri, sekarang jadi running text tipis
+              di bawah form login (desktop), supaya form tetap jadi fokus
+              utama tapi taglinenya tetap terlihat "hidup". Dua salinan teks
+              berdampingan (digeser bareng -50% lewat .login-marquee-track,
+              lihat globals.css) supaya loop-nya mulus tanpa jeda. ── */}
+          <div
+            className="hidden lg:block mt-4 overflow-hidden select-none"
+            style={{
+              maskImage: 'linear-gradient(90deg, transparent, black 10%, black 90%, transparent)',
+              WebkitMaskImage: 'linear-gradient(90deg, transparent, black 10%, black 90%, transparent)',
+            }}
+            aria-hidden="true"
+          >
+            <div className="login-marquee-track flex items-center w-max">
+              {[0, 1].map(copy => (
+                <span key={copy} className="flex items-center flex-shrink-0">
+                  {Array.from({ length: 4 }).map((_, i) => (
+                    <span key={i} className="flex items-center gap-2 pr-6 text-sm font-bold tracking-wide whitespace-nowrap">
+                      <span className="text-white" style={{ textShadow: '0 2px 6px rgba(0,0,0,0.55)' }}>Ujian Digital</span>
+                      <span style={{
+                        background: 'linear-gradient(90deg, #fff9c4, #ffe066, #ffd23f)',
+                        WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text',
+                        filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.55))',
+                      }}>
+                        Lebih Mudah &amp; Adil
+                      </span>
+                      <span className="text-white/40 pl-4">&#9670;</span>
+                    </span>
+                  ))}
+                </span>
+              ))}
+            </div>
           </div>
 
           {(siteInfo.namaSekolah || siteInfo.kota) && (
