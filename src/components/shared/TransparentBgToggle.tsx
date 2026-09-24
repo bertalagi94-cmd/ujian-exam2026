@@ -27,10 +27,7 @@ export function TransparentBgToggle({ accent = '#0ea5e9' }: TransparentBgToggleP
           <Sparkles className="w-5 h-5" style={{ color: accent }} />
         </div>
         <div className="min-w-0">
-          <p className="text-sm font-semibold text-slate-800">Latar Kaca Transparan</p>
-          <p className="text-xs text-slate-400 mt-0.5">
-            Tampilkan efek kaca buram seperti di halaman login pada latar dashboard Anda.
-          </p>
+          <p className="text-sm font-semibold text-slate-800">Efek Transparan</p>
         </div>
       </div>
       <button
