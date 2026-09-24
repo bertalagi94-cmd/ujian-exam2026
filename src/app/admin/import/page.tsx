@@ -1,7 +1,13 @@
 'use client'
 
 import { useState, useRef } from 'react'
-import * as XLSX from 'xlsx'
+// PERF: sebelumnya `import * as XLSX from 'xlsx'` (static) — xlsx ukurannya
+// besar (~600KB) dan ikut masuk ke bundle JS awal halaman ini padahal baru
+// dipakai setelah user memilih file. Diganti jadi type-only import (dihapus
+// total oleh compiler, tidak ada kode yang dikirim ke browser) + dynamic
+// import() di handleFile saat benar-benar dibutuhkan. Tidak ada perubahan
+// perilaku/logika sama sekali.
+import type * as XLSXType from 'xlsx'
 import {
   Upload, CheckCircle, XCircle, AlertCircle,
   FileSpreadsheet, ChevronRight, Loader2, Info
@@ -81,7 +87,7 @@ interface StepResult {
 
 export default function ImportPage() {
   const fileRef = useRef<HTMLInputElement>(null)
-  const [workbook, setWorkbook] = useState<XLSX.WorkBook | null>(null)
+  const [workbook, setWorkbook] = useState<XLSXType.WorkBook | null>(null)
   const [fileName, setFileName] = useState('')
   const [sheetMap, setSheetMap] = useState<Record<string, Record<string, unknown>[]>>({})
   const [results, setResults] = useState<Record<string, StepResult>>({})
@@ -89,12 +95,16 @@ export default function ImportPage() {
   const [globalError, setGlobalError] = useState('')
 
   // ─── Baca file xlsx ─────────────────────────────────────────────────────
-  function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
     setFileName(file.name)
     setResults({})
     setGlobalError('')
+
+    // PERF: dimuat baru sekarang (saat user benar-benar memilih file),
+    // bukan saat halaman pertama kali dibuka.
+    const XLSX = await import('xlsx')
 
     const reader = new FileReader()
     reader.onload = (ev) => {
