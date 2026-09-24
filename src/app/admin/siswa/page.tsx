@@ -1,5 +1,10 @@
 'use client'
-import * as XLSX from 'xlsx'
+// PERF: sebelumnya `import * as XLSX from 'xlsx'` (static) — xlsx (~600KB)
+// ikut masuk ke bundle awal halaman Data Siswa padahal cuma dipakai saat
+// user klik Export/Download Template/Import. Diganti type-only import
+// (dihapus oleh compiler) + dynamic import() di tiap handler yang
+// memakainya. Tidak ada perubahan perilaku/logika.
+import type * as XLSXType from 'xlsx'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Plus, Upload, Download, Pencil, Trash2, RotateCcw, Search, FileDown, Eye } from 'lucide-react'
 import { Modal, Confirm, StatusBadge, SearchInput, Pagination, EmptyState, Spinner, Toast } from '@/components/ui'
@@ -17,7 +22,7 @@ const PER_PAGE = 20
 // type date". Fungsi ini menormalkan ketiga kemungkinan bentuk nilai sel
 // (serial number, objek Date hasil parsing SheetJS, atau teks tanggal biasa)
 // menjadi string YYYY-MM-DD yang valid untuk Postgres.
-function excelDateToISO(value: unknown): string | undefined {
+function excelDateToISO(XLSX: typeof XLSXType, value: unknown): string | undefined {
   if (value === null || value === undefined || value === '') return undefined
 
   // Sel sudah berupa objek Date (SheetJS kadang sudah otomatis parse ini)
@@ -212,6 +217,7 @@ export default function AdminSiswaPage() {
   async function handleExport() {
     try {
       showToast('Mengekspor data siswa...')
+      const XLSX = await import('xlsx')
       const params = new URLSearchParams({
         page: '1',
         per_page: '99999',
@@ -247,7 +253,8 @@ export default function AdminSiswaPage() {
   }
 
   // ── DOWNLOAD TEMPLATE ───────────────────────────────────────────────────
-  function handleDownloadTemplate() {
+  async function handleDownloadTemplate() {
+    const XLSX = await import('xlsx')
     const templateRows = [
       {
         NIS: '12345',
@@ -294,9 +301,11 @@ export default function AdminSiswaPage() {
   }
 
   // ── IMPORT: read file ───────────────────────────────────────────────────
-  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
+
+    const XLSX = await import('xlsx')
 
     const reader = new FileReader()
     reader.onload = (ev) => {
@@ -316,7 +325,7 @@ export default function AdminSiswaPage() {
               ? String(r['Jenis Kelamin']).trim().toUpperCase()
               : undefined,
             tempat_lahir: r['Tempat Lahir'] ? String(r['Tempat Lahir']).trim() : undefined,
-            tanggal_lahir: excelDateToISO(r['Tanggal Lahir']),
+            tanggal_lahir: excelDateToISO(XLSX, r['Tanggal Lahir']),
             status: r['Status'] ? String(r['Status']).trim().toUpperCase() : 'AKTIF',
           }))
 
