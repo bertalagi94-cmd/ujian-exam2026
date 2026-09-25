@@ -488,7 +488,7 @@ export function KirimNilaiTab({
                                     dilewati saat "Kirim ke Wali Kelas" ditekan. */}
                                 {n.essay_belum_dirilis && (
                                   <span className="flex items-center gap-1 text-[11px] bg-indigo-100 text-indigo-700 border border-indigo-200 px-1.5 py-0.5 rounded-full font-medium">
-                                    <FileText className="w-3 h-3" /> Menunggu essay
+                                    <FileText className="w-3 h-3" /> Essay belum dinilai
                                   </span>
                                 )}
                               </div>
