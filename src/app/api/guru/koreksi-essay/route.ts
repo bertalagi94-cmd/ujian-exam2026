@@ -149,7 +149,7 @@ export async function GET(req: NextRequest) {
 
   const [{ data: siswaList }, { data: nilaiList }] = await Promise.all([
     db.from('siswa').select('nis, nama').in('nis', nisList),
-    db.from('nilai').select('nis, benar, total, kkm, nilai, nilai_essay, nilai_total, dinilai_pada, dirilis').eq('sesi_id', sesiId).in('nis', nisList),
+    db.from('nilai').select('nis, benar, total, kkm, nilai, nilai_essay, nilai_total, dinilai_pada, dirilis, dikirim_ke_wali').eq('sesi_id', sesiId).in('nis', nisList),
   ])
   const namaMap = Object.fromEntries((siswaList ?? []).map(s => [s.nis, s.nama]))
   const nilaiMap = Object.fromEntries((nilaiList ?? []).map(n => [n.nis, n]))
@@ -223,6 +223,11 @@ export async function GET(req: NextRequest) {
     nilaiTotal: nilaiMap[p.nis]?.nilai_total ?? null,
     sudahDinilai: nilaiMap[p.nis]?.dinilai_pada != null || p.status_essay === 'TIDAK_MENGERJAKAN',
     dirilis: nilaiMap[p.nis]?.dirilis ?? false,
+    // FIX (kunci nilai essay setelah kirim ke wali kelas): dikirim ke
+    // frontend supaya form skor & tombol Simpan/Tidak Mengerjakan bisa
+    // dikunci begitu nilai siswa ini sudah terkirim ke wali kelas — lihat
+    // guard yang sama di PUT di bawah & di simpan_koreksi_essay_atomik().
+    dikirimKeWali: nilaiMap[p.nis]?.dikirim_ke_wali ?? false,
     // FIX (penilaian berbasis rubrik): skor per soal yang sudah tersimpan,
     // supaya form koreksi bisa menampilkannya lagi saat dibuka ulang.
     skorPerSoal: skorMap[p.nis] ?? {},
@@ -286,13 +291,26 @@ export async function PUT(req: NextRequest) {
 
   const { data: nilaiRow } = await db
     .from('nilai')
-    .select('id, nilai, kkm, dirilis')
+    .select('id, nilai, kkm, dirilis, dikirim_ke_wali')
     .eq('sesi_id', sesiId)
     .eq('nis', nis)
     .single()
 
   if (!nilaiRow) {
     return NextResponse.json({ error: 'Nilai PG siswa ini belum ada — siswa belum submit ujian PG.' }, { status: 404 })
+  }
+
+  // FIX DESAIN (kunci nilai essay setelah kirim ke wali kelas): begitu nilai
+  // siswa ini sudah dikirim ke wali kelas (dikirim_ke_wali = true), guru
+  // tidak boleh lagi mengubah nilai essay-nya lewat endpoint ini — wali kelas
+  // sudah menerima nilai final tersebut. Guard yang SAMA juga ditanam di
+  // simpan_koreksi_essay_atomik() (lihat 31_kunci_essay_setelah_kirim_wali.sql)
+  // sebagai lapisan pertahanan kedua, kalau-kalau ada jalur lain yang
+  // memanggil fungsi itu di masa depan tanpa lewat guard di sini.
+  if (nilaiRow.dikirim_ke_wali) {
+    return NextResponse.json({
+      error: 'Nilai siswa ini sudah dikirim ke wali kelas dan tidak bisa diubah lagi. Hubungi admin/wali kelas jika perlu koreksi.',
+    }, { status: 409 })
   }
 
   let finalNilaiEssay = 0
@@ -432,6 +450,16 @@ export async function PUT(req: NextRequest) {
   const hasilRpc = rpcHasil as { hasil?: string; sudah_pernah_dirilis?: boolean } | null
   if (hasilRpc?.hasil === 'NILAI_TIDAK_ADA') {
     return NextResponse.json({ error: 'Nilai PG siswa ini belum ada — siswa belum submit ujian PG.' }, { status: 404 })
+  }
+  // FIX (kunci nilai essay setelah kirim ke wali kelas): jaring pengaman
+  // kedua — kalau nilai sempat dikirim ke wali TEPAT di antara pengecekan
+  // di atas dan RPC ini dijalankan (race condition), fungsi database akan
+  // menolak perubahan dan mengembalikan status ini alih-alih diam-diam
+  // menyimpan.
+  if (hasilRpc?.hasil === 'SUDAH_DIKIRIM_WALI') {
+    return NextResponse.json({
+      error: 'Nilai siswa ini sudah dikirim ke wali kelas dan tidak bisa diubah lagi. Hubungi admin/wali kelas jika perlu koreksi.',
+    }, { status: 409 })
   }
   if (hasilRpc?.hasil !== 'OK') {
     return NextResponse.json({ error: 'Gagal menyimpan koreksi essay (respons tidak dikenali). Coba lagi.' }, { status: 500 })
