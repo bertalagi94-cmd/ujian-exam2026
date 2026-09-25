@@ -115,6 +115,7 @@ export async function GET(req: NextRequest) {
         waktu: r.waktu_mulai,
         online,
         last_heartbeat: r.last_heartbeat,
+        sesi_id: r.sesi_id,
       }
     })
 
