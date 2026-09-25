@@ -523,3 +523,21 @@
     animation: none;
   }
 }
+
+/* ── Indikator titik "LIVE" di MonitoringPanel ───────────────────────────
+   Kedip singkat tiap kali ada event aktivitas baru masuk lewat polling
+   /api/admin/monitoring/live (key={liveTick} me-remount elemen ini
+   sehingga animasi restart tiap event baru, bukan cuma loop terus). */
+@keyframes monPulse {
+  0%   { transform: scale(1);   opacity: 1;   box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.55); }
+  70%  { transform: scale(1.15); opacity: 0.85; box-shadow: 0 0 0 5px rgba(16, 185, 129, 0); }
+  100% { transform: scale(1);   opacity: 1;   box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+}
+.mon-pulse {
+  animation: monPulse 0.9s ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .mon-pulse {
+    animation: none;
+  }
+}
