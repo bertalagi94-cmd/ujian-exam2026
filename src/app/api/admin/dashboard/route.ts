@@ -13,6 +13,7 @@ async function fetchDashboardData() {
     { count: totalSiswa },
     { count: totalGuru },
     { count: totalSoal },
+    { count: totalPaketSoal },
     { count: totalNilai },
     { count: totalMapel },
     { count: jadwalAktif },
@@ -23,6 +24,9 @@ async function fetchDashboardData() {
     db.from('siswa').select('*', { count: 'exact', head: true }).eq('status', 'AKTIF').neq('is_tester', 'YES'),
     db.from('users').select('*', { count: 'exact', head: true }).eq('status', 'AKTIF').eq('role', 'GURU').neq('is_tester', 'YES'),
     db.from('soal').select('*', { count: 'exact', head: true }).eq('status', 'DISETUJUI'),
+    // Kartu "Bank Soal" di dashboard menampilkan JUMLAH PAKET SOAL (bukan
+    // jumlah butir soal) — status DISETUJUI supaya konsisten dgn totalSoal.
+    db.from('paket_soal').select('*', { count: 'exact', head: true }).eq('status', 'DISETUJUI'),
     db.from('nilai').select('*', { count: 'exact', head: true }),
     db.from('mapel').select('*', { count: 'exact', head: true }),
     db.from('jadwal').select('*', { count: 'exact', head: true }).eq('status', 'AKTIF'),
@@ -95,6 +99,7 @@ async function fetchDashboardData() {
       totalSiswa: totalSiswa ?? 0,
       totalGuru: totalGuru ?? 0,
       totalSoal: totalSoal ?? 0,
+      totalPaketSoal: totalPaketSoal ?? 0,
       totalNilai: totalNilai ?? 0,
       totalMapel: totalMapel ?? 0,
       jadwalAktif: jadwalAktif ?? 0,
