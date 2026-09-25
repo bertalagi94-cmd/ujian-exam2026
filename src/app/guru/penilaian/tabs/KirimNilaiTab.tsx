@@ -487,10 +487,22 @@ export function KirimNilaiTab({
                                     sesudahnya — supaya kelihatan dari awal siswa mana yang akan
                                     dilewati saat "Kirim ke Wali Kelas" ditekan. */}
                                 {n.essay_belum_dirilis && (
-                                  <span className="flex items-center gap-1 text-[11px] bg-indigo-100 text-indigo-700 border border-indigo-200 px-1.5 py-0.5 rounded-full font-medium">
-                                    <FileText className="w-3 h-3" /> Essay belum dinilai
+                                n.nilai_essay !== null && n.nilai_essay !== undefined ? (
+                                  <span
+                                    className="flex items-center gap-1 text-[11px] bg-amber-100 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded-full font-medium"
+                                    title="Nilai essay sudah diinput — tinggal ditekan tombol Rilis di tab Rekap Nilai"
+                                  >
+                                    <FileText className="w-3 h-3" /> Menunggu dirilis
                                   </span>
-                                )}
+                                ) : (
+                                  <span
+                                    className="flex items-center gap-1 text-[11px] bg-indigo-100 text-indigo-700 border border-indigo-200 px-1.5 py-0.5 rounded-full font-medium"
+                                    title="Guru belum menginput nilai essay siswa ini"
+                                  >
+                                    <FileText className="w-3 h-3" /> Belum dinilai
+                                  </span>
+                                )
+                              )}
                               </div>
                               <div className="text-xs text-slate-400">{n.nis}</div>
                             </td>
