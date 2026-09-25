@@ -130,21 +130,47 @@ export async function GET(req: NextRequest) {
   // siswa_diizinkan, untuk sesi reguler pakai siswa AKTIF di kelas tsb —
   // lalu kirim sebagai totalTargetSiswa supaya frontend bisa menghitung
   // "belum menjawab" = totalTargetSiswa - sudahMenjawab dengan benar.
+  //
+  // FITUR BARU (tampilkan siswa yang belum ujian di tab Periksa Essay):
+  // sebelumnya siswa yang sama sekali belum mengikuti ujian (tidak pernah
+  // masuk siswa_ujian, atau statusnya masih BELUM_MULAI/MENGERJAKAN) TIDAK
+  // PERNAH muncul di halaman ini sama sekali — guru tidak tahu siapa saja
+  // yang belum ujian tanpa cek halaman lain. Sekarang kita ambil roster
+  // NIS+nama lengkapnya (bukan cuma count), supaya sisanya (roster minus
+  // yang sudah masuk `peserta`) bisa ditampilkan sebagai baris terpisah di
+  // bagian bawah tabel dengan pesan "belum ujian" yang jelas.
   let totalTargetSiswa = 0
+  let rosterSiswa: { nis: string; nama: string }[] = []
   if (sesi.is_darurat && Array.isArray(sesi.siswa_diizinkan) && sesi.siswa_diizinkan.length > 0) {
     totalTargetSiswa = sesi.siswa_diizinkan.length
-  } else if (sesi.kelas) {
-    const { count } = await db
+    const { data: siswaDarurat } = await db
       .from('siswa')
-      .select('nis', { count: 'exact', head: true })
+      .select('nis, nama')
+      .in('nis', sesi.siswa_diizinkan)
+    rosterSiswa = siswaDarurat ?? []
+  } else if (sesi.kelas) {
+    const { data: siswaKelas } = await db
+      .from('siswa')
+      .select('nis, nama')
       .eq('kelas', sesi.kelas)
       .eq('status', 'AKTIF')
-    totalTargetSiswa = count ?? 0
+    rosterSiswa = siswaKelas ?? []
+    totalTargetSiswa = rosterSiswa.length
   }
 
   const nisList = (pesertaList ?? []).map(p => p.nis)
+  const nisSudahMasuk = new Set(nisList)
+  // Siswa di roster yang BELUM masuk daftar `peserta` di atas sama sekali —
+  // artinya belum pernah submit essay/PG (atau masih mengerjakan/belum
+  // mulai). Cuma nis+nama yang dikirim, sesuai kebutuhan tampilan: baris
+  // ringkas "belum ujian" tanpa detail jawaban/nilai.
+  const siswaBelumUjian = rosterSiswa
+    .filter(s => !nisSudahMasuk.has(s.nis))
+    .map(s => ({ nis: s.nis, nama: s.nama }))
+    .sort((a, b) => a.nama.localeCompare(b.nama))
+
   if (nisList.length === 0) {
-    return NextResponse.json({ soalEssay: soalEssayList ?? [], totalBobotMaks, peserta: [], modeJawaban, bobotPg, bobotEssay, totalTargetSiswa })
+    return NextResponse.json({ soalEssay: soalEssayList ?? [], totalBobotMaks, peserta: [], modeJawaban, bobotPg, bobotEssay, totalTargetSiswa, siswaBelumUjian })
   }
 
   const [{ data: siswaList }, { data: nilaiList }] = await Promise.all([
@@ -233,7 +259,7 @@ export async function GET(req: NextRequest) {
     skorPerSoal: skorMap[p.nis] ?? {},
   }))
 
-  return NextResponse.json({ soalEssay: soalEssayList ?? [], totalBobotMaks, peserta, modeJawaban, bobotPg, bobotEssay, totalTargetSiswa })
+  return NextResponse.json({ soalEssay: soalEssayList ?? [], totalBobotMaks, peserta, modeJawaban, bobotPg, bobotEssay, totalTargetSiswa, siswaBelumUjian })
 }
 
 // PUT { sesiId, nis, skorPerSoal } — input/ubah skor essay 1 siswa PER SOAL
