@@ -72,14 +72,14 @@ export function StatCard({ label, value, icon: Icon, color = 'bg-brand-500', sub
   return (
     <div className="stat-card">
       <div className={cn('stat-icon', color)}>
-        <Icon className="w-5 h-5 text-white" />
+        <Icon className="w-4 h-4 text-white" />
       </div>
-      <div className="flex-1">
-        <div className="text-2xl font-bold text-slate-900">{value}</div>
-        <div className="text-sm text-slate-500 mt-0.5">{label}</div>
-        {sub && <div className="text-xs text-slate-400 mt-1">{sub}</div>}
+      <div className="flex-1 min-w-0">
+        <div className="text-xl font-bold text-slate-900 leading-tight">{value}</div>
+        <div className="text-xs text-slate-500 mt-0.5 truncate">{label}</div>
+        {sub && <div className="text-[11px] text-slate-400 mt-0.5 truncate">{sub}</div>}
         {trend && (
-          <div className={cn('text-xs font-medium mt-1', trend.value >= 0 ? 'text-emerald-600' : 'text-red-500')}>
+          <div className={cn('text-[11px] font-medium mt-0.5', trend.value >= 0 ? 'text-emerald-600' : 'text-red-500')}>
             {trend.value >= 0 ? '▲' : '▼'} {Math.abs(trend.value)}% {trend.label}
           </div>
         )}
