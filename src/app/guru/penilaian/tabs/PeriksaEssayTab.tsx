@@ -63,6 +63,12 @@ interface KoreksiData {
   bobotPg: number
   bobotEssay: number
   totalTargetSiswa: number
+  // FITUR BARU (tampilkan siswa yang belum ujian): siswa di kelas/sesi ini
+  // yang sama sekali belum masuk daftar `peserta` di atas (belum submit
+  // essay/PG sama sekali, atau masih mengerjakan/belum mulai) — cuma
+  // nis+nama, ditampilkan sebagai baris ringkas terpisah di bagian bawah
+  // tabel dengan pesan "belum ujian".
+  siswaBelumUjian: { nis: string; nama: string }[]
 }
 
 // Komponen ini adalah isi tab "Periksa Jawaban Essay" di menu Penilaian
@@ -392,7 +398,7 @@ export function PeriksaEssayTab({
           <div className="space-y-4">
             {loadingData ? (
               <div className="flex justify-center py-16"><Spinner size="lg" /></div>
-            ) : !data || data.peserta.length === 0 ? (
+            ) : !data || (data.peserta.length === 0 && data.siswaBelumUjian.length === 0) ? (
               <div className="card">
                 <EmptyState icon={Clock} title="Belum ada yang selesai" description="Belum ada siswa yang mengirim essay pada sesi ini." />
               </div>
@@ -799,6 +805,21 @@ export function PeriksaEssayTab({
                           </Fragment>
                         )
                       })}
+                      {/* FITUR BARU (tampilkan siswa yang belum ujian): baris
+                          ringkas — cuma nama + pesan — untuk siswa di kelas
+                          ini yang sama sekali belum masuk daftar peserta di
+                          atas (belum submit ujian sama sekali). Sengaja
+                          diletakkan SETELAH semua baris siswa yang sudah
+                          ujian, dan tidak bisa diklik/expand seperti baris
+                          lain karena memang tidak ada apa pun untuk dinilai. */}
+                      {data.siswaBelumUjian.map(s => (
+                        <tr key={s.nis} className="bg-red-50">
+                          <td colSpan={6} className="text-red-700">
+                            <span className="font-semibold">{s.nama}</span>
+                            <span className="text-red-500"> — Belum mengikuti ujian</span>
+                          </td>
+                        </tr>
+                      ))}
                     </tbody>
                   </table>
                 </div>
