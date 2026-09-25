@@ -45,6 +45,11 @@ interface Peserta {
   nilaiTotal: number | null
   sudahDinilai: boolean
   dirilis: boolean
+  // FIX (kunci nilai essay setelah kirim ke wali kelas): kalau true, nilai
+  // siswa ini sudah dikirim ke wali kelas — form skor & tombol Simpan/Tidak
+  // Mengerjakan harus dikunci (guard yang sama juga ada di backend, lihat
+  // PUT /api/guru/koreksi-essay).
+  dikirimKeWali: boolean
   // FIX (penilaian berbasis rubrik): skor yang sudah tersimpan per soal
   // essay, dipakai untuk mengisi ulang form saat halaman dibuka kembali.
   skorPerSoal?: Record<string, number>
@@ -328,6 +333,11 @@ export function PeriksaEssayTab({
     // (null/BELUM_MULAI/MENGERJAKAN) — termasuk peserta yang sesinya ditutup
     // paksa oleh pengawas/admin sebelum sempat menekan "Kirim" sendiri.
     if (p.statusEssay !== 'SUDAH_KIRIM') return { variant: 'yellow', label: 'Belum Kirim' }
+    // FIX (kunci nilai essay setelah kirim ke wali kelas): status ini
+    // sengaja diprioritaskan di atas "Dirilis" — begitu nilai terkirim ke
+    // wali kelas, itu yang paling penting diketahui guru (nilai sudah
+    // terkunci), bukan sekadar status rilis ke siswa.
+    if (p.dikirimKeWali) return { variant: 'slate', label: 'Terkirim ke Wali · Terkunci' }
     if (p.dirilis) return { variant: 'purple', label: 'Dirilis' }
     if (p.sudahDinilai) return { variant: 'green', label: 'Sudah Dinilai' }
     return { variant: 'slate', label: 'Belum Dinilai' }
@@ -609,6 +619,7 @@ export function PeriksaEssayTab({
                                                     max={soal.bobot_maks}
                                                     placeholder={`0–${soal.bobot_maks}`}
                                                     value={skorSoalStr}
+                                                    disabled={p.dikirimKeWali}
                                                     onClick={e => e.stopPropagation()}
                                                     onChange={e => setSkorInput(prev => ({
                                                       ...prev,
@@ -656,6 +667,7 @@ export function PeriksaEssayTab({
                                                   max={soal.bobot_maks}
                                                   placeholder={`0–${soal.bobot_maks}`}
                                                   value={skorSoalStr}
+                                                  disabled={p.dikirimKeWali}
                                                   onClick={e => e.stopPropagation()}
                                                   onChange={e => setSkorInput(prev => ({
                                                     ...prev,
@@ -682,14 +694,24 @@ export function PeriksaEssayTab({
                                         scroll panjang lagi untuk menemukannya. */}
                                     {p.statusEssay !== 'TIDAK_MENGERJAKAN' && (
                                       <div className="bg-white rounded-lg border border-slate-200 p-3 space-y-3">
-                                        <div className="flex items-center gap-2 flex-wrap pt-1">
-                                          <button className="btn-secondary btn-sm" onClick={() => handleSimpanNilai(p.nis)} disabled={savingNis === p.nis}>
-                                            {savingNis === p.nis ? <Spinner size="sm" /> : <><Save className="w-3.5 h-3.5" /> Simpan</>}
-                                          </button>
-                                          <button className="btn-ghost btn-sm text-red-600" onClick={() => setConfirmTakMengerjakan(p.nis)} disabled={savingNis === p.nis}>
-                                            <XCircle className="w-3.5 h-3.5" /> Tidak Mengerjakan
-                                          </button>
-                                        </div>
+                                        {/* FIX (kunci nilai essay setelah kirim ke wali kelas): sembunyikan
+                                            tombol ubah nilai sama sekali dan tampilkan alasan yang jelas,
+                                            supaya guru tidak mengira ini gagal simpan biasa. */}
+                                        {p.dikirimKeWali ? (
+                                          <p className="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-md px-2.5 py-2 flex items-center gap-1.5">
+                                            <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0" />
+                                            Nilai sudah dikirim ke wali kelas — tidak bisa diubah lagi dari sini. Hubungi admin/wali kelas jika perlu koreksi.
+                                          </p>
+                                        ) : (
+                                          <div className="flex items-center gap-2 flex-wrap pt-1">
+                                            <button className="btn-secondary btn-sm" onClick={() => handleSimpanNilai(p.nis)} disabled={savingNis === p.nis}>
+                                              {savingNis === p.nis ? <Spinner size="sm" /> : <><Save className="w-3.5 h-3.5" /> Simpan</>}
+                                            </button>
+                                            <button className="btn-ghost btn-sm text-red-600" onClick={() => setConfirmTakMengerjakan(p.nis)} disabled={savingNis === p.nis}>
+                                              <XCircle className="w-3.5 h-3.5" /> Tidak Mengerjakan
+                                            </button>
+                                          </div>
+                                        )}
 
                                         {(() => {
                                           const skorSiswa = skorInput[p.nis] ?? {}
