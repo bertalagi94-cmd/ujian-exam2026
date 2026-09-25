@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { Activity, X, Maximize2, Minimize2, RefreshCw, Shield, Database, Users, AlertTriangle, CheckCircle, BarChart3, LogIn, Search, ChevronLeft } from 'lucide-react'
+import { Activity, X, Maximize2, Minimize2, RefreshCw, Shield, Database, Users, AlertTriangle, CheckCircle, BarChart3, LogIn, Search, ChevronLeft, MonitorUp } from 'lucide-react'
+import LiveScreenViewerModal from '@/components/admin/LiveScreenViewerModal'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -58,6 +59,7 @@ interface DaftarItem {
   sub: string
   role: string
   waktu: string
+  sesi_id?: string
 }
 
 // ─── Konstanta ───────────────────────────────────────────────────────────────
@@ -460,6 +462,8 @@ export default function NetworkFlowMonitor() {
   const [listJenis, setListJenis] = useState<string | null>(null)
   const [listLabel, setListLabel] = useState('')
   const [listItems, setListItems] = useState<DaftarItem[]>([])
+  // Target siswa yang sedang/mau dibuka viewer "Minta layar" (jenis=aktif saja)
+  const [liveScreenTarget, setLiveScreenTarget] = useState<{ nis: string; nama: string; sesiId: string } | null>(null)
   const [listLoading, setListLoading] = useState(false)
   const [listError, setListError] = useState<string | null>(null)
   const [listSearch, setListSearch] = useState('')
@@ -790,6 +794,20 @@ export default function NetworkFlowMonitor() {
                           <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', flexShrink: 0 }}>
                             {formatAgo(it.waktu)}
                           </span>
+                          {listJenis === 'aktif' && it.sesi_id && (
+                            <button
+                              onClick={() => setLiveScreenTarget({ nis: it.id, nama: it.nama, sesiId: it.sesi_id! })}
+                              title="Minta izin melihat layar siswa ini (live, tidak direkam)"
+                              style={{
+                                display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0,
+                                background: 'rgba(99,102,241,0.15)', border: '1px solid rgba(99,102,241,0.4)',
+                                color: '#a5b4fc', borderRadius: 7, padding: '5px 9px', fontSize: 10, fontWeight: 600,
+                                cursor: 'pointer',
+                              }}
+                            >
+                              <MonitorUp size={11} /> Minta layar
+                            </button>
+                          )}
                         </div>
                       )
                     })}
@@ -887,6 +905,15 @@ export default function NetworkFlowMonitor() {
           <Activity size={18} color="#fff" />
         </button>
       </div>
+
+      {liveScreenTarget && (
+        <LiveScreenViewerModal
+          nis={liveScreenTarget.nis}
+          nama={liveScreenTarget.nama}
+          sesiId={liveScreenTarget.sesiId}
+          onClose={() => setLiveScreenTarget(null)}
+        />
+      )}
     </>
   )
 }
