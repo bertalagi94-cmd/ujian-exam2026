@@ -170,10 +170,10 @@
 
   /* Stat card */
   .stat-card {
-    @apply card flex items-start gap-4;
+    @apply bg-white rounded-2xl shadow-card border border-slate-100 p-4 flex items-center gap-3;
   }
   .stat-icon {
-    @apply p-3 rounded-xl flex-shrink-0;
+    @apply p-2.5 rounded-xl flex-shrink-0;
   }
 
   /* Modal overlay */
