@@ -43,6 +43,7 @@ import {
 import type { ResetAmplop } from '@/lib/reset-amplop-shared'
 import { berlanggananStatusJaringan, ambilStatusJaringan } from '@/lib/status-jaringan'
 import { GambarSoalOffline } from '@/components/ui/GambarSoalOffline'
+import LiveScreenRequestBanner from '@/components/siswa/LiveScreenRequestBanner'
 
 type Phase = 'CEK_JADWAL' | 'PERSIAPAN' | 'KODE' | 'UJIAN' | 'ESSAY_INFO' | 'ESSAY_KERJAKAN' | 'SELESAI' | 'RESET_KODE'
 
@@ -300,6 +301,17 @@ function getDeviceId(): string {
 
 export default function SiswaUjianPage() {
   const [phase, setPhase] = useState<Phase>('CEK_JADWAL')
+  // NIS siswa yang sedang login — dibaca sekali dari localStorage saat
+  // mount (bukan langsung di body render, supaya tidak mismatch dengan
+  // SSR). Dipakai untuk komponen yang butuh identitas siswa di level atas,
+  // seperti LiveScreenRequestBanner (lihat return JSX di bawah).
+  const [nisSiswa, setNisSiswa] = useState<string | undefined>(undefined)
+  useEffect(() => {
+    try {
+      const u = JSON.parse(localStorage.getItem('user') ?? '{}')
+      if (u?.nis) setNisSiswa(u.nis)
+    } catch { /* abaikan — banner live-screen cukup tidak tampil kalau gagal parse */ }
+  }, [])
   const [jadwalHariIni, setJadwalHariIni] = useState<JadwalHariIni[]>([])
   const [jadwalTerpilih, setJadwalTerpilih] = useState<JadwalHariIni | null>(null)
   const [loadingJadwal, setLoadingJadwal] = useState(true)
@@ -4546,6 +4558,10 @@ export default function SiswaUjianPage() {
 
   return (
     <>
+      {/* Banner permintaan "Minta layar" dari admin — hanya aktif saat fase
+          UJIAN sedang berjalan (bukan saat mengisi kode, essay, dsb). */}
+      <LiveScreenRequestBanner nis={nisSiswa} sesiId={sesiInfo?.sesiId} active={phase === 'UJIAN'} />
+
       {/* Overlay peringatan saat keluar fullscreen / pindah tab */}
       {pelanggaranOverlayJSX}
 
