@@ -177,6 +177,55 @@ export default function MonitoringPanel() {
   const openedAt = useRef<number>(0)
   const [uptimeDisplay, setUptimeDisplay] = useState('0d')
 
+  // ── Feed aktivitas LIVE ────────────────────────────────────────────────
+  // Terpisah dari fetch_ (refresh penuh, berat, 15 detik) — ini polling
+  // ringan tiap 3 detik ke /api/admin/monitoring/live yang HANYA mengambil
+  // baris baru sejak cursor terakhir, supaya bisa sesering ini tanpa
+  // membebani DB. Hasilnya digabung ke data.logs & data.pelanggaran yang
+  // sudah ada, jadi tampilannya tetap satu panel yang sama.
+  const liveIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const cursorRef = useRef<string | null>(null)
+  const [liveTick, setLiveTick] = useState(0) // dipakai buat animasi pulse tiap ada event baru
+  const [liveOk, setLiveOk] = useState(true)
+
+  const fetchLive = useCallback(async () => {
+    if (!cursorRef.current) return
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
+      const r = await fetch(`/api/admin/monitoring/live?since=${encodeURIComponent(cursorRef.current)}`, {
+        cache: 'no-store',
+        headers: token ? { Authorization: 'Bearer ' + token } : {},
+      })
+      if (!r.ok) { setLiveOk(false); return }
+      setLiveOk(true)
+      const json: { serverTime: string; logs: MonitoringData['logs']; pelanggaran: MonitoringData['pelanggaran'] } = await r.json()
+      cursorRef.current = json.serverTime
+      if (json.logs.length === 0 && json.pelanggaran.length === 0) return
+
+      setLiveTick(t => t + 1)
+      setData(prev => {
+        if (!prev) return prev
+        const gabungLogs = json.logs.length
+          ? [...[...json.logs].reverse(), ...prev.logs].slice(0, 30)
+          : prev.logs
+        const gabungPelanggaran = json.pelanggaran.length
+          ? [...[...json.pelanggaran].reverse(), ...prev.pelanggaran].slice(0, 10)
+          : prev.pelanggaran
+        return {
+          ...prev,
+          logs: gabungLogs,
+          pelanggaran: gabungPelanggaran,
+          aktivitas: {
+            ...prev.aktivitas,
+            pelanggaranHariIni: prev.aktivitas.pelanggaranHariIni + json.pelanggaran.length,
+          },
+        }
+      })
+    } catch {
+      setLiveOk(false)
+    }
+  }, [])
+
   const fetch_ = useCallback(async () => {
     setLoading(true)
     setError(null)
@@ -197,6 +246,12 @@ export default function MonitoringPanel() {
         // Simpan history live DB ping (max 12) — riwayat status server
         // lengkap sudah datang dari server via json.historiServer.
         dbHistory.current = [...dbHistory.current, json.server.dbResponseMs].slice(-12)
+        // Set cursor feed live ke waktu server saat ini (bukan jam browser)
+        // supaya polling delta berikutnya tidak bentrok/kelewat gara-gara
+        // clock skew. Hanya di-set kalau belum ada cursor, supaya refresh
+        // penuh 15 detik tidak "memundurkan" cursor yang sudah lebih baru
+        // dari hasil polling live.
+        if (!cursorRef.current) cursorRef.current = json.server.timestamp
       } else {
         setError('Gagal memuat data server')
       }
@@ -243,22 +298,33 @@ export default function MonitoringPanel() {
   useEffect(() => {
     if (open) {
       openedAt.current = Date.now()
+      cursorRef.current = null
       fetch_()
       intervalRef.current = setInterval(fetch_, 15000)
+      // Feed aktivitas live — tiap 3 detik, HANYA delta (lihat fetchLive).
+      // Ditunda 1 detik supaya fetch_ pertama sempat set cursor lebih dulu.
+      const liveStart = setTimeout(() => {
+        fetchLive()
+        liveIntervalRef.current = setInterval(fetchLive, 3000)
+      }, 1000)
       // Uptime ticker tiap detik
       const uptimeTick = setInterval(() => {
         setUptimeDisplay(formatUptime(Date.now() - openedAt.current))
       }, 1000)
       return () => {
         if (intervalRef.current) clearInterval(intervalRef.current)
+        if (liveIntervalRef.current) clearInterval(liveIntervalRef.current)
+        clearTimeout(liveStart)
         clearInterval(uptimeTick)
       }
     } else {
       if (intervalRef.current) clearInterval(intervalRef.current)
+      if (liveIntervalRef.current) clearInterval(liveIntervalRef.current)
+      cursorRef.current = null
       setFullscreen(false)
       dbHistory.current = []
     }
-  }, [open, fetch_])
+  }, [open, fetch_, fetchLive])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && fullscreen) setFullscreen(false) }
@@ -683,8 +749,14 @@ export default function MonitoringPanel() {
 
             {/* Footer */}
             <div style={{ padding: '8px 16px', borderTop: '1px solid rgba(255,255,255,0.06)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
-              <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', display: 'flex', alignItems: 'center', gap: 4 }}>
-                <Clock size={10} /> Refresh otomatis 15 detik
+              <span style={{ fontSize: 10, color: liveOk ? 'rgba(255,255,255,0.4)' : '#f87171', display: 'flex', alignItems: 'center', gap: 5 }} title="Aktivitas (log & pelanggaran) diperbarui tiap ~3 detik. Statistik server & sesi tiap 15 detik.">
+                <span
+                  key={liveTick}
+                  className="mon-pulse"
+                  style={{ width: 6, height: 6, borderRadius: '50%', background: liveOk ? '#10b981' : '#f87171', flexShrink: 0 }}
+                />
+                {liveOk ? 'Live · aktivitas ~3d' : 'Live terputus'}
+                <span style={{ opacity: 0.5 }}>· <Clock size={9} style={{ verticalAlign: -1 }} /> statistik 15d</span>
               </span>
               <button onClick={fetch_} style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
                 <RefreshCw size={10} /> Refresh
