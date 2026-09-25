@@ -12,6 +12,7 @@ interface DashboardData {
     totalSiswa: number
     totalGuru: number
     totalSoal: number
+    totalPaketSoal: number
     totalNilai: number
     totalMapel: number
     jadwalAktif: number
@@ -74,7 +75,7 @@ export default function AdminDashboard() {
   const stats = data?.stats
 
   return (
-    <div className="space-y-8 animate-fade-in">
+    <div className="space-y-6 animate-fade-in">
       {/* Header */}
       <div>
         <h1 className="page-title">Dashboard Admin</h1>
@@ -86,14 +87,14 @@ export default function AdminDashboard() {
       </div>
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard label="Total Siswa" value={stats?.totalSiswa ?? 0} icon={GraduationCap} color="bg-brand-500" />
         <StatCard label="Total Guru" value={stats?.totalGuru ?? 0} icon={Users} color="bg-emerald-500" />
-        <StatCard label="Bank Soal" value={stats?.totalSoal ?? 0} icon={BookOpen} color="bg-purple-500" />
+        <StatCard label="Bank Soal" value={stats?.totalPaketSoal ?? 0} icon={BookOpen} color="bg-purple-500" sub="Paket soal" />
         <StatCard label="Mata Pelajaran" value={stats?.totalMapel ?? 0} icon={BarChart3} color="bg-orange-500" />
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard label="Jadwal Aktif" value={stats?.jadwalAktif ?? 0} icon={Calendar} color="bg-cyan-500" sub="Ujian mendatang" />
         <StatCard label="Paket Menunggu" value={stats?.paketMenunggu ?? 0} icon={ClipboardCheck} color="bg-amber-500" sub="Perlu validasi" />
         <StatCard label="Total Nilai" value={stats?.totalNilai ?? 0} icon={TrendingUp} color="bg-indigo-500" sub="Ujian selesai" />
