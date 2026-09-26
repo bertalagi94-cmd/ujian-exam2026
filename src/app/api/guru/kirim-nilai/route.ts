@@ -100,6 +100,40 @@ export async function GET(req: NextRequest) {
   const pasangan = Array.from(pasanganMap.values())
   const kelasSet = [...new Set(pasangan.map(p => p.kelas))]
 
+  // FITUR BARU (tampilkan nama wali kelas di tab Kirim Nilai): supaya guru
+  // tahu siapa wali kelas dari tiap kelompok mapel+kelas sebelum mengirim
+  // nilai ke wali kelas tersebut. Sertakan juga kelas dari baris `nilai`
+  // yang sudah ada (bisa saja beda dari `kelasSet` berbasis jadwal kalau ada
+  // data lama/anomali), supaya tidak ada kelompok yang lolos tanpa info wali.
+  // Pola resolusi username -> nama SAMA seperti /api/kepsek/kelas
+  // (kelas.wali_kelas BUKAN foreign key formal, jadi di-join manual).
+  const semuaKelasSet = new Set<string>(kelasSet)
+  for (const r of enriched) {
+    const k = (r as { kelas?: string }).kelas
+    if (k) semuaKelasSet.add(k)
+  }
+  let waliKelasMap: Record<string, string | null> = {}
+  if (semuaKelasSet.size > 0) {
+    const { data: kelasRows } = await db
+      .from('kelas')
+      .select('nama, wali_kelas')
+      .in('nama', Array.from(semuaKelasSet))
+    const waliUsernames = [...new Set(
+      (kelasRows ?? []).map(k => k.wali_kelas).filter((w): w is string => !!w)
+    )]
+    let namaWaliMap: Record<string, string> = {}
+    if (waliUsernames.length > 0) {
+      const { data: waliUsers } = await db
+        .from('users')
+        .select('username, nama')
+        .in('username', waliUsernames)
+      namaWaliMap = Object.fromEntries((waliUsers ?? []).map(u => [u.username, u.nama]))
+    }
+    waliKelasMap = Object.fromEntries(
+      (kelasRows ?? []).map(k => [k.nama, k.wali_kelas ? (namaWaliMap[k.wali_kelas] ?? k.wali_kelas) : null])
+    )
+  }
+
   const { data: siswaRoster } = kelasSet.length
     ? await db.from('siswa').select('nis, nama, kelas').in('kelas', kelasSet).eq('status', 'AKTIF').neq('is_tester', 'YES')
     : { data: [] as { nis: string; nama: string; kelas: string }[] }
@@ -142,6 +176,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     data: [...enriched, ...belumUjianRows],
     mapelList: guruMapel ?? [],
+    waliKelasMap,
   })
 }
 
