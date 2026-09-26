@@ -263,6 +263,20 @@ export async function GET(req: NextRequest) {
     const sudahDikirim = nilaiMapelDikirim.length
     const adaDikembalikan = nilaiMapel.some((n: { dikembalikan: boolean }) => n.dikembalikan)
 
+    // BUG FIX (kartu "Status Pengiriman Nilai per Mapel" tidak sinkron
+    // dengan tabel rekap): nilaiList di bawah sebelumnya dikirim apa adanya
+    // (nilaiMapelDikirim), memakai kolom `lulus` mentah dari database — yang
+    // TIDAK PERNAH diperbarui saat guru mengedit nilai lewat remedial
+    // (kolom itu tersimpan di `lulus_edit`). Akibatnya jumlah "Lulus"/"Tidak
+    // Lulus" di kartu ini bisa berbeda dari tabel rekap nilai di bawahnya,
+    // yang sudah benar memakai lulus_edit ?? lulus. Sekarang nilaiList juga
+    // memakai status kelulusan efektif (lulus_edit kalau ada), supaya kartu
+    // dan tabel selalu konsisten.
+    const nilaiListEfektif = nilaiMapelDikirim.map((n: { lulus: boolean; lulus_edit?: boolean | null }) => ({
+      ...n,
+      lulus: n.lulus_edit != null ? n.lulus_edit : n.lulus,
+    }))
+
     return {
       mapel_id: mapelId,
       nama_mapel: mapelNamaMap.get(mapelId) ?? mapelId,
@@ -271,7 +285,7 @@ export async function GET(req: NextRequest) {
       totalSiswa,
       belumUjianSiswa: belumUjian.map((s: { nis: string; nama: string }) => ({ nis: s.nis, nama: s.nama })),
       rataRata,
-      nilaiList: nilaiMapelDikirim,
+      nilaiList: nilaiListEfektif,
       // Info pengiriman
       totalNilai: nilaiMapel.length,
       sudahDikirim,
