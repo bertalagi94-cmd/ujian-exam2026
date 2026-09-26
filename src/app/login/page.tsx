@@ -114,6 +114,121 @@ export default function LoginPage() {
   // (dengan komposisi crop+awan yang sudah berjalan sekarang), supaya tidak
   // muncul ikon gambar rusak sebelum aset barunya di-upload.
   const [mobileHeroReady, setMobileHeroReady] = useState(true)
+
+  // ── Coret-coret tinta emas (khusus HP, layar beranda login) ───────────────
+  // Kanvas hiburan ringan di atas foto beranda login mobile: siswa bisa
+  // mencoret layar dengan jari, garisnya berkilau emas lalu memudar sendiri
+  // dalam 5 detik. Ditaruh DI BAWAH panel Login/Panduan/Q&A/Aktivitas secara
+  // stacking (lihat z-index di JSX) supaya tombol-tombol itu tetap bisa
+  // ditekan normal, coretan hanya "menempel" di area foto/latar.
+  const doodleCanvasRef = useRef<HTMLCanvasElement>(null)
+  const doodleStrokesRef = useRef<{ x: number; y: number; t: number }[][]>([])
+  const doodleDrawingRef = useRef(false)
+  const [showDoodleHint, setShowDoodleHint] = useState(false)
+
+  useEffect(() => {
+    // Munculkan pop-up ajakan coret-coret HANYA sekali untuk pengguna baru
+    // (disimpan di localStorage), dan hanya relevan di HP — tapi cukup aman
+    // dicek di sini karena elemen pop-up-nya sendiri hanya dirender di
+    // dalam blok tampilan mobile (lg:hidden).
+    try {
+      const seen = localStorage.getItem('smartexam_doodle_hint_seen')
+      if (!seen) {
+        const t = setTimeout(() => setShowDoodleHint(true), 900)
+        return () => clearTimeout(t)
+      }
+    } catch { /* localStorage tidak tersedia — abaikan saja */ }
+  }, [])
+
+  useEffect(() => {
+    if (!showDoodleHint) return
+    const t = setTimeout(() => dismissDoodleHint(), 5000)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showDoodleHint])
+
+  function dismissDoodleHint() {
+    setShowDoodleHint(false)
+    try { localStorage.setItem('smartexam_doodle_hint_seen', '1') } catch { /* abaikan */ }
+  }
+
+  // Loop render kanvas coret-coret: setiap titik punya timestamp, memudar
+  // linear selama 5000ms lalu dibuang dari memori supaya kanvas tetap ringan.
+  useEffect(() => {
+    const canvas = doodleCanvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    const resize = () => {
+      canvas.width = canvas.offsetWidth
+      canvas.height = canvas.offsetHeight
+    }
+    resize()
+    window.addEventListener('resize', resize)
+
+    let raf: number
+    const FADE_MS = 5000
+    const draw = () => {
+      const now = Date.now()
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
+      const strokes = doodleStrokesRef.current
+      for (let s = strokes.length - 1; s >= 0; s--) {
+        const pts = strokes[s]
+        while (pts.length && now - pts[0].t > FADE_MS) pts.shift()
+        if (pts.length < 2) { if (pts.length === 0) strokes.splice(s, 1); continue }
+        for (let i = 1; i < pts.length; i++) {
+          const p0 = pts[i - 1]; const p1 = pts[i]
+          const age = now - p1.t
+          const alpha = Math.max(0, 1 - age / FADE_MS)
+          if (alpha <= 0) continue
+          // Lapisan glow emas
+          ctx.lineCap = 'round'; ctx.lineJoin = 'round'
+          ctx.shadowColor = `rgba(255,193,7,${alpha * 0.85})`
+          ctx.shadowBlur = 12
+          ctx.strokeStyle = `rgba(255,183,0,${alpha * 0.9})`
+          ctx.lineWidth = 4.5
+          ctx.beginPath(); ctx.moveTo(p0.x, p0.y); ctx.lineTo(p1.x, p1.y); ctx.stroke()
+          // Inti garis krem terang — kesan "berkilau"
+          ctx.shadowBlur = 0
+          ctx.strokeStyle = `rgba(255,249,196,${alpha})`
+          ctx.lineWidth = 1.6
+          ctx.beginPath(); ctx.moveTo(p0.x, p0.y); ctx.lineTo(p1.x, p1.y); ctx.stroke()
+          // Percikan kilau sesekali di sepanjang garis
+          if (Math.random() < 0.06) {
+            ctx.beginPath()
+            ctx.arc(p1.x, p1.y, 1.2 + Math.random() * 1.6, 0, Math.PI * 2)
+            ctx.fillStyle = `rgba(255,255,255,${alpha})`
+            ctx.fill()
+          }
+        }
+      }
+      raf = requestAnimationFrame(draw)
+    }
+    draw()
+    return () => {
+      cancelAnimationFrame(raf)
+      window.removeEventListener('resize', resize)
+    }
+  }, [])
+
+  function doodlePointFromEvent(e: React.PointerEvent<HTMLCanvasElement>) {
+    const canvas = doodleCanvasRef.current
+    const rect = canvas?.getBoundingClientRect()
+    return { x: e.clientX - (rect?.left ?? 0), y: e.clientY - (rect?.top ?? 0), t: Date.now() }
+  }
+  function handleDoodleStart(e: React.PointerEvent<HTMLCanvasElement>) {
+    doodleDrawingRef.current = true
+    doodleStrokesRef.current.push([doodlePointFromEvent(e)])
+    if (showDoodleHint) dismissDoodleHint()
+    try { e.currentTarget.setPointerCapture(e.pointerId) } catch { /* abaikan */ }
+  }
+  function handleDoodleMove(e: React.PointerEvent<HTMLCanvasElement>) {
+    if (!doodleDrawingRef.current) return
+    const strokes = doodleStrokesRef.current
+    const cur = strokes[strokes.length - 1]
+    if (cur) cur.push(doodlePointFromEvent(e))
+  }
+  function handleDoodleEnd() { doodleDrawingRef.current = false }
   // ── Fullscreen ────────────────────────────────────────────────────────────
   const [isFs, setIsFs] = useState(false)
   useEffect(() => {
@@ -548,8 +663,44 @@ export default function LoginPage() {
                   paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 1.5rem)',
                 }}
               >
+                {/* ── Kanvas coret-coret tinta emas — hiburan ringan buat
+                    siswa selagi menunggu/iseng di beranda login HP. Full
+                    layar (absolute inset-0), z-index PALING BAWAH di
+                    kontainer ini supaya tombol Login/Panduan/Q&A/Aktivitas
+                    di atasnya (diberi relative + z-10) tetap bisa disentuh
+                    normal. Coretan otomatis pudar sendiri ±5 detik. ── */}
+                <canvas
+                  ref={doodleCanvasRef}
+                  className="absolute inset-0 w-full h-full touch-none select-none"
+                  style={{ zIndex: 0 }}
+                  onPointerDown={handleDoodleStart}
+                  onPointerMove={handleDoodleMove}
+                  onPointerUp={handleDoodleEnd}
+                  onPointerLeave={handleDoodleEnd}
+                  onPointerCancel={handleDoodleEnd}
+                  aria-hidden="true"
+                />
+
+                {/* Pop-up ajakan coret-coret — tampil sekali saja untuk
+                    pengguna baru (disimpan di localStorage), auto-hilang
+                    dalam 5 detik atau bisa disentuh untuk ditutup lebih awal. */}
+                {showDoodleHint && (
+                  <div
+                    onClick={dismissDoodleHint}
+                    className="absolute left-1/2 top-[26%] -translate-x-1/2 z-10 px-4 py-2.5 rounded-2xl text-sm font-medium text-slate-800 text-center whitespace-nowrap login-doodle-hint"
+                    style={{
+                      background: 'rgba(255,255,255,0.92)',
+                      backdropFilter: 'blur(10px)', WebkitBackdropFilter: 'blur(10px)',
+                      border: '1px solid rgba(255,255,255,0.6)',
+                      boxShadow: '0 8px 28px rgba(4,32,74,0.28)',
+                    }}
+                  >
+                    Bosan, coba coret-coret halaman login ini 😄
+                  </div>
+                )}
+
                 {/* Baris atas: tagline (kiri) + brand (kanan) */}
-                <div className="flex items-start justify-between gap-3">
+                <div className="relative z-10 flex items-start justify-between gap-3">
                   <div className="max-w-[54%]">
                     <p className="text-white font-semibold text-lg leading-snug italic"
                       style={{ textShadow: '0 2px 10px rgba(0,0,0,0.45)' }}>
@@ -567,7 +718,7 @@ export default function LoginPage() {
                 </div>
 
                 {/* Panel bawah-kanan: Login + 3 pil */}
-                <div className="self-end w-full max-w-[230px] flex flex-col gap-2.5 rounded-3xl p-3.5"
+                <div className="relative z-10 self-end w-full max-w-[230px] flex flex-col gap-2.5 rounded-3xl p-3.5"
                   style={{
                     background: 'rgba(255,255,255,0.22)',
                     backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)',
