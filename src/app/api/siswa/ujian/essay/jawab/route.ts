@@ -107,21 +107,58 @@ export async function POST(req: NextRequest) {
       (j: { soal_essay_id: string; jawaban_teks: string }) => idSoalSah.has(j.soal_essay_id)
     )
 
+    let acked: { soal_essay_id: string; jawaban_teks: string; revisi: number; accepted: boolean }[] | undefined
+
     if (jawabanValid.length > 0) {
-      const records = jawabanValid.map((j: { soal_essay_id: string; jawaban_teks: string }) => ({
+      // FIX #5 (essay pakai sistem revisi, padanan PG — lihat migrasi
+      // 35_revisi_essay_dan_jeda_offline_nyata.sql): sebelumnya baris ini
+      // langsung di-upsert mentah-mentah ("siapa datang terakhir ke server
+      // yang menang"), yang secara teori bisa salah kalau ada dua autosave
+      // yang balapan (request lama tiba belakangan menimpa request baru yang
+      // tiba lebih dulu). Sekarang setiap jawaban essay punya nomor revisi
+      // yang dibuat CLIENT (naik monoton, lihat tulisJawabanEssay() di
+      // page.tsx), dan RPC sync_jawaban_essay_revisi() menolak revisi yang
+      // lebih kecil dari yang sudah tersimpan — tidak peduli urutan
+      // kedatangan request.
+      const records = jawabanValid.map((j: { soal_essay_id: string; jawaban_teks: string; revisi?: number }) => ({
         sesi_id: sesiId,
         nis: user.nis!,
         soal_essay_id: j.soal_essay_id,
         jawaban_teks: j.jawaban_teks ?? '',
-        updated_at: new Date().toISOString(),
+        revisi: typeof j.revisi === 'number' ? j.revisi : 0,
       }))
 
-      const { error } = await db
-        .from('jawaban_essay')
-        .upsert(records, { onConflict: 'sesi_id,nis,soal_essay_id' })
+      const { data: rpcHasil, error: rpcError } = await db.rpc('sync_jawaban_essay_revisi', {
+        p_records: records,
+      })
 
-      if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+      if (rpcError) {
+        // FAIL CLOSED (sama seperti sync_jawaban_atomik untuk PG): tidak ada
+        // fallback ke upsert lama tanpa proteksi revisi. Client tetap
+        // menyimpan jawaban di backup lokal dan akan mencoba lagi.
+        console.error('[essay/jawab] sync_jawaban_essay_revisi gagal:', rpcError.code, rpcError.message)
+        return NextResponse.json(
+          { error: 'Server gagal menyimpan jawaban essay. Jawaban tetap aman di perangkat dan akan dicoba lagi otomatis.' },
+          { status: 503 }
+        )
+      }
+
+      acked = ((rpcHasil ?? []) as { out_soal_essay_id: string; out_jawaban_teks: string; out_revisi: number; out_accepted: boolean }[])
+        .map(r => ({
+          soal_essay_id: r.out_soal_essay_id,
+          jawaban_teks: r.out_jawaban_teks,
+          revisi: r.out_revisi,
+          accepted: r.out_accepted,
+        }))
     }
+
+    const { count } = await db
+      .from('jawaban_essay')
+      .select('*', { count: 'exact', head: true })
+      .eq('sesi_id', sesiId)
+      .eq('nis', user.nis!)
+
+    return NextResponse.json({ totalTersimpan: count ?? 0, acked })
   }
 
   const { count } = await db
@@ -192,9 +229,13 @@ export async function GET(req: NextRequest) {
 
   // FIX BUG (P1-01, padanan essay): sertakan `updated_at` — lihat catatan
   // yang sama di src/app/api/siswa/ujian/sync/route.ts GET.
+  // FIX #5: sertakan juga `revisi` — client sekarang memakai
+  // mergeJawabanRevisi() (bandingkan revisi, bukan jam) untuk essay, sama
+  // seperti PG, dan hanya jatuh ke jam sebagai pemutus kalau kedua revisi
+  // sama persis (data lama sebelum migrasi 35).
   const { data, error } = await db
     .from('jawaban_essay')
-    .select('soal_essay_id, jawaban_teks, updated_at')
+    .select('soal_essay_id, jawaban_teks, updated_at, revisi')
     .eq('sesi_id', sesiId)
     .eq('nis', user.nis!)
 
