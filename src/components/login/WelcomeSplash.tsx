@@ -1,23 +1,35 @@
 'use client'
 
 // ── Welcome Splash "EXAMFLOW" ────────────────────────────────────────────
-// Layar sambutan singkat SEBELUM halaman login dirender. Gaya sengaja
-// dibuat clean/corporate (bukan flashy): 2 warna brand saja, gerakan
-// halus & presisi, progress bar tipis sebagai indikator "memuat", lalu
-// fade-out singkat membuka halaman login. Total durasi di layar ± 2.3s
-// (lihat TOTAL_MS di bawah — ubah di sini kalau mau lebih panjang/pendek).
+// Layar sambutan SEBELUM halaman login dirender. Tiap huruf "EXAMFLOW"
+// punya warna sendiri (rainbow arc biru→teal→hijau→kuning→oranye→pink→
+// fuchsia→ungu) yang "mekar" bersamaan dengan kemunculannya satu per satu,
+// disusul satu sapuan cahaya (shine) melintas di atas judul, lalu progress
+// bar tipis mengisi selama sisa waktu tampil. Total durasi di layar = 5
+// detik persis (HOLD_MS + FADE_OUT_MS di bawah), lalu fade-out halus
+// sebelum halaman login terbuka. Semua ukuran pakai clamp()/vw supaya
+// proporsinya tetap pas di HP maupun laptop/komputer.
 import { useEffect, useState } from 'react'
 import { GraduationCap } from 'lucide-react'
 
-const LETTERS = ['E', 'X', 'A', 'M', 'F', 'L', 'O', 'W']
-const LETTER_STAGGER_MS = 55
-const LETTER_START_MS = 150
-const LETTER_DURATION_MS = 480
+const LETTERS: { ch: string; color: string }[] = [
+  { ch: 'E', color: '#38bdf8' }, // sky
+  { ch: 'X', color: '#2dd4bf' }, // teal
+  { ch: 'A', color: '#a3e635' }, // lime
+  { ch: 'M', color: '#fbbf24' }, // amber
+  { ch: 'F', color: '#fb923c' }, // orange
+  { ch: 'L', color: '#f472b6' }, // pink
+  { ch: 'O', color: '#e879f9' }, // fuchsia
+  { ch: 'W', color: '#a78bfa' }, // violet
+]
 
-// Total waktu splash tampil sebelum mulai memudar, dan lama fade-out-nya.
-const HOLD_MS = 1750
-const FADE_OUT_MS = 500
-// Total durasi splash di layar (fade-in + hold + fade-out) ≈ 0.35 + HOLD_MS/1000 + FADE_OUT_MS/1000 detik.
+const LETTER_START_MS = 200
+const LETTER_STAGGER_MS = 120
+const LETTER_DURATION_MS = 600
+
+// Total splash tampil = HOLD_MS + FADE_OUT_MS = 5000ms (5 detik persis).
+const HOLD_MS = 4400
+const FADE_OUT_MS = 600
 
 export default function WelcomeSplash({ onFinish }: { onFinish: () => void }) {
   const [closing, setClosing] = useState(false)
@@ -37,7 +49,7 @@ export default function WelcomeSplash({ onFinish }: { onFinish: () => void }) {
       role="status"
       aria-label="Memuat EXAMFLOW"
     >
-      {/* Latar gradasi navy → biru gelap, flat & clean */}
+      {/* Latar gradasi navy → biru gelap, tenang di belakang huruf berwarna */}
       <div className="absolute inset-0 -z-10" style={{
         background: 'linear-gradient(160deg, #050b1a 0%, #0a1f36 45%, #0b2a42 100%)',
       }} />
@@ -62,32 +74,38 @@ export default function WelcomeSplash({ onFinish }: { onFinish: () => void }) {
           />
         </div>
 
-        <h1
-          className="examflow-title font-bold whitespace-nowrap select-none text-center"
-          style={{
-            fontSize: 'clamp(2rem, 8vw, 4.25rem)',
-            letterSpacing: 'clamp(0.05em, 0.9vw, 0.1em)',
-          }}
-        >
-          {LETTERS.map((ch, i) => {
-            const pos = LETTERS.length > 1 ? (i / (LETTERS.length - 1)) * 100 : 50
-            return (
+        {/* Wrapper relatif untuk menaruh sapuan cahaya tepat di atas judul */}
+        <div className="relative inline-block">
+          <h1
+            className="examflow-title font-bold whitespace-nowrap select-none text-center"
+            style={{
+              fontSize: 'clamp(2rem, 8vw, 4.25rem)',
+              letterSpacing: 'clamp(0.05em, 0.9vw, 0.1em)',
+            }}
+          >
+            {LETTERS.map((item, i) => (
               <span
                 key={i}
                 className="examflow-letter inline-block"
                 style={{
+                  color: item.color,
                   animationDelay: `${LETTER_START_MS + i * LETTER_STAGGER_MS}ms`,
-                  backgroundPosition: `${pos}% 50%`,
                 }}
               >
-                {ch}
+                {item.ch}
               </span>
-            )
-          })}
-        </h1>
+            ))}
+          </h1>
+          {/* Sapuan cahaya sekali lewat setelah semua huruf selesai muncul */}
+          <span
+            className="examflow-shine"
+            aria-hidden="true"
+            style={{ animationDelay: `${lastLetterEnd + 150}ms` }}
+          />
+        </div>
 
         <p className="examflow-subtitle mt-3 sm:mt-3.5 text-slate-400 font-medium"
-          style={{ fontSize: 'clamp(0.7rem, 1.7vw, 0.85rem)', animationDelay: `${lastLetterEnd + 60}ms` }}
+          style={{ fontSize: 'clamp(0.7rem, 1.7vw, 0.85rem)', animationDelay: `${lastLetterEnd + 250}ms` }}
         >
           Sistem Ujian Digital
         </p>
@@ -95,7 +113,10 @@ export default function WelcomeSplash({ onFinish }: { onFinish: () => void }) {
         <div className="examflow-progress-track mt-6 sm:mt-7 overflow-hidden rounded-full"
           style={{ width: 'clamp(96px, 22vw, 160px)', height: 2 }}
         >
-          <div className="examflow-progress h-full rounded-full" />
+          <div
+            className="examflow-progress h-full rounded-full"
+            style={{ animationDuration: `${HOLD_MS - 150}ms` }}
+          />
         </div>
       </div>
     </div>
