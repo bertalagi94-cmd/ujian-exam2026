@@ -81,6 +81,24 @@ function main() {
     files.forEach((f) => fileSet.add(`/_next/${f}`))
   }
 
+  // FIX BUG (halaman jadi tampil BLANK/tanpa styling saat offline meski
+  // shell-nya berhasil dimuat dari precache): app-build-manifest.json cuma
+  // mendaftar file JS per rute — CSS global (diimpor sekali di root layout,
+  // src/app/layout.tsx → '../styles/globals.css') TIDAK muncul di manifest
+  // itu sama sekali, jadi sebelumnya tidak pernah ikut ter-precache. Karena
+  // proyek ini cuma punya SATU css import global (dipakai semua rute), kita
+  // precache semua file di .next/static/css/ langsung dari disk — tidak
+  // perlu parsing manifest yang lebih rumit. Kalau nanti proyek berkembang
+  // punya CSS per-rute yang benar-benar terpisah, pendekatan ini perlu
+  // direvisi supaya tidak asal precache semua file CSS yang mungkin tidak
+  // relevan untuk RUTE_PRECACHE.
+  const cssDir = path.join(NEXT_DIR, 'static', 'css')
+  if (fs.existsSync(cssDir)) {
+    fs.readdirSync(cssDir)
+      .filter((f) => f.endsWith('.css'))
+      .forEach((f) => fileSet.add(`/_next/static/css/${f}`))
+  }
+
   if (ruteHilang.length > 0) {
     console.warn(
       `[precache-manifest] PERINGATAN: rute berikut tidak ditemukan di ` +
