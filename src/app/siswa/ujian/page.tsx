@@ -3695,7 +3695,11 @@ export default function SiswaUjianPage() {
           </div>
         )}
 
-        <div className="max-w-3xl mx-auto space-y-4 animate-fade-in select-none">
+        {/* pb-20: ruang cadangan di paling bawah supaya tombol "Kirim Jawaban
+            Essay"/"Selesai" di bawah tidak tertutup bar "Sebelumnya/
+            Berikutnya" yang sekarang fixed di bawah viewport — lihat
+            komentar lengkap di dekat bar-nya. */}
+        <div className="max-w-3xl mx-auto space-y-4 animate-fade-in select-none pb-20">
           {/* Header — sticky, sama seperti perbaikan di halaman PG (lihat
               komentar di render fase UJIAN) supaya nama mapel & sisa waktu
               essay tetap terlihat saat siswa scroll membaca/menulis soal. */}
@@ -3809,25 +3813,39 @@ export default function SiswaUjianPage() {
                 </div>
               )}
 
-              {soalEssayList.length > 1 && (
-                <div className="flex items-center justify-between mt-6 pt-4 border-t border-slate-100">
-                  <button
-                    onClick={() => setEssayCurrentIdx(prev => Math.max(0, prev - 1))}
-                    disabled={essayCurrentIdx === 0}
-                    className="btn-secondary btn-sm disabled:opacity-40"
-                  >
-                    <ChevronLeft className="w-4 h-4" /> Sebelumnya
-                  </button>
-                  <span className="text-sm text-slate-400">{essayCurrentIdx + 1} / {soalEssayList.length}</span>
-                  <button
-                    onClick={() => setEssayCurrentIdx(prev => Math.min(soalEssayList.length - 1, prev + 1))}
-                    disabled={essayCurrentIdx === soalEssayList.length - 1}
-                    className="btn-secondary btn-sm disabled:opacity-40"
-                  >
-                    Berikutnya <ChevronRight className="w-4 h-4" />
-                  </button>
-                </div>
-              )}
+            </div>
+          )}
+
+          {/* FIX (permintaan: tombol Sebelumnya/Berikutnya ikut ter-scroll —
+              sama seperti perbaikan di halaman PG, lihat komentar lengkap
+              di sana): dipindah keluar dari kartu soal, jadi bar tipis yang
+              fixed menempel di bawah viewport, dengan tinggi tombol tetap
+              dijaga ~44px supaya nyaman disentuh di semua ukuran HP. Hanya
+              ditampilkan kalau soal essay lebih dari 1 (perilaku lama). */}
+          {soalEssayList.length > 1 && (
+            <div
+              className="fixed inset-x-0 bottom-0 z-30 bg-white/95 backdrop-blur border-t border-slate-200 shadow-[0_-4px_14px_rgba(0,0,0,0.08)]"
+              style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
+            >
+              <div className="max-w-3xl mx-auto px-4 py-2 flex items-center gap-2">
+                <button
+                  onClick={() => setEssayCurrentIdx(prev => Math.max(0, prev - 1))}
+                  disabled={essayCurrentIdx === 0}
+                  className="btn-secondary min-h-[44px] flex-1 justify-center disabled:opacity-40"
+                >
+                  <ChevronLeft className="w-4 h-4" /> Sebelumnya
+                </button>
+                <span className="text-xs text-slate-400 flex-shrink-0 px-1 tabular-nums">
+                  {essayCurrentIdx + 1}/{soalEssayList.length}
+                </span>
+                <button
+                  onClick={() => setEssayCurrentIdx(prev => Math.min(soalEssayList.length - 1, prev + 1))}
+                  disabled={essayCurrentIdx === soalEssayList.length - 1}
+                  className="btn-secondary min-h-[44px] flex-1 justify-center disabled:opacity-40"
+                >
+                  Berikutnya <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
             </div>
           )}
 
@@ -4554,7 +4572,10 @@ export default function SiswaUjianPage() {
 
       {sesiDitutupOverlayJSX}
 
-      <div className="max-w-3xl mx-auto space-y-4 animate-fade-in select-none">
+      {/* pb-20: ruang cadangan di paling bawah supaya konten (kartu soal
+          terakhir) tidak tertutup bar "Sebelumnya/Berikutnya" yang sekarang
+          fixed di bawah viewport — lihat komentar lengkap di dekat bar-nya. */}
+      <div className="max-w-3xl mx-auto space-y-4 animate-fade-in select-none pb-20">
         {/* Header — FIX: sebelumnya ikut ter-scroll bersama daftar soal,
             sehingga nama mapel, sisa waktu, dan tombol Selesai tidak
             terlihat lagi begitu siswa scroll ke soal-soal berikutnya
@@ -4751,20 +4772,47 @@ export default function SiswaUjianPage() {
             })}
           </div>
 
-          {/* Navigation */}
-          <div className="flex items-center justify-between mt-6 pt-4 border-t border-slate-100">
+        </div>
+
+        {/* FIX (permintaan: tombol Sebelumnya/Berikutnya ikut ter-scroll):
+            SEBELUMNYA nav ini ada DI DALAM kartu soal, jadi begitu siswa
+            scroll membaca soal panjang / banyak opsi, tombol pindah soal
+            ikut hilang ke atas — sama seperti masalah header sebelum
+            diperbaiki (lihat komentar sticky header di atas). Sekarang
+            dipindah jadi bar TERPISAH yang selalu menempel di bagian BAWAH
+            viewport (position: fixed), sama seperti tombol "Kirim" yang
+            sudah menempel di header atas.
+            Dibuat setipis mungkin (padding vertikal kecil) supaya tidak
+            memakan banyak ruang baca soal, TAPI tinggi tombolnya sendiri
+            tetap dijaga minimal ~44px (min-h-11) — ukuran target sentuh
+            yang nyaman diklik jari di HP ukuran apa pun, dari layar kecil
+            sampai besar. `env(safe-area-inset-bottom)` ditambahkan supaya
+            di iPhone tanpa tombol Home (gesture bar) baris ini tidak
+            ketutupan/kepotong oleh area gesture di bawah layar.
+            Elemen ini `fixed` (bukan bagian dari alur normal), jadi TIDAK
+            masalah ditaruh di sini secara DOM — akan tetap tampil menempel
+            di bawah viewport terlepas dari posisinya di kode. Spacer
+            `pb-20` di wrapper terluar (lihat pembukaan halaman ini) dipakai
+            supaya konten paling bawah tidak tertutup bar ini. */}
+        <div
+          className="fixed inset-x-0 bottom-0 z-30 bg-white/95 backdrop-blur border-t border-slate-200 shadow-[0_-4px_14px_rgba(0,0,0,0.08)]"
+          style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
+        >
+          <div className="max-w-3xl mx-auto px-4 py-2 flex items-center gap-2">
             <button
               onClick={() => setCurrentIdx(prev => Math.max(0, prev - 1))}
               disabled={currentIdx === 0}
-              className="btn-secondary btn-sm disabled:opacity-40"
+              className="btn-secondary min-h-[44px] flex-1 justify-center disabled:opacity-40"
             >
               <ChevronLeft className="w-4 h-4" /> Sebelumnya
             </button>
-            <span className="text-sm text-slate-400">{currentIdx + 1} / {soalList.length}</span>
+            <span className="text-xs text-slate-400 flex-shrink-0 px-1 tabular-nums">
+              {currentIdx + 1}/{soalList.length}
+            </span>
             <button
               onClick={() => setCurrentIdx(prev => Math.min(soalList.length - 1, prev + 1))}
               disabled={currentIdx === soalList.length - 1}
-              className="btn-secondary btn-sm disabled:opacity-40"
+              className="btn-secondary min-h-[44px] flex-1 justify-center disabled:opacity-40"
             >
               Berikutnya <ChevronRight className="w-4 h-4" />
             </button>
