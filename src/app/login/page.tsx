@@ -10,6 +10,7 @@ import {
   Maximize, Minimize,
 } from 'lucide-react'
 import WitaClock from '@/components/login/WitaClock'
+import WelcomeSplash from '@/components/login/WelcomeSplash'
 
 // PERF: modal Panduan/QA/Aktivitas berisi cukup banyak JSX + data (FAQ,
 // langkah panduan per role) yang hanya dibutuhkan KALAU tombolnya diklik.
@@ -96,6 +97,11 @@ function SchoolLogo({ size, siteInfo }: { size: 'sm' | 'lg' | 'xl'; siteInfo: Si
 
 export default function LoginPage() {
   const router = useRouter()
+  // ── Welcome splash "EXAMFLOW" ─────────────────────────────────────────
+  // Tampil sekali di atas segalanya saat halaman login pertama kali
+  // dibuka, lalu memudar sendiri (lihat WelcomeSplash.tsx) sebelum form
+  // login di baliknya mulai berinteraksi dengan pengguna.
+  const [showSplash, setShowSplash] = useState(true)
   const [form, setForm] = useState({ username: '', password: '' })
   const [showPw, setShowPw] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -533,6 +539,8 @@ export default function LoginPage() {
       className="min-h-screen flex relative overflow-hidden"
       onMouseMove={handleMouseMove}
     >
+      {showSplash && <WelcomeSplash onFinish={() => setShowSplash(false)} />}
+
       {/* ── Background foto siswa full 1 layar — di belakang SEMUA elemen.
           `fixed inset-0` supaya tetap penuh & tidak ikut scroll, termasuk
           saat mode Layar Penuh (fullscreen browser).
