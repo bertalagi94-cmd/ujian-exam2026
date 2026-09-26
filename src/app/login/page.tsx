@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { useRouter, usePathname } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import {
   Eye, EyeOff, BookOpen, Lock, User, AlertCircle, X,
@@ -97,6 +97,7 @@ function SchoolLogo({ size, siteInfo }: { size: 'sm' | 'lg' | 'xl'; siteInfo: Si
 
 export default function LoginPage() {
   const router = useRouter()
+  const pathname = usePathname()
   // ── Welcome splash "EXAMFLOW" ─────────────────────────────────────────
   // Tampil sekali di atas segalanya saat halaman login pertama kali
   // dibuka, lalu memudar sendiri (lihat WelcomeSplash.tsx) sebelum form
@@ -115,6 +116,17 @@ export default function LoginPage() {
   const [showQA, setShowQA] = useState(false)
   const [showAktivitas, setShowAktivitas] = useState(false)
   const [mobileLoginOpen, setMobileLoginOpen] = useState(false)
+  // Jaga-jaga tambahan: Next.js kadang memakai ulang instance halaman
+  // /login yang sudah pernah dikunjungi (mis. sebelum login) alih-alih
+  // memuat ulang dari nol saat kembali ke sini via logout. Kalau itu
+  // terjadi, panel login mobile bisa "nyangkut" masih terbuka (dari saat
+  // dulu diketik username/password), sehingga beranda + kanvas
+  // coret-coret jadi tidak pernah tampil lagi. `pathname` berubah setiap
+  // kali rute berpindah, jadi effect ini akan tetap berjalan ulang setiap
+  // /login "dimasuki" lagi, memastikan panel selalu mulai tertutup.
+  useEffect(() => {
+    setMobileLoginOpen(false)
+  }, [pathname])
   // Foto khusus HP (potret) — jika file /images/siswa-sekolah-mobile.webp
   // belum ada di repo, otomatis fallback ke foto landscape yang sudah ada
   // (dengan komposisi crop+awan yang sudah berjalan sekarang), supaya tidak
@@ -127,9 +139,10 @@ export default function LoginPage() {
   // dalam 5 detik. Ditaruh DI BAWAH panel Login/Panduan/Q&A/Aktivitas secara
   // stacking (lihat z-index di JSX) supaya tombol-tombol itu tetap bisa
   // ditekan normal, coretan hanya "menempel" di area foto/latar.
-  const doodleCanvasRef = useRef<HTMLCanvasElement>(null)
+  const doodleCanvasRef = useRef<HTMLCanvasElement | null>(null)
   const doodleStrokesRef = useRef<{ x: number; y: number; t: number }[][]>([])
   const doodleDrawingRef = useRef(false)
+  const doodleCleanupRef = useRef<(() => void) | null>(null)
   const [showDoodleHint, setShowDoodleHint] = useState(false)
 
   useEffect(() => {
@@ -158,11 +171,30 @@ export default function LoginPage() {
     try { localStorage.setItem('smartexam_doodle_hint_seen', '1') } catch { /* abaikan */ }
   }
 
-  // Loop render kanvas coret-coret: setiap titik punya timestamp, memudar
-  // linear selama 5000ms lalu dibuang dari memori supaya kanvas tetap ringan.
-  useEffect(() => {
-    const canvas = doodleCanvasRef.current
-    if (!canvas) return
+  // ── Setup loop gambar kanvas coret-coret ──────────────────────────────
+  // FIX BUG "kadang jadi kadang tidak": kanvas ini hanya dirender saat
+  // panel login mobile TERTUTUP (lihat `!mobileLoginOpen` di JSX). Setiap
+  // kali panel dibuka lalu ditutup lagi, React membongkar total elemen
+  // <canvas> lama dan membuat yang BARU — tapi loop gambar & listener
+  // resize sebelumnya dipasang lewat `useEffect(..., [])` yang cuma
+  // berjalan SEKALI seumur hidup komponen LoginPage, bukan seumur hidup
+  // elemen <canvas>-nya. Akibatnya loop lama tetap "hidup" tapi melukis
+  // ke kanvas yang sudah tidak ada di layar, sementara kanvas baru yang
+  // terlihat tidak pernah dapat loop gambarnya sendiri — sentuhan
+  // tercatat tapi tidak pernah tergambar.
+  //
+  // Perbaikannya: pakai CALLBACK REF. Fungsi ini dipanggil React setiap
+  // kali elemen <canvas> benar-benar terpasang (node tersedia) atau
+  // terlepas (node menjadi null) dari DOM — jadi setup & cleanup selalu
+  // mengikuti kanvas yang sedang tampil, bukan hanya mount pertama.
+  const setDoodleCanvasRef = useCallback((node: HTMLCanvasElement | null) => {
+    // Bersihkan dulu loop/listener dari kanvas SEBELUMNYA (kalau ada)
+    doodleCleanupRef.current?.()
+    doodleCleanupRef.current = null
+    doodleCanvasRef.current = node
+    if (!node) return
+
+    const canvas = node
     const ctx = canvas.getContext('2d')
     if (!ctx) return
     const resize = () => {
@@ -211,10 +243,17 @@ export default function LoginPage() {
       raf = requestAnimationFrame(draw)
     }
     draw()
-    return () => {
+
+    doodleCleanupRef.current = () => {
       cancelAnimationFrame(raf)
       window.removeEventListener('resize', resize)
     }
+  }, [])
+
+  // Jaga-jaga: bersihkan loop yang masih aktif saat LoginPage benar-benar
+  // unmount (mis. pindah halaman setelah login berhasil).
+  useEffect(() => {
+    return () => { doodleCleanupRef.current?.() }
   }, [])
 
   function doodlePointFromEvent(e: React.PointerEvent<HTMLCanvasElement>) {
@@ -743,7 +782,7 @@ export default function LoginPage() {
                     di atasnya (diberi relative + z-10) tetap bisa disentuh
                     normal. Coretan otomatis pudar sendiri ±5 detik. ── */}
                 <canvas
-                  ref={doodleCanvasRef}
+                  ref={setDoodleCanvasRef}
                   className="absolute inset-0 w-full h-full touch-none select-none"
                   style={{ zIndex: 0 }}
                   onPointerDown={handleDoodleStart}
