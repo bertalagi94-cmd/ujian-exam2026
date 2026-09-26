@@ -68,6 +68,15 @@ export default function WaliKelasPage() {
   const [downloading, setDownloading]     = useState(false)
   const [refreshing, setRefreshing]       = useState(false)
   const [toast, setToast]                 = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
+  // BUG FIX (error server disamarkan jadi "Anda Bukan Wali Kelas"): SEBELUM
+  // ini, kalau GET /api/guru/wali-kelas gagal (network/500) karena alasan
+  // TEKNIS, `data` tetap `null` dan halaman menampilkan pesan "Anda Bukan
+  // Wali Kelas" yang sama persis dengan kondisi user memang belum ditugaskan
+  // — padahal dua penyebab itu sangat berbeda. Sekarang error request
+  // disimpan terpisah di `loadError` dan ditampilkan dengan pesan+tombol
+  // "Coba Lagi" sendiri; pesan "Anda Bukan Wali Kelas" HANYA muncul kalau
+  // request-nya berhasil (200) dan server memang bilang `isWaliKelas: false`.
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   // State modal kembalikan nilai
   const [modalKembalikan, setModalKembalikan] = useState<{
@@ -84,8 +93,10 @@ export default function WaliKelasPage() {
     try {
       const res = await apiRequest<WaliKelasData>('/api/guru/wali-kelas')
       setData(res)
+      setLoadError(null)
     } catch (e) {
       console.error(e)
+      setLoadError(e instanceof Error ? e.message : 'Gagal memuat data wali kelas')
     } finally {
       setLoading(false)
       setRefreshing(false)
@@ -168,6 +179,29 @@ export default function WaliKelasPage() {
   }
 
   if (loading) return <PageLoader />
+
+  // BUG FIX (lihat komentar di deklarasi `loadError`): tampilkan error
+  // TEKNIS secara terpisah, dengan tombol coba lagi — jangan disamakan
+  // dengan "memang bukan wali kelas".
+  if (loadError) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-4">
+        <div className="w-20 h-20 rounded-full bg-red-50 flex items-center justify-center">
+          <AlertTriangle className="w-10 h-10 text-red-400" />
+        </div>
+        <div className="text-center">
+          <h2 className="text-xl font-bold text-slate-700">Gagal Memuat Data</h2>
+          <p className="text-slate-400 mt-1 text-sm max-w-sm">{loadError}</p>
+        </div>
+        <button
+          onClick={() => load()}
+          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-900 text-white text-sm font-semibold"
+        >
+          <RefreshCw className="w-4 h-4" /> Coba Lagi
+        </button>
+      </div>
+    )
+  }
 
   if (!data?.isWaliKelas) {
     return (
