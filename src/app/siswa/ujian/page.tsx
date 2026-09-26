@@ -3706,30 +3706,33 @@ export default function SiswaUjianPage() {
           {/* Header — sticky, sama seperti perbaikan di halaman PG (lihat
               komentar di render fase UJIAN) supaya nama mapel & sisa waktu
               essay tetap terlihat saat siswa scroll membaca/menulis soal. */}
-          <div className="card py-3 sticky top-0 z-30 shadow-md">
-            <div className="flex items-center justify-between gap-3">
+          {/* FIX (permintaan: header dibuat gradient modern, senada dengan
+              header fase PG — lihat .exam-header di globals.css & komentar
+              lengkap di header PG). */}
+          <div className="card exam-header py-3 sticky top-0 z-30 shadow-lg">
+            <div className="relative z-[1] flex items-center justify-between gap-3">
               <div className="flex-1 min-w-0">
-                <div className="font-semibold text-slate-900 text-sm truncate">{essayInfo?.namaMapel} — Essay</div>
+                <div className="font-semibold text-white text-sm truncate">{essayInfo?.namaMapel} — Essay</div>
                 {modeJawaban === 'DIGITAL' && (
-                  <div className="text-xs font-medium text-slate-400">
+                  <div className="text-xs font-medium text-white/60">
                     {Object.values(jawabanEssay).filter(v => v && v.trim().length > 0).length}/{soalEssayList.length} terjawab
                   </div>
                 )}
               </div>
-              <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-mono font-bold text-base flex-shrink-0 ${
-                sisaWaktuEssay < 300 ? 'bg-red-50 text-red-600' :
-                sisaWaktuEssay < 600 ? 'bg-amber-50 text-amber-600' :
-                'bg-brand-50 text-brand-700'
+              <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-mono font-bold text-base flex-shrink-0 transition-colors ${
+                sisaWaktuEssay < 300 ? 'bg-red-600 text-white ring-2 ring-red-200 shadow-md' :
+                sisaWaktuEssay < 600 ? 'bg-white text-amber-600 shadow-sm' :
+                'bg-white/90 text-brand-700 shadow-sm'
               }`}>
                 <Clock className="w-3.5 h-3.5" />
                 {formatWaktu(sisaWaktuEssay)}
               </div>
             </div>
             {modeJawaban === 'DIGITAL' && (
-              <div className={`text-[11px] mt-1.5 flex items-center gap-1 ${
-                essaySyncStatus === 'error' ? 'text-red-600 font-semibold' :
-                essaySyncStatus === 'syncing' ? 'text-amber-500' :
-                essaySyncStatus === 'synced' ? 'text-emerald-600' : 'text-slate-400'
+              <div className={`relative z-[1] text-[11px] mt-1.5 flex items-center gap-1 ${
+                essaySyncStatus === 'error' ? 'text-red-200 font-semibold' :
+                essaySyncStatus === 'syncing' ? 'text-amber-200' :
+                essaySyncStatus === 'synced' ? 'text-emerald-200' : 'text-white/55'
               }`}>
                 {essaySyncStatus === 'error' && '⚠ Gagal menyimpan ke server, mencoba lagi...'}
                 {essaySyncStatus === 'syncing' && 'Menyimpan ke server...'}
@@ -4595,16 +4598,23 @@ export default function SiswaUjianPage() {
             (paling terasa di HP, layar kecil). Sekarang dibuat sticky di
             bagian atas viewport supaya selalu terlihat & bisa diakses
             kapan saja tanpa perlu scroll ke atas dulu. */}
-        <div className="card py-3 sticky top-0 z-30 shadow-md">
-          <div className="flex items-center justify-between gap-3">
+        {/* FIX (permintaan: header dibuat gradient modern) — lihat class
+            .exam-header di globals.css untuk alasan kenapa statis (bukan
+            animasi). Semua teks di dalamnya diwarnai ulang ke varian putih/
+            pastel terang supaya tetap kontras di atas gradient, KECUALI chip
+            sisa waktu saat <5 menit yang sengaja dibuat solid merah + cincin
+            putih supaya urgensinya tetap paling menonjol, bukan malah
+            tenggelam sekarang latarnya sendiri sudah berwarna. */}
+        <div className="card exam-header py-3 sticky top-0 z-30 shadow-lg">
+          <div className="relative z-[1] flex items-center justify-between gap-3">
             <div className="flex-1 min-w-0">
-              <div className="font-semibold text-slate-900 text-sm truncate">{sesiInfo?.namaMapel}</div>
+              <div className="font-semibold text-white text-sm truncate">{sesiInfo?.namaMapel}</div>
               <div className={`text-xs font-medium ${
                 totalDijawab === soalList.length
-                  ? 'text-emerald-600'
+                  ? 'text-emerald-200'
                   : totalDijawab === 0
-                  ? 'text-slate-400'
-                  : 'text-amber-500'
+                  ? 'text-white/60'
+                  : 'text-amber-200'
               }`}>
                 {totalDijawab}/{soalList.length} terjawab
                 {totalDijawab < soalList.length && (
@@ -4612,10 +4622,10 @@ export default function SiswaUjianPage() {
                 )}
               </div>
             </div>
-            <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-mono font-bold text-base flex-shrink-0 ${
-              sisaWaktu < 300 ? 'bg-red-50 text-red-600' :
-              sisaWaktu < 600 ? 'bg-amber-50 text-amber-600' :
-              'bg-brand-50 text-brand-700'
+            <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-mono font-bold text-base flex-shrink-0 transition-colors ${
+              sisaWaktu < 300 ? 'bg-red-600 text-white ring-2 ring-red-200 shadow-md' :
+              sisaWaktu < 600 ? 'bg-white text-amber-600 shadow-sm' :
+              'bg-white/90 text-brand-700 shadow-sm'
             }`}>
               <Clock className="w-3.5 h-3.5" />
               {formatWaktu(sisaWaktu)}
@@ -4637,7 +4647,7 @@ export default function SiswaUjianPage() {
                   const minDetik = (sesiInfo?.minSubmitMenit ?? 0) * 60
                   const belumCukupWaktu = minDetik > 0 && waktuTerpakai < minDetik
                   return (totalDijawab < soalList.length || belumCukupWaktu)
-                    ? 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'
+                    ? 'bg-white/20 text-white/70 cursor-not-allowed border border-white/25'
                     : 'btn-success'
                 })()
               }`}
@@ -4668,16 +4678,16 @@ export default function SiswaUjianPage() {
             if (sisa <= 0) return null
             const m = Math.floor(sisa / 60), d = sisa % 60
             return (
-              <div className="text-[11px] mt-1 flex items-center gap-1 text-amber-600 font-medium">
+              <div className="relative z-[1] text-[11px] mt-1 flex items-center gap-1 text-amber-200 font-medium">
                 <Clock className="w-3 h-3" />
                 Tombol kirim akan aktif dalam {m}:{String(d).padStart(2, '0')} menit
               </div>
             )
           })()}
-          <div className={`text-[11px] mt-1.5 flex items-center gap-1 ${
-            syncStatus === 'error' ? 'text-red-600 font-semibold' :
-            syncStatus === 'syncing' ? 'text-amber-500' :
-            syncStatus === 'synced' ? 'text-emerald-600' : 'text-slate-400'
+          <div className={`relative z-[1] text-[11px] mt-1.5 flex items-center gap-1 ${
+            syncStatus === 'error' ? 'text-red-200 font-semibold' :
+            syncStatus === 'syncing' ? 'text-amber-200' :
+            syncStatus === 'synced' ? 'text-emerald-200' : 'text-white/55'
           }`}>
             {syncStatus === 'error' && '⚠ Gagal menyimpan ke server, mencoba lagi...'}
             {syncStatus === 'syncing' && 'Menyimpan ke server...'}
@@ -4722,17 +4732,33 @@ export default function SiswaUjianPage() {
               <button
                 key={s.id}
                 onClick={() => setCurrentIdx(i)}
-                className={`w-8 h-8 rounded-lg text-xs font-medium transition-all ${
+                // FIX (permintaan: nomor soal yang BELUM dijawab dibuat merah
+                // supaya langsung kelihatan jelas oleh siswa mana yang masih
+                // harus dikerjakan, bukan cuma abu-abu polos yang gampang
+                // terlewat) — prioritas tetap sama: sedang dibuka > sudah
+                // dijawab > belum dijawab.
+                className={`w-8 h-8 rounded-lg text-xs font-bold transition-all ${
                   i === currentIdx
                     ? 'bg-brand-600 text-white shadow-sm'
                     : jawaban[s.id]
                     ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    : 'bg-red-100 text-red-700 ring-1 ring-red-300 hover:bg-red-200'
                 }`}
               >
                 {i + 1}
               </button>
             ))}
+          </div>
+          <div className="flex items-center gap-4 mt-3 pt-3 border-t border-slate-100 text-[11px] text-slate-500">
+            <span className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-red-100 ring-1 ring-red-300 flex-shrink-0" /> Belum dijawab
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-100 flex-shrink-0" /> Sudah dijawab
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-brand-600 flex-shrink-0" /> Sedang dibuka
+            </span>
           </div>
         </div>
 
