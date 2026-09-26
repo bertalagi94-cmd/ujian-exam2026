@@ -55,6 +55,10 @@ const GRADE_STYLE: Record<string, string> = {
   E: 'bg-red-100 text-red-700 border-red-200',
 }
 
+// Jumlah kartu mapel yang ditampilkan sebelum disembunyikan di balik
+// tombol "Lihat semua" — lihat komentar di `showAllMapel`.
+const MAPEL_PREVIEW_LIMIT = 6
+
 const STATUS_JADWAL: Record<string, { label: string; cls: string; dot: string }> = {
   AKTIF:    { label: 'Aktif',       cls: 'bg-blue-100 text-blue-700',    dot: 'bg-blue-500' },
   BERJALAN: { label: 'Berlangsung', cls: 'bg-amber-100 text-amber-700',  dot: 'bg-amber-500' },
@@ -65,6 +69,13 @@ export default function WaliKelasPage() {
   const [data, setData]             = useState<WaliKelasData | null>(null)
   const [loading, setLoading]       = useState(true)
   const [expandedBelum, setExpandedBelum] = useState<string | null>(null)
+  // PENYEMPURNAAN (guru dengan banyak mapel): kartu "Status Pengiriman Nilai
+  // per Mapel" sebelumnya SELALU menampilkan semua mapel sekaligus di grid —
+  // kalau seorang wali kelas mengampu banyak mapel, grid ini bisa berbaris-
+  // baris dan mendorong "Rekap Nilai Semua Siswa" jauh ke bawah layar.
+  // `showAllMapel` mengontrol apakah kartu dibatasi ke MAPEL_PREVIEW_LIMIT
+  // (default) atau ditampilkan semua (setelah user klik "Lihat semua").
+  const [showAllMapel, setShowAllMapel] = useState(false)
   const [downloading, setDownloading]     = useState(false)
   const [refreshing, setRefreshing]       = useState(false)
   const [toast, setToast]                 = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
@@ -239,6 +250,18 @@ export default function WaliKelasPage() {
     mapelDijadwalkan.some(m => m.belumUjianSiswa.some(b => b.nis === s.nis))
   ).length
 
+  // PENYEMPURNAAN (guru dengan banyak mapel): mapel yang butuh perhatian
+  // (ada nilai dikembalikan, atau masih ada siswa belum ujian) diprioritaskan
+  // tampil di depan, supaya kalau daftar dibatasi (belum "Lihat semua"),
+  // yang tersembunyi adalah mapel yang memang sudah beres — bukan yang
+  // justru perlu ditindaklanjuti wali kelas.
+  const mapelUrut = [...mapelDijadwalkan].sort((a, b) => {
+    const prioritas = (m: MapelInfo) => m.adaDikembalikan ? 0 : m.belumUjianSiswa.length > 0 ? 1 : 2
+    return prioritas(a) - prioritas(b)
+  })
+  const mapelTampil = showAllMapel ? mapelUrut : mapelUrut.slice(0, MAPEL_PREVIEW_LIMIT)
+  const sisaMapel = mapelUrut.length - mapelTampil.length
+
   return (
     <div className="space-y-8 animate-fade-in pb-10">
       {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
@@ -338,12 +361,25 @@ export default function WaliKelasPage() {
             <BookOpen className="w-4 h-4 text-emerald-600" />
             Status Pengiriman Nilai per Mapel
           </h2>
-          {totalBelumLengkap > 0 && (
-            <span className="flex items-center gap-1.5 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-full">
-              <AlertTriangle className="w-3.5 h-3.5" />
-              {totalBelumLengkap} siswa belum lengkap nilainya
-            </span>
-          )}
+          <div className="flex items-center gap-2 flex-wrap justify-end">
+            {totalBelumLengkap > 0 && (
+              <span className="flex items-center gap-1.5 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-full">
+                <AlertTriangle className="w-3.5 h-3.5" />
+                {totalBelumLengkap} siswa belum lengkap nilainya
+              </span>
+            )}
+            {/* PENYEMPURNAAN (guru dengan banyak mapel): tombol lompat cepat
+                ke tabel rekap, supaya tidak perlu scroll melewati semua
+                kartu mapel dulu untuk sampai ke tabel nilai siswa. */}
+            {mapelDijadwalkan.length > 0 && (
+              <button
+                onClick={() => document.getElementById('rekap-nilai')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                className="flex items-center gap-1.5 text-xs font-medium text-emerald-700 hover:text-emerald-800 hover:underline underline-offset-2"
+              >
+                Lompat ke tabel nilai <ChevronDown className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
         </div>
 
         {mapelDijadwalkan.length === 0 ? (
@@ -356,7 +392,7 @@ export default function WaliKelasPage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-            {mapelDijadwalkan.map(mp => {
+            {mapelTampil.map(mp => {
               const belumCount   = mp.belumUjianSiswa.length
               const sudahCount   = mp.sudahUjian
               const total        = mp.totalSiswa
@@ -520,10 +556,27 @@ export default function WaliKelasPage() {
             })}
           </div>
         )}
+
+        {/* PENYEMPURNAAN (guru dengan banyak mapel): tombol untuk membuka/
+            menutup mapel yang disembunyikan di balik MAPEL_PREVIEW_LIMIT. */}
+        {mapelUrut.length > MAPEL_PREVIEW_LIMIT && (
+          <div className="flex justify-center mt-4">
+            <button
+              onClick={() => setShowAllMapel(v => !v)}
+              className="flex items-center gap-1.5 text-sm font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-4 py-2 rounded-xl transition-colors"
+            >
+              {showAllMapel ? (
+                <>Tampilkan lebih sedikit <ChevronUp className="w-4 h-4" /></>
+              ) : (
+                <>Lihat {sisaMapel} mapel lainnya <ChevronDown className="w-4 h-4" /></>
+              )}
+            </button>
+          </div>
+        )}
       </section>
 
       {/* ── Tabel Rekap Nilai ── */}
-      <section>
+      <section id="rekap-nilai" className="scroll-mt-6">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-base font-bold text-slate-800 flex items-center gap-2">
             <TrendingUp className="w-4 h-4 text-emerald-600" />
