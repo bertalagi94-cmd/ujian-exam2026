@@ -650,20 +650,16 @@
 }
 
 /* ── Welcome Splash "EXAMFLOW" (sebelum halaman login) ───────────────────
-   Layar penuh dengan gradasi navy→teal yang kalem, grid & kilau lembut
-   yang melayang pelan, teks brand yang terbang masuk huruf demi huruf
-   dengan gradient yang MENYAMBUNG antar huruf (bukan warna solid per
-   huruf — trik: setiap huruf memakai background-size sangat lebar +
-   background-position berbeda sesuai posisinya, sehingga gabungannya
-   terlihat seperti satu gradasi utuh mengalir dari huruf pertama ke
-   terakhir). Sesudah huruf selesai, ada satu sapuan cahaya (shine) yang
-   melintas sekali di atas judul untuk kesan premium, lalu seluruh splash
-   memudar untuk membuka halaman login. */
+   Gaya sengaja dibuat CLEAN/CORPORATE, bukan flashy: hanya 2 warna brand
+   (sky → teal) yang menyambung mulus antar huruf (trik: setiap huruf
+   memakai background-size lebar + background-position berbeda sesuai
+   posisinya), gerakan flip yang halus (bukan ekstrem), dan progress bar
+   tipis sebagai indikator "memuat" — bukan efek kilau/ornamen berlebih. */
 .examflow-splash {
-  animation: examflowIn 0.4s ease-out both;
+  animation: examflowIn 0.35s ease-out both;
 }
 .examflow-splash-out {
-  animation: examflowOut 0.6s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  animation: examflowOut 0.5s cubic-bezier(0.4, 0, 0.2, 1) forwards;
   pointer-events: none;
 }
 @keyframes examflowIn {
@@ -671,192 +667,117 @@
   to   { opacity: 1; }
 }
 @keyframes examflowOut {
-  0%   { opacity: 1; filter: blur(0); }
-  100% { opacity: 0; filter: blur(6px); }
+  0%   { opacity: 1; }
+  100% { opacity: 0; }
 }
 
-/* ── Grid teknologi yang sangat samar, melayang pelan diagonal ── */
+/* ── Grid nyaris tak terlihat, hanya tekstur halus ── */
 .examflow-grid {
   position: absolute;
   inset: -10% -10%;
   background-image:
-    linear-gradient(rgba(148,222,255,0.07) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(148,222,255,0.07) 1px, transparent 1px);
-  background-size: 42px 42px;
-  mask-image: radial-gradient(ellipse at center, black 0%, transparent 70%);
-  -webkit-mask-image: radial-gradient(ellipse at center, black 0%, transparent 70%);
-  animation: examflowGridDrift 26s linear infinite;
-  opacity: 0.6;
-}
-@keyframes examflowGridDrift {
-  from { transform: translate(0, 0); }
-  to   { transform: translate(42px, 42px); }
+    linear-gradient(rgba(148,222,255,0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148,222,255,0.045) 1px, transparent 1px);
+  background-size: 46px 46px;
+  mask-image: radial-gradient(ellipse at center, black 0%, transparent 65%);
+  -webkit-mask-image: radial-gradient(ellipse at center, black 0%, transparent 65%);
 }
 
-/* ── Orb cahaya melayang pelan (aurora-style) ── */
+/* ── Dua orb cahaya statis-lembut (gerakan sangat pelan, tidak mengganggu) ── */
 .examflow-orb {
   position: absolute;
   border-radius: 9999px;
   filter: blur(9vw);
-  opacity: 0.5;
+  opacity: 0.35;
   will-change: transform;
 }
 .examflow-orb-1 {
-  width: 46vw; height: 46vw; top: -14vw; left: -10vw;
-  background: radial-gradient(circle, rgba(56,189,248,0.5), transparent 70%);
-  animation: examflowDrift1 14s ease-in-out infinite;
+  width: 42vw; height: 42vw; top: -16vw; left: -12vw;
+  background: radial-gradient(circle, rgba(56,189,248,0.45), transparent 70%);
+  animation: examflowDrift1 16s ease-in-out infinite;
 }
 .examflow-orb-2 {
-  width: 40vw; height: 40vw; bottom: -16vw; right: -8vw;
-  background: radial-gradient(circle, rgba(20,184,166,0.45), transparent 70%);
-  animation: examflowDrift2 18s ease-in-out infinite;
-}
-.examflow-orb-3 {
-  width: 30vw; height: 30vw; bottom: 6vw; left: 10vw;
-  background: radial-gradient(circle, rgba(129,140,248,0.22), transparent 70%);
-  animation: examflowDrift3 22s ease-in-out infinite;
+  width: 36vw; height: 36vw; bottom: -14vw; right: -10vw;
+  background: radial-gradient(circle, rgba(20,184,166,0.4), transparent 70%);
+  animation: examflowDrift2 20s ease-in-out infinite;
 }
 @keyframes examflowDrift1 {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  50%      { transform: translate(4vw, 3vw) scale(1.08); }
+  0%, 100% { transform: translate(0, 0); }
+  50%      { transform: translate(2.5vw, 2vw); }
 }
 @keyframes examflowDrift2 {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  50%      { transform: translate(-3vw, -4vw) scale(1.1); }
-}
-@keyframes examflowDrift3 {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  50%      { transform: translate(2vw, -2vw) scale(1.15); }
+  0%, 100% { transform: translate(0, 0); }
+  50%      { transform: translate(-2vw, -2.5vw); }
 }
 
-/* ── Badge ikon dengan cincin cahaya berputar (pola sama seperti
-   .header-ujian-berjalan di atas, dipakai ulang konsepnya) ── */
-@property --examflow-ring-angle {
-  syntax: '<angle>';
-  inherits: false;
-  initial-value: 0deg;
-}
+/* ── Badge ikon: kotak halus dengan cincin tipis diam (tanpa animasi
+   berputar yang terkesan "gamer") ── */
 .examflow-badge-ring {
   position: relative;
-  isolation: isolate;
-  animation: examflowBadgeIn 0.6s ease-out both;
-}
-.examflow-badge-ring::before {
-  content: '';
-  position: absolute;
-  inset: -3px;
-  border-radius: inherit;
-  padding: 2px;
-  background: conic-gradient(from var(--examflow-ring-angle),
-    transparent 0deg, rgba(125,211,252,0.95) 35deg, rgba(45,212,191,0.95) 80deg,
-    transparent 130deg, transparent 360deg);
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  animation: examflowRingSpin 2.4s linear infinite;
-}
-.examflow-badge-ring::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  border: 1px solid rgba(148,222,255,0.25);
-}
-@keyframes examflowRingSpin {
-  to { --examflow-ring-angle: 360deg; }
+  border: 1px solid rgba(148,222,255,0.22);
+  animation: examflowBadgeIn 0.5s ease-out both;
 }
 @keyframes examflowBadgeIn {
-  0%   { opacity: 0; transform: translateY(6px) scale(0.85); }
-  100% { opacity: 1; transform: translateY(0) scale(1); }
+  0%   { opacity: 0; transform: translateY(4px); }
+  100% { opacity: 1; transform: translateY(0); }
 }
 
-/* ── Judul "EXAMFLOW": setiap huruf punya gradient sendiri (posisi
-   berbeda) supaya gabungannya terlihat menyatu, dan terbang masuk
-   dengan flip 3D + blur→fokus. PENTING: gradient & background-clip
-   dipasang di SETIAP HURUF (bukan di elemen induknya) — memasangnya di
-   induk yang ber-flex/inline-block anak bisa membuat teks jadi tak
-   kelihatan sama sekali di banyak browser (bug versi sebelumnya). */
+/* ── Judul "EXAMFLOW": gradient 2-warna brand yang menyambung antar
+   huruf, terbang masuk dengan flip HALUS (bukan ekstrem) + blur→fokus.
+   Gradient & background-clip dipasang di SETIAP HURUF (bukan di elemen
+   induknya) — memasangnya di induk yang ber-flex/inline-block anak
+   membuat teks bisa jadi tak kelihatan sama sekali di banyak browser. */
 .examflow-title {
-  filter: drop-shadow(0 0 22px rgba(56,189,248,0.35));
-  animation: examflowTitleGlow 3.2s ease-in-out 1.4s infinite;
-}
-@keyframes examflowTitleGlow {
-  0%, 100% { filter: drop-shadow(0 0 18px rgba(56,189,248,0.3)); }
-  50%      { filter: drop-shadow(0 0 32px rgba(45,212,191,0.5)); }
+  filter: drop-shadow(0 0 16px rgba(56,189,248,0.22));
 }
 .examflow-letter {
   opacity: 0;
   transform-origin: 50% 100%;
-  transform: perspective(700px) rotateX(65deg) translateY(28px) scale(0.82);
-  filter: blur(7px);
-  background-image: linear-gradient(100deg, #a5b4fc 0%, #7dd3fc 22%, #38bdf8 45%, #2dd4bf 70%, #6ee7b7 100%);
-  background-size: 700% 100%;
+  transform: perspective(500px) rotateX(18deg) translateY(10px);
+  filter: blur(4px);
+  background-image: linear-gradient(95deg, #7dd3fc 0%, #38bdf8 45%, #2dd4bf 100%);
+  background-size: 400% 100%;
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
   color: transparent;
-  animation: examflowLetterIn 0.62s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation: examflowLetterIn 0.42s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 @keyframes examflowLetterIn {
-  0%   { opacity: 0; transform: perspective(700px) rotateX(65deg) translateY(28px) scale(0.82); filter: blur(7px); }
-  55%  { opacity: 1; filter: blur(0); }
-  100% { opacity: 1; transform: perspective(700px) rotateX(0deg) translateY(0) scale(1); filter: blur(0); }
-}
-
-/* ── Sapuan cahaya (shine) sekali lewat di atas judul ── */
-.examflow-shine {
-  position: absolute;
-  inset: -20% -10%;
-  display: block;
-  pointer-events: none;
-  background: linear-gradient(115deg, transparent 30%, rgba(255,255,255,0.75) 48%, transparent 66%);
-  mix-blend-mode: overlay;
-  transform: translateX(-140%) skewX(-12deg);
-  opacity: 0;
-  animation: examflowShine 0.9s ease-in-out forwards;
-}
-@keyframes examflowShine {
-  0%   { transform: translateX(-140%) skewX(-12deg); opacity: 0; }
-  15%  { opacity: 1; }
-  60%  { opacity: 1; }
-  100% { transform: translateX(140%) skewX(-12deg); opacity: 0; }
-}
-
-.examflow-underline-track {
-  background: rgba(148, 222, 255, 0.14);
-  opacity: 0;
-  animation: examflowFadeInOnly 0.4s ease-out forwards;
-}
-.examflow-underline {
-  position: relative;
-  overflow: hidden;
-  transform-origin: left center;
-  transform: scaleX(0);
-  background: linear-gradient(90deg, #38bdf8, #2dd4bf);
-  animation: examflowUnderlineIn 0.7s cubic-bezier(0.22, 1, 0.36, 1) forwards;
-}
-@keyframes examflowFadeInOnly {
-  to { opacity: 1; }
-}
-@keyframes examflowUnderlineIn {
-  to { transform: scaleX(1); }
+  0%   { opacity: 0; transform: perspective(500px) rotateX(18deg) translateY(10px); filter: blur(4px); }
+  100% { opacity: 1; transform: perspective(500px) rotateX(0deg) translateY(0); filter: blur(0); }
 }
 
 .examflow-subtitle {
   opacity: 0;
-  letter-spacing: 0.32em;
-  animation: examflowSubtitleIn 0.65s ease-out forwards;
+  letter-spacing: 0.16em;
+  animation: examflowSubtitleIn 0.4s ease-out forwards;
 }
 @keyframes examflowSubtitleIn {
-  0%   { opacity: 0; letter-spacing: 0.32em; transform: translateY(6px); }
-  100% { opacity: 1; letter-spacing: 0.04em; transform: translateY(0); }
+  0%   { opacity: 0; transform: translateY(4px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Progress bar tipis: mengisi penuh mengikuti waktu tampil splash,
+   pola umum di splash aplikasi profesional (indikator "sedang memuat"). ── */
+.examflow-progress-track {
+  background: rgba(148, 222, 255, 0.14);
+}
+.examflow-progress {
+  width: 100%;
+  transform-origin: left center;
+  transform: scaleX(0);
+  background: linear-gradient(90deg, #38bdf8, #2dd4bf);
+  animation: examflowProgress 1.85s linear 0.15s forwards;
+}
+@keyframes examflowProgress {
+  to { transform: scaleX(1); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .examflow-splash, .examflow-splash-out, .examflow-orb, .examflow-grid,
-  .examflow-badge-ring, .examflow-badge-ring::before, .examflow-title,
-  .examflow-letter, .examflow-shine, .examflow-underline, .examflow-underline-track,
-  .examflow-subtitle {
+  .examflow-splash, .examflow-splash-out, .examflow-orb,
+  .examflow-badge-ring, .examflow-title, .examflow-letter,
+  .examflow-subtitle, .examflow-progress {
     animation: none !important;
     opacity: 1 !important;
     transform: none !important;
