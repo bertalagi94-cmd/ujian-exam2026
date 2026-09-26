@@ -19,3 +19,8 @@ Thumbs.db
 /android/app/build/
 /android/.gradle/
 /android/local.properties
+
+# Dibuat otomatis oleh scripts/generate-precache-manifest.js setelah
+# `next build` (lihat "postbuild" di package.json) — jangan commit manual,
+# selalu dihasilkan ulang tiap build dan berbeda-beda per buildId.
+/public/precache-manifest.json
