@@ -63,7 +63,7 @@ export default function GuruDashboard() {
   return (
     <div className="space-y-8 animate-fade-in">
       <div>
-        <h1 className="page-title">Selamat Datang, {namaGuru.split(' ')[0]}</h1>
+        <h1 className="page-title">Selamat Datang, {namaGuru}</h1>
         <p className="page-subtitle">Kelola soal dan pantau perkembangan siswa Anda</p>
       </div>
 
