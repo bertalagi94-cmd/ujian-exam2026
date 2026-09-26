@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { Download, BarChart3, Trophy, TrendingUp, Users, CheckCircle, AlertTriangle, ShieldCheck, Pencil, Save, Lock } from 'lucide-react'
+import { Download, BarChart3, Trophy, TrendingUp, Users, CheckCircle, AlertTriangle, ShieldCheck, Pencil, Save, Lock, RotateCcw, MessageSquare } from 'lucide-react'
 import { PageLoader, EmptyState, SearchInput, StatCard, Modal, Toast } from '@/components/ui'
 import { apiRequest, formatDateTime, nilaiColor } from '@/lib/utils'
 import { Nilai as NilaiBase, Mapel } from '@/types'
@@ -123,9 +123,19 @@ export function RekapNilaiTab({ onDataChanged }: { onDataChanged?: () => void } 
 
   const kelasList = [...new Set(nilaiList.map(n => n.kelas))].sort()
 
-  const filtered = nilaiList.filter(n =>
-    !search || (n.nama_siswa ?? '').toLowerCase().includes(search.toLowerCase())
-  )
+  const filtered = nilaiList
+    .filter(n =>
+      !search || (n.nama_siswa ?? '').toLowerCase().includes(search.toLowerCase())
+    )
+    // BUG FIX (baris yang dikembalikan wali kelas tidak terlihat sama sekali):
+    // sebelumnya urutan baris di sini murni mengikuti urutan dari API
+    // (timestamp terbaru dulu) — baris yang dikembalikan wali kelas untuk
+    // direvisi bisa terkubur jauh di tengah tabel, terlihat IDENTIK dengan
+    // baris yang belum pernah dikirim sama sekali (tidak ada badge/catatan
+    // apapun). Guru jadi tidak tahu baris mana yang perlu ditindaklanjuti —
+    // padahal secara teknis sudah bisa diedit (lihat terkunci() di atas).
+    // Sekarang baris yang dikembalikan diprioritaskan tampil paling atas.
+    .sort((a, b) => (a.dikembalikan ? 0 : 1) - (b.dikembalikan ? 0 : 1))
 
   // GANTI: sebelumnya export CSV satu lembar yang mencampur semua mata pelajaran
   // jadi satu tabel besar — membingungkan kalau guru mengampu beberapa mapel.
@@ -245,6 +255,8 @@ export function RekapNilaiTab({ onDataChanged }: { onDataChanged?: () => void } 
           <p className="text-xs text-slate-400 mt-0.5">
             Perlu remedial? Tekan ikon <Pencil className="w-3 h-3 inline" /> di baris siswa untuk input nilai —
             akan langsung dipakai sebagai Nilai Akhir di sini dan saat dikirim ke wali kelas.
+            Baris berlabel <span className="text-orange-500 font-medium">oranye "Dikembalikan wali kelas"</span> berarti
+            nilai itu sudah bisa diedit lagi dan ditampilkan paling atas.
           </p>
         </div>
         {mapelList.length > 0 && (
@@ -343,7 +355,7 @@ export function RekapNilaiTab({ onDataChanged }: { onDataChanged?: () => void } 
               </thead>
               <tbody>
                 {filtered.map((n, i) => (
-                  <tr key={n.id} className={n.belum_ujian ? 'bg-slate-50/60' : ''}>
+                  <tr key={n.id} className={n.belum_ujian ? 'bg-slate-50/60' : n.dikembalikan ? 'bg-orange-50/50' : ''}>
                     <td className="text-slate-400 text-xs">{i + 1}</td>
                     <td className="font-medium text-slate-800">{n.nama_siswa}</td>
                     <td><span className="badge-blue text-xs">{n.kelas}</span></td>
@@ -439,6 +451,28 @@ export function RekapNilaiTab({ onDataChanged }: { onDataChanged?: () => void } 
                               ) : (
                                 <span className="text-xs text-red-500">Essay belum dinilai</span>
                               )
+                            )}
+                            {/* BUG FIX (baris dikembalikan tidak terlihat sama
+                                sekali di tab ini — lihat komentar di `filtered`
+                                di atas): sebelumnya n.dikembalikan/n.catatan_guru
+                                DIAMBIL dari API tapi tidak pernah ditampilkan
+                                di tabel ini, hanya dipakai diam-diam untuk
+                                mengisi modal edit saat dibuka. Guru tidak
+                                pernah tahu ada nilai yang dikembalikan wali
+                                kelas kecuali membuka modal setiap baris satu
+                                per satu. Sekarang ditampilkan jelas sebagai
+                                badge oranye + catatan wali kelas (kalau ada). */}
+                            {n.dikembalikan && (
+                              <div className="flex flex-col gap-0.5 mt-0.5">
+                                <span className="badge bg-orange-50 text-orange-600 text-[10px] flex items-center gap-1 w-fit">
+                                  <RotateCcw className="w-2.5 h-2.5" /> Dikembalikan wali kelas
+                                </span>
+                                {n.catatan_guru && (
+                                  <span className="text-[10px] text-orange-500 flex items-start gap-1 max-w-[180px]">
+                                    <MessageSquare className="w-2.5 h-2.5 flex-shrink-0 mt-0.5" /> {n.catatan_guru}
+                                  </span>
+                                )}
+                              </div>
                             )}
                           </div>
                         </td>
