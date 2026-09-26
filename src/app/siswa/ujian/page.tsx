@@ -3695,11 +3695,14 @@ export default function SiswaUjianPage() {
           </div>
         )}
 
-        {/* pb-20: ruang cadangan di paling bawah supaya tombol "Kirim Jawaban
+        {/* pb-28: ruang cadangan di paling bawah supaya tombol "Kirim Jawaban
             Essay"/"Selesai" di bawah tidak tertutup bar "Sebelumnya/
             Berikutnya" yang sekarang fixed di bawah viewport — lihat
-            komentar lengkap di dekat bar-nya. */}
-        <div className="max-w-3xl mx-auto space-y-4 animate-fade-in select-none pb-20">
+            komentar lengkap di dekat bar-nya. Dinaikkan dari pb-20 ke pb-28
+            karena bar itu sekarang diangkat sedikit (supaya tidak menumpuk
+            dengan bar "Internet : Online"), jadi butuh ruang cadangan
+            sedikit lebih tinggi juga. */}
+        <div className="max-w-3xl mx-auto space-y-4 animate-fade-in select-none pb-28">
           {/* Header — sticky, sama seperti perbaikan di halaman PG (lihat
               komentar di render fase UJIAN) supaya nama mapel & sisa waktu
               essay tetap terlihat saat siswa scroll membaca/menulis soal. */}
@@ -3824,24 +3827,32 @@ export default function SiswaUjianPage() {
               ditampilkan kalau soal essay lebih dari 1 (perilaku lama). */}
           {soalEssayList.length > 1 && (
             <div
-              className="fixed inset-x-0 bottom-0 z-30 bg-white/95 backdrop-blur border-t border-slate-200 shadow-[0_-4px_14px_rgba(0,0,0,0.08)]"
-              style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
+              // FIX (permintaan: tombol ini sebagian tertutup bar "Internet :
+              // Online" yang juga fixed di bawah viewport — lihat
+              // StatusJaringanBar.tsx): sebelumnya `bottom-0`, jadi menumpuk
+              // PERSIS di lokasi yang sama dengan bar status jaringan (yang
+              // z-index-nya jauh lebih tinggi) dan sebagian tombol ketutupan.
+              // Sekarang diangkat setinggi bar status jaringan itu persis
+              // (1.75rem + safe-area perangkat) supaya keduanya berbaris rapi,
+              // tidak saling tumpuk, di semua ukuran layar.
+              className="fixed inset-x-0 z-30 bg-white/95 backdrop-blur border-t border-slate-200 shadow-[0_-4px_14px_rgba(0,0,0,0.08)]"
+              style={{ bottom: 'calc(1.75rem + env(safe-area-inset-bottom, 0px))' }}
             >
               <div className="max-w-3xl mx-auto px-4 py-2 flex items-center gap-2">
                 <button
                   onClick={() => setEssayCurrentIdx(prev => Math.max(0, prev - 1))}
                   disabled={essayCurrentIdx === 0}
-                  className="btn-secondary min-h-[44px] flex-1 justify-center disabled:opacity-40"
+                  className="btn-nav-prev"
                 >
                   <ChevronLeft className="w-4 h-4" /> Sebelumnya
                 </button>
-                <span className="text-xs text-slate-400 flex-shrink-0 px-1 tabular-nums">
+                <span className="pil-nomor-soal">
                   {essayCurrentIdx + 1}/{soalEssayList.length}
                 </span>
                 <button
                   onClick={() => setEssayCurrentIdx(prev => Math.min(soalEssayList.length - 1, prev + 1))}
                   disabled={essayCurrentIdx === soalEssayList.length - 1}
-                  className="btn-secondary min-h-[44px] flex-1 justify-center disabled:opacity-40"
+                  className="btn-nav-next"
                 >
                   Berikutnya <ChevronRight className="w-4 h-4" />
                 </button>
@@ -4572,10 +4583,12 @@ export default function SiswaUjianPage() {
 
       {sesiDitutupOverlayJSX}
 
-      {/* pb-20: ruang cadangan di paling bawah supaya konten (kartu soal
+      {/* pb-28: ruang cadangan di paling bawah supaya konten (kartu soal
           terakhir) tidak tertutup bar "Sebelumnya/Berikutnya" yang sekarang
-          fixed di bawah viewport — lihat komentar lengkap di dekat bar-nya. */}
-      <div className="max-w-3xl mx-auto space-y-4 animate-fade-in select-none pb-20">
+          fixed di bawah viewport — lihat komentar lengkap di dekat bar-nya.
+          Dinaikkan dari pb-20 ke pb-28 karena bar itu sekarang diangkat
+          sedikit (supaya tidak menumpuk dengan bar "Internet : Online"). */}
+      <div className="max-w-3xl mx-auto space-y-4 animate-fade-in select-none pb-28">
         {/* Header — FIX: sebelumnya ikut ter-scroll bersama daftar soal,
             sehingga nama mapel, sisa waktu, dan tombol Selesai tidak
             terlihat lagi begitu siswa scroll ke soal-soal berikutnya
@@ -4795,24 +4808,28 @@ export default function SiswaUjianPage() {
             `pb-20` di wrapper terluar (lihat pembukaan halaman ini) dipakai
             supaya konten paling bawah tidak tertutup bar ini. */}
         <div
-          className="fixed inset-x-0 bottom-0 z-30 bg-white/95 backdrop-blur border-t border-slate-200 shadow-[0_-4px_14px_rgba(0,0,0,0.08)]"
-          style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
+          // FIX (permintaan: tombol ini sebagian tertutup bar "Internet :
+          // Online" — lihat komentar lengkap di bar yang sama di halaman
+          // Essay di atas): diangkat 1.75rem + safe-area supaya tidak
+          // menumpuk dengan StatusJaringanBar lagi.
+          className="fixed inset-x-0 z-30 bg-white/95 backdrop-blur border-t border-slate-200 shadow-[0_-4px_14px_rgba(0,0,0,0.08)]"
+          style={{ bottom: 'calc(1.75rem + env(safe-area-inset-bottom, 0px))' }}
         >
           <div className="max-w-3xl mx-auto px-4 py-2 flex items-center gap-2">
             <button
               onClick={() => setCurrentIdx(prev => Math.max(0, prev - 1))}
               disabled={currentIdx === 0}
-              className="btn-secondary min-h-[44px] flex-1 justify-center disabled:opacity-40"
+              className="btn-nav-prev"
             >
               <ChevronLeft className="w-4 h-4" /> Sebelumnya
             </button>
-            <span className="text-xs text-slate-400 flex-shrink-0 px-1 tabular-nums">
+            <span className="pil-nomor-soal">
               {currentIdx + 1}/{soalList.length}
             </span>
             <button
               onClick={() => setCurrentIdx(prev => Math.min(soalList.length - 1, prev + 1))}
               disabled={currentIdx === soalList.length - 1}
-              className="btn-secondary min-h-[44px] flex-1 justify-center disabled:opacity-40"
+              className="btn-nav-next"
             >
               Berikutnya <ChevronRight className="w-4 h-4" />
             </button>
