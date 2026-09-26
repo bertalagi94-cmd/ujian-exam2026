@@ -241,47 +241,15 @@ function clearBackup(sesiId: string, nis: string) {
   try { localStorage.removeItem(backupKey(sesiId, nis)) } catch { /* abaikan */ }
 }
 
-// ── Merge jawaban server vs lokal berdasarkan JAM — HANYA dipakai untuk ESSAY ──
-// FIX BUG P1 (PG): untuk PG, fungsi ini SUDAH DIGANTI oleh mergeJawabanRevisi()
-// di src/lib/jawaban-merge.ts (lihat resumeJawaban di bawah) karena
-// perbandingan jam client-vs-server-menerima-request terbukti bisa salah —
-// lihat komentar lengkap FIX BUG P1 di dekat jawabanRevisiRef. Essay masih
-// memakai fungsi jam ini apa adanya karena jawaban_essay belum punya kolom
-// revisi di server (lihat 07_essay.sql) — risiko yang sama secara teori
-// masih ada untuk essay, tapi di luar cakupan temuan audit P1 ini yang
-// spesifik membahas src/app/api/siswa/ujian/sync/route.ts untuk PG.
-function mergeJawabanDenganWaktu<T extends Record<string, string>>(
-  server: T,
-  serverTs: Record<string, number>,
-  lokal: T,
-  lokalTs: Record<string, number>,
-): { merged: T; ts: Record<string, number> } {
-  const merged = {} as T
-  const ts: Record<string, number> = {}
-  const semuaKey = new Set([...Object.keys(server), ...Object.keys(lokal)])
-  semuaKey.forEach(k => {
-    const adaServer = Object.prototype.hasOwnProperty.call(server, k)
-    const adaLokal = Object.prototype.hasOwnProperty.call(lokal, k)
-    if (adaServer && adaLokal) {
-      const tServer = serverTs[k] ?? 0
-      const tLokal = lokalTs[k] ?? 0
-      if (tLokal > tServer) {
-        ;(merged as Record<string, string>)[k] = lokal[k]
-        ts[k] = tLokal
-      } else {
-        ;(merged as Record<string, string>)[k] = server[k]
-        ts[k] = tServer
-      }
-    } else if (adaLokal) {
-      ;(merged as Record<string, string>)[k] = lokal[k]
-      ts[k] = lokalTs[k] ?? Date.now()
-    } else {
-      ;(merged as Record<string, string>)[k] = server[k]
-      ts[k] = serverTs[k] ?? 0
-    }
-  })
-  return { merged, ts }
-}
+// ── (Riwayat) Merge jawaban server vs lokal berdasarkan JAM ──────────────────
+// FIX #5: fungsi `mergeJawabanDenganWaktu()` yang dulu ada di sini (dipakai
+// KHUSUS untuk essay) sudah DIHAPUS dan diganti mergeJawabanRevisi() dari
+// src/lib/jawaban-merge.ts — sama seperti PG (lihat resumeJawaban di bawah),
+// sekarang essay juga punya kolom `revisi` di server (lihat migrasi
+// 35_revisi_essay_dan_jeda_offline_nyata.sql), jadi tidak ada lagi alasan
+// essay masih memakai perbandingan jam client-vs-server-menerima-request
+// yang terbukti tidak setara (lihat komentar lengkap FIX BUG P1 di dekat
+// jawabanRevisiRef untuk penjelasan masalahnya).
 
 // ── Device ID — identitas unik per browser/device ────────────────────────
 // Dibuat sekali, disimpan di localStorage, dipakai konsisten sepanjang sesi.
@@ -514,6 +482,18 @@ export default function SiswaUjianPage() {
   // ── Refs fase ESSAY ────────────────────────────────────────────────────────
   const essayInfoRef = useRef<EssayInfo | null>(null)
   const jawabanEssayRef = useRef<JawabanEssayMap>({})
+  // FIX #5 (essay pakai sistem revisi, padanan jawabanRevisiRef untuk PG):
+  // nomor revisi per soal_essay_id, naik monoton di device ini, dibuat di
+  // tulisJawabanEssay(). Sumber kebenaran untuk merge (mergeJawabanRevisi)
+  // dan untuk resolusi konflik di server (sync_jawaban_essay_revisi, lihat
+  // supabase/35_revisi_essay_dan_jeda_offline_nyata.sql), menggantikan
+  // mergeJawabanDenganWaktu() yang membandingkan jam client vs jam server
+  // menerima request (dua jam yang berbeda sumber -- lihat komentar FIX BUG
+  // P1 di dekat jawabanRevisiRef untuk penjelasan lengkap masalahnya).
+  const jawabanEssayRevisiRef = useRef<Record<string, number>>({})
+  // Ronde ACK terakhir per soal essay (revisi & status diterima/tidak),
+  // padanan ackTerakhirRef untuk PG.
+  const ackTerakhirEssayRef = useRef<Record<string, { revisi: number; accepted: boolean }>>({})
   // FIX BUG (P1-01, padanan essay): sama seperti jawabanTsRef untuk PG.
   const jawabanEssayTsRef = useRef<Record<string, number>>({})
   const essayTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -687,7 +667,11 @@ export default function SiswaUjianPage() {
     const user = JSON.parse(localStorage.getItem('user') ?? '{}')
     if (user?.nis) {
       try {
-        const payload: BackupJawaban<JawabanEssayMap> = { v: jawabanEssay, t: jawabanEssayTsRef.current }
+        // FIX #5: sertakan `r` (revisi per soal) — sama seperti saveBackup()
+        // PG — supaya reload di tengah essay tidak kehilangan nomor revisi
+        // (kalau hilang, nextRevisi() mulai dari 0 lagi dan revisi lokal bisa
+        // kalah keliru melawan revisi server yang lebih tinggi).
+        const payload: BackupJawaban<JawabanEssayMap> = { v: jawabanEssay, t: jawabanEssayTsRef.current, r: jawabanEssayRevisiRef.current }
         localStorage.setItem(`ujian_essay_backup_${currentSesi.sesiId}_${user.nis}`, JSON.stringify(payload))
         setBackupLokalGagal(false)
       } catch {
@@ -699,17 +683,17 @@ export default function SiswaUjianPage() {
   }, [jawabanEssay, phase, essayInfo])
 
   // Baca backup essay dari localStorage, kompatibel dengan format lama
-  // (flat map) maupun format baru ({v, t}) — lihat catatan di atas.
+  // (flat map) maupun format baru ({v, t, r}) — lihat catatan di atas.
   function loadEssayBackup(sesiId: string, nis: string): BackupJawaban<JawabanEssayMap> {
     try {
       const raw = localStorage.getItem(`ujian_essay_backup_${sesiId}_${nis}`)
-      if (!raw) return { v: {}, t: {} }
+      if (!raw) return { v: {}, t: {}, r: {} }
       const parsed = JSON.parse(raw)
       if (parsed && typeof parsed === 'object' && 'v' in parsed) {
-        return { v: parsed.v ?? {}, t: parsed.t ?? {} }
+        return { v: parsed.v ?? {}, t: parsed.t ?? {}, r: parsed.r ?? {} }
       }
-      return { v: parsed ?? {}, t: {} }
-    } catch { return { v: {}, t: {} } }
+      return { v: parsed ?? {}, t: {}, r: {} }
+    } catch { return { v: {}, t: {}, r: {} } }
   }
 
   // ── Backup tiap kali jawaban berubah (lihat catatan di backupKey/saveBackup) ──
@@ -1484,9 +1468,11 @@ export default function SiswaUjianPage() {
     setJawaban(prev => ({ ...prev, [soalId]: label }))
   }
 
-  // Padanan pilihJawaban() untuk essay mode DIGITAL.
+  // Padanan pilihJawaban() untuk essay mode DIGITAL — sekarang juga mencatat
+  // REVISI (lihat FIX #5 / jawabanEssayRevisiRef), bukan cuma jam.
   function tulisJawabanEssay(soalEssayId: string, teks: string) {
     jawabanEssayTsRef.current = { ...jawabanEssayTsRef.current, [soalEssayId]: Date.now() }
+    jawabanEssayRevisiRef.current = { ...jawabanEssayRevisiRef.current, [soalEssayId]: nextRevisi(jawabanEssayRevisiRef.current, soalEssayId) }
     setJawabanEssay(prev => ({ ...prev, [soalEssayId]: teks }))
   }
 
@@ -2773,28 +2759,34 @@ export default function SiswaUjianPage() {
       setSisaWaktuEssay(Math.max(0, durasiDetik - terpakai))
 
       // Pulihkan draft jawaban (mode DIGITAL): dari server dulu, digabung
-      // dengan backup lokal berdasarkan JAM masing-masing — pola sama seperti
-      // resumeJawaban() untuk PG (lihat FIX BUG P1-01 di komentar atas file).
+      // dengan backup lokal berdasarkan REVISI masing-masing — pola sama
+      // seperti resumeJawaban() untuk PG (FIX #5, padanan FIX BUG P1-01).
       if (info?.modeJawaban === 'DIGITAL') {
         const user = JSON.parse(localStorage.getItem('user') ?? '{}')
-        let serverJawaban: JawabanEssayMap = {}
-        let serverTs: Record<string, number> = {}
+        let serverEntri: Record<string, EntriServer> = {}
         try {
           // FIX BUG #10: sertakan deviceId supaya backend bisa menegakkan
           // guard anti multi-device di fase essay (lihat essay/jawab/route.ts GET).
-          const jr = await apiRequest<{ jawaban: { soal_essay_id: string; jawaban_teks: string; updated_at?: string }[] }>(
+          const jr = await apiRequest<{ jawaban: { soal_essay_id: string; jawaban_teks: string; updated_at?: string; revisi?: number }[] }>(
             `/api/siswa/ujian/essay/jawab?sesiId=${sesiId}&deviceId=${getDeviceId()}`
           )
-          serverJawaban = Object.fromEntries((jr.jawaban ?? []).map(j => [j.soal_essay_id, j.jawaban_teks]))
-          serverTs = Object.fromEntries(
-            (jr.jawaban ?? []).map(j => [j.soal_essay_id, j.updated_at ? new Date(j.updated_at).getTime() : 0])
-          )
+          serverEntri = Object.fromEntries((jr.jawaban ?? []).map(j => [
+            j.soal_essay_id,
+            { jawaban: j.jawaban_teks, revisi: j.revisi, updatedAtMs: j.updated_at ? new Date(j.updated_at).getTime() : 0 } as EntriServer,
+          ]))
         } catch { /* pakai backup lokal saja kalau gagal */ }
         const backup = loadEssayBackup(sesiId, user.nis)
-        const { merged, ts } = mergeJawabanDenganWaktu(serverJawaban, serverTs, backup.v, backup.t)
-        jawabanEssayRef.current = merged
-        jawabanEssayTsRef.current = ts
-        setJawabanEssay(merged)
+        const lokalEntri: Record<string, EntriLokal> = Object.fromEntries(
+          Object.entries(backup.v).map(([soalEssayId, teks]) => [
+            soalEssayId,
+            { jawaban: teks, revisi: backup.r?.[soalEssayId] ?? 0, tsMs: backup.t?.[soalEssayId] ?? 0 } as EntriLokal,
+          ])
+        )
+        const { merged, revisi } = mergeJawabanRevisi(serverEntri, lokalEntri)
+        jawabanEssayRef.current = merged as JawabanEssayMap
+        jawabanEssayRevisiRef.current = revisi
+        jawabanEssayTsRef.current = { ...backup.t }
+        setJawabanEssay(merged as JawabanEssayMap)
       }
 
       setPhase('ESSAY_KERJAKAN')
@@ -2851,6 +2843,11 @@ export default function SiswaUjianPage() {
       const backup = loadEssayBackup(sesiId, user.nis)
       jawabanEssayRef.current = backup.v
       jawabanEssayTsRef.current = backup.t
+      // FIX #5: pulihkan revisi juga (padanan restore jawabanRevisiRef untuk
+      // PG di recoverActiveExam) — tanpa ini, sync/resume berikutnya mulai
+      // dari revisi 0 lagi dan bisa kalah keliru melawan revisi server yang
+      // sudah lebih tinggi dari sesi sebelumnya.
+      jawabanEssayRevisiRef.current = backup.r ?? {}
       setJawabanEssay(backup.v)
     }
 
@@ -3037,15 +3034,48 @@ export default function SiswaUjianPage() {
       try {
         // FIX BUG #10: sertakan deviceId, sama seperti syncJawaban() untuk PG,
         // supaya guard anti multi-device juga berlaku di autosave essay.
-        await apiRequest('/api/siswa/ujian/essay/jawab', {
+        // FIX #5: sertakan `revisi` per soal — sumber kebenaran untuk
+        // resolusi konflik di server (sync_jawaban_essay_revisi), padanan
+        // persis payload syncJawaban() untuk PG.
+        const res = await apiRequest<{
+          totalTersimpan: number
+          acked?: { soal_essay_id: string; jawaban_teks: string; revisi: number; accepted: boolean }[]
+        }>('/api/siswa/ujian/essay/jawab', {
           method: 'POST',
           body: JSON.stringify({
             sesiId: currentSesi.sesiId,
-            jawaban: entries.map(([soal_essay_id, teks]) => ({ soal_essay_id, jawaban_teks: teks })),
+            jawaban: entries.map(([soal_essay_id, teks]) => ({
+              soal_essay_id,
+              jawaban_teks: teks,
+              revisi: jawabanEssayRevisiRef.current[soal_essay_id] ?? 1,
+            })),
             deviceId: getDeviceId(),
           }),
         })
         setEssaySyncStatus('synced')
+
+        // FIX #5 (konsistensi lintas-device, padanan syncJawabanInternal PG):
+        // kalau server menolak revisi kita karena device LAIN sudah menulis
+        // revisi lebih tinggi untuk soal essay yang sama, adopsi nilai server
+        // supaya device ini ikut konsisten.
+        if (res.acked) {
+          const next: Record<string, { revisi: number; accepted: boolean }> = { ...ackTerakhirEssayRef.current }
+          let adaAdopsiServer = false
+          const jawabanTeradopsi: JawabanEssayMap = {}
+          res.acked.forEach(a => {
+            next[a.soal_essay_id] = { revisi: a.revisi, accepted: a.accepted }
+            const revisiLokalKita = jawabanEssayRevisiRef.current[a.soal_essay_id] ?? 0
+            if (!a.accepted && a.revisi > revisiLokalKita) {
+              jawabanEssayRevisiRef.current[a.soal_essay_id] = a.revisi
+              jawabanTeradopsi[a.soal_essay_id] = a.jawaban_teks
+              adaAdopsiServer = true
+            }
+          })
+          ackTerakhirEssayRef.current = next
+          if (adaAdopsiServer) {
+            setJawabanEssay(prev => ({ ...prev, ...jawabanTeradopsi }))
+          }
+        }
         return { ok: true }
       } catch (e) {
         console.warn(`Sync essay percobaan ke-${attempt} gagal:`, e)
