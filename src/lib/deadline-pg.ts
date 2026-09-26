@@ -60,7 +60,14 @@ export interface JawabanMasuk {
   waktuJawabMs?: number
 }
 
-export type AlasanTolak = 'TANPA_BUKTI_WAKTU' | 'SETELAH_BATAS' | 'SEBELUM_MULAI' | 'DI_MASA_DEPAN'
+export type AlasanTolak =
+  | 'TANPA_BUKTI_WAKTU'
+  | 'SETELAH_BATAS'
+  | 'SEBELUM_MULAI'
+  | 'DI_MASA_DEPAN'
+  // FIX #4 (waktu jawaban offline masih "kata HP siswa", bukan bukti dari
+  // server): lihat penjelasan lengkap di parameter checkpointTerakhirMs.
+  | 'TANPA_JEDA_OFFLINE_NYATA'
 
 export interface HasilSaring<T extends JawabanMasuk> {
   diterima: T[]
@@ -71,15 +78,47 @@ export interface HasilSaring<T extends JawabanMasuk> {
  * Terapkan kebijakan jawaban terlambat. Hanya dipanggil kalau siswa sudah
  * KEDALUWARSA; kalau belum, semua jawaban diterima seperti biasa (tidak
  * memanggil fungsi ini sama sekali -- jalur normal tidak berubah).
+ *
+ * @param checkpointTerakhirMs FIX #4: waktu (ms epoch) heartbeat TERAKHIR
+ * yang dikonfirmasi SERVER untuk device siswa ini (siswa_ujian.last_heartbeat,
+ * diperbarui server-side tiap poll /cek-sesi -- lihat cek-sesi/route.ts).
+ * Ini bukti yang TIDAK BISA dipalsukan client (server sendiri yang mencatat
+ * jamnya), berbeda dari `waktuJawabMs` di atas yang murni klaim client.
+ *
+ * Kalau checkpoint ini SUDAH di atau setelah deadline, berarti device
+ * TERBUKTI online (mengirim heartbeat) sampai deadline lewat -- tidak ada
+ * "jeda offline" sungguhan yang membenarkan sync datang belakangan. Dalam
+ * kondisi ini SEMUA klaim waktu offline pada batch ditolak dengan alasan
+ * TANPA_JEDA_OFFLINE_NYATA, terlepas dari apa pun `waktuJawabMs` yang
+ * diklaim client -- mempersempit celah "waktu dari client adalah BUKTI,
+ * bukan JAMINAN" (lihat komentar di atas file) dari "sepanjang durasi ujian"
+ * menjadi "hanya rentang yang benar-benar tak terkonfirmasi server".
+ *
+ * JUJUR soal batasnya: ini bukan 100% anti-tipu (heartbeat sukses tidak
+ * selalu berarti request sync berikutnya juga akan sukses -- device bisa
+ * heartbeat lalu langsung mati koneksinya persis di titik itu), tapi
+ * memperkecil jendela kepercayaan secara nyata tanpa skema DB baru.
+ * Opsional -- kalau tidak diberikan (undefined), perilaku sama seperti
+ * sebelumnya (murni berdasar klaim waktu client).
  */
 export function saringJawabanTerlambat<T extends JawabanMasuk>(
   jawaban: T[],
   batas: BatasWaktuPg,
-  sekarangMs: number
+  sekarangMs: number,
+  checkpointTerakhirMs?: number | null
 ): HasilSaring<T> {
+  const tanpaJedaNyata =
+    typeof checkpointTerakhirMs === 'number' &&
+    Number.isFinite(checkpointTerakhirMs) &&
+    checkpointTerakhirMs >= batas.deadlineMs
+
   const diterima: T[] = []
   const ditolak: { jawaban: T; alasan: AlasanTolak }[] = []
   for (const j of jawaban) {
+    if (tanpaJedaNyata) {
+      ditolak.push({ jawaban: j, alasan: 'TANPA_JEDA_OFFLINE_NYATA' })
+      continue
+    }
     const w = j.waktuJawabMs
     if (typeof w !== 'number' || !Number.isFinite(w)) {
       ditolak.push({ jawaban: j, alasan: 'TANPA_BUKTI_WAKTU' })
