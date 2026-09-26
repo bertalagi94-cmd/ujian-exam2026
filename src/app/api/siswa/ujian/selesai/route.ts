@@ -263,10 +263,21 @@ export async function POST(req: NextRequest) {
       // alur "menunggu penilaian otomatis". Penolakan ini sifatnya SEMENTARA
       // -- akan lolos begitu batas minimal terlewati -- jadi 403 (yang di
       // retry background diulang lagi di tick berikutnya) lebih tepat.
+      //
+      // FIX BUG P0 (audit outbox): respons ini dulu TIDAK menyertakan
+      // `sementara: true`. cobaKirimPaketTertunda() di ujian-outbox.ts hanya
+      // meng-otomatis-retry 403 yang punya flag itu (lihat sementara403 di
+      // sana) -- tanpanya, siswa yang menekan "Selesai" sebelum waktu minimal
+      // lalu OFFLINE (jawaban masuk outbox) akan menemukan paketnya ditandai
+      // GAGAL PERMANEN begitu koneksi pulih, walau batas minimal sudah lama
+      // terlewati -- outbox tidak pernah mencoba lagi otomatis, harus
+      // "Kirim Sekarang" manual. Sekarang ditandai sementara, sama seperti
+      // RESET/TERKUNCI-sementara di jalur lain endpoint ini.
       return NextResponse.json(
         {
           error: `Ujian belum bisa diselesaikan. Minimal waktu pengerjaan ${minEfektifMenit} menit (sisa sekitar ${sisaMenit} menit).`,
           kode: 'BELUM_MINIMAL_WAKTU',
+          sementara: true,
         },
         { status: 403 }
       )
@@ -352,6 +363,15 @@ export async function POST(req: NextRequest) {
   // status sesi dikunci (FOR SHARE) selama transaksi, jadi penutupan sesi oleh
   // pengawas tidak bisa menyelip di antara "cek BERJALAN" dan "tulis nilai",
   // dan nilai + status siswa commit bersama atau batal bersama.
+  //
+  // FIX BUG P0 (audit: race condition device takeover): sebelumnya device_id
+  // HANYA dicek di query terpisah SEBELUM RPC ini (lihat cek di atas), bukan
+  // di dalam transaksi. Device B bisa mengambil alih (device_id di DB
+  // berubah) TEPAT setelah cek awal lolos tapi SEBELUM RPC ini commit --
+  // device A yang sudah tidak sah tetap bisa memfinalisasi nilai. Sekarang
+  // p_device_id dikirim ke RPC dan dicek ULANG di dalam transaksi (setelah
+  // baris siswa_ujian dikunci FOR UPDATE, lihat supabase/33_...sql) --
+  // menutup celah yang sama seperti migrasi 28 menutup celah RESET/TERKUNCI.
   let nilaiIdFinal: string = nilaiData.id
 
   const { data: rpcHasil, error: rpcError } = await db.rpc('finalisasi_pg_atomik', {
@@ -360,6 +380,7 @@ export async function POST(req: NextRequest) {
     p_nilai: nilaiData,
     p_essay_aktif: essayAktif,
     p_klaim_offline: klaimOffline,
+    p_device_id: deviceId ?? null,
   })
 
   // FAIL CLOSED (audit P0 #2): tidak ada lagi jalur fallback non-atomik kalau
@@ -409,6 +430,17 @@ export async function POST(req: NextRequest) {
         return NextResponse.json(
           { error: 'Akses ujian Anda dikunci. Ujian tidak bisa diselesaikan sekarang.' },
           { status: 403 }
+        )
+      // FIX BUG P0 (migrasi 33): hasil baru dari cek ulang device_id DI DALAM
+      // transaksi -- device yang sudah diambil alih device lain TEPAT sebelum
+      // commit ditolak di sini, bukan lolos memfinalisasi nilai. Ini
+      // penolakan PERMANEN dari sudut pandang device ini (bukan sesuatu yang
+      // "pulih sendiri" seperti RESET), jadi TIDAK diberi `sementara: true` --
+      // sama seperti pesan cek device_id di awal endpoint ini.
+      case 'DEVICE_LAIN':
+        return NextResponse.json(
+          { error: 'Sesi ujian Anda sedang aktif di perangkat lain. Ujian tidak bisa diselesaikan dari perangkat ini.' },
+          { status: 409 }
         )
       default:
         return NextResponse.json(
