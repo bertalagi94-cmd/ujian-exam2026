@@ -22,6 +22,18 @@ interface NavItem {
   href: string
   icon: React.ElementType
   badge?: number
+  // FITUR BARU (pisahkan menu "Wali Kelas" dari menu guru-pengampu biasa):
+  // dua opsi tampilan murni visual, tidak memengaruhi urutan/isi navItems
+  // di array-nya sendiri (itu diatur oleh pemanggilnya, mis. GuruSidebar).
+  //  - `divider`: render garis pembatas + sedikit jarak SEBELUM item ini,
+  //    dipakai untuk menandai "mulai bagian baru" di sidebar.
+  //  - `variant: 'highlight'`: beri gaya berbeda (latar putih, teks hitam
+  //    tebal) saat item ini TIDAK aktif, supaya menonjol dari menu lain.
+  //    Saat item ini aktif (sedang dibuka), tetap pakai gaya aktif standar
+  //    (gradient warna aksen) seperti menu lainnya, supaya penanda "sedang
+  //    di halaman ini" tetap konsisten di seluruh sidebar.
+  divider?: boolean
+  variant?: 'default' | 'highlight'
 }
 
 interface SidebarProps {
@@ -106,32 +118,43 @@ function SidebarContent({ navItems, roleColor, roleLabel, accent, user, siteInfo
       <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
         {navItems.map((item) => {
           const isActive = pathname === item.href || pathname.startsWith(item.href + '/')
+          // FITUR BARU (menu "Wali Kelas" dipisah secara visual): item dengan
+          // variant 'highlight' dan sedang TIDAK aktif dapat gaya sendiri
+          // (latar putih, teks hitam tebal, border tipis) supaya langsung
+          // terlihat beda dari menu guru-pengampu biasa di atasnya — tanpa
+          // mengubah perilaku klik/navigasi sama sekali.
+          const isHighlight = item.variant === 'highlight' && !isActive
           return (
-            <Link
-              key={item.href}
-              href={item.href}
-              onClick={onClose}
-              className={cn(
-                'nav-link group',
-                isActive && 'nav-link-active-zoom',
-                !isActive && 'nav-link-inactive'
+            <div key={item.href}>
+              {item.divider && (
+                <div className="my-2 border-t border-slate-200/70" />
               )}
-              style={isActive ? {
-                background: `linear-gradient(135deg, ${accent}E6, ${accent}CC)`,
-                color: '#ffffff',
-                boxShadow: `0 4px 14px ${accent}40, inset 0 1px 0 rgba(255,255,255,0.25)`,
-                backdropFilter: 'blur(8px)',
-              } : undefined}
-            >
-              <item.icon className="w-4 h-4 flex-shrink-0" />
-              <span className="flex-1">{item.label}</span>
-              {item.badge != null && item.badge > 0 && (
-                <span className="text-xs px-1.5 py-0.5 rounded-full bg-red-500 text-white font-medium min-w-[18px] text-center leading-none">
-                  {item.badge > 99 ? '99+' : item.badge}
-                </span>
-              )}
-              {!isActive && <ChevronRight className="w-3 h-3 opacity-0 group-hover:opacity-40 transition-opacity" />}
-            </Link>
+              <Link
+                href={item.href}
+                onClick={onClose}
+                className={cn(
+                  'nav-link group',
+                  isActive && 'nav-link-active-zoom',
+                  !isActive && !isHighlight && 'nav-link-inactive',
+                  isHighlight && 'bg-white text-slate-900 font-bold border border-slate-200 shadow-sm hover:bg-slate-50'
+                )}
+                style={isActive ? {
+                  background: `linear-gradient(135deg, ${accent}E6, ${accent}CC)`,
+                  color: '#ffffff',
+                  boxShadow: `0 4px 14px ${accent}40, inset 0 1px 0 rgba(255,255,255,0.25)`,
+                  backdropFilter: 'blur(8px)',
+                } : undefined}
+              >
+                <item.icon className="w-4 h-4 flex-shrink-0" />
+                <span className="flex-1">{item.label}</span>
+                {item.badge != null && item.badge > 0 && (
+                  <span className="text-xs px-1.5 py-0.5 rounded-full bg-red-500 text-white font-medium min-w-[18px] text-center leading-none">
+                    {item.badge > 99 ? '99+' : item.badge}
+                  </span>
+                )}
+                {!isActive && <ChevronRight className="w-3 h-3 opacity-0 group-hover:opacity-40 transition-opacity" />}
+              </Link>
+            </div>
           )
         })}
       </nav>
@@ -547,8 +570,26 @@ export function GuruSidebar() {
     { label: 'Analisis Ujian', href: '/guru/analisis-ujian', icon: FileBarChart },
   ]
 
+  // FIX (kejelasan menu — permintaan: menu "Wali Kelas" sering tertukar
+  // dengan menu "Penilaian" karena sama-sama soal nilai dan posisinya
+  // berdekatan di atas): "Wali Kelas" TIDAK lagi digabung dengan extras lain
+  // di posisi awal. Sekarang selalu ditaruh PALING AKHIR (setelah "Analisis
+  // Ujian"), dipisahkan dengan garis pembatas (`divider`) dan gaya berbeda
+  // (`variant: 'highlight'` — latar putih, teks hitam tebal, lihat
+  // SidebarContent) supaya guru sadar ini adalah "topi" / peran yang
+  // berbeda (wali kelas), bukan sekadar menu penilaian mapel biasa.
+  // Kondisi tampil (hanya untuk guru yang memang wali kelas) TIDAK berubah.
+  if (isWaliKelas) {
+    navItems.push({
+      label: 'Wali Kelas',
+      href: '/guru/wali-kelas',
+      icon: School,
+      divider: true,
+      variant: 'highlight',
+    })
+  }
+
   const extras: NavItem[] = []
-  if (isWaliKelas) extras.push({ label: 'Wali Kelas', href: '/guru/wali-kelas', icon: School })
   if (hasPengawasan) {
     extras.push({ label: 'Jadwal Pengawasan', href: '/guru/jadwal-pengawasan', icon: Calendar })
     extras.push({ label: 'Mode Pengawas', href: '/guru/mode-pengawas', icon: Bell })
