@@ -502,7 +502,18 @@ export default function LoginPage() {
       const roleRoutes: Record<string, string> = { ADMIN: '/admin', GURU: '/guru', KEPSEK: '/kepsek', SISWA: '/siswa' }
       router.push(roleRoutes[data.role] ?? '/login')
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Login gagal')
+      // FIX (pesan teknis "Failed to fetch" saat offline): fetch() browser
+      // melempar TypeError polos dengan message "Failed to fetch" kalau
+      // request tidak sampai ke server sama sekali (tidak ada internet, DNS
+      // gagal, dsb) — beda dari error yang dilempar sengaja lewat throw new
+      // Error(data.error) di atas (itu tetap dipakai apa adanya). Login
+      // memang wajib online, jadi di sini kita cuma perjelas pesannya.
+      const pesanJaringan = 'Tidak ada koneksi internet. Login memerlukan koneksi internet aktif, silakan coba lagi.'
+      if (err instanceof TypeError) {
+        setError(pesanJaringan)
+      } else {
+        setError(err instanceof Error ? err.message : 'Login gagal')
+      }
     } finally { setLoading(false) }
   }
 
