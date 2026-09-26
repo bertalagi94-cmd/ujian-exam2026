@@ -610,7 +610,7 @@ export function GuruSidebar() {
     <Sidebar
       role="GURU"
       roleColor="bg-emerald-600"
-      roleLabel="Guru"
+      roleLabel={isWaliKelas ? 'Guru & Wali Kelas' : 'Guru'}
       accent="#059669"
       navItems={navItems}
     />
