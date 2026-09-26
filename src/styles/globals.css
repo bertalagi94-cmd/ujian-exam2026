@@ -650,16 +650,16 @@
 }
 
 /* ── Welcome Splash "EXAMFLOW" (sebelum halaman login) ───────────────────
-   Gaya sengaja dibuat CLEAN/CORPORATE, bukan flashy: hanya 2 warna brand
-   (sky → teal) yang menyambung mulus antar huruf (trik: setiap huruf
-   memakai background-size lebar + background-position berbeda sesuai
-   posisinya), gerakan flip yang halus (bukan ekstrem), dan progress bar
-   tipis sebagai indikator "memuat" — bukan efek kilau/ornamen berlebih. */
+   Tiap huruf punya warna solid sendiri (bukan gradient-clip di elemen
+   induk — itu penyebab bug "teks tak kelihatan" versi sebelumnya) yang
+   "mekar" bersama drop-shadow warna senada saat huruf itu muncul, lalu
+   satu sapuan cahaya (shine) melintas di atas judul, dan progress bar
+   tipis mengisi selama sisa waktu splash tampil (5 detik total). */
 .examflow-splash {
   animation: examflowIn 0.35s ease-out both;
 }
 .examflow-splash-out {
-  animation: examflowOut 0.5s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  animation: examflowOut 0.6s cubic-bezier(0.4, 0, 0.2, 1) forwards;
   pointer-events: none;
 }
 @keyframes examflowIn {
@@ -683,7 +683,7 @@
   -webkit-mask-image: radial-gradient(ellipse at center, black 0%, transparent 65%);
 }
 
-/* ── Dua orb cahaya statis-lembut (gerakan sangat pelan, tidak mengganggu) ── */
+/* ── Dua orb cahaya melayang sangat pelan ── */
 .examflow-orb {
   position: absolute;
   border-radius: 9999px;
@@ -698,7 +698,7 @@
 }
 .examflow-orb-2 {
   width: 36vw; height: 36vw; bottom: -14vw; right: -10vw;
-  background: radial-gradient(circle, rgba(20,184,166,0.4), transparent 70%);
+  background: radial-gradient(circle, rgba(45,212,191,0.4), transparent 70%);
   animation: examflowDrift2 20s ease-in-out infinite;
 }
 @keyframes examflowDrift1 {
@@ -710,42 +710,79 @@
   50%      { transform: translate(-2vw, -2.5vw); }
 }
 
-/* ── Badge ikon: kotak halus dengan cincin tipis diam (tanpa animasi
-   berputar yang terkesan "gamer") ── */
+/* ── Badge ikon dengan cincin cahaya berputar pelan ── */
+@property --examflow-ring-angle {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
 .examflow-badge-ring {
   position: relative;
-  border: 1px solid rgba(148,222,255,0.22);
+  isolation: isolate;
   animation: examflowBadgeIn 0.5s ease-out both;
+}
+.examflow-badge-ring::before {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: inherit;
+  padding: 2px;
+  background: conic-gradient(from var(--examflow-ring-angle),
+    transparent 0deg, rgba(125,211,252,0.9) 35deg, rgba(45,212,191,0.9) 80deg,
+    transparent 130deg, transparent 360deg);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  animation: examflowRingSpin 3s linear infinite;
+}
+.examflow-badge-ring::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: 1px solid rgba(148,222,255,0.22);
+}
+@keyframes examflowRingSpin {
+  to { --examflow-ring-angle: 360deg; }
 }
 @keyframes examflowBadgeIn {
   0%   { opacity: 0; transform: translateY(4px); }
   100% { opacity: 1; transform: translateY(0); }
 }
 
-/* ── Judul "EXAMFLOW": gradient 2-warna brand yang menyambung antar
-   huruf, terbang masuk dengan flip HALUS (bukan ekstrem) + blur→fokus.
-   Gradient & background-clip dipasang di SETIAP HURUF (bukan di elemen
-   induknya) — memasangnya di induk yang ber-flex/inline-block anak
-   membuat teks bisa jadi tak kelihatan sama sekali di banyak browser. */
-.examflow-title {
-  filter: drop-shadow(0 0 16px rgba(56,189,248,0.22));
-}
+/* ── Judul "EXAMFLOW": tiap huruf warna solid sendiri (di-set inline via
+   `color`), muncul satu per satu dengan gerakan halus + blur→fokus, dan
+   glow warna senada (drop-shadow currentColor) yang "mekar" bareng
+   kemunculannya lalu menetap lembut. ── */
 .examflow-letter {
   opacity: 0;
-  transform-origin: 50% 100%;
-  transform: perspective(500px) rotateX(18deg) translateY(10px);
-  filter: blur(4px);
-  background-image: linear-gradient(95deg, #7dd3fc 0%, #38bdf8 45%, #2dd4bf 100%);
-  background-size: 400% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  color: transparent;
-  animation: examflowLetterIn 0.42s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  transform: translateY(16px) scale(0.85);
+  filter: blur(5px) drop-shadow(0 0 0 transparent);
+  animation: examflowLetterIn 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 @keyframes examflowLetterIn {
-  0%   { opacity: 0; transform: perspective(500px) rotateX(18deg) translateY(10px); filter: blur(4px); }
-  100% { opacity: 1; transform: perspective(500px) rotateX(0deg) translateY(0); filter: blur(0); }
+  0%   { opacity: 0; transform: translateY(16px) scale(0.85); filter: blur(5px) drop-shadow(0 0 0 transparent); }
+  55%  { opacity: 1; filter: blur(0) drop-shadow(0 0 14px currentColor); }
+  100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0) drop-shadow(0 0 8px currentColor); }
+}
+
+/* ── Sapuan cahaya (shine) sekali lewat di atas judul ── */
+.examflow-shine {
+  position: absolute;
+  inset: -25% -12%;
+  display: block;
+  pointer-events: none;
+  background: linear-gradient(115deg, transparent 32%, rgba(255,255,255,0.8) 50%, transparent 68%);
+  mix-blend-mode: overlay;
+  transform: translateX(-140%) skewX(-12deg);
+  opacity: 0;
+  animation: examflowShine 0.9s ease-in-out forwards;
+}
+@keyframes examflowShine {
+  0%   { transform: translateX(-140%) skewX(-12deg); opacity: 0; }
+  15%  { opacity: 1; }
+  60%  { opacity: 1; }
+  100% { transform: translateX(140%) skewX(-12deg); opacity: 0; }
 }
 
 .examflow-subtitle {
@@ -758,8 +795,8 @@
   100% { opacity: 1; transform: translateY(0); }
 }
 
-/* ── Progress bar tipis: mengisi penuh mengikuti waktu tampil splash,
-   pola umum di splash aplikasi profesional (indikator "sedang memuat"). ── */
+/* ── Progress bar tipis: mengisi penuh mengikuti sisa waktu tampil splash
+   (durasinya di-set dari komponen lewat animationDuration inline). ── */
 .examflow-progress-track {
   background: rgba(148, 222, 255, 0.14);
 }
@@ -767,8 +804,11 @@
   width: 100%;
   transform-origin: left center;
   transform: scaleX(0);
-  background: linear-gradient(90deg, #38bdf8, #2dd4bf);
-  animation: examflowProgress 1.85s linear 0.15s forwards;
+  background: linear-gradient(90deg, #38bdf8, #a78bfa, #2dd4bf);
+  animation-name: examflowProgress;
+  animation-timing-function: linear;
+  animation-delay: 0.15s;
+  animation-fill-mode: forwards;
 }
 @keyframes examflowProgress {
   to { transform: scaleX(1); }
@@ -776,12 +816,11 @@
 
 @media (prefers-reduced-motion: reduce) {
   .examflow-splash, .examflow-splash-out, .examflow-orb,
-  .examflow-badge-ring, .examflow-title, .examflow-letter,
-  .examflow-subtitle, .examflow-progress {
+  .examflow-badge-ring, .examflow-badge-ring::before, .examflow-letter,
+  .examflow-shine, .examflow-subtitle, .examflow-progress {
     animation: none !important;
     opacity: 1 !important;
     transform: none !important;
     filter: none !important;
   }
-  .examflow-letter { background-position: 50% 50% !important; }
 }
