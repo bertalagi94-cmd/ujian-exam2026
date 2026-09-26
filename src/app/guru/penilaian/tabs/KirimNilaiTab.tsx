@@ -60,6 +60,11 @@ interface MapelInfo { id: string; nama: string; kkm: number }
 interface ApiData {
   data: NilaiRow[]
   mapelList: MapelInfo[]
+  // FITUR BARU (tampilkan nama wali kelas): peta nama kelas -> nama wali
+  // kelasnya (null kalau kelas belum punya wali kelas), dari GET
+  // /api/guru/kirim-nilai — dipakai untuk ditampilkan setelah nama kelas di
+  // setiap kelompok mapel+kelas.
+  waliKelasMap: Record<string, string | null>
 }
 
 // Kelompokkan per mapel+kelas
@@ -408,7 +413,15 @@ export function KirimNilaiTab({
                       </span>
                     )}
                   </div>
-                  <div className="text-sm text-slate-400 mt-0.5">Kelas {grup.kelas}</div>
+                  <div className="text-sm text-slate-400 mt-0.5">
+                    Kelas {grup.kelas}
+                    {/* FITUR BARU (tampilkan nama wali kelas): supaya guru
+                        langsung tahu ke siapa nilai kelompok ini akan
+                        dikirim, tanpa perlu buka menu lain. */}
+                    {apiData.waliKelasMap[grup.kelas] && (
+                      <> · Wali Kelas: <strong className="font-bold text-slate-600">{apiData.waliKelasMap[grup.kelas]}</strong></>
+                    )}
+                  </div>
                 </div>
               </div>
               <div className="flex items-center gap-2 flex-wrap pl-5 sm:pl-0 sm:flex-shrink-0">
