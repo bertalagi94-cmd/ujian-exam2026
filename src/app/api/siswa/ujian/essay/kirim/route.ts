@@ -171,66 +171,92 @@ export async function POST(req: NextRequest) {
   // ini hanya menandai status ujian selesai, tidak menyimpan jawaban apapun
   // untuk mode ini.
 
-  // FIX BUG (race: sesi ditutup pengawas TEPAT di antara pengecekan
-  // sesi.status di atas dan UPDATE di bawah): jendela antara pengecekan
-  // `sesi.status !== 'BERJALAN'` di awal fungsi dan UPDATE di sini bisa berisi
-  // waktu tunggu I/O lain (query waktu, dst), jadi ada celah sempit tapi nyata
-  // di mana pengawas menutup sesi PERSIS di tengah proses ini — request tetap
-  // lolos pengecekan awal lalu berhasil menulis SUDAH_KIRIM/SELESAI walau
-  // sesi sudah SELESAI. Ini BUKAN dijadikan atomik penuh lewat SQL
-  // function/transaction (di luar scope perubahan minimal ini), tapi
-  // jendelanya dipersempit drastis dengan mengambil ulang status sesi
-  // sesaat sebelum UPDATE — dari "sepanjang durasi request" menjadi
-  // "satu round-trip DB terakhir".
-  const { data: sesiUlang } = await db.from('sesi_ujian').select('status').eq('id', sesiId).single()
-  if (sesiUlang && sesiUlang.status !== 'BERJALAN') {
+  // ── FINALISASI ATOMIK ─────────────────────────────────────────────────────
+  // FIX BUG (race: sesi ditutup / device berganti / status siswa berubah
+  // TEPAT di antara semua pengecekan di atas dan penulisan status): versi
+  // sebelumnya HANYA mempersempit celah dengan membaca ulang status SESI
+  // sesaat sebelum UPDATE (tanpa lock — tetap TOCTOU), dan sama sekali tidak
+  // membaca ulang device_id maupun status TERKUNCI/RESET siswa di titik itu.
+  // Sekarang SELURUH pengecekan kritis (status sesi, device_id, status
+  // TERKUNCI/RESET, status_essay MENGERJAKAN) dan penulisan
+  // status_essay=SUDAH_KIRIM/status=SELESAI dilakukan dalam SATU transaksi
+  // Postgres lewat finalisasi_essay_atomik() (lihat
+  // supabase/32_finalisasi_essay_atomik.sql) — pola yang sama persis dengan
+  // finalisasi_pg_atomik yang sudah dipakai selesai/route.ts: FOR SHARE pada
+  // baris sesi_ujian (penutupan sesi oleh pengawas menunggu commit yang
+  // sedang berjalan) + FOR UPDATE pada baris siswa_ujian (menyerialkan klik
+  // ganda / retry jaringan outbox offline dari siswa yang sama).
+  const { data: rpcHasil, error: rpcError } = await db.rpc('finalisasi_essay_atomik', {
+    p_sesi_id: sesiId,
+    p_nis: nis,
+    p_device_id: deviceId ?? null,
+  })
+
+  // FAIL CLOSED (sama seperti finalisasi_pg_atomik di selesai/route.ts): kalau
+  // migrasi 32 belum terpasang atau RPC gagal karena alasan apa pun, siswa
+  // mendapat error dan mencoba lagi — jawaban essay yang sudah ter-autosave
+  // tetap aman di server, tidak ada yang ditulis diam-diam lewat jalur lain.
+  if (rpcError) {
+    console.error('[essay/kirim] finalisasi_essay_atomik gagal:', rpcError.message)
     return NextResponse.json(
-      { error: 'Sesi ujian baru saja ditutup, essay tidak bisa dikirim lagi.' },
-      { status: 409 }
+      { error: 'Gagal mengirim jawaban essay ke server. Jawaban Anda aman, silakan coba lagi.' },
+      { status: 500 }
     )
   }
 
-  const waktuKirim = new Date().toISOString()
+  const hasil = (rpcHasil as { hasil?: string } | null)?.hasil
 
-  // Upsert dengan ignoreDuplicates TIDAK relevan di sini (kita UPDATE baris
-  // yang sudah pasti ada, bukan insert baru) — tapi tetap pakai kondisi
-  // .eq('status_essay', 'MENGERJAKAN') di WHERE supaya race 2 request
-  // bersamaan tidak menjalankan blok ini dua kali (hanya 1 yang match).
-  const { data: updated, error } = await db
-    .from('siswa_ujian')
-    .update({
-      status_essay: 'SUDAH_KIRIM',
-      waktu_kirim_essay: waktuKirim,
-      status: 'SELESAI',
-      waktu_selesai: waktuKirim,
-    })
-    .eq('sesi_id', sesiId)
-    .eq('nis', nis)
-    .eq('status_essay', 'MENGERJAKAN')
-    .select('nis')
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-
-  if (!updated || updated.length === 0) {
-    // Kalah race — request lain sudah lebih dulu menandai SUDAH_KIRIM.
-    // Perlakukan sebagai sukses idempotent (lihat blok early-return di atas).
-    const { data: nilaiSudahAda } = await db
-      .from('nilai')
-      .select('id, benar, total, kkm')
-      .eq('sesi_id', sesiId)
-      .eq('nis', nis)
-      .single()
-    return NextResponse.json({
-      sudahDikirim: true,
-      nilaiPg: nilaiSudahAda
-        ? { id: nilaiSudahAda.id, benar: nilaiSudahAda.benar, total: nilaiSudahAda.total, kkm: nilaiSudahAda.kkm }
-        : null,
-    })
+  switch (hasil) {
+    case 'OK':
+    case 'SUDAH_KIRIM':
+      // Lanjut ke pengambilan nilai di bawah — sama untuk submit baru
+      // (OK) maupun panggilan yang kalah race / retry (SUDAH_KIRIM).
+      break
+    case 'SESI_TIDAK_ADA':
+      return NextResponse.json({ error: 'Sesi tidak ditemukan' }, { status: 404 })
+    case 'SESI_DITUTUP':
+      return NextResponse.json(
+        { error: 'Sesi ujian baru saja ditutup, essay tidak bisa dikirim lagi.' },
+        { status: 409 }
+      )
+    case 'SISWA_TIDAK_TERDAFTAR':
+      return NextResponse.json({ error: 'Data ujian Anda tidak ditemukan' }, { status: 404 })
+    case 'DEVICE_LAIN':
+      return NextResponse.json(
+        { error: 'Sesi ujian Anda sedang aktif di perangkat lain. Essay tidak bisa dikirim dari perangkat ini.' },
+        { status: 409 }
+      )
+    // RESET = sementara (bisa pulih sendiri begitu kode reset tersinkron) ->
+    // sementara: true, supaya cobaKirimPaketTertunda() di ujian-outbox.ts
+    // tetap retry otomatis alih-alih menandai paket essay GAGAL PERMANEN
+    // (persis bug yang sama yang sudah diperbaiki di selesai/route.ts,
+    // migrasi 28).
+    case 'SISWA_RESET':
+      return NextResponse.json(
+        {
+          error: 'Akses ujian Anda sedang menunggu kode reset. Essay akan otomatis dikirim setelah kode reset tersinkron.',
+          sementara: true,
+        },
+        { status: 403 }
+      )
+    case 'SISWA_TERKUNCI':
+      return NextResponse.json(
+        { error: 'Akses ujian Anda dikunci. Essay tidak bisa dikirim sekarang.' },
+        { status: 403 }
+      )
+    case 'ESSAY_BELUM_MULAI':
+      return NextResponse.json({ error: 'Essay belum dimulai, tidak bisa dikirim.' }, { status: 409 })
+    default:
+      return NextResponse.json(
+        { error: 'Gagal mengirim jawaban essay (respons tidak dikenali). Coba lagi.' },
+        { status: 500 }
+      )
   }
 
   // Nilai PG SUDAH dihitung & disimpan sebelumnya oleh selesai/route.ts —
   // di sinilah nilai itu baru "dibuka" ke siswa (nilai_total tetap kosong
-  // sampai guru koreksi essay & merilis).
+  // sampai guru koreksi essay & merilis). Query baca murni ini aman di luar
+  // transaksi RPC di atas — nilai tidak ditulis di sini maupun oleh RPC ini.
   const { data: nilai } = await db
     .from('nilai')
     .select('id, benar, total, kkm')
@@ -241,6 +267,8 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({
     sudahDikirim: true,
     nilaiPg: nilai ? { id: nilai.id, benar: nilai.benar, total: nilai.total, kkm: nilai.kkm } : null,
-    pesan: 'Jawaban essay terkirim. Nilai akhir akan dirilis guru setelah dikoreksi.',
+    ...(hasil === 'OK'
+      ? { pesan: 'Jawaban essay terkirim. Nilai akhir akan dirilis guru setelah dikoreksi.' }
+      : {}),
   })
 }
