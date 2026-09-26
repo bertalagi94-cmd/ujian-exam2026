@@ -170,7 +170,15 @@ export async function GET(req: NextRequest) {
     .sort((a, b) => a.nama.localeCompare(b.nama))
 
   if (nisList.length === 0) {
-    return NextResponse.json({ soalEssay: soalEssayList ?? [], totalBobotMaks, peserta: [], modeJawaban, bobotPg, bobotEssay, totalTargetSiswa, siswaBelumUjian })
+    const { count: jumlahSudahDikirimKeWaliAwal } = await db
+      .from('nilai')
+      .select('id', { count: 'exact', head: true })
+      .eq('sesi_id', sesiId)
+      .eq('dikirim_ke_wali', true)
+    return NextResponse.json({
+      soalEssay: soalEssayList ?? [], totalBobotMaks, peserta: [], modeJawaban, bobotPg, bobotEssay,
+      totalTargetSiswa, siswaBelumUjian, bobotTerkunci: (jumlahSudahDikirimKeWaliAwal ?? 0) > 0,
+    })
   }
 
   const [{ data: siswaList }, { data: nilaiList }] = await Promise.all([
@@ -259,7 +267,19 @@ export async function GET(req: NextRequest) {
     skorPerSoal: skorMap[p.nis] ?? {},
   }))
 
-  return NextResponse.json({ soalEssay: soalEssayList ?? [], totalBobotMaks, peserta, modeJawaban, bobotPg, bobotEssay, totalTargetSiswa, siswaBelumUjian })
+  // FIX DESAIN (kunci bobot PG:Essay setelah ada nilai terkirim ke wali
+  // kelas): dihitung dengan query yang SAMA persis dengan guard di PATCH di
+  // bawah (bukan diturunkan dari `peserta`, yang bisa saja tidak mencakup
+  // semua baris nilai sesi ini), supaya status kunci yang ditampilkan ke
+  // guru selalu konsisten dengan yang benar-benar ditegakkan backend.
+  const { count: jumlahSudahDikirimKeWali } = await db
+    .from('nilai')
+    .select('id', { count: 'exact', head: true })
+    .eq('sesi_id', sesiId)
+    .eq('dikirim_ke_wali', true)
+  const bobotTerkunci = (jumlahSudahDikirimKeWali ?? 0) > 0
+
+  return NextResponse.json({ soalEssay: soalEssayList ?? [], totalBobotMaks, peserta, modeJawaban, bobotPg, bobotEssay, totalTargetSiswa, siswaBelumUjian, bobotTerkunci })
 }
 
 // PUT { sesiId, nis, skorPerSoal } — input/ubah skor essay 1 siswa PER SOAL
@@ -542,6 +562,30 @@ export async function PATCH(req: NextRequest) {
   const isGuruPengampu = mapel?.guru_id === user.username
   if (!isGuruPengampu) {
     return NextResponse.json({ error: 'Anda bukan guru pengampu mapel ini' }, { status: 403 })
+  }
+
+  // FIX DESAIN (kunci bobot PG:Essay setelah ada nilai terkirim ke wali
+  // kelas): mengubah bobot di sini langsung menghitung ulang nilai_total
+  // SEMUA siswa yang sudah dinilai essay-nya (lihat blok di bawah) — kalau
+  // walau cuma SATU siswa di sesi ini sudah dikirim ke wali kelas, mengubah
+  // bobot bisa diam-diam mengubah nilai yang sudah dipegang wali kelas tanpa
+  // sepengetahuannya. Jadi begitu ada minimal satu baris `nilai` di sesi ini
+  // dengan dikirim_ke_wali = true, bobot dikunci total untuk sesi ini.
+  //
+  // Guard ini otomatis terbuka lagi kalau wali kelas MENGEMBALIKAN nilai
+  // tersebut ke guru (lihat PATCH /api/guru/wali-kelas, aksi kembalikan) —
+  // aksi itu mereset dikirim_ke_wali menjadi FALSE, jadi tidak perlu logika
+  // tambahan di sini untuk kasus "kecuali sudah dikembalikan".
+  const { count: jumlahSudahDikirim } = await db
+    .from('nilai')
+    .select('id', { count: 'exact', head: true })
+    .eq('sesi_id', sesiId)
+    .eq('dikirim_ke_wali', true)
+
+  if ((jumlahSudahDikirim ?? 0) > 0) {
+    return NextResponse.json({
+      error: `Bobot PG:Essay tidak bisa diubah karena sudah ada ${jumlahSudahDikirim} nilai siswa di sesi ini yang terkirim ke wali kelas. Minta wali kelas mengembalikan nilainya dulu jika bobot perlu direvisi.`,
+    }, { status: 409 })
   }
 
   const infoJsonBaru = { ...(sesi.info_json ?? {}), essay_bobot_pg_persen: pgAngka, essay_bobot_essay_persen: essayAngka }
