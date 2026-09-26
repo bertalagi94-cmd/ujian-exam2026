@@ -106,10 +106,10 @@ function SidebarContent({ navItems, roleColor, roleLabel, accent, user, siteInfo
             </div>
           )}
           <div className="min-w-0">
-            <div className="font-bold text-slate-800 text-sm leading-tight truncate">
+            <div className="font-bold text-slate-800 text-sm leading-tight truncate glass-text">
               {siteInfo.namaSekolah || 'SmartExam'}
             </div>
-            <div className="text-xs text-slate-400">{roleLabel}</div>
+            <div className="sidebar-sublabel">{roleLabel}</div>
           </div>
         </div>
       </div>
@@ -171,8 +171,8 @@ function SidebarContent({ navItems, roleColor, roleLabel, accent, user, siteInfo
             {user?.nama?.charAt(0) ?? 'U'}
           </div>
           <div className="flex-1 min-w-0">
-            <div className="text-sm font-medium text-slate-800 truncate">{user?.nama ?? '...'}</div>
-            <div className="text-xs text-slate-400">{user?.username}</div>
+            <div className="text-sm font-medium text-slate-800 truncate glass-text">{user?.nama ?? '...'}</div>
+            <div className="sidebar-sublabel">{user?.username}</div>
           </div>
         </div>
         <button
@@ -257,12 +257,16 @@ export function Sidebar({ navItems, role, roleColor, roleLabel, accent = '#0891b
 
   return (
     <>
-      {/* Mobile toggle — glass/frosted, role-tinted */}
+      {/* Mobile toggle — glass/frosted, role-tinted.
+          FIX KONTRAS (Latar Kaca Transparan): sebelumnya background cuma
+          rgba(255,255,255,0.6) — kalau foto blur di baliknya kebetulan
+          gelap, ikon jadi kurang jelas. Dinaikkan ke 0.88 supaya tetap
+          terasa "kaca" tapi jauh lebih aman dibaca di kedua kondisi latar. */}
       <button
         onClick={() => setOpen(true)}
         className="fixed top-4 left-4 z-40 lg:hidden btn-icon"
         style={{
-          background: 'rgba(255,255,255,0.6)',
+          background: 'rgba(255,255,255,0.88)',
           border: `1px solid ${accent}33`,
           backdropFilter: 'blur(12px)',
           WebkitBackdropFilter: 'blur(12px)',
@@ -288,7 +292,7 @@ export function Sidebar({ navItems, role, roleColor, roleLabel, accent = '#0891b
               onClick={handleClose}
               className="absolute top-3 right-3 btn-icon z-10"
               style={{
-                background: 'rgba(255,255,255,0.6)',
+                background: 'rgba(255,255,255,0.88)',
                 border: `1px solid ${accent}33`,
                 backdropFilter: 'blur(8px)',
                 color: accent,
@@ -314,12 +318,18 @@ export function Sidebar({ navItems, role, roleColor, roleLabel, accent = '#0891b
           Lebar dianimasikan ke 0 saat disembunyikan (overflow-hidden supaya
           isinya ikut ter-"gulung", bukan cuma ditumpuk transparan), konten
           di dalamnya dikunci lebar 240px supaya tidak ikut menyusut/kusut
-          selama animasi berjalan. */}
+          selama animasi berjalan.
+          FIX KONTRAS (Latar Kaca Transparan): titik tengah gradient tadinya
+          rgba(255,255,255,0.78) — cukup transparan sehingga saat efek latar
+          foto aktif, sisa ~22% foto blur masih bisa membuat teks menu (yang
+          tidak duduk di dalam .card) kurang kontras. Dinaikkan ke 0.92 (mirip
+          drawer mobile di atas yang sudah 0.92) supaya sidebar tetap terasa
+          "kaca" tapi teksnya konsisten mudah dibaca di kedua kondisi latar. */}
       <aside
         className="hidden lg:flex flex-col h-screen sticky top-0 flex-shrink-0 overflow-hidden transition-[width] duration-300 ease-in-out"
         style={{
           width: collapsed ? 0 : 240,
-          background: `linear-gradient(165deg, ${accent}1A 0%, rgba(255,255,255,0.78) 50%, ${accent}0D 100%)`,
+          background: `linear-gradient(165deg, ${accent}14 0%, rgba(255,255,255,0.92) 50%, ${accent}0A 100%)`,
           backdropFilter: 'blur(20px)',
           WebkitBackdropFilter: 'blur(20px)',
           borderRight: collapsed ? 'none' : `1px solid ${accent}26`,
