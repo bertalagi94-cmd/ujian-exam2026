@@ -816,7 +816,7 @@ export function PeriksaEssayTab({
                         <tr key={s.nis} className="bg-red-50">
                           <td colSpan={6} className="text-red-700">
                             <span className="font-semibold">{s.nama}</span>
-                            <span className="text-red-500"> — Belum mengikuti ujian</span>
+                            <span className="text-red-500"> — Belum Ujian atau belum mengirim jawaban</span>
                           </td>
                         </tr>
                       ))}
