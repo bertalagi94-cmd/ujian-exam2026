@@ -253,7 +253,7 @@ function PenilaianContent() {
     }] : []),
     {
       key: 'rekap',
-      label: 'Rekap Nilai',
+      label: 'Rekap dan Edit Nilai',
       desc: 'Lihat & unduh rekap nilai',
       icon: BarChart3,
       accent: 'sky',
