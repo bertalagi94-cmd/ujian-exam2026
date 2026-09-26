@@ -197,6 +197,12 @@ export default function ModePengawasPage() {
   const [jadwal, setJadwal] = useState<JadwalHariIni[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+  // FIX (Step 2 — "tidak ada jadwal pengawasan hari ini" palsu saat offline):
+  // sebelumnya load() gagal diam-diam (cuma console.error) dan `jadwal` tetap
+  // [] dari state awal, jadi UI tidak bisa membedakan "server bilang memang
+  // kosong" dari "gagal ambil data karena offline/timeout". loadError
+  // menyimpan pesan gagal terakhir; dikosongkan lagi begitu load() berhasil.
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [starting, setStarting] = useState<string | null>(null)
   const [stopping, setStopping] = useState<string | null>(null)
   const [confirmTutup, setConfirmTutup] = useState<JadwalHariIni | null>(null)
@@ -522,6 +528,7 @@ export default function ModePengawasPage() {
       const res = await apiRequest<{ data: JadwalHariIni[] }>('/api/guru/mode-pengawas')
       const data = res.data ?? []
       setJadwal(data)
+      setLoadError(null)
       // Fetch monitor untuk sesi yang sedang berjalan
       const runningSesiIds = data
         .filter(j => j.sesi_ujian?.status === 'BERJALAN')
@@ -529,6 +536,19 @@ export default function ModePengawasPage() {
       if (runningSesiIds.length > 0) await fetchMonitor(runningSesiIds)
     } catch (e) {
       console.error(e)
+      // FIX (Step 2): jangan kosongkan `jadwal` di sini — biarkan data lama
+      // (kalau ada) tetap tampil supaya pengawas tidak kehilangan konteks
+      // hanya karena satu kali refresh gagal. Bedakan pesan offline vs error
+      // server lain supaya pengawas tahu ini masalah koneksi, bukan memang
+      // tidak ada jadwal.
+      const offline = typeof navigator !== 'undefined' && !navigator.onLine
+      setLoadError(
+        offline || e instanceof TypeError
+          ? 'Gagal memuat jadwal: tidak ada koneksi internet.'
+          : e instanceof Error
+            ? `Gagal memuat jadwal: ${e.message}`
+            : 'Gagal memuat jadwal.'
+      )
     } finally {
       setLoading(false)
       setRefreshing(false)
@@ -794,7 +814,26 @@ export default function ModePengawasPage() {
         )}
       </div>
 
-      {jadwal.length === 0 ? (
+      {jadwal.length === 0 && loadError ? (
+        // FIX (Step 2): state khusus untuk "gagal memuat" — beda dari
+        // "memang tidak ada jadwal" di bawah, supaya pengawas tidak salah
+        // kira sesinya hilang padahal cuma sedang offline.
+        <div className="card py-14 flex flex-col items-center gap-3 text-center">
+          <div className="w-12 h-12 rounded-2xl bg-red-50 flex items-center justify-center">
+            <AlertTriangle className="w-6 h-6 text-red-400" />
+          </div>
+          <div>
+            <p className="text-sm font-medium text-red-500">{loadError}</p>
+            <p className="text-xs text-slate-400 mt-0.5">Bukan berarti jadwal kosong — coba muat ulang setelah koneksi pulih.</p>
+          </div>
+          <button
+            onClick={() => load()}
+            className="mt-1 inline-flex items-center gap-1.5 text-xs font-semibold text-indigo-600 hover:text-indigo-700"
+          >
+            <RefreshCw className="w-3.5 h-3.5" /> Coba lagi
+          </button>
+        </div>
+      ) : jadwal.length === 0 ? (
         <div className="card py-14 flex flex-col items-center gap-3 text-center">
           <div className="w-12 h-12 rounded-2xl bg-slate-50 flex items-center justify-center">
             <BookOpen className="w-6 h-6 text-slate-300" />
