@@ -338,6 +338,48 @@
   will-change: transform;
 }
 
+/* ── Navigasi soal: Sebelumnya / Berikutnya — modern & berwarna ──────
+   Sengaja TIDAK memakai animasi latar terus-menerus seperti
+   .btn-login-drape di bawah — ini tampil selama siswa mengerjakan soal,
+   jadi latar warnanya dibuat DIAM (statis) supaya tidak mengalihkan
+   konsentrasi; kesan "modern & berwarna" datang dari gradient warna,
+   bayangan lembut, dan micro-interaction saat disentuh saja. */
+.btn-nav-prev {
+  @apply inline-flex items-center justify-center gap-1.5 flex-1 min-h-[44px] rounded-xl
+         text-sm font-semibold text-slate-600 bg-white border border-slate-200
+         transition-all duration-200 active:scale-95
+         disabled:opacity-40 disabled:pointer-events-none;
+}
+.btn-nav-prev:hover {
+  @apply text-brand-700 bg-brand-50;
+  border-color: #a5f3fc;
+}
+
+.btn-nav-next {
+  @apply inline-flex items-center justify-center gap-1.5 flex-1 min-h-[44px] rounded-xl
+         text-sm font-bold text-white border-none
+         transition-all duration-200 active:scale-95
+         disabled:opacity-40 disabled:pointer-events-none;
+  background: linear-gradient(135deg, #0891b2 0%, #0ea5e9 55%, #2563eb 100%);
+  box-shadow: 0 4px 14px rgba(8, 145, 178, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+.btn-nav-next:hover {
+  box-shadow: 0 6px 20px rgba(8, 145, 178, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  transform: translateY(-1px);
+}
+.btn-nav-next:disabled {
+  background: #cbd5e1;
+  box-shadow: none;
+}
+
+/* Pil penghitung nomor soal ("3/20") di antara kedua tombol di atas —
+   sebelumnya cuma teks polos, sekarang dikasih wadah supaya senada
+   dengan tombolnya yang sudah lebih "hidup". */
+.pil-nomor-soal {
+  @apply text-xs font-bold text-brand-700 bg-brand-50 border border-brand-100
+         rounded-full px-2.5 py-1.5 flex-shrink-0 tabular-nums;
+}
+
 /* ── Login button — gradient biru-teal bergerak ──────────────────── */
 .btn-login-drape {
   background: linear-gradient(
