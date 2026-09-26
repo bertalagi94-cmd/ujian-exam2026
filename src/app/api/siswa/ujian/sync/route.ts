@@ -57,9 +57,13 @@ export async function POST(req: NextRequest) {
   // mengecek status SISWA itu sendiri. Akibatnya siswa yang sudah dikunci/diblokir
   // Admin (status TERKUNCI) atau sedang menunggu kode reset (status RESET) tetap
   // bisa terus mengirim & menyimpan jawaban sampai ujian selesai.
+  // FIX #4 (jeda offline nyata): sertakan last_heartbeat -- bukti server
+  // (bukan klaim client) tentang kapan terakhir device ini terkonfirmasi
+  // online. Lihat penjelasan lengkap di parameter checkpointTerakhirMs di
+  // src/lib/deadline-pg.ts.
   const { data: siswaUjian, error: siswaUjianError } = await db
     .from('siswa_ujian')
-    .select('status, device_id, waktu_mulai_awal, waktu_mulai')
+    .select('status, device_id, waktu_mulai_awal, waktu_mulai, last_heartbeat')
     .eq('sesi_id', sesiId)
     .eq('nis', user.nis!)
     .single()
@@ -199,7 +203,15 @@ export async function POST(req: NextRequest) {
       })
       const kandidat = jawabanSahPaket.filter(j => !tidakBerubah.includes(j))
 
-      const { diterima, ditolak } = saringJawabanTerlambat(kandidat, batasWaktu, sekarangMs)
+      // FIX #4: checkpoint heartbeat TERAKHIR yang dikonfirmasi server untuk
+      // device ini. Kalau ini sudah >= deadline, device TERBUKTI online
+      // sampai deadline lewat -- tidak ada jeda offline sungguhan, jadi semua
+      // klaim waktu offline pada batch ini ditolak (lihat komentar lengkap di
+      // saringJawabanTerlambat()).
+      const checkpointTerakhirMs = siswaUjian.last_heartbeat
+        ? new Date(siswaUjian.last_heartbeat).getTime()
+        : null
+      const { diterima, ditolak } = saringJawabanTerlambat(kandidat, batasWaktu, sekarangMs, checkpointTerakhirMs)
       jawabanValid = [...tidakBerubah, ...diterima]
       jumlahDitolakTerlambat = ditolak.length
 
