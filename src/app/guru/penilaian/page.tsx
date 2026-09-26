@@ -119,7 +119,7 @@ function PenilaianContent() {
   // tab itu dibuka, halaman ini fetch RINGAN sendiri secara independen —
   // sama seperti pola `adaEssay`/`jumlahSesiEssay` di atas.
   const [ringkasanRekap, setRingkasanRekap] = useState<{ diBawahKkm: number; adaData: boolean } | null>(null)
-  const [ringkasanKirim, setRingkasanKirim] = useState<{ mapelBelumKirim: number; siswaBaruBelumKirim: number; siswaMenungguEssay: number; adaData: boolean } | null>(null)
+  const [ringkasanKirim, setRingkasanKirim] = useState<{ mapelBelumKirim: number; siswaBaruBelumKirim: number; siswaMenungguEssay: number; siswaDikembalikan: number; adaData: boolean } | null>(null)
 
   // Ringkasan "Rekap Nilai": jumlah siswa yang nilai akhirnya (nilai_final,
   // sudah termasuk remedial) di bawah KKM. `stats.tidakLulus` sudah dihitung
@@ -162,6 +162,19 @@ function PenilaianContent() {
   // kategori sendiri (`siswaMenungguEssay`), supaya mapelnya tetap muncul
   // di ringkasan atas dengan label yang jujur, tanpa dobel-label sebagai
   // "siswa baru".
+  // BUG FIX (badge "Semua Nilai Sudah Terkirim" padahal ada nilai yang baru
+  // dikembalikan wali kelas): sama persis dengan bug essay_belum_dirilis di
+  // atas — begitu wali kelas mengembalikan SATU nilai siswa, dikirim_ke_wali
+  // baris itu jadi false, tapi `timestamp`-nya (waktu submit ujian asli)
+  // TIDAK berubah dan hampir pasti lebih LAMA dari waktuKirimTerakhir
+  // (pengiriman terakhir terjadi setelah siswa ujian). Baris ini jadi
+  // gagal masuk kategori `siswaBaruBelumKirim` (timestamp tidak lebih baru)
+  // MAUPUN `siswaMenungguEssay` (bukan soal rilis essay) — diam-diam
+  // terlewat begitu saja dari ringkasan, walau `dikirimRows.length <
+  // grupRows.length` seharusnya membuat mapel ini tidak dianggap "sudah
+  // terkirim semua". Sekarang baris yang dikembalikan dihitung eksplisit
+  // sebagai kategori sendiri (`siswaDikembalikan`), dicek PALING AWAL
+  // (sebelum kondisi lain) supaya tidak pernah terlewat.
   const fetchRingkasanKirim = useCallback(() => {
     interface RowRingkas {
       mapel_id: string
@@ -169,6 +182,7 @@ function PenilaianContent() {
       timestamp: string
       dikirim_ke_wali: boolean
       dikirim_at: string | null
+      dikembalikan?: boolean
       essay_belum_dirilis?: boolean
       belum_ujian?: boolean
     }
@@ -184,6 +198,7 @@ function PenilaianContent() {
         let mapelBelumKirim = 0
         let siswaBaruBelumKirim = 0
         let siswaMenungguEssay = 0
+        let siswaDikembalikan = 0
         for (const grupRows of Object.values(map)) {
           const dikirimRows = grupRows.filter(r => r.dikirim_ke_wali)
           if (dikirimRows.length === 0) {
@@ -198,14 +213,16 @@ function PenilaianContent() {
             .pop()
           const belumKirimRows = grupRows.filter(r => !r.dikirim_ke_wali)
           for (const r of belumKirimRows) {
-            if (r.essay_belum_dirilis) {
+            if (r.dikembalikan) {
+              siswaDikembalikan++
+            } else if (r.essay_belum_dirilis) {
               siswaMenungguEssay++
             } else if (r.timestamp && (!waktuKirimTerakhir || r.timestamp > waktuKirimTerakhir)) {
               siswaBaruBelumKirim++
             }
           }
         }
-        setRingkasanKirim({ mapelBelumKirim, siswaBaruBelumKirim, siswaMenungguEssay, adaData: Object.keys(map).length > 0 })
+        setRingkasanKirim({ mapelBelumKirim, siswaBaruBelumKirim, siswaMenungguEssay, siswaDikembalikan, adaData: Object.keys(map).length > 0 })
       })
       .catch(() => setRingkasanKirim(null))
   }, [])
@@ -302,6 +319,12 @@ function PenilaianContent() {
       const bagian: string[] = []
       if (ringkasanKirim.mapelBelumKirim > 0) bagian.push(`${ringkasanKirim.mapelBelumKirim} Mapel Belum Dikirim`)
       if (ringkasanKirim.siswaBaruBelumKirim > 0) bagian.push(`${ringkasanKirim.siswaBaruBelumKirim} Siswa Belum Dikirim`)
+      // BUG FIX (lihat komentar di fetchRingkasanKirim di atas): nilai yang
+      // dikembalikan wali kelas WAJIB ikut ditampilkan di sini juga, bukan
+      // cuma dihitung diam-diam — kalau tidak, badge salah bilang "Semua
+      // Nilai Sudah Terkirim" walau ada siswa yang nilainya baru saja
+      // dikembalikan dan menunggu dikirim ulang oleh guru.
+      if (ringkasanKirim.siswaDikembalikan > 0) bagian.push(`${ringkasanKirim.siswaDikembalikan} Nilai Dikembalikan Wali Kelas`)
       // BUG FIX (lihat komentar di useEffect ringkasanKirim di atas): kategori
       // ini WAJIB ikut ditampilkan, bukan cuma dihitung diam-diam — kalau
       // tidak, mapel yang sisa masalahnya cuma "menunggu rilis essay" akan
