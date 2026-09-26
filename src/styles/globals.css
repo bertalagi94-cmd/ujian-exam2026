@@ -607,6 +607,14 @@
   }
 }
 
+/* ── Panel login pojok kanan-bawah (HP) — bisa digeser bebas ────────────── */
+.login-drag-panel {
+  cursor: grab;
+}
+.login-drag-panel:active {
+  cursor: grabbing;
+}
+
 /* ── Pop-up ajakan "coret-coret" di beranda login (HP) ───────────────────
    Muncul sekali untuk pengguna baru, animasi masuk lembut (fade + turun
    sedikit) supaya tidak terasa tiba-tiba. ── */
