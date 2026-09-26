@@ -607,6 +607,22 @@
   }
 }
 
+/* ── Pop-up ajakan "coret-coret" di beranda login (HP) ───────────────────
+   Muncul sekali untuk pengguna baru, animasi masuk lembut (fade + turun
+   sedikit) supaya tidak terasa tiba-tiba. ── */
+@keyframes loginDoodleHintIn {
+  from { opacity: 0; transform: translate(-50%, -8px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
+}
+.login-doodle-hint {
+  animation: loginDoodleHintIn 0.4s ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .login-doodle-hint {
+    animation: none;
+  }
+}
+
 /* ── Indikator titik "LIVE" di MonitoringPanel ───────────────────────────
    Kedip singkat tiap kali ada event aktivitas baru masuk lewat polling
    /api/admin/monitoring/live (key={liveTick} me-remount elemen ini
