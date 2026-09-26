@@ -21,15 +21,36 @@ export async function POST(req: NextRequest) {
   }
 
   // Verifikasi guru ini adalah wali kelas dari kelas yang berkaitan
-  const { data: kelasWali } = await db
+  //
+  // BUG FIX (query rawan patah kalau data kelas tidak unik): SEBELUMNYA pakai
+  // `.single()`, yang otomatis MELEMPAR ERROR (bukan cuma data null) kalau
+  // baris yang cocok bukan tepat 1 — baik 0 baris (guru belum ditugaskan,
+  // ini kasus wajar) MAUPUN lebih dari 1 baris (mis. ada kelas duplikat nama
+  // yang wali_kelas-nya sama-sama diisi username ini, lihat catatan di
+  // supabase/06_cek_kelas_duplikat.sql). Karena error dari `.single()` tidak
+  // dibedakan dari kasus wajar di atas, hasilnya SAMA-SAMA "Anda bukan wali
+  // kelas" — padahal kasus >1 baris itu bug data yang perlu ditindaklanjuti
+  // admin, bukan sekadar "belum ditugaskan".
+  //
+  // FIX-nya: ambil sebagai LIST (tanpa .single()), lalu bedakan 3 kondisi
+  // secara eksplisit. Kalau >1 baris, JANGAN diam-diam pilih salah satu
+  // (bisa salah kelas) — tolak dengan pesan yang jelas supaya masalah
+  // datanya kelihatan dan bisa diperbaiki admin.
+  const { data: kelasWaliList } = await db
     .from('kelas')
     .select('id, nama')
     .eq('wali_kelas', user.username)
-    .single()
 
-  if (!kelasWali) {
+  if (!kelasWaliList || kelasWaliList.length === 0) {
     return NextResponse.json({ error: 'Anda bukan wali kelas' }, { status: 403 })
   }
+  if (kelasWaliList.length > 1) {
+    return NextResponse.json(
+      { error: 'Data kelas tidak konsisten: akun ini tercatat sebagai wali kelas di lebih dari satu kelas. Hubungi administrator untuk memperbaiki penugasan wali kelas.' },
+      { status: 409 }
+    )
+  }
+  const kelasWali = kelasWaliList[0]
 
   // Ambil nilai dan pastikan nilai ini milik kelas yang diwali
   const { data: nilaiRow } = await db
@@ -70,15 +91,33 @@ export async function GET(req: NextRequest) {
   const guruUsername = user.username
 
   // Cek apakah guru ini adalah wali kelas (ada di kolom wali_kelas di tabel kelas)
-  const { data: kelasWali, error: kelasError } = await db
+  //
+  // BUG FIX (lihat catatan lebih lengkap di POST handler di atas): ganti
+  // `.single()` (melempar error, dan karenanya SELALU jatuh ke "bukan wali
+  // kelas" tanpa pembeda, baik untuk 0 baris MAUPUN >1 baris) dengan query
+  // list biasa + pengecekan eksplisit. Kalau ternyata ada >1 kelas dengan
+  // wali_kelas = guru ini (data tidak konsisten/duplikat), kembalikan error
+  // yang jelas lewat field `error` alih-alih diam-diam menyamakannya dengan
+  // "memang belum ditugaskan" — supaya front-end (lihat `loadError` di
+  // src/app/guru/wali-kelas/page.tsx) bisa menampilkan pesan yang benar.
+  const { data: kelasWaliList, error: kelasError } = await db
     .from('kelas')
     .select('*')
     .eq('wali_kelas', guruUsername)
-    .single()
 
-  if (kelasError || !kelasWali) {
+  if (kelasError) {
+    return NextResponse.json({ error: kelasError.message }, { status: 500 })
+  }
+  if (!kelasWaliList || kelasWaliList.length === 0) {
     return NextResponse.json({ isWaliKelas: false, kelas: null, mapelList: [], siswaList: [], nilaiRekap: [] })
   }
+  if (kelasWaliList.length > 1) {
+    return NextResponse.json(
+      { error: 'Data kelas tidak konsisten: akun ini tercatat sebagai wali kelas di lebih dari satu kelas. Hubungi administrator untuk memperbaiki penugasan wali kelas.' },
+      { status: 409 }
+    )
+  }
+  const kelasWali = kelasWaliList[0]
 
   const kelasId = kelasWali.id
   // Kolom `siswa.kelas`, `jadwal.kelas`, dan `nilai.kelas` menyimpan NAMA kelas
