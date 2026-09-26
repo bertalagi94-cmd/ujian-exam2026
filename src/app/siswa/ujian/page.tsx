@@ -1311,6 +1311,29 @@ export default function SiswaUjianPage() {
     })
   }
 
+  // FIX #6 (essay/kirim tidak verifikasi per-soal sebelum finalisasi, padanan
+  // semuaSoalTerkonfirmasiRevisi() untuk PG): sejak essay punya sistem revisi
+  // (FIX #5), server BISA menolak revisi kita (accepted:false) kalau device
+  // lain sempat menulis revisi lebih tinggi untuk soal essay yang sama (mis.
+  // dua tab/device untuk NIS yang sama, atau device lama yang belum sadar
+  // sudah "diambil alih"). Tanpa pengecekan ini, handleKirimEssay() bisa
+  // langsung memfinalkan (status_essay=SUDAH_KIRIM) walau ketikan TERAKHIR
+  // siswa di device ini sebenarnya ditolak server — dan begitu final, tidak
+  // ada kesempatan retry lagi. Sama seperti versi PG: kalau server belum
+  // pernah mengembalikan `acked` sama sekali (migrasi 35 belum jalan di DB
+  // ini), jatuh ke perilaku lama (anggap terkonfirmasi) supaya tidak
+  // mengunci submit siswa.
+  function semuaSoalEssayTerkonfirmasiRevisi(): boolean {
+    const soalIds = Object.keys(jawabanEssayRef.current)
+    if (soalIds.length === 0) return true
+    return soalIds.every(soalEssayId => {
+      const ack = ackTerakhirEssayRef.current[soalEssayId]
+      if (!ack) return false
+      const revisiKita = jawabanEssayRevisiRef.current[soalEssayId] ?? 1
+      return ack.revisi === revisiKita
+    })
+  }
+
   const MAX_SYNC_RETRY = 4
   const syncJawabanInternal = useCallback(async (): Promise<{ ok: boolean; totalSynced: number; sesiClosed?: boolean; locked?: boolean; networkError?: boolean }> => {
     const currentSesi = sesiInfoRef.current
@@ -3308,7 +3331,28 @@ export default function SiswaUjianPage() {
     // latar belakang begitu koneksi pulih (lihat mulaiPenjagaOutbox di
     // siswa/layout.tsx), termasuk kalau siswa menutup tab/aplikasi sekalipun.
     if (essayInfoRef.current?.modeJawaban === 'DIGITAL') {
-      const syncTerakhir = await syncJawabanEssay()
+      // FIX #6 (essay/kirim tidak verifikasi per-soal sebelum finalisasi):
+      // sebelumnya hanya SATU kali panggilan syncJawabanEssay() yang dicek,
+      // dan hanya lewat `.ok` (sync tidak error secara HTTP) — tidak pernah
+      // memeriksa apakah SETIAP soal yang dijawab di device ini benar-benar
+      // dikonfirmasi server dengan revisi yang SAMA PERSIS (lihat
+      // semuaSoalEssayTerkonfirmasiRevisi()). Sekarang diulang beberapa ronde
+      // (padanan MAX_VERIFY_ROUNDS di handleSelesai untuk PG) dan BARU lanjut
+      // ke essay/kirim kalau sync sukses DAN semua soal terkonfirmasi.
+      const MAX_VERIFY_ROUNDS_ESSAY = 3
+      let syncTerakhir: { ok: boolean; networkError?: boolean } = { ok: true }
+      let cocokAckEssay = true
+      for (let round = 1; round <= MAX_VERIFY_ROUNDS_ESSAY; round++) {
+        syncTerakhir = await syncJawabanEssay()
+        // Kalau server belum pernah mengembalikan `acked` sama sekali
+        // (migrasi 35 belum jalan di DB ini), jatuh ke perilaku lama: sync
+        // sukses saja sudah cukup, supaya tidak mengunci submit siswa.
+        const pernahDapatAckEssay = Object.keys(ackTerakhirEssayRef.current).length > 0
+        cocokAckEssay = pernahDapatAckEssay ? semuaSoalEssayTerkonfirmasiRevisi() : true
+        if (syncTerakhir.ok && cocokAckEssay) break
+        if (!syncTerakhir.ok) break // jaringan mati / penolakan sah — ditangani jalur di bawah, tidak ada gunanya diulang di sini
+        if (round < MAX_VERIFY_ROUNDS_ESSAY) await new Promise(r => setTimeout(r, 1500))
+      }
       if (!syncTerakhir.ok) {
         if (syncTerakhir.networkError && !isTimeout) {
           clearInterval(essayTimerRef.current!)
@@ -3331,6 +3375,29 @@ export default function SiswaUjianPage() {
           return
         }
         setEssaySyncGagalSaatTimeout(true)
+      } else if (!cocokAckEssay) {
+        // FIX #6: sync sendiri sukses secara HTTP, tapi setelah beberapa
+        // ronde tetap ada soal yang revisinya DITOLAK server (device lain
+        // sudah menulis revisi lebih tinggi untuk soal essay yang sama —
+        // mis. 2 tab/device untuk NIS ini). Ini bukan kegagalan jaringan,
+        // jadi tidak ada gunanya dimasukkan ke jalur outbox/tunda. Kalau
+        // sedang timeout (auto-submit paksa karena waktu habis), tetap
+        // lanjutkan finalisasi (jangan macet selamanya) — tandai lewat
+        // essaySyncGagalSaatTimeout supaya tetap tercatat, sama seperti
+        // kegagalan sync lain saat timeout. Kalau BUKAN timeout (siswa
+        // menekan tombol Kirim sendiri), hentikan dan minta siswa memuat
+        // ulang untuk menyamakan jawaban dulu — daripada diam-diam
+        // memfinalkan essay dengan jawaban yang bukan revisi terbarunya.
+        if (isTimeout) {
+          setEssaySyncGagalSaatTimeout(true)
+        } else {
+          setSubmittingEssay(false)
+          setErrorEssay(
+            'Sebagian jawaban essay Anda baru saja diperbarui dari perangkat lain dan belum sinkron sepenuhnya ' +
+            'di perangkat ini. Muat ulang halaman ini untuk menyamakan jawaban, lalu coba Kirim lagi.'
+          )
+          return
+        }
       }
     }
 
