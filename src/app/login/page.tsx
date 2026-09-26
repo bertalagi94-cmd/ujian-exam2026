@@ -229,6 +229,60 @@ export default function LoginPage() {
     if (cur) cur.push(doodlePointFromEvent(e))
   }
   function handleDoodleEnd() { doodleDrawingRef.current = false }
+
+  // ── Panel login pojok kanan-bawah (HP) — bisa digeser bebas ───────────────
+  // Panel kecil (tombol Login + Panduan/Q&A/Aktivitas) di tampilan mobile
+  // "tertutup" bisa di-drag ke mana saja di layar oleh siswa. Posisi
+  // disimpan sebagai offset transform di atas posisi aslinya (pojok kanan
+  // bawah), jadi tidak mengubah layout flex yang sudah ada. Gerakan kecil
+  // (<6px) tetap dianggap "tap" biasa supaya tombol di dalam panel (Login,
+  // Panduan, dll) tetap bisa ditekan normal — capture pointer & clamp ke
+  // batas layar baru aktif setelah ambang gerak dilewati.
+  const panelRef = useRef<HTMLDivElement>(null)
+  const [panelPos, setPanelPos] = useState({ x: 0, y: 0 })
+  const panelDragRef = useRef<{ dragging: boolean; startX: number; startY: number; baseX: number; baseY: number; moved: boolean; rect: DOMRect | null }>({
+    dragging: false, startX: 0, startY: 0, baseX: 0, baseY: 0, moved: false, rect: null,
+  })
+
+  function handlePanelPointerDown(e: React.PointerEvent<HTMLDivElement>) {
+    panelDragRef.current = {
+      dragging: true,
+      startX: e.clientX, startY: e.clientY,
+      baseX: panelPos.x, baseY: panelPos.y,
+      moved: false,
+      rect: panelRef.current ? panelRef.current.getBoundingClientRect() : null,
+    }
+  }
+  function handlePanelPointerMove(e: React.PointerEvent<HTMLDivElement>) {
+    const d = panelDragRef.current
+    if (!d.dragging || !d.rect || !panelRef.current) return
+    const dx = e.clientX - d.startX
+    const dy = e.clientY - d.startY
+    if (!d.moved) {
+      if (Math.hypot(dx, dy) < 6) return
+      d.moved = true
+      try { e.currentTarget.setPointerCapture(e.pointerId) } catch { /* abaikan */ }
+    }
+    e.preventDefault()
+    const margin = 8
+    const clampedLeft = Math.min(Math.max(d.rect.left + dx, margin), window.innerWidth - d.rect.width - margin)
+    const clampedTop = Math.min(Math.max(d.rect.top + dy, margin), window.innerHeight - d.rect.height - margin)
+    const finalX = d.baseX + (clampedLeft - d.rect.left)
+    const finalY = d.baseY + (clampedTop - d.rect.top)
+    panelRef.current.style.transform = `translate(${finalX}px, ${finalY}px)`
+    panelRef.current.dataset.dragX = String(finalX)
+    panelRef.current.dataset.dragY = String(finalY)
+  }
+  function handlePanelPointerUp() {
+    const d = panelDragRef.current
+    if (d.moved && panelRef.current) {
+      const x = Number(panelRef.current.dataset.dragX ?? panelPos.x)
+      const y = Number(panelRef.current.dataset.dragY ?? panelPos.y)
+      setPanelPos({ x, y })
+    }
+    panelDragRef.current.dragging = false
+  }
+
   // ── Fullscreen ────────────────────────────────────────────────────────────
   const [isFs, setIsFs] = useState(false)
   useEffect(() => {
@@ -717,15 +771,34 @@ export default function LoginPage() {
                   </div>
                 </div>
 
-                {/* Panel bawah-kanan: Login + 3 pil */}
-                <div className="relative z-10 self-end w-full max-w-[230px] flex flex-col gap-2.5 rounded-3xl p-3.5"
+                {/* Panel bawah-kanan: Login + 3 pil — bisa digeser bebas
+                    (drag) oleh siswa, lihat handlePanelPointer* di atas.
+                    Ikon titik-titik kecil di pojok jadi penanda visual
+                    bahwa panel ini bisa digenggam & dipindah. */}
+                <div
+                  ref={panelRef}
+                  onPointerDown={handlePanelPointerDown}
+                  onPointerMove={handlePanelPointerMove}
+                  onPointerUp={handlePanelPointerUp}
+                  onPointerCancel={handlePanelPointerUp}
+                  className="relative z-10 self-end w-full max-w-[230px] flex flex-col gap-2.5 rounded-3xl p-3.5 login-drag-panel"
                   style={{
                     background: 'rgba(255,255,255,0.22)',
                     backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)',
                     border: '1px solid rgba(255,255,255,0.35)',
                     boxShadow: '0 12px 40px rgba(4,32,74,0.25)',
+                    transform: `translate(${panelPos.x}px, ${panelPos.y}px)`,
+                    touchAction: 'none',
                   }}
                 >
+                  <div className="flex justify-center -mt-1 -mb-1" aria-hidden="true">
+                    <span className="flex gap-1">
+                      <span className="w-1 h-1 rounded-full bg-white/60" />
+                      <span className="w-1 h-1 rounded-full bg-white/60" />
+                      <span className="w-1 h-1 rounded-full bg-white/60" />
+                      <span className="w-1 h-1 rounded-full bg-white/60" />
+                    </span>
+                  </div>
                   <button
                     type="button"
                     onClick={() => setMobileLoginOpen(true)}
