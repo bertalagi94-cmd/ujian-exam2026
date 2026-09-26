@@ -69,6 +69,11 @@ interface KoreksiData {
   // nis+nama, ditampilkan sebagai baris ringkas terpisah di bagian bawah
   // tabel dengan pesan "belum ujian".
   siswaBelumUjian: { nis: string; nama: string }[]
+  // FITUR BARU (kunci bobot PG:Essay setelah kirim ke wali kelas): true kalau
+  // ada minimal 1 nilai siswa di sesi ini yang sudah dikirim ke wali kelas —
+  // tombol "Edit" bobot harus dikunci selama ini true (lihat guard yang sama
+  // di backend, PATCH /api/guru/koreksi-essay).
+  bobotTerkunci: boolean
 }
 
 // Komponen ini adalah isi tab "Periksa Jawaban Essay" di menu Penilaian
@@ -269,6 +274,13 @@ export function PeriksaEssayTab({
 
   function bukaEditBobot() {
     if (!data) return
+    // FIX (kunci bobot setelah kirim ke wali kelas): jaga-jaga kalau tombol
+    // ini sempat terpanggil lewat jalur lain — tombol UI sendiri sudah
+    // disembunyikan saat data.bobotTerkunci true (lihat render di bawah).
+    if (data.bobotTerkunci) {
+      showToast('Bobot tidak bisa diubah karena sudah ada nilai siswa yang dikirim ke wali kelas.', 'error')
+      return
+    }
     setBobotPgInput(String(data.bobotPg))
     setBobotEssayInput(String(data.bobotEssay))
     setEditBobotStep('peringatan')
@@ -449,12 +461,22 @@ export function PeriksaEssayTab({
                     <p className="text-xs text-slate-500">
                       Bobot Nilai Akhir: <strong className="text-slate-700">PG {data.bobotPg}%</strong> + <strong className="text-slate-700">Essay {data.bobotEssay}%</strong>
                       {' '}
-                      <button
-                        onClick={bukaEditBobot}
-                        className="text-brand-700 font-medium underline underline-offset-2 hover:text-brand-800"
-                      >
-                        Edit
-                      </button>
+                      {/* FITUR BARU (kunci bobot setelah kirim ke wali kelas):
+                          begitu ada nilai siswa di sesi ini yang sudah
+                          terkirim ke wali kelas, tautan "Edit" diganti pesan
+                          terkunci — guru tidak bisa lagi membuka modal ubah
+                          bobot sama sekali (guard yang sama juga ditegakkan
+                          di backend, lihat PATCH /api/guru/koreksi-essay). */}
+                      {data.bobotTerkunci ? (
+                        <span className="text-slate-400 italic">(terkunci — sudah ada nilai terkirim ke wali kelas)</span>
+                      ) : (
+                        <button
+                          onClick={bukaEditBobot}
+                          className="text-brand-700 font-medium underline underline-offset-2 hover:text-brand-800"
+                        >
+                          Edit
+                        </button>
+                      )}
                     </p>
                     <button
                       onClick={() => setShowPetunjuk(true)}
@@ -463,6 +485,12 @@ export function PeriksaEssayTab({
                       <HelpCircle className="w-3.5 h-3.5" /> Petunjuk
                     </button>
                   </div>
+                  {data.bobotTerkunci && (
+                    <p className="text-xs text-slate-500 flex items-center gap-1">
+                      <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 text-slate-400" />
+                      Bobot tidak bisa diubah karena sudah ada nilai siswa yang dikirim ke wali kelas. Minta wali kelas mengembalikan nilainya dulu jika bobot perlu direvisi.
+                    </p>
+                  )}
 
                   {!semuaSudahDinilai && (
                     <p className="text-xs text-amber-600 flex items-center gap-1 pt-1">
@@ -816,7 +844,7 @@ export function PeriksaEssayTab({
                         <tr key={s.nis} className="bg-red-50">
                           <td colSpan={6} className="text-red-700">
                             <span className="font-semibold">{s.nama}</span>
-                            <span className="text-red-500"> — Belum Ujian atau belum mengirim jawaban</span>
+                            <span className="text-red-500"> — Belum mengikuti ujian</span>
                           </td>
                         </tr>
                       ))}
