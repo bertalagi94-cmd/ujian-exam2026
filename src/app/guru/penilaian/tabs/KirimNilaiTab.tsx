@@ -303,7 +303,7 @@ export function KirimNilaiTab({
       <div>
         <p className="text-sm text-slate-500">
           Kirim nilai akhir siswa ke wali kelas. Perlu mengubah nilai (remedial)?
-          Buka tab <strong className="text-slate-600">Rekap Nilai</strong> — perubahannya
+          Buka tab <strong className="text-slate-600">Rekap dan Edit Nilai</strong> — perubahannya
           langsung terlihat di sini.
         </p>
       </div>
