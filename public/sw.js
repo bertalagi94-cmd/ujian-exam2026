@@ -22,20 +22,60 @@
 
 const CACHE_PREFIX = 'ujian-app-shell'
 const MANIFEST_URL = '/precache-manifest.json'
+// FIX BUG (app gagal total dibuka offline setelah ditutup & dibuka lagi):
+// nama cache versi (CACHE_PREFIX + buildId) HARUS sama persis antara saat
+// `install` (yang mengisi precache) dan saat `fetch` (yang membacanya) —
+// tapi sebelumnya buildId itu cuma disimpan di variabel `manifestPromise` di
+// memori. Browser mematikan Service Worker yang idle (umumnya dalam
+// hitungan puluhan detik), dan variabel di memori HILANG tiap SW dimatikan
+// & dijalankan ulang. Jadi begitu app ditutup & dibuka lagi (SW start dari
+// nol) SAAT OFFLINE, `ambilManifest()` mencoba fetch manifest ke jaringan,
+// gagal, lalu jatuh ke buildId hardcode `'fallback'` — sebuah nama cache
+// yang TIDAK PERNAH dipakai saat precache. Akibatnya `cache.match()` di
+// `fetch` selalu miss, jatuh ke `fetch(request)` ke jaringan, yang juga
+// gagal karena offline → halaman gagal dimuat TOTAL, walau precache-nya
+// sendiri sebenarnya lengkap tersimpan.
+//
+// PERBAIKAN: simpan salinan manifest ke Cache Storage (persisten di disk,
+// bukan variabel JS) tiap kali berhasil diambil dari jaringan. Kalau fetch
+// gagal (offline), baca balik dari situ dulu SEBELUM menyerah ke
+// 'fallback' — supaya buildId yang dipakai untuk mencari cache tetap sama
+// dengan buildId yang dipakai saat precache, walau SW baru saja restart.
+const META_CACHE = `${CACHE_PREFIX}-meta`
 
-// Manifest diambil SEKALI per siklus hidup Service Worker lalu disimpan di
-// memori (bukan di-fetch ulang di tiap event) — nama cache yang dipakai
-// `install`, `activate`, dan `fetch` harus konsisten selama SW ini aktif.
 let manifestPromise = null
 function ambilManifest() {
   if (!manifestPromise) {
     manifestPromise = fetch(MANIFEST_URL, { cache: 'no-store' })
-      .then((res) => res.json())
-      .catch(() => {
-        // Manifest tidak ada/rusak/gagal diambil (mis. deploy lama sebelum
-        // perbaikan ini) — tetap jalan tanpa precache; runtime caching di
-        // `fetch` tetap jadi jaring pengaman seperti versi sebelumnya.
-        console.warn('[sw] Gagal mengambil precache-manifest.json — lanjut tanpa precache.')
+      .then(async (res) => {
+        const manifest = await res.json()
+        // Simpan salinan untuk dibaca lagi kalau SW ini nanti dimatikan &
+        // di-restart saat offline. Sengaja tidak diawait / tidak dibiarkan
+        // menggagalkan ambilManifest() kalau put() ini gagal.
+        try {
+          const metaCache = await caches.open(META_CACHE)
+          await metaCache.put(MANIFEST_URL, new Response(JSON.stringify(manifest)))
+        } catch {
+          console.warn('[sw] Gagal menyimpan salinan manifest ke META_CACHE.')
+        }
+        return manifest
+      })
+      .catch(async () => {
+        // Fetch manifest gagal (kemungkinan besar offline & SW baru
+        // restart) — coba pakai salinan tersimpan dari kunjungan online
+        // sebelumnya, supaya buildId-nya konsisten dengan cache precache
+        // yang sudah ada.
+        try {
+          const metaCache = await caches.open(META_CACHE)
+          const cachedRes = await metaCache.match(MANIFEST_URL)
+          if (cachedRes) return await cachedRes.json()
+        } catch {
+          // lanjut ke fallback di bawah
+        }
+        // Betul-betul tidak ada salinan tersimpan sama sekali (mis. app ini
+        // memang belum pernah dibuka online satu kali pun) — tidak ada
+        // precache yang bisa dipakai, jadi wajar gagal di kasus ini.
+        console.warn('[sw] Gagal mengambil precache-manifest.json & tidak ada salinan tersimpan — lanjut tanpa precache.')
         return { buildId: 'fallback', urls: [] }
       })
   }
@@ -77,9 +117,14 @@ self.addEventListener('activate', (event) => {
     const keys = await caches.keys()
     // Buang cache app-shell dari build sebelumnya (nama cache menyertakan
     // buildId, jadi ini otomatis membersihkan diri tiap ada deploy baru).
+    // PENTING: META_CACHE dikecualikan — namanya juga berawalan CACHE_PREFIX
+    // tapi TIDAK versioned by buildId (sengaja, supaya salinan manifest di
+    // dalamnya tetap bertahan lintas build/restart SW). Kalau ikut kehapus
+    // di sini, perbaikan bug offline-restart di atas jadi percuma karena
+    // META_CACHE selalu langsung dihapus lagi tepat setelah diisi.
     await Promise.all(
       keys
-        .filter((k) => k.startsWith(CACHE_PREFIX) && k !== cacheName)
+        .filter((k) => k.startsWith(CACHE_PREFIX) && k !== cacheName && k !== META_CACHE)
         .map((k) => caches.delete(k))
     )
     await self.clients.claim()
