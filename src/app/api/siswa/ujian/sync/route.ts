@@ -240,40 +240,92 @@ export async function POST(req: NextRequest) {
       // "menang" dari jawaban baru kalau requestnya sampai belakangan.
       // Sekarang: setiap jawaban punya nomor revisi yang dibuat CLIENT saat
       // siswa mengubah pilihan (naik monoton, lihat pilihJawaban() di
-      // page.tsx), dan fungsi database sync_jawaban_revisi() (lihat
-      // supabase/20_pg_offline_dan_revisi_jawaban.sql) menolak revisi yang
-      // lebih kecil dari yang sudah tersimpan — tidak peduli urutan
-      // kedatangan request atau selisih jam client vs server.
+      // page.tsx), dan fungsi database sync_jawaban_atomik() (lihat
+      // supabase/34_sync_jawaban_atomik.sql, logika revisi sama seperti
+      // sync_jawaban_revisi() di migrasi 20) menolak revisi yang lebih kecil
+      // dari yang sudah tersimpan — tidak peduli urutan kedatangan request
+      // atau selisih jam client vs server.
       const records = jawabanValid.map((j: { soal_id: string; jawaban: string; revisi?: number }) => ({
-        sesi_id: sesiId,
-        nis: user.nis!,
         soal_id: j.soal_id,
         jawaban: j.jawaban,
         revisi: typeof j.revisi === 'number' ? j.revisi : 0,
       }))
 
-      const { data: rpcData, error: rpcError } = await db.rpc('sync_jawaban_revisi', { p_records: records })
+      // FIX BUG P1 (audit: race condition /sync): sebelumnya cek status
+      // sesi/siswa/device di atas (baris ~50-113) adalah SELECT biasa tanpa
+      // row lock, terpisah dari penulisan jawaban lewat sync_jawaban_revisi()
+      // -- ada jendela sempit tempat sesi bisa ditutup / siswa di-RESET atau
+      // di-TERKUNCI / device diambil alih TEPAT di antara cek dan tulis.
+      // Sekarang dipanggil sync_jawaban_atomik() (lihat
+      // supabase/34_sync_jawaban_atomik.sql): mengunci baris sesi_ujian &
+      // siswa_ujian dan MENGECEK ULANG status/device di dalam transaksi yang
+      // sama dengan upsert jawaban -- pola yang sama seperti
+      // finalisasi_pg_atomik untuk /selesai (migrasi 21/28/33).
+      const { data: rpcHasil, error: rpcError } = await db.rpc('sync_jawaban_atomik', {
+        p_sesi_id: sesiId,
+        p_nis: user.nis!,
+        p_device_id: typeof deviceId === 'string' ? deviceId : null,
+        p_records: records,
+      })
 
-      if (!rpcError) {
-        acked = (rpcData ?? []).map((r: { out_soal_id: string; out_jawaban: string; out_revisi: number; out_accepted: boolean }) => ({
-          soal_id: r.out_soal_id,
-          jawaban: r.out_jawaban,
-          revisi: r.out_revisi,
-          accepted: r.out_accepted,
-        }))
-      } else {
-        // FAIL CLOSED (audit P0 #2). Dulu di sini ada fallback ke upsert lama
-        // tanpa proteksi revisi kalau fungsi belum ada. Fallback itu DIHAPUS:
-        // migrasi 20 & 23 wajib terpasang (23 menolak berjalan tanpa 20/21/22).
-        // Lebih baik client menerima error dan tetap menyimpan jawaban di
-        // outbox lokal untuk dicoba lagi, daripada server diam-diam menulis
-        // jawaban tanpa perlindungan revisi.
-        console.error('[sync] sync_jawaban_revisi gagal:', rpcError.code, rpcError.message)
+      if (rpcError) {
+        // FAIL CLOSED (audit P0 #2). Tidak ada fallback ke upsert lama tanpa
+        // proteksi revisi/atomik. Lebih baik client menerima error dan tetap
+        // menyimpan jawaban di outbox lokal untuk dicoba lagi, daripada
+        // server diam-diam menulis jawaban tanpa perlindungan.
+        console.error('[sync] sync_jawaban_atomik gagal:', rpcError.code, rpcError.message)
         return NextResponse.json(
           { error: 'Server gagal menyimpan jawaban. Jawaban tetap aman di perangkat dan akan dicoba lagi otomatis.' },
           { status: 503 }
         )
       }
+
+      const hasil = rpcHasil as { hasil?: string; acked?: { out_soal_id: string; out_jawaban: string; out_revisi: number; out_accepted: boolean }[] } | null
+
+      // Race tertutup TEPAT sebelum penulisan: cek awal (di atas) sempat
+      // lolos, tapi cek ULANG di dalam transaksi menemukan kondisi sudah
+      // berubah. Balas dengan pesan yang sama seperti cek awal untuk kondisi
+      // yang sama, supaya perilaku client (termasuk flag `sementara`)
+      // konsisten dari sudut pandang siswa.
+      switch (hasil?.hasil) {
+        case 'OK':
+          break
+        case 'SESI_TIDAK_ADA':
+          return NextResponse.json({ error: 'Sesi tidak ditemukan' }, { status: 404 })
+        case 'SESI_DITUTUP':
+          return NextResponse.json(
+            { error: 'Sesi ujian sudah ditutup, jawaban tidak bisa disimpan lagi.' },
+            { status: 409 }
+          )
+        case 'SISWA_TIDAK_TERDAFTAR':
+          return NextResponse.json(
+            { error: 'Anda belum terdaftar sebagai peserta ujian ini.' },
+            { status: 403 }
+          )
+        case 'SISWA_RESET':
+        case 'SISWA_TERKUNCI':
+          return NextResponse.json(
+            { error: 'Akses ujian Anda sedang dikunci/menunggu reset. Jawaban tidak bisa disimpan.', sementara: true },
+            { status: 403 }
+          )
+        case 'DEVICE_LAIN':
+          return NextResponse.json(
+            { error: 'Sesi ujian Anda sedang aktif di perangkat lain. Jawaban tidak bisa disimpan dari perangkat ini.' },
+            { status: 409 }
+          )
+        default:
+          return NextResponse.json(
+            { error: 'Gagal menyimpan jawaban (respons tidak dikenali). Akan dicoba lagi otomatis.' },
+            { status: 500 }
+          )
+      }
+
+      acked = (hasil?.acked ?? []).map((r) => ({
+        soal_id: r.out_soal_id,
+        jawaban: r.out_jawaban,
+        revisi: r.out_revisi,
+        accepted: r.out_accepted,
+      }))
     }
 
     if (jawabanDitolak > 0) {
