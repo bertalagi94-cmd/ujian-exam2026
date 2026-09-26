@@ -380,6 +380,28 @@
          rounded-full px-2.5 py-1.5 flex-shrink-0 tabular-nums;
 }
 
+/* ── Header ujian (PG & Essay): nama mapel, sisa waktu, tombol kirim ─────
+   Sebelumnya latar putih polos. Sekarang gradient dua warna STATIS (bukan
+   animasi seperti .btn-login-drape di bawah — elemen ini `sticky`, selalu
+   nempel di layar sepanjang ujian, jadi kalau ikut "bergerak" akan
+   mengganggu konsentrasi siswa). Chip sisa waktu & teks di dalamnya
+   diwarnai ulang di komponennya (lihat ujian/page.tsx) supaya urgensi
+   warna merah (<5 menit) tetap paling menonjol di atas latar berwarna ini,
+   bukan pastel yang gampang tenggelam. */
+.exam-header {
+  background: linear-gradient(135deg, #0891b2 0%, #2563eb 100%);
+  border: none;
+  position: relative;
+  overflow: hidden;
+}
+.exam-header::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.18) 0%, rgba(255, 255, 255, 0) 45%);
+  pointer-events: none;
+}
+
 /* ── Login button — gradient biru-teal bergerak ──────────────────── */
 .btn-login-drape {
   background: linear-gradient(
