@@ -22,6 +22,9 @@ import { computeLiveLeaderboardUntukSesi, LiveLeaderboardSesi } from '@/lib/lead
 // SISWA ditolak eksplisit meski requireRole tidak otomatis melarangnya di
 // sini — leaderboard live memuat nama + skor siswa lain, jadi akun siswa
 // tidak boleh melihat papan kelas manapun lewat halaman ini.
+export const dynamic = 'force-dynamic'
+export const fetchCache = 'force-no-store'
+
 export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['GURU', 'KEPSEK', 'ADMIN'])
   if ('error' in auth) return auth.error
