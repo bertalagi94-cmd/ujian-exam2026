@@ -45,6 +45,14 @@ export interface LiveLeaderboardSesi {
   durasi: number | null
   totalPeserta: number
   peserta: LiveLeaderboardRow[]
+  // FITUR (pesan "UJIAN SELESAI" + hitung mundur di Layar Pantau): sesi yang
+  // baru saja ditutup pengawas TETAP diikutkan di hasil ambilBoardsUntukViewer
+  // untuk sementara (lihat JENDELA_TAMPIL_SETELAH_TUTUP_MS di route.ts),
+  // supaya papan tidak langsung lenyap tanpa keterangan. statusSesi &
+  // waktuSelesai dipakai FRONTEND untuk menghitung sisa detik sebelum papan
+  // ini disembunyikan sendiri (client-side), bukan untuk menyembunyikan data.
+  statusSesi: string
+  waktuSelesai: string | null
 }
 
 interface SesiRow {
@@ -56,6 +64,7 @@ interface SesiRow {
   waktu_mulai: string
   paket_soal_id: string | null
   status: string
+  waktu_selesai: string | null
 }
 
 /**
@@ -81,6 +90,8 @@ export async function computeLiveLeaderboardUntukSesi(
       durasi: sesi.durasi,
       totalPeserta: 0,
       peserta: [],
+      statusSesi: sesi.status,
+      waktuSelesai: sesi.waktu_selesai,
     }
   }
 
@@ -111,6 +122,8 @@ export async function computeLiveLeaderboardUntukSesi(
       durasi: sesi.durasi,
       totalPeserta: peserta.length,
       peserta: [],
+      statusSesi: sesi.status,
+      waktuSelesai: sesi.waktu_selesai,
     }
   }
 
@@ -187,5 +200,7 @@ export async function computeLiveLeaderboardUntukSesi(
     durasi: sesi.durasi,
     totalPeserta: peserta.length,
     peserta: rows,
+    statusSesi: sesi.status,
+    waktuSelesai: sesi.waktu_selesai,
   }
 }
