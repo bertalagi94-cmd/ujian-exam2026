@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
-import { CheckCircle2, Flag, Trophy } from 'lucide-react'
+import { CheckCircle2, Flag, PartyPopper, Trophy } from 'lucide-react'
 import type { LiveLeaderboardSesi } from '@/lib/leaderboard-live'
 
 // ── Animasi FLIP manual (First-Last-Invert-Play) ────────────────────────────
@@ -69,10 +69,25 @@ const ROW_RING = [
   'ring-1 ring-amber-400/40',                                                                     // #3
 ]
 
-export function LiveLeaderboardBoard({ board }: { board: LiveLeaderboardSesi }) {
+// FITUR (diminta user): begitu pengawas menutup sesi, papan kelas ini tetap
+// ditampilkan sebentar (bukan langsung lenyap dari rotasi tanpa keterangan —
+// lihat komentar di layar-pantau/data & stream route.ts) dengan overlay besar
+// "UJIAN SELESAI" + hitung mundur, baru benar-benar hilang dari layar setelah
+// hitungan mencapai 0. `sisaDetikTutup` dihitung & di-tick oleh halaman induk
+// (PapanLive di layar-pantau/page.tsx) dari serverTime — undefined berarti
+// sesi ini masih BERJALAN seperti biasa (tidak menampilkan overlay).
+export function LiveLeaderboardBoard({
+  board,
+  sisaDetikTutup,
+}: {
+  board: LiveLeaderboardSesi
+  sisaDetikTutup?: number
+}) {
   const containerRef = useRef<HTMLDivElement>(null)
   const rowKeys = board.peserta.map(p => p.nis)
   useFlipAnimation(rowKeys, containerRef)
+
+  const sesiBaruDitutup = board.statusSesi === 'SELESAI' && sisaDetikTutup !== undefined
 
   const terjawabTotal = board.peserta.reduce((sum, p) => sum + p.terjawab, 0)
   const kapasitasTotal = board.totalPeserta * (board.peserta[0]?.totalSoal ?? 0)
@@ -80,7 +95,9 @@ export function LiveLeaderboardBoard({ board }: { board: LiveLeaderboardSesi }) 
   const totalSoalBoard = board.peserta[0]?.totalSoal ?? 0
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="relative flex flex-col h-full">
+      {sesiBaruDitutup && <OverlaySelesai sisaDetik={sisaDetikTutup!} />}
+
       <div className="flex items-end justify-between mb-6 flex-wrap gap-3">
         <div>
           <p className="inline-block text-xs font-bold tracking-wider uppercase bg-gradient-to-r from-brand-400/20 to-accent-400/20 border border-brand-400/30 text-brand-200 rounded-full px-3 py-1 mb-2">
@@ -177,6 +194,26 @@ export function LiveLeaderboardBoard({ board }: { board: LiveLeaderboardSesi }) 
           100% { transform: translateX(500%); }
         }
       `}</style>
+    </div>
+  )
+}
+
+// Overlay besar "UJIAN SELESAI" + hitung mundur, menutupi papan leaderboard
+// (yang masih terlihat samar di belakang) selama beberapa detik terakhir
+// sebelum papan ini hilang dari rotasi Layar Pantau.
+function OverlaySelesai({ sisaDetik }: { sisaDetik: number }) {
+  return (
+    <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-4 rounded-3xl bg-slate-950/85 backdrop-blur-sm text-center px-6 animate-[fadeIn_0.4s_ease]">
+      <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-accent-400/30 to-brand-400/20 border border-accent-400/30 flex items-center justify-center shadow-[0_0_40px_rgba(34,211,238,0.2)]">
+        <PartyPopper className="w-8 h-8 text-accent-300" />
+      </div>
+      <h3 className="text-4xl md:text-5xl font-extrabold tracking-tight bg-gradient-to-r from-white via-accent-100 to-brand-200 bg-clip-text text-transparent">
+        UJIAN SELESAI
+      </h3>
+      <p className="text-slate-300 text-sm md:text-base">
+        Halaman ini akan hilang dalam{' '}
+        <span className="font-bold text-white tabular-nums">{sisaDetik}</span> detik
+      </p>
     </div>
   )
 }
