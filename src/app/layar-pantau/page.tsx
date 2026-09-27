@@ -462,13 +462,20 @@ function PapanLive({ session, onLogout }: { session: Session; onLogout: () => vo
     return () => { if (rotasiRef.current) clearInterval(rotasiRef.current) }
   }, [pinnedSesiId, boards.length])
 
+  // Kunci ringan (bukan array `boards` utuh, yang selalu jadi objek BARU
+  // tiap detik gara-gara hitung mundur) — supaya efek di bawah cuma jalan
+  // kalau daftar kelas SUNGGUH berubah (ada yang ditambah/dihapus), bukan
+  // tiap kali komponen re-render karena tick detik.
+  const boardIdsKey = boards.map(b => b.sesiId).join('|')
+
   // Kalau daftar kelas berubah (mis. ujian baru selesai/mulai, atau papan
   // "UJIAN SELESAI" barusan habis hitung mundurnya), pastikan index/pin
   // tidak menunjuk ke kelas yang sudah tidak ada.
   useEffect(() => {
     if (pinnedSesiId && !boards.some(b => b.sesiId === pinnedSesiId)) setPinnedSesiId(null)
     if (activeIndex >= boards.length) setActiveIndex(0)
-  }, [boards, pinnedSesiId, activeIndex])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [boardIdsKey, pinnedSesiId, activeIndex])
 
   const displayedBoard = pinnedSesiId
     ? boards.find(b => b.sesiId === pinnedSesiId) ?? boards[0]
