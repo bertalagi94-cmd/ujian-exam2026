@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
-import { CheckCircle2, Trophy } from 'lucide-react'
+import { CheckCircle2, Flag, Trophy } from 'lucide-react'
 import type { LiveLeaderboardSesi } from '@/lib/leaderboard-live'
 
 // ── Animasi FLIP manual (First-Last-Invert-Play) ────────────────────────────
@@ -48,20 +48,26 @@ function useFlipAnimation(rowKeys: string[], containerRef: React.RefObject<HTMLD
 }
 
 const MEDAL_STYLES = [
-  'bg-gradient-to-br from-yellow-300 to-yellow-500 text-yellow-900', // #1
-  'bg-gradient-to-br from-slate-200 to-slate-400 text-slate-700',    // #2
-  'bg-gradient-to-br from-amber-500 to-amber-700 text-amber-50',     // #3
+  'bg-gradient-to-br from-yellow-200 via-yellow-400 to-amber-500 text-yellow-900 shadow-[0_0_18px_rgba(250,204,21,0.55)]', // #1
+  'bg-gradient-to-br from-slate-100 via-slate-300 to-slate-400 text-slate-700 shadow-[0_0_12px_rgba(203,213,225,0.35)]',   // #2
+  'bg-gradient-to-br from-amber-400 via-orange-500 to-amber-700 text-amber-50 shadow-[0_0_12px_rgba(251,146,60,0.35)]',    // #3
 ]
 
-// Warna "lintasan balap" tiap baris — 3 besar dapat warna medali (lebih terang
-// supaya jelas siapa yang memimpin), sisanya gradasi brand yang lebih redup
+// Warna "lintasan balap" tiap baris — 3 besar dapat gradasi mencolok (biar
+// jelas siapa yang memimpin), sisanya gradasi brand yang lebih tenang
 // supaya tidak bersaing secara visual dengan 3 besar.
 const TRACK_STYLES = [
-  'from-yellow-400/70 to-yellow-500/40',  // #1
-  'from-slate-300/60 to-slate-400/30',    // #2
-  'from-amber-500/70 to-amber-600/40',    // #3
+  'from-yellow-300/90 via-amber-400/70 to-orange-500/40',   // #1
+  'from-slate-200/80 via-slate-300/60 to-slate-400/30',     // #2
+  'from-amber-400/85 via-orange-500/65 to-rose-500/35',     // #3
 ]
-const TRACK_STYLE_DEFAULT = 'from-brand-500/50 to-brand-600/25'
+const TRACK_STYLE_DEFAULT = 'from-brand-400/70 via-brand-500/55 to-accent-500/30'
+
+const ROW_RING = [
+  'ring-2 ring-yellow-300/60 shadow-[0_0_32px_rgba(250,204,21,0.18)] scale-[1.015] origin-left', // #1
+  'ring-1 ring-slate-300/40',                                                                     // #2
+  'ring-1 ring-amber-400/40',                                                                     // #3
+]
 
 export function LiveLeaderboardBoard({ board }: { board: LiveLeaderboardSesi }) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -71,16 +77,24 @@ export function LiveLeaderboardBoard({ board }: { board: LiveLeaderboardSesi }) 
   const terjawabTotal = board.peserta.reduce((sum, p) => sum + p.terjawab, 0)
   const kapasitasTotal = board.totalPeserta * (board.peserta[0]?.totalSoal ?? 0)
   const progres = kapasitasTotal > 0 ? Math.round((terjawabTotal / kapasitasTotal) * 100) : 0
+  const totalSoalBoard = board.peserta[0]?.totalSoal ?? 0
 
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-end justify-between mb-6 flex-wrap gap-3">
         <div>
-          <p className="text-brand-300 text-lg font-semibold tracking-wide uppercase">Kelas {board.kelas}</p>
-          <h2 className="text-4xl font-extrabold text-white">{board.namaMapel}</h2>
+          <p className="inline-block text-xs font-bold tracking-wider uppercase bg-gradient-to-r from-brand-400/20 to-accent-400/20 border border-brand-400/30 text-brand-200 rounded-full px-3 py-1 mb-2">
+            Kelas {board.kelas}
+          </p>
+          <h2 className="text-4xl font-extrabold bg-gradient-to-r from-white via-brand-100 to-accent-200 bg-clip-text text-transparent">
+            {board.namaMapel}
+          </h2>
         </div>
         <div className="text-right text-slate-300">
-          <p className="text-sm">Peserta ujian</p>
+          <p className="text-sm flex items-center justify-end gap-1.5">
+            <Flag className="w-3.5 h-3.5 text-accent-300" />
+            Menuju {totalSoalBoard} soal
+          </p>
           <p className="text-2xl font-bold text-white">{board.totalPeserta} siswa</p>
           <p className="text-xs text-slate-400">Progres pengerjaan ± {progres}%</p>
         </div>
@@ -99,27 +113,31 @@ export function LiveLeaderboardBoard({ board }: { board: LiveLeaderboardSesi }) 
             // cuma relatif terhadap si nomor satu saat itu.
             const barPct = p.totalSoal > 0 ? Math.max((p.benar / p.totalSoal) * 100, 3) : 3
             const trackStyle = i < 3 ? TRACK_STYLES[i] : TRACK_STYLE_DEFAULT
+            const rowRing = i < 3 ? ROW_RING[i] : 'ring-1 ring-white/10'
 
             return (
               <div
                 key={p.nis}
                 data-row-nis={p.nis}
-                className={`relative overflow-hidden rounded-2xl will-change-transform
-                  ${i < 3 ? 'bg-white/10 ring-1 ring-white/20' : 'bg-white/5'}`}
+                className={`relative overflow-hidden rounded-2xl will-change-transform transition-transform
+                  bg-gradient-to-r from-white/[0.08] to-white/[0.03] ${rowRing}`}
               >
                 {/* "Lintasan balap": lebar bar mengejar garis finis di kanan,
                     beranimasi tiap kali jumlah benar berubah. */}
                 <div
                   className={`absolute inset-y-0 left-0 bg-gradient-to-r ${trackStyle}
-                    transition-[width] duration-500 ease-out`}
+                    transition-[width] duration-500 ease-out overflow-hidden`}
                   style={{ width: `${barPct}%` }}
-                />
+                >
+                  {/* Kilau bergerak — cuma dekorasi, memberi kesan "energik/hidup" */}
+                  <div className="absolute inset-y-0 w-1/4 bg-gradient-to-r from-transparent via-white/40 to-transparent animate-[shine_2.8s_linear_infinite]" />
+                </div>
                 {/* Garis finis di ujung kanan, penanda batas total soal */}
                 <div className="absolute inset-y-0 right-0 w-px bg-white/15" />
 
                 <div className="relative z-10 flex items-center gap-4 px-5 py-3.5">
                   <div
-                    className={`w-10 h-10 shrink-0 rounded-full flex items-center justify-center font-bold text-sm
+                    className={`w-10 h-10 shrink-0 rounded-full flex items-center justify-center font-bold text-sm ring-2 ring-white/20
                       ${i < 3 ? MEDAL_STYLES[i] : 'bg-black/30 text-slate-100'}`}
                   >
                     {i < 3 ? <Trophy className="w-5 h-5" /> : i + 1}
@@ -150,6 +168,13 @@ export function LiveLeaderboardBoard({ board }: { board: LiveLeaderboardSesi }) 
           })}
         </div>
       )}
+
+      <style jsx global>{`
+        @keyframes shine {
+          0% { transform: translateX(-150%); }
+          100% { transform: translateX(500%); }
+        }
+      `}</style>
     </div>
   )
 }
