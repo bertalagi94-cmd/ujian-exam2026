@@ -20,7 +20,7 @@ import { LiveLeaderboardBoard } from '@/components/leaderboard/LiveLeaderboardBo
 import type { LiveLeaderboardSesi } from '@/lib/leaderboard-live'
 
 const SESSION_KEY = 'layarPantauSession'
-const POLL_MS = 4000
+const POLL_MS = 1200
 const ROTASI_MS = 12000
 const ROLE_LABEL: Record<string, string> = { GURU: 'Guru', KEPSEK: 'Kepala Sekolah', ADMIN: 'Admin' }
 
