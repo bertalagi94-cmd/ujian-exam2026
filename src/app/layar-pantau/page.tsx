@@ -317,6 +317,16 @@ function PapanLive({ session, onLogout }: { session: Session; onLogout: () => vo
   const emptyStreakRef = useRef(0)
   const pernahAdaIsiRef = useRef(false)
 
+  // ── "UJIAN SELESAI" + hitung mundur ─────────────────────────────────────
+  // Dipakai untuk menghitung sisa detik tampil suatu board yang baru ditutup
+  // pengawas (board.statusSesi === 'SELESAI'), berdasarkan serverTime dari
+  // payload terakhir — BUKAN jam device TV, supaya hitung mundur tetap benar
+  // walau jam TV sedikit meleset. receivedAtMsRef menandai kapan (jam device)
+  // payload terakhir itu tiba, dipakai untuk mengoreksi selisih waktu sejak
+  // saat itu tanpa perlu menunggu payload baru tiap detik.
+  const receivedAtMsRef = useRef(Date.now())
+  const [tick, setTick] = useState(0) // dipaksa berubah tiap detik supaya hitung mundur ikut ter-render
+
   const terapkanDataBaru = useCallback((json: DataResponse) => {
     const kosong = (json.boards ?? []).length === 0
     if (kosong && pernahAdaIsiRef.current) {
@@ -326,9 +336,28 @@ function PapanLive({ session, onLogout }: { session: Session; onLogout: () => vo
       emptyStreakRef.current = 0
       if (!kosong) pernahAdaIsiRef.current = true
     }
+    receivedAtMsRef.current = Date.now()
     setData(json)
     setFetchError(json.error ?? '')
   }, [])
+
+  useEffect(() => {
+    const id = setInterval(() => setTick(t => t + 1), 1000)
+    return () => clearInterval(id)
+  }, [])
+
+  const DURASI_TAMPIL_SELESAI_DETIK = 30
+
+  // Sisa detik papan `board` masih boleh tampil (30 → 0). Mengembalikan null
+  // untuk sesi yang masih BERJALAN (tidak relevan).
+  const hitungSisaDetik = useCallback((board: LiveLeaderboardSesi): number | null => {
+    if (board.statusSesi !== 'SELESAI' || !board.waktuSelesai || !data) return null
+    void tick // sengaja dibaca supaya fungsi ini "ikut" re-render tiap detik
+    const elapsedSejakServerTime = Date.now() - receivedAtMsRef.current
+    const estimasiServerNow = new Date(data.serverTime).getTime() + elapsedSejakServerTime
+    const sisa = DURASI_TAMPIL_SELESAI_DETIK - Math.floor((estimasiServerNow - new Date(board.waktuSelesai).getTime()) / 1000)
+    return Math.max(0, Math.min(DURASI_TAMPIL_SELESAI_DETIK, sisa))
+  }, [data, tick])
 
   // ── Realtime: dengarkan /api/layar-pantau/stream ────────────────────────
   useEffect(() => {
@@ -416,7 +445,11 @@ function PapanLive({ session, onLogout }: { session: Session; onLogout: () => vo
     return () => clearInterval(id)
   }, [])
 
-  const boards = data?.boards ?? []
+  // Board yang hitung mundurnya sudah mencapai 0 disaring keluar di sini —
+  // itulah cara papan "UJIAN SELESAI" benar-benar hilang dari layar setelah
+  // 30 detik (client-side; backend punya jendela buffer lebih longgar, lihat
+  // komentar JENDELA_TAMPIL_SETELAH_TUTUP_MS di route.ts).
+  const boards = (data?.boards ?? []).filter(b => hitungSisaDetik(b) !== 0)
 
   // ── Rotasi otomatis antar kelas ───────────────────────────────────────
   const rotasiRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -429,8 +462,9 @@ function PapanLive({ session, onLogout }: { session: Session; onLogout: () => vo
     return () => { if (rotasiRef.current) clearInterval(rotasiRef.current) }
   }, [pinnedSesiId, boards.length])
 
-  // Kalau daftar kelas berubah (mis. ujian baru selesai/mulai), pastikan
-  // index/pin tidak menunjuk ke kelas yang sudah tidak ada.
+  // Kalau daftar kelas berubah (mis. ujian baru selesai/mulai, atau papan
+  // "UJIAN SELESAI" barusan habis hitung mundurnya), pastikan index/pin
+  // tidak menunjuk ke kelas yang sudah tidak ada.
   useEffect(() => {
     if (pinnedSesiId && !boards.some(b => b.sesiId === pinnedSesiId)) setPinnedSesiId(null)
     if (activeIndex >= boards.length) setActiveIndex(0)
@@ -439,6 +473,7 @@ function PapanLive({ session, onLogout }: { session: Session; onLogout: () => vo
   const displayedBoard = pinnedSesiId
     ? boards.find(b => b.sesiId === pinnedSesiId) ?? boards[0]
     : boards[activeIndex]
+  const sisaDetikDisplayed = displayedBoard ? hitungSisaDetik(displayedBoard) : null
 
   return (
     <div className="relative min-h-screen bg-slate-950 flex flex-col overflow-hidden">
@@ -511,7 +546,7 @@ function PapanLive({ session, onLogout }: { session: Session; onLogout: () => vo
             key={displayedBoard.sesiId}
             className="h-full rounded-3xl bg-gradient-to-br from-white/[0.07] to-white/[0.02] border border-white/10 backdrop-blur-xl shadow-2xl shadow-black/40 p-6 md:p-8 animate-[fadeIn_0.4s_ease]"
           >
-            <LiveLeaderboardBoard board={displayedBoard} />
+            <LiveLeaderboardBoard board={displayedBoard} sisaDetikTutup={sisaDetikDisplayed ?? undefined} />
           </div>
         ) : null}
       </main>
