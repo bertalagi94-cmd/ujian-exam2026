@@ -10,8 +10,18 @@
 // sedang memantau.
 //
 // SISWA ditolak di sini (baik oleh pengecekan role di bawah maupun oleh
-// requireRole di endpoint data) — halaman ini menampilkan nama + skor siswa
-// LAIN, jadi tidak boleh diakses pakai akun siswa.
+// requireRole di endpoint data/stream) — halaman ini menampilkan nama +
+// skor siswa LAIN, jadi tidak boleh diakses pakai akun siswa.
+//
+// ── REALTIME ─────────────────────────────────────────────────────────────
+// Papan di-update lewat koneksi Server-Sent Events ke /api/layar-pantau/stream
+// (lihat file itu untuk arsitektur lengkapnya) — server mendorong papan
+// terbaru begitu ada perubahan di database, BUKAN halaman ini yang menarik
+// data berkala. Kalau koneksi putus (jaringan TV goyang, fungsi serverless
+// di-recycle, dsb), EventSource browser otomatis menyambung ulang sendiri;
+// kita cuma menampilkan status koneksinya di header. Fallback fetch-sekali
+// + polling pelan tetap disediakan untuk browser TV lawas yang tidak
+// mendukung EventSource sama sekali (jarang, tapi mungkin).
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Lock, LogOut, Radio, User } from 'lucide-react'
@@ -20,9 +30,11 @@ import { LiveLeaderboardBoard } from '@/components/leaderboard/LiveLeaderboardBo
 import type { LiveLeaderboardSesi } from '@/lib/leaderboard-live'
 
 const SESSION_KEY = 'layarPantauSession'
-const POLL_MS = 1200
+const FALLBACK_POLL_MS = 3000  // hanya dipakai kalau EventSource tidak didukung sama sekali
 const ROTASI_MS = 12000
 const ROLE_LABEL: Record<string, string> = { GURU: 'Guru', KEPSEK: 'Kepala Sekolah', ADMIN: 'Admin' }
+
+type ConnStatus = 'connecting' | 'live' | 'reconnecting'
 
 interface Session {
   token: string
@@ -107,17 +119,18 @@ function LoginGate({ onLogin }: { onLogin: (s: Session) => void }) {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-brand-950 flex items-center justify-center p-4">
-      <div className="w-full max-w-sm">
+    <div className="relative min-h-screen bg-slate-950 flex items-center justify-center p-4 overflow-hidden">
+      <BackgroundGlow />
+      <div className="relative z-10 w-full max-w-sm">
         <div className="text-center mb-8">
-          <div className="w-16 h-16 rounded-2xl bg-brand-500/20 border border-brand-400/30 flex items-center justify-center mx-auto mb-4">
+          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-brand-400/30 to-accent-400/20 border border-brand-400/30 flex items-center justify-center mx-auto mb-4 shadow-[0_0_40px_rgba(34,211,238,0.15)]">
             <Radio className="w-8 h-8 text-brand-300" />
           </div>
           <h1 className="text-2xl font-bold text-white">Layar Pantau Ujian</h1>
           <p className="text-slate-400 text-sm mt-1">Masuk dengan akun Guru, Kepsek, atau Admin</p>
         </div>
 
-        <form onSubmit={submit} className="bg-white/5 border border-white/10 rounded-2xl p-6 space-y-4 backdrop-blur">
+        <form onSubmit={submit} className="bg-white/[0.06] border border-white/10 rounded-2xl p-6 space-y-4 backdrop-blur-xl shadow-2xl shadow-black/40">
           <div>
             <label className="block text-xs font-medium text-slate-300 mb-1.5">Username</label>
             <input
@@ -143,7 +156,7 @@ function LoginGate({ onLogin }: { onLogin: (s: Session) => void }) {
               {error}
             </p>
           )}
-          <button type="submit" disabled={loading} className="btn-primary w-full justify-center">
+          <button type="submit" disabled={loading} className="btn-primary w-full justify-center bg-gradient-to-r from-brand-500 to-accent-500 hover:from-brand-400 hover:to-accent-400">
             <Lock className="w-4 h-4" />
             {loading ? 'Memeriksa…' : 'Buka Layar Pantau'}
           </button>
@@ -159,39 +172,129 @@ function LoginGate({ onLogin }: { onLogin: (s: Session) => void }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// Beberapa "orb" gradasi blur di latar belakang — sentuhan modern untuk
+// layar TV/proyektor, statis-lambat supaya tidak mengganggu keterbacaan.
+// ─────────────────────────────────────────────────────────────────────────
+function BackgroundGlow() {
+  return (
+    <div className="absolute inset-0 pointer-events-none overflow-hidden">
+      <div className="absolute -top-40 -left-32 w-[36rem] h-[36rem] rounded-full bg-brand-500/20 blur-[120px] animate-[floatSlow_14s_ease-in-out_infinite]" />
+      <div className="absolute -bottom-48 -right-24 w-[40rem] h-[40rem] rounded-full bg-accent-500/15 blur-[130px] animate-[floatSlow_18s_ease-in-out_infinite_reverse]" />
+      <div className="absolute top-1/3 right-1/4 w-72 h-72 rounded-full bg-yellow-400/10 blur-[100px] animate-[floatSlow_20s_ease-in-out_infinite]" />
+      <style jsx global>{`
+        @keyframes floatSlow {
+          0%, 100% { transform: translate(0, 0) scale(1); }
+          50% { transform: translate(30px, -20px) scale(1.08); }
+        }
+      `}</style>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Indikator status koneksi realtime — dot berdenyut + label singkat.
+// ─────────────────────────────────────────────────────────────────────────
+function ConnBadge({ status }: { status: ConnStatus }) {
+  const map: Record<ConnStatus, { dot: string; ring: string; label: string; text: string }> = {
+    live:        { dot: 'bg-accent-400', ring: 'ring-accent-400/40', label: 'LIVE',            text: 'text-accent-300' },
+    connecting:  { dot: 'bg-amber-400',  ring: 'ring-amber-400/40',  label: 'Menyambungkan…',   text: 'text-amber-300' },
+    reconnecting:{ dot: 'bg-danger-400', ring: 'ring-danger-400/40', label: 'Menyambung ulang…',text: 'text-danger-300' },
+  }
+  const s = map[status]
+  return (
+    <div className={`flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide bg-white/5 rounded-full px-3 py-1.5 ${s.text}`}>
+      <span className="relative flex h-2 w-2">
+        <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${s.dot} opacity-75`} />
+        <span className={`relative inline-flex rounded-full h-2 w-2 ${s.dot} ring-2 ${s.ring}`} />
+      </span>
+      {s.label}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // Papan live utama, dengan rotasi antar kelas
 // ─────────────────────────────────────────────────────────────────────────
 function PapanLive({ session, onLogout }: { session: Session; onLogout: () => void }) {
   const [data, setData] = useState<DataResponse | null>(null)
   const [fetchError, setFetchError] = useState('')
+  const [connStatus, setConnStatus] = useState<ConnStatus>('connecting')
   const [pinnedSesiId, setPinnedSesiId] = useState<string | null>(null) // null = rotasi otomatis
   const [activeIndex, setActiveIndex] = useState(0)
   const [clock, setClock] = useState('')
 
-  // ── Ambil data tiap POLL_MS ────────────────────────────────────────────
+  // ── Realtime: dengarkan /api/layar-pantau/stream ────────────────────────
   useEffect(() => {
     let cancelled = false
-    async function ambil() {
+    let es: EventSource | null = null
+    let fallbackId: ReturnType<typeof setInterval> | null = null
+
+    const ambilSekali = async () => {
       try {
         const res = await fetch('/api/layar-pantau/data', {
           headers: { Authorization: `Bearer ${session.token}` },
         })
-        if (res.status === 401 || res.status === 403) {
-          onLogout()
-          return
-        }
+        if (res.status === 401 || res.status === 403) { onLogout(); return }
         const json: DataResponse = await res.json()
-        if (!cancelled) {
-          setData(json)
-          setFetchError(json.error ?? '')
-        }
+        if (!cancelled) { setData(json); setFetchError(json.error ?? '') }
       } catch {
         if (!cancelled) setFetchError('Koneksi terputus, mencoba lagi…')
       }
     }
-    ambil()
-    const id = setInterval(ambil, POLL_MS)
-    return () => { cancelled = true; clearInterval(id) }
+
+    if (typeof EventSource === 'undefined') {
+      // Fallback untuk browser TV lawas yang tidak punya EventSource sama
+      // sekali — jarang terjadi, tapi lebih baik tetap jalan (walau tidak
+      // realtime) daripada layar kosong.
+      setConnStatus('live')
+      ambilSekali()
+      fallbackId = setInterval(ambilSekali, FALLBACK_POLL_MS)
+      return () => { cancelled = true; if (fallbackId) clearInterval(fallbackId) }
+    }
+
+    setConnStatus('connecting')
+    es = new EventSource(`/api/layar-pantau/stream?token=${encodeURIComponent(session.token)}`)
+
+    es.addEventListener('boards', (ev) => {
+      if (cancelled) return
+      try {
+        const json: DataResponse = JSON.parse((ev as MessageEvent).data)
+        setData(json)
+        setFetchError(json.error ?? '')
+        setConnStatus('live')
+      } catch {
+        // Payload tidak valid — abaikan event ini, tunggu event berikutnya.
+      }
+    })
+
+    es.addEventListener('status', (ev) => {
+      if (cancelled) return
+      try {
+        const payload = JSON.parse((ev as MessageEvent).data) as { realtime: string }
+        if (payload.realtime === 'tersambung') setConnStatus('live')
+        else setConnStatus('reconnecting')
+      } catch {}
+    })
+
+    es.addEventListener('error', () => {
+      // Native EventSource 'error' — bisa berarti koneksi putus SAMA SEKALI
+      // (token expired/401 → tidak akan reconnect sendiri) atau cuma
+      // hambatan sementara (browser akan otomatis mencoba lagi). Kita
+      // tidak bisa membedakan status HTTP dari sini, jadi tampilkan sebagai
+      // "menyambung ulang" — kalau memang 401/403, endpoint /data biasa
+      // (dipanggil saat boards event berikutnya gagal) akan men-trigger logout.
+      if (!cancelled) setConnStatus('reconnecting')
+    })
+
+    // Muatan awal instan lewat endpoint biasa juga (double-safety) — kalau
+    // browser lambat membuka EventSource, layar tidak kosong menunggu.
+    ambilSekali()
+
+    return () => {
+      cancelled = true
+      es?.close()
+      if (fallbackId) clearInterval(fallbackId)
+    }
   }, [session.token, onLogout])
 
   // ── Jam dinding (WITA) ──────────────────────────────────────────────────
@@ -230,13 +333,16 @@ function PapanLive({ session, onLogout }: { session: Session; onLogout: () => vo
     : boards[activeIndex]
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 flex flex-col">
+    <div className="relative min-h-screen bg-slate-950 flex flex-col overflow-hidden">
+      <BackgroundGlow />
+
       {/* Header */}
-      <header className="flex items-center justify-between gap-3 px-6 py-4 border-b border-white/10 flex-wrap">
+      <header className="relative z-10 flex items-center justify-between gap-3 px-6 py-4 border-b border-white/10 bg-white/[0.03] backdrop-blur-md flex-wrap">
         <div className="flex items-center gap-2.5">
           <Radio className="w-5 h-5 text-brand-400" />
-          <span className="text-white font-bold text-lg">Layar Pantau Ujian</span>
+          <span className="text-white font-bold text-lg bg-gradient-to-r from-white to-slate-300 bg-clip-text">Layar Pantau Ujian</span>
           <span className="text-slate-500 text-sm hidden sm:inline">{clock} WITA</span>
+          <ConnBadge status={connStatus} />
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
@@ -245,7 +351,7 @@ function PapanLive({ session, onLogout }: { session: Session; onLogout: () => vo
               <button
                 onClick={() => setPinnedSesiId(null)}
                 className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition
-                  ${pinnedSesiId === null ? 'bg-brand-600 text-white' : 'text-slate-300 hover:bg-white/10'}`}
+                  ${pinnedSesiId === null ? 'bg-gradient-to-r from-brand-500 to-accent-500 text-white' : 'text-slate-300 hover:bg-white/10'}`}
               >
                 Rotasi Semua
               </button>
@@ -254,7 +360,7 @@ function PapanLive({ session, onLogout }: { session: Session; onLogout: () => vo
                   key={b.sesiId}
                   onClick={() => setPinnedSesiId(b.sesiId)}
                   className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition
-                    ${pinnedSesiId === b.sesiId ? 'bg-brand-600 text-white' : 'text-slate-300 hover:bg-white/10'}`}
+                    ${pinnedSesiId === b.sesiId ? 'bg-gradient-to-r from-brand-500 to-accent-500 text-white' : 'text-slate-300 hover:bg-white/10'}`}
                 >
                   {b.kelas}
                 </button>
@@ -277,7 +383,7 @@ function PapanLive({ session, onLogout }: { session: Session; onLogout: () => vo
       </header>
 
       {/* Konten */}
-      <main className="flex-1 p-6 overflow-hidden">
+      <main className="relative z-10 flex-1 p-6 overflow-hidden">
         {fetchError && (
           <p className="text-center text-amber-400 text-sm mb-4">{fetchError}</p>
         )}
@@ -293,7 +399,10 @@ function PapanLive({ session, onLogout }: { session: Session; onLogout: () => vo
             <p className="text-slate-500 text-sm">Papan akan otomatis tampil begitu ada sesi ujian yang berjalan.</p>
           </div>
         ) : displayedBoard ? (
-          <div key={displayedBoard.sesiId} className="h-full animate-[fadeIn_0.4s_ease]">
+          <div
+            key={displayedBoard.sesiId}
+            className="h-full rounded-3xl bg-gradient-to-br from-white/[0.07] to-white/[0.02] border border-white/10 backdrop-blur-xl shadow-2xl shadow-black/40 p-6 md:p-8 animate-[fadeIn_0.4s_ease]"
+          >
             <LiveLeaderboardBoard board={displayedBoard} />
           </div>
         ) : null}
