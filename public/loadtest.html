@@ -3232,7 +3232,11 @@ async function mtSyncPartialAnswers(sesiId, siswaList, minFrac, maxFrac) {
       soal_id: s.id,
       jawaban: ['A', 'B', 'C', 'D'][Math.floor(Math.random() * 4)],
     }));
-    return api('POST', '/api/siswa/ujian/sync', { sesiId, jawaban }, siswa.token);
+    // deviceId WAJIB sama persis dengan yang dipakai saat validasi masuk —
+    // endpoint sync menolak (409) kalau device_id di DB sudah terisi tapi
+    // request ini tidak mengirim deviceId yang cocok (lihat komentar di
+    // src/app/api/siswa/ujian/sync/route.ts).
+    return api('POST', '/api/siswa/ujian/sync', { sesiId, jawaban, deviceId: siswa.deviceId }, siswa.token);
   }, { batchSize, delayBetweenBatches });
 }
 
@@ -3337,15 +3341,25 @@ async function mtSetupGroup(runId, idx, soalPerMapel, siswaPerKelas) {
 
   await runBatched(siswaList, async (siswa) => {
     const r = await api('POST', '/api/auth/login', { username: siswa.nis, password: siswa.password });
-    if (r.ok && r.data?.token) siswa.token = r.data.token;
+    if (r.ok && r.data?.token) {
+      siswa.token = r.data.token;
+      // WAJIB: /api/siswa/ujian/validasi menolak pendaftaran pertama kali
+      // (siswa_ujian belum ada) kalau deviceId tidak dikirim / < 8 karakter
+      // (proteksi anti-multi-device) — lihat komentar "deviceIdValid" di
+      // src/app/api/siswa/ujian/validasi/route.ts. Tanpa ini, validasi SELALU
+      // gagal diam-diam dan papan Layar Pantau permanen menampilkan 0 siswa.
+      // NIS sudah cukup panjang & unik, jadi dipakai langsung sebagai basis.
+      siswa.deviceId = `${siswa.nis}_dev`;
+    }
     return r;
   }, { batchSize, delayBetweenBatches });
 
   const loggedIn = siswaList.filter(s => s.token);
   mtSetStatus(`Kelompok ${idx}: memvalidasi ${loggedIn.length} siswa masuk ke ujian…`);
   await runBatched(loggedIn, async (siswa) => {
-    const r = await api('POST', '/api/siswa/ujian/validasi', { kodeSesi, nis: siswa.nis }, siswa.token);
+    const r = await api('POST', '/api/siswa/ujian/validasi', { kodeSesi, nis: siswa.nis, deviceId: siswa.deviceId }, siswa.token);
     if (r.ok && r.data?.valid) siswa.soalList = r.data.soalList || [];
+    else recordBug(`[Layar Pantau] Validasi masuk ujian gagal untuk ${siswa.nis} (kelompok ${idx})`, JSON.stringify(r.data), 'POST /api/siswa/ujian/validasi');
     return r;
   }, { batchSize, delayBetweenBatches });
 
