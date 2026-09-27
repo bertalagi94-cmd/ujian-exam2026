@@ -99,10 +99,40 @@ export default function LoginPage() {
   const router = useRouter()
   const pathname = usePathname()
   // ── Welcome splash "EXAMFLOW" ─────────────────────────────────────────
-  // Tampil sekali di atas segalanya saat halaman login pertama kali
-  // dibuka, lalu memudar sendiri (lihat WelcomeSplash.tsx) sebelum form
-  // login di baliknya mulai berinteraksi dengan pengguna.
-  const [showSplash, setShowSplash] = useState(true)
+  // Tampil sekali di atas segalanya saat aplikasi PERTAMA KALI dijalankan
+  // (tab/browser baru dibuka), lalu memudar sendiri (lihat WelcomeSplash.tsx)
+  // sebelum form login di baliknya mulai berinteraksi dengan pengguna.
+  //
+  // FIX: sebelumnya state ini di-init `useState(true)` tanpa syarat, jadi
+  // splash ikut tampil lagi setiap kali komponen LoginPage di-mount ulang —
+  // termasuk saat Sidebar.logout() melakukan router.push('/login'). React
+  // tidak membedakan "app baru dibuka" vs "kembali ke /login setelah
+  // logout": keduanya sama-sama mounting instance baru dari halaman ini.
+  // Supaya splash betul-betul hanya tampil sekali per sesi browser (bukan
+  // setiap kunjungan ke /login), tandai di sessionStorage begitu splash
+  // pernah tampil. sessionStorage dipilih (bukan localStorage) supaya
+  // splash tetap muncul lagi kalau tab/browser ditutup lalu dibuka ulang —
+  // itu baru dianggap "menjalankan aplikasi dari awal" yang sesungguhnya.
+  const SPLASH_SEEN_KEY = 'examflow_splash_shown'
+  const [showSplash, setShowSplash] = useState(() => {
+    if (typeof window === 'undefined') return false
+    try {
+      return sessionStorage.getItem(SPLASH_SEEN_KEY) !== '1'
+    } catch {
+      // Kalau sessionStorage tidak bisa diakses (mis. mode private ketat),
+      // fallback aman: anggap belum pernah tampil.
+      return true
+    }
+  })
+  const handleSplashFinish = useCallback(() => {
+    try {
+      sessionStorage.setItem(SPLASH_SEEN_KEY, '1')
+    } catch {
+      // abaikan — kalau gagal ditulis, splash mungkin muncul lagi di
+      // kunjungan berikutnya, tapi tidak fatal.
+    }
+    setShowSplash(false)
+  }, [])
   const [form, setForm] = useState({ username: '', password: '' })
   const [showPw, setShowPw] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -578,7 +608,7 @@ export default function LoginPage() {
       className="min-h-screen flex relative overflow-hidden"
       onMouseMove={handleMouseMove}
     >
-      {showSplash && <WelcomeSplash onFinish={() => setShowSplash(false)} />}
+      {showSplash && <WelcomeSplash onFinish={handleSplashFinish} />}
 
       {/* ── Background foto siswa full 1 layar — di belakang SEMUA elemen.
           `fixed inset-0` supaya tetap penuh & tidak ikut scroll, termasuk
