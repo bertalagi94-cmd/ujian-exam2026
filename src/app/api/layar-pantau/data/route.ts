@@ -48,6 +48,25 @@ function viewerInfo(user: { nama: string; role: string }) {
 // ── Sesi mana yang boleh dilihat viewer ini + hitung papan live-nya ────────
 type ViewerUser = Pick<JWTPayload, 'role' | 'username'>
 
+// FITUR (pesan "UJIAN SELESAI" + hitung mundur di Layar Pantau, diminta
+// user): sebelumnya query di sini HANYA mengambil sesi status BERJALAN —
+// begitu pengawas menutup sesi (status → SELESAI), papan kelas itu langsung
+// tidak ikut terambil sama sekali, sehingga lenyap dari layar TANPA pesan
+// apa pun (lihat riwayat diskusi). Sekarang sesi yang BARU SAJA ditutup
+// (waktu_selesai masih dalam JENDELA_TAMPIL_SETELAH_TUTUP_MS terakhir) tetap
+// ikut diambil, supaya frontend (LiveLeaderboardBoard) bisa menampilkan
+// overlay "UJIAN SELESAI" + hitung mundur 30 detik sebelum menyembunyikannya
+// SENDIRI (client-side). Jendela di sini SENGAJA dibuat lebih longgar
+// (40 detik) daripada hitung mundur yang dilihat user (30 detik) — cuma
+// buffer keamanan supaya sesi tidak "kepotong" query sebelum hitung mundur
+// client selesai (mis. kalau ada jeda jaringan/refresh sesaat).
+const JENDELA_TAMPIL_SETELAH_TUTUP_MS = 40_000
+
+function buildStatusFilter(): string {
+  const cutoffIso = new Date(Date.now() - JENDELA_TAMPIL_SETELAH_TUTUP_MS).toISOString()
+  return `status.eq.BERJALAN,and(status.eq.SELESAI,waktu_selesai.gte.${cutoffIso})`
+}
+
 async function ambilBoardsUntukViewer(
   db: SupabaseClient<any>,
   user: ViewerUser
@@ -55,7 +74,11 @@ async function ambilBoardsUntukViewer(
   let sesiRows: {
     id: string; jadwal_id: string; mapel_id: string; kelas: string
     durasi: number | null; waktu_mulai: string; paket_soal_id: string | null; status: string
+    waktu_selesai: string | null
   }[] = []
+
+  const statusFilter = buildStatusFilter()
+  const kolomSesi = 'id, jadwal_id, mapel_id, kelas, durasi, waktu_mulai, paket_soal_id, status, waktu_selesai'
 
   if (user.role === 'GURU') {
     const { data: jadwalSaya, error: errJadwal } = await db
@@ -69,9 +92,9 @@ async function ambilBoardsUntukViewer(
 
     const { data, error } = await db
       .from('sesi_ujian')
-      .select('id, jadwal_id, mapel_id, kelas, durasi, waktu_mulai, paket_soal_id, status')
+      .select(kolomSesi)
       .in('jadwal_id', jadwalIds)
-      .eq('status', 'BERJALAN')
+      .or(statusFilter)
     if (error) throw new Error(error.message)
     sesiRows = data ?? []
   } else if (user.role === 'KEPSEK') {
@@ -84,16 +107,16 @@ async function ambilBoardsUntukViewer(
     }
     const { data, error } = await db
       .from('sesi_ujian')
-      .select('id, jadwal_id, mapel_id, kelas, durasi, waktu_mulai, paket_soal_id, status')
+      .select(kolomSesi)
       .in('kelas', scope.kelasList)
-      .eq('status', 'BERJALAN')
+      .or(statusFilter)
     if (error) throw new Error(error.message)
     sesiRows = data ?? []
   } else {
     const { data, error } = await db
       .from('sesi_ujian')
-      .select('id, jadwal_id, mapel_id, kelas, durasi, waktu_mulai, paket_soal_id, status')
-      .eq('status', 'BERJALAN')
+      .select(kolomSesi)
+      .or(statusFilter)
     if (error) throw new Error(error.message)
     sesiRows = data ?? []
   }
@@ -108,7 +131,14 @@ async function ambilBoardsUntukViewer(
     sesiRows.map(s => computeLiveLeaderboardUntukSesi(db, s, namaMapelMap))
   )).filter((b): b is LiveLeaderboardSesi => b !== null)
 
-  boards.sort((a, b) => a.kelas.localeCompare(b.kelas) || a.namaMapel.localeCompare(b.namaMapel))
+  // Sesi yang masih BERJALAN didahulukan; sesi yang baru ditutup (tampil
+  // sementara untuk pesan "UJIAN SELESAI") digeser ke belakang supaya tidak
+  // mengganggu urutan kelas yang masih aktif dipantau.
+  boards.sort((a, b) =>
+    (a.statusSesi === 'SELESAI' ? 1 : 0) - (b.statusSesi === 'SELESAI' ? 1 : 0) ||
+    a.kelas.localeCompare(b.kelas) ||
+    a.namaMapel.localeCompare(b.namaMapel)
+  )
 
   return { boards }
 }
