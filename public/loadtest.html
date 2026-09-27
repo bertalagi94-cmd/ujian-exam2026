@@ -407,6 +407,85 @@
     </div>
   </div>
 
+  <!-- ============ UJI LAYAR PANTAU (MONITOR TEST) ============ -->
+  <div class="panel">
+    <h2>🖥️ Uji Layar Pantau (Monitor Test)</h2>
+    <p class="sub" style="margin-bottom:12px">
+      Mode terpisah dari pengujian beban di atas — tidak perlu jalan bersamaan.
+      Alat ini membuat kelas ujian testing sungguhan, membuka sesinya (status <code>BERJALAN</code>),
+      lalu SENGAJA MEMBIARKANNYA TERBUKA (tidak pernah submit/selesai otomatis) supaya bisa Anda tonton
+      hidup di halaman <code>/layar-pantau</code>. Punya Run ID &amp; Cleanup sendiri, terpisah dari Run ID
+      pengujian beban di atas.
+    </p>
+    <div class="row">
+      <div class="field">
+        <label>Jumlah kelas/mapel ujian serentak</label>
+        <input id="mt-num-kelas" type="number" value="2" min="1" max="20" />
+      </div>
+      <div class="field">
+        <label>Siswa per kelas</label>
+        <input id="mt-siswa-per-kelas" type="number" value="15" min="1" max="300" />
+      </div>
+      <div class="field">
+        <label>Soal per mapel</label>
+        <input id="mt-soal-per-mapel" type="number" value="10" min="1" max="200" />
+      </div>
+      <div class="field">
+        <label>Update jawaban otomatis (agar papan bergerak)</label>
+        <select id="mt-update-interval">
+          <option value="0">Mati</option>
+          <option value="5">Tiap 5 detik</option>
+          <option value="8" selected>Tiap 8 detik</option>
+          <option value="15">Tiap 15 detik</option>
+        </select>
+      </div>
+    </div>
+    <div class="row" style="margin-top:14px">
+      <button class="btn-primary" id="btn-mt-start">▶ Mulai Uji Layar Pantau</button>
+      <button class="btn-ghost" id="btn-mt-stop-update" disabled>⏸ Hentikan Update Otomatis</button>
+    </div>
+    <p class="sub" id="mt-status" style="margin-top:12px"></p>
+
+    <div id="mt-panel-running" style="display:none;margin-top:10px">
+      <p style="font-size:12.5px;margin:0 0 8px">
+        Run ID monitor test: <code id="mt-run-id-preview">-</code> — buka halaman
+        <code>/layar-pantau</code> di TV/tab lain, login dengan akun admin/guru/kepsek, lalu pin/rotasi
+        ke kelas-kelas di bawah ini:
+      </p>
+      <table id="mt-groups-table">
+        <thead><tr><th>Kelompok</th><th>Nama Kelas</th><th>Guru Pengawas</th><th>Kode Sesi</th><th class="num">Siswa Login</th></tr></thead>
+        <tbody id="mt-groups-tbody"></tbody>
+      </table>
+    </div>
+
+    <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border)">
+      <h2 style="margin-bottom:10px">🧹 Cleanup Uji Layar Pantau</h2>
+      <p class="sub" style="margin-bottom:12px">
+        Menutup semua sesi secara RESMI lewat endpoint penutupan sesi pengawas (nilai siswa testing ikut
+        difinalisasi, bukan dihapus paksa), baru menghapus kelas/guru/soal testing terkait. Field di bawah
+        tetap bisa diisi manual kalau Anda me-reload halaman ini sebelum sempat cleanup.
+      </p>
+      <div class="row">
+        <div class="field">
+          <label>Run ID monitor test</label>
+          <input id="mt-cleanup-run-id" placeholder="contoh: LPTEST_1750500000000" />
+        </div>
+        <div class="field">
+          <label>Jumlah kelas yang dibuat</label>
+          <input id="mt-cleanup-num-kelas" type="number" min="1" max="20" value="2" />
+        </div>
+        <button class="btn-ghost" id="btn-mt-preview-cleanup">🔍 Lihat Apa Yang Akan Dihapus</button>
+      </div>
+      <div id="mt-cleanup-summary" class="panel" style="background:var(--panel-2); margin-top:14px; display:none;">
+        <div id="mt-cleanup-summary-body"></div>
+        <div class="row" style="margin-top:14px">
+          <button class="btn-danger" id="btn-mt-confirm-cleanup">🗑 Ya, Tutup &amp; Hapus Sekarang</button>
+          <button class="btn-ghost" id="btn-mt-cancel-cleanup">Batal</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <p class="sub" style="text-align:center; margin-top:30px">
     Dibuat untuk pengujian internal sebelum rilis ke sekolah. Jalankan di jam sepi dan pantau dashboard Supabase Anda selama proses berjalan.
   </p>
@@ -3087,6 +3166,387 @@ function handleDownloadPdf() {
   }, 50);
 }
 
+// =====================================================================
+// UJI LAYAR PANTAU (MONITOR TEST)
+// Mode terpisah dari pengujian beban di atas: membuat N kelas ujian
+// testing, membuka sesinya (status BERJALAN), lalu SENGAJA TIDAK PERNAH
+// memanggil /api/siswa/ujian/selesai — supaya sesi tetap BERJALAN dan
+// tampil hidup di /layar-pantau (yang hanya membaca sesi berstatus
+// BERJALAN). Dipisah dari `state`/runId pengujian beban di atas supaya
+// keduanya bisa dipakai independen tanpa saling menimpa.
+// =====================================================================
+const monitorTest = {
+  running: false,
+  runId: null,
+  groups: [], // { idx, kelasNama, guruUsername, guruToken, mapelId, mapelNama, kelasId, paketId, jadwalId, sesiId, kodeSesi, siswaList }
+  updateIntervalId: null,
+  stopRequested: false,
+};
+
+async function mtEnsureAdmin() {
+  const baseUrl = document.getElementById('cfg-baseurl').value.trim();
+  const adminUser = document.getElementById('cfg-admin-user').value.trim();
+  const adminPass = document.getElementById('cfg-admin-pass').value;
+  if (!baseUrl.startsWith('http')) throw new Error('URL aplikasi tidak valid (lihat panel Konfigurasi di atas).');
+  if (!state.adminToken || state.baseUrl !== baseUrl) {
+    state.baseUrl = baseUrl;
+    const loginRes = await api('POST', '/api/auth/login', { username: adminUser, password: adminPass });
+    if (!loginRes.ok || !loginRes.data?.token || loginRes.data.role !== 'ADMIN') {
+      throw new Error('Gagal login sebagai admin. Periksa Username/Password Admin di panel Konfigurasi.');
+    }
+    state.adminToken = loginRes.data.token;
+  }
+  return state.adminToken;
+}
+
+function mtSetStatus(text) {
+  const el = document.getElementById('mt-status');
+  if (el) el.textContent = text;
+}
+
+function mtRenderGroups() {
+  const tbody = document.getElementById('mt-groups-tbody');
+  if (!tbody) return;
+  tbody.innerHTML = monitorTest.groups.map(g => `
+    <tr>
+      <td class="num">${g.idx}</td>
+      <td>${escapeHtml(g.kelasNama)}</td>
+      <td>${escapeHtml(g.guruUsername)}</td>
+      <td><code>${escapeHtml(g.kodeSesi || '-')}</code></td>
+      <td class="num">${g.siswaList.filter(s => s.token).length}/${g.siswaList.length}</td>
+    </tr>
+  `).join('');
+}
+
+// Sync sebagian jawaban acak untuk sekumpulan siswa yang sudah masuk ujian
+// (punya s.soalList) — dipakai baik saat setup awal (supaya papan tidak
+// mulai dari nol) maupun oleh auto-update berkala (supaya papan terlihat
+// bergerak/hidup selama ditonton).
+async function mtSyncPartialAnswers(sesiId, siswaList, minFrac, maxFrac) {
+  const { batchSize, delayBetweenBatches } = getSpeedConfig();
+  const target = siswaList.filter(s => s.token && s.soalList && s.soalList.length);
+  await runBatched(target, async (siswa) => {
+    const frac = minFrac + Math.random() * (maxFrac - minFrac);
+    const n = Math.max(1, Math.floor(siswa.soalList.length * frac));
+    const jawaban = siswa.soalList.slice(0, n).map(s => ({
+      soal_id: s.id,
+      jawaban: ['A', 'B', 'C', 'D'][Math.floor(Math.random() * 4)],
+    }));
+    return api('POST', '/api/siswa/ujian/sync', { sesiId, jawaban }, siswa.token);
+  }, { batchSize, delayBetweenBatches });
+}
+
+// Bangun satu "kelompok" lengkap: guru + kelas + mapel + paket soal + soal
+// + jadwal + buka sesi (mode-pengawas) + siswa peserta login + masuk ujian
+// + jawab sebagian soal. Sengaja TIDAK memanggil /api/siswa/ujian/selesai.
+async function mtSetupGroup(runId, idx, soalPerMapel, siswaPerKelas) {
+  const { batchSize, delayBetweenBatches } = getSpeedConfig();
+  const kelasNama = `${runId}_KLS${idx}`;
+  const guruUsername = `${runId}_guru${idx}`;
+  const mapelNama = `LPTEST ${runId} M${idx}`;
+
+  mtSetStatus(`Kelompok ${idx}: membuat akun guru testing…`);
+  const guruRes = await api('POST', '/api/admin/users', {
+    username: guruUsername, nama: `GURU LPTEST ${idx}`, role: 'GURU',
+    password: 'LoadTest123!', status: 'AKTIF',
+  }, state.adminToken);
+  if (!guruRes.ok) throw new Error(`Kelompok ${idx}: gagal membuat guru testing — ${JSON.stringify(guruRes.data)}`);
+
+  const guruLogin = await api('POST', '/api/auth/login', { username: guruUsername, password: 'LoadTest123!' });
+  if (!guruLogin.ok) throw new Error(`Kelompok ${idx}: guru testing dibuat tapi gagal login.`);
+  const guruToken = guruLogin.data.token;
+
+  // Siswa pemicu supaya baris `kelas` tercipta & kelas_id asli bisa diambil
+  // (pola sama seperti fase setup pengujian beban di atas — lihat komentar
+  // di phaseSetup soal alasan langkah ini).
+  mtSetStatus(`Kelompok ${idx}: menyiapkan baris kelas di database…`);
+  const seedRes = await api('POST', '/api/admin/siswa', {
+    nis: `${runId}_SEED${idx}`, nama: `SEED LPTEST ${idx}`, kelas: kelasNama,
+    jenis_kelamin: 'L', status: 'AKTIF',
+  }, state.adminToken);
+  if (!seedRes.ok) throw new Error(`Kelompok ${idx}: gagal membuat siswa pemicu kelas — ${JSON.stringify(seedRes.data)}`);
+  const kelasListRes = await api('GET', '/api/admin/kelas', undefined, state.adminToken);
+  const kelasRow = (kelasListRes.data?.data ?? []).find(k => k.nama === kelasNama);
+  const kelasId = kelasRow?.id || kelasNama;
+
+  mtSetStatus(`Kelompok ${idx}: membuat mata pelajaran testing…`);
+  const mapelRes = await api('POST', '/api/admin/mapel', {
+    nama: mapelNama, guru_id: guruUsername, kelas_list: kelasNama, jumlah_opsi: 4, kkm: 75,
+  }, state.adminToken);
+  if (!mapelRes.ok) throw new Error(`Kelompok ${idx}: gagal membuat mapel testing — ${JSON.stringify(mapelRes.data)}`);
+  const mapelListRes = await api('GET', '/api/admin/mapel', undefined, state.adminToken);
+  const mapelRow = (mapelListRes.data?.data ?? []).find(m => m.nama === mapelNama.toUpperCase() && m.guru_id === guruUsername);
+  if (!mapelRow) throw new Error(`Kelompok ${idx}: mapel testing tidak ditemukan setelah dibuat.`);
+  const mapelId = mapelRow.id;
+
+  mtSetStatus(`Kelompok ${idx}: membuat paket & ${soalPerMapel} soal…`);
+  const paketRes = await api('POST', '/api/guru/paket', { mapel_id: mapelId, kelas_id: kelasId, acak: 'YA' }, guruToken);
+  if (!paketRes.ok) throw new Error(`Kelompok ${idx}: gagal membuat paket soal — ${JSON.stringify(paketRes.data)}`);
+  const listPaket = await api('GET', '/api/guru/paket', undefined, guruToken);
+  const myPaket = listPaket.data?.data?.find(p => p.mapel_id === mapelId && p.kelas_id === kelasId);
+  if (!myPaket) throw new Error(`Kelompok ${idx}: paket soal tidak ditemukan setelah dibuat.`);
+  const paketId = myPaket.id;
+
+  const soalIndices = Array.from({ length: soalPerMapel }, (_, i) => i + 1);
+  await runBatched(soalIndices, async (i) => {
+    const opts = ['A', 'B', 'C', 'D'];
+    const benar = opts[i % 4];
+    return api('POST', '/api/guru/soal', {
+      mapel_id: mapelId, kelas_id: kelasId, paket_id: paketId,
+      teks: `[LPTEST] Soal ${idx}.${i} — berapakah hasil dari ${i} + ${i}?`,
+      opsi_a: `${i * 2 - 1}`, opsi_b: `${i * 2}`, opsi_c: `${i * 2 + 1}`, opsi_d: `${i * 2 + 2}`,
+      kunci: benar, tingkat: 'Sedang', jumlah_opsi: 4, acak: 'YA', status: 'DRAFT',
+    }, guruToken);
+  }, { batchSize, delayBetweenBatches });
+
+  mtSetStatus(`Kelompok ${idx}: mengirim & menyetujui paket soal…`);
+  const kirimRes = await api('POST', `/api/guru/paket/${paketId}/kirim`, {}, guruToken);
+  if (!kirimRes.ok) throw new Error(`Kelompok ${idx}: gagal mengirim paket untuk validasi.`);
+  const approveRes = await api('POST', '/api/admin/soal', { paket_id: paketId, action: 'SETUJUI' }, state.adminToken);
+  if (!approveRes.ok) throw new Error(`Kelompok ${idx}: gagal menyetujui paket soal.`);
+
+  mtSetStatus(`Kelompok ${idx}: membuat jadwal & membuka sesi ujian…`);
+  const today = new Date().toISOString().slice(0, 10);
+  const jadwalRes = await api('POST', '/api/admin/jadwal', {
+    tanggal: today, sesi: idx, jam_mulai: '00:00', jam_selesai: '23:59',
+    mapel_id: mapelId, kelas: kelasNama, pengawas: guruUsername, durasi: 90,
+  }, state.adminToken);
+  if (!jadwalRes.ok) throw new Error(`Kelompok ${idx}: gagal membuat jadwal — ${JSON.stringify(jadwalRes.data)}`);
+  const jadwalList = await api('GET', `/api/admin/jadwal?kelas=${encodeURIComponent(kelasNama)}`, undefined, state.adminToken);
+  const myJadwal = jadwalList.data?.data?.find(j => j.mapel_id === mapelId && j.kelas === kelasNama);
+  if (!myJadwal) throw new Error(`Kelompok ${idx}: jadwal tidak ditemukan setelah dibuat.`);
+  const jadwalId = myJadwal.id;
+
+  const sesiRes = await api('POST', '/api/guru/mode-pengawas', { jadwalId }, guruToken);
+  if (!sesiRes.ok) throw new Error(`Kelompok ${idx}: gagal membuka sesi ujian — ${JSON.stringify(sesiRes.data)}`);
+  const sesiId = sesiRes.data.sesiId;
+  const kodeSesi = sesiRes.data.kodeSesi;
+
+  mtSetStatus(`Kelompok ${idx}: membuat & melogin ${siswaPerKelas} siswa peserta…`);
+  const siswaList = [];
+  const siswaIndices = Array.from({ length: siswaPerKelas }, (_, i) => i + 1);
+  await runBatched(siswaIndices, async (i) => {
+    const nis = `${runId}_${idx}_${String(i).padStart(4, '0')}`;
+    const r = await api('POST', '/api/admin/siswa', {
+      nis, nama: `SISWA LPTEST ${idx}-${i}`, kelas: kelasNama,
+      jenis_kelamin: i % 2 === 0 ? 'LAKI-LAKI' : 'PEREMPUAN',
+    }, state.adminToken);
+    if (r.ok) siswaList.push({ nis, password: nis });
+    return r;
+  }, { batchSize, delayBetweenBatches });
+
+  await runBatched(siswaList, async (siswa) => {
+    const r = await api('POST', '/api/auth/login', { username: siswa.nis, password: siswa.password });
+    if (r.ok && r.data?.token) siswa.token = r.data.token;
+    return r;
+  }, { batchSize, delayBetweenBatches });
+
+  const loggedIn = siswaList.filter(s => s.token);
+  mtSetStatus(`Kelompok ${idx}: memvalidasi ${loggedIn.length} siswa masuk ke ujian…`);
+  await runBatched(loggedIn, async (siswa) => {
+    const r = await api('POST', '/api/siswa/ujian/validasi', { kodeSesi, nis: siswa.nis }, siswa.token);
+    if (r.ok && r.data?.valid) siswa.soalList = r.data.soalList || [];
+    return r;
+  }, { batchSize, delayBetweenBatches });
+
+  mtSetStatus(`Kelompok ${idx}: mensimulasikan jawaban awal…`);
+  await mtSyncPartialAnswers(sesiId, loggedIn, 0.3, 0.7);
+
+  return { idx, kelasNama, guruUsername, guruToken, mapelId, mapelNama, kelasId, paketId, jadwalId, sesiId, kodeSesi, siswaList };
+}
+
+function mtStartAutoUpdate(intervalSec) {
+  mtStopAutoUpdate();
+  monitorTest.updateIntervalId = setInterval(async () => {
+    if (!monitorTest.running || monitorTest.stopRequested) return;
+    for (const group of monitorTest.groups) {
+      const loggedIn = group.siswaList.filter(s => s.token && s.soalList && s.soalList.length);
+      if (!loggedIn.length) continue;
+      await mtSyncPartialAnswers(group.sesiId, loggedIn, 0.4, 1.0);
+    }
+    log(`🖥️ [Layar Pantau] Update jawaban otomatis dijalankan (${monitorTest.groups.length} kelas).`, 'info');
+  }, intervalSec * 1000);
+  const btn = document.getElementById('btn-mt-stop-update');
+  if (btn) btn.disabled = false;
+}
+
+function mtStopAutoUpdate() {
+  if (monitorTest.updateIntervalId) {
+    clearInterval(monitorTest.updateIntervalId);
+    monitorTest.updateIntervalId = null;
+  }
+  const btn = document.getElementById('btn-mt-stop-update');
+  if (btn) btn.disabled = true;
+}
+
+async function runMonitorTest() {
+  if (monitorTest.running) { alert('Uji Layar Pantau sudah berjalan. Hentikan/cleanup dulu sebelum memulai lagi.'); return; }
+
+  const numKelas = Math.max(1, Math.min(20, parseInt(document.getElementById('mt-num-kelas').value) || 2));
+  const siswaPerKelas = Math.max(1, Math.min(300, parseInt(document.getElementById('mt-siswa-per-kelas').value) || 15));
+  const soalPerMapel = Math.max(1, Math.min(200, parseInt(document.getElementById('mt-soal-per-mapel').value) || 10));
+  const intervalSec = parseInt(document.getElementById('mt-update-interval').value) || 0;
+
+  document.getElementById('btn-mt-start').disabled = true;
+  mtSetStatus('Memulai…');
+
+  try {
+    await mtEnsureAdmin();
+
+    monitorTest.runId = `LPTEST_${Date.now()}`;
+    monitorTest.groups = [];
+    monitorTest.stopRequested = false;
+    document.getElementById('mt-run-id-preview').textContent = monitorTest.runId;
+    document.getElementById('mt-cleanup-run-id').value = monitorTest.runId;
+    document.getElementById('mt-cleanup-num-kelas').value = numKelas;
+    document.getElementById('mt-panel-running').style.display = 'block';
+
+    log(`🖥️ [Layar Pantau] Mulai membuat ${numKelas} kelas ujian testing (${siswaPerKelas} siswa/kelas, ${soalPerMapel} soal/mapel). Run ID: ${monitorTest.runId}`, 'info');
+
+    for (let idx = 1; idx <= numKelas; idx++) {
+      if (monitorTest.stopRequested) break;
+      const group = await mtSetupGroup(monitorTest.runId, idx, soalPerMapel, siswaPerKelas);
+      monitorTest.groups.push(group);
+      mtRenderGroups();
+      log(`🖥️ Kelompok ${idx}: kelas "${group.kelasNama}" — sesi BERJALAN dibuka, kode ${group.kodeSesi}, ${group.siswaList.filter(s => s.token).length}/${siswaPerKelas} siswa login & sudah menjawab sebagian.`, 'ok');
+    }
+
+    monitorTest.running = true;
+    if (intervalSec > 0) mtStartAutoUpdate(intervalSec);
+
+    mtSetStatus(`Selesai. ${monitorTest.groups.length} sesi sedang BERJALAN dan akan TETAP tampil di /layar-pantau sampai Anda menutupnya lewat Cleanup Uji Layar Pantau di bawah.`);
+    log('🖥️ Semua sesi uji sengaja TIDAK di-submit/selesai — akan tetap muncul di /layar-pantau sampai dihentikan lewat Cleanup Uji Layar Pantau.', 'ok');
+  } catch (e) {
+    log(`🖥️ Uji Layar Pantau gagal: ${e.message}`, 'err');
+    mtSetStatus(`Gagal: ${e.message}`);
+  } finally {
+    document.getElementById('btn-mt-start').disabled = false;
+  }
+}
+
+// Cari sesi BERJALAN milik guru testing untuk kelas tertentu — dipakai saat
+// cleanup dijalankan SETELAH halaman ini di-reload (state monitorTest.groups
+// sudah kosong lagi, jadi sesiId tidak diketahui dari memori).
+async function mtFindSesiIdFallback(guruToken, kelasNama) {
+  const r = await api('GET', '/api/guru/jadwal-pengawasan', undefined, guruToken);
+  const entry = (r.data?.data || []).find(j => j.kelas === kelasNama && j.sesi_ujian?.status === 'BERJALAN');
+  return entry?.sesi_ujian?.id || null;
+}
+
+async function mtPreviewCleanup() {
+  const runId = document.getElementById('mt-cleanup-run-id').value.trim();
+  const numKelas = parseInt(document.getElementById('mt-cleanup-num-kelas').value) || 0;
+  if (!runId || !numKelas) { alert('Isi Run ID dan jumlah kelas terlebih dahulu.'); return; }
+
+  try {
+    await mtEnsureAdmin();
+  } catch (e) {
+    alert(e.message);
+    return;
+  }
+
+  let rows = '';
+  for (let idx = 1; idx <= numKelas; idx++) {
+    const kelasNama = `${runId}_KLS${idx}`;
+    const guruUsername = `${runId}_guru${idx}`;
+    const siswaRes = await api('GET', `/api/admin/siswa?per_page=1&kelas=${encodeURIComponent(kelasNama)}`, undefined, state.adminToken);
+    const jumlahSiswa = siswaRes.data?.total ?? 'tidak diketahui';
+    rows += `<tr><td>Kelompok ${idx}</td><td class="num">${escapeHtml(kelasNama)} (${jumlahSiswa} siswa) — guru ${escapeHtml(guruUsername)}</td></tr>`;
+  }
+
+  document.getElementById('mt-cleanup-summary-body').innerHTML = `
+    <p style="margin:0 0 10px;font-size:13px">Yang akan ditutup &amp; dihapus untuk Run ID <code>${escapeHtml(runId)}</code> (${numKelas} kelompok):</p>
+    <table>${rows}</table>
+    <p style="margin:12px 0 0;font-size:11.5px;color:var(--muted)">
+      Tiap sesi ditutup lewat endpoint penutupan sesi resmi milik pengawas (nilai testing ikut difinalisasi otomatis), baru kelas/guru/paket soalnya dihapus. Sama seperti Cleanup pengujian beban di atas, baris riwayat nilai/jawaban siswa testing yang sudah terhapus akunnya akan menjadi data yatim yang tidak tampil di manapun.
+    </p>
+  `;
+  document.getElementById('mt-cleanup-summary').style.display = 'block';
+}
+
+async function mtConfirmCleanup() {
+  const runId = document.getElementById('mt-cleanup-run-id').value.trim();
+  const numKelas = parseInt(document.getElementById('mt-cleanup-num-kelas').value) || 0;
+  if (!runId || !numKelas) { alert('Isi Run ID dan jumlah kelas terlebih dahulu.'); return; }
+
+  mtStopAutoUpdate();
+  monitorTest.running = false;
+  monitorTest.stopRequested = true;
+
+  document.getElementById('btn-mt-confirm-cleanup').disabled = true;
+  document.getElementById('btn-mt-confirm-cleanup').textContent = 'Menghapus…';
+
+  try {
+    await mtEnsureAdmin();
+
+    for (let idx = 1; idx <= numKelas; idx++) {
+      const kelasNama = `${runId}_KLS${idx}`;
+      const guruUsername = `${runId}_guru${idx}`;
+      const group = monitorTest.groups.find(g => g.idx === idx);
+
+      let guruToken = group?.guruToken;
+      if (!guruToken) {
+        const gl = await api('POST', '/api/auth/login', { username: guruUsername, password: 'LoadTest123!' });
+        if (gl.ok) guruToken = gl.data.token;
+      }
+
+      if (guruToken) {
+        // 1. Tutup sesi secara RESMI (bukan dihapus paksa) supaya nilai testing difinalisasi rapi
+        let sesiId = group?.sesiId || await mtFindSesiIdFallback(guruToken, kelasNama);
+        if (sesiId) {
+          const tutupRes = await api('POST', '/api/guru/mode-pengawas/tutup', { sesiId }, guruToken);
+          if (tutupRes.ok) log(`🖥️ Kelompok ${idx}: sesi ditutup resmi & nilai difinalisasi`, 'ok');
+          else log(`🖥️ Kelompok ${idx}: sesi gagal ditutup resmi (mungkin sudah SELESAI sebelumnya) — ${JSON.stringify(tutupRes.data)}`, 'warn');
+        } else {
+          log(`🖥️ Kelompok ${idx}: tidak ditemukan sesi BERJALAN untuk ditutup (mungkin sudah ditutup sebelumnya).`, 'info');
+        }
+
+        // 2. Hapus paket soal milik guru testing ini
+        const myPaketRes = await api('GET', '/api/guru/paket', undefined, guruToken);
+        for (const paket of (myPaketRes.data?.data || [])) {
+          if (paket.status === 'DISETUJUI') {
+            await api('POST', '/api/admin/soal', { paket_id: paket.id, action: 'BATAL_SETUJUI' }, state.adminToken);
+          }
+          const delRes = await api('DELETE', `/api/guru/paket/${paket.id}`, undefined, guruToken);
+          if (delRes.ok) log(`🖥️ Kelompok ${idx}: paket soal ${paket.id} dihapus`, 'ok');
+          else log(`🖥️ Kelompok ${idx}: gagal menghapus paket ${paket.id} — ${JSON.stringify(delRes.data)}`, 'warn');
+        }
+      }
+
+      // 3. Hapus jadwal testing
+      const jadwalRes = await api('GET', `/api/admin/jadwal?kelas=${encodeURIComponent(kelasNama)}`, undefined, state.adminToken);
+      for (const j of (jadwalRes.data?.data || [])) {
+        const delJ = await api('DELETE', '/api/admin/jadwal', { id: j.id }, state.adminToken);
+        if (delJ.ok) log(`🖥️ Kelompok ${idx}: jadwal ${j.id} dihapus`, 'ok');
+        else log(`🖥️ Kelompok ${idx}: gagal menghapus jadwal ${j.id} — ${JSON.stringify(delJ.data)}`, 'warn');
+      }
+
+      // 4. Hapus kelas testing (otomatis menghapus semua siswa di dalamnya)
+      const delKelas = await api('DELETE', '/api/admin/kelas', { nama: kelasNama }, state.adminToken);
+      if (delKelas.ok) log(`🖥️ Kelompok ${idx}: kelas "${kelasNama}" dan semua siswanya dihapus`, 'ok');
+      else log(`🖥️ Kelompok ${idx}: gagal menghapus kelas — ${JSON.stringify(delKelas.data)}`, 'err');
+
+      // 5. Hapus akun guru testing
+      const delGuru = await api('DELETE', `/api/admin/users/${guruUsername}`, undefined, state.adminToken);
+      if (delGuru.ok) log(`🖥️ Kelompok ${idx}: akun guru "${guruUsername}" dihapus`, 'ok');
+      else log(`🖥️ Kelompok ${idx}: gagal menghapus akun guru — ${JSON.stringify(delGuru.data)}`, 'warn');
+    }
+
+    monitorTest.groups = [];
+    document.getElementById('mt-panel-running').style.display = 'none';
+    mtSetStatus('Cleanup selesai — semua kelas/guru/soal monitor test sudah dihapus.');
+    log('🖥️ Cleanup Uji Layar Pantau selesai.', 'ok');
+    alert('Cleanup Uji Layar Pantau selesai. Cek log aktivitas untuk detail apa yang berhasil/gagal.');
+  } catch (e) {
+    log(`🖥️ Cleanup Uji Layar Pantau terhenti: ${e.message}`, 'err');
+    alert('Cleanup terhenti karena error. Cek log aktivitas untuk detail.');
+  } finally {
+    document.getElementById('btn-mt-confirm-cleanup').disabled = false;
+    document.getElementById('btn-mt-confirm-cleanup').textContent = '🗑 Ya, Tutup & Hapus Sekarang';
+    document.getElementById('mt-cleanup-summary').style.display = 'none';
+  }
+}
+
 // ---------- Event bindings ----------
 document.getElementById('btn-start').addEventListener('click', runFullTest);
 document.getElementById('btn-stop').addEventListener('click', () => {
@@ -3100,6 +3560,17 @@ document.getElementById('btn-cancel-cleanup').addEventListener('click', () => {
 });
 document.getElementById('btn-download-md').addEventListener('click', handleDownloadMarkdown);
 document.getElementById('btn-download-pdf').addEventListener('click', handleDownloadPdf);
+
+document.getElementById('btn-mt-start').addEventListener('click', runMonitorTest);
+document.getElementById('btn-mt-stop-update').addEventListener('click', () => {
+  mtStopAutoUpdate();
+  log('🖥️ Update jawaban otomatis dihentikan (sesi tetap BERJALAN & tetap tampil di Layar Pantau).', 'info');
+});
+document.getElementById('btn-mt-preview-cleanup').addEventListener('click', mtPreviewCleanup);
+document.getElementById('btn-mt-confirm-cleanup').addEventListener('click', mtConfirmCleanup);
+document.getElementById('btn-mt-cancel-cleanup').addEventListener('click', () => {
+  document.getElementById('mt-cleanup-summary').style.display = 'none';
+});
 
 renderPhaseTrack(null, []);
 
