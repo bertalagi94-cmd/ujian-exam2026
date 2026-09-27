@@ -155,10 +155,10 @@ export function LiveLeaderboardBoard({ board }: { board: LiveLeaderboardSesi }) 
                     </p>
                   </div>
 
-                  <div className="text-right shrink-0">
-                    <p className="text-[9px] font-semibold uppercase tracking-wide text-slate-400 leading-none mb-0.5">
+                  <div className="flex items-baseline gap-1.5 shrink-0">
+                    <span className="text-[9px] font-semibold uppercase tracking-wide text-slate-400 whitespace-nowrap">
                       Jawaban benar
-                    </p>
+                    </span>
                     <p className="text-lg font-black text-white tabular-nums leading-none drop-shadow-sm">
                       {p.benar}
                       <span className="text-xs font-semibold text-slate-300">/{p.totalSoal}</span>
