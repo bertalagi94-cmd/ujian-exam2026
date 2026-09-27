@@ -223,11 +223,42 @@ function PapanLive({ session, onLogout }: { session: Session; onLogout: () => vo
   const [activeIndex, setActiveIndex] = useState(0)
   const [clock, setClock] = useState('')
 
+  // ── Anti-kedip ───────────────────────────────────────────────────────────
+  // Ada dua sumber data yang bisa saling susul-menyusul: fetch awal
+  // (ambilSekali, "double-safety" kalau EventSource lambat tersambung) dan
+  // event 'boards' dari stream. Kalau salah satu dari keduanya kebetulan
+  // datang BELAKANGAN dengan hasil kosong (mis. race, cold-start fungsi
+  // serverless, atau satu hasil recompute yang transien), papan yang tadinya
+  // sudah tampil bisa "berkedip" hilang sesaat. Untuk mencegah itu: hasil
+  // KOSONG hanya benar-benar dipakai untuk mengosongkan papan kalau muncul
+  // DUA KALI BERTURUT-TURUT (dua pembaruan terpisah sama-sama kosong) —
+  // hasil kosong yang cuma sekali (lalu disusul hasil isi lagi) dianggap
+  // glitch sesaat dan diabaikan. Sebaliknya, hasil yang BERISI selalu
+  // langsung dipakai (tidak perlu konfirmasi) karena tidak ada risiko
+  // "kedip" pada arah itu.
+  const emptyStreakRef = useRef(0)
+  const pernahAdaIsiRef = useRef(false)
+
+  const terapkanDataBaru = useCallback((json: DataResponse) => {
+    const kosong = (json.boards ?? []).length === 0
+    if (kosong && pernahAdaIsiRef.current) {
+      emptyStreakRef.current += 1
+      if (emptyStreakRef.current < 2) return // abaikan dulu, tunggu konfirmasi berikutnya
+    } else {
+      emptyStreakRef.current = 0
+      if (!kosong) pernahAdaIsiRef.current = true
+    }
+    setData(json)
+    setFetchError(json.error ?? '')
+  }, [])
+
   // ── Realtime: dengarkan /api/layar-pantau/stream ────────────────────────
   useEffect(() => {
     let cancelled = false
     let es: EventSource | null = null
     let fallbackId: ReturnType<typeof setInterval> | null = null
+    emptyStreakRef.current = 0
+    pernahAdaIsiRef.current = false
 
     const ambilSekali = async () => {
       try {
@@ -236,7 +267,7 @@ function PapanLive({ session, onLogout }: { session: Session; onLogout: () => vo
         })
         if (res.status === 401 || res.status === 403) { onLogout(); return }
         const json: DataResponse = await res.json()
-        if (!cancelled) { setData(json); setFetchError(json.error ?? '') }
+        if (!cancelled) terapkanDataBaru(json)
       } catch {
         if (!cancelled) setFetchError('Koneksi terputus, mencoba lagi…')
       }
@@ -259,8 +290,7 @@ function PapanLive({ session, onLogout }: { session: Session; onLogout: () => vo
       if (cancelled) return
       try {
         const json: DataResponse = JSON.parse((ev as MessageEvent).data)
-        setData(json)
-        setFetchError(json.error ?? '')
+        terapkanDataBaru(json)
         setConnStatus('live')
       } catch {
         // Payload tidak valid — abaikan event ini, tunggu event berikutnya.
@@ -295,7 +325,7 @@ function PapanLive({ session, onLogout }: { session: Session; onLogout: () => vo
       es?.close()
       if (fallbackId) clearInterval(fallbackId)
     }
-  }, [session.token, onLogout])
+  }, [session.token, onLogout, terapkanDataBaru])
 
   // ── Jam dinding (WITA) ──────────────────────────────────────────────────
   useEffect(() => {
