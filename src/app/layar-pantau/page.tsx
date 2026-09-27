@@ -172,19 +172,97 @@ function LoginGate({ onLogin }: { onLogin: (s: Session) => void }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Beberapa "orb" gradasi blur di latar belakang — sentuhan modern untuk
-// layar TV/proyektor, statis-lambat supaya tidak mengganggu keterbacaan.
+// Latar bertema "siaran sinyal langsung" — senada dengan ikon Radio & badge
+// LIVE di header: cincin denyut sinyal, berkas cahaya yang menyapu pelan,
+// partikel melayang, dan orb gradasi lembut. Semua transparan/blur supaya
+// kartu leaderboard di atasnya tetap kontras & mudah dibaca dari jarak TV.
+// Menghormati prefers-reduced-motion untuk penonton yang sensitif gerakan.
 // ─────────────────────────────────────────────────────────────────────────
+const SIGNAL_PARTICLES = [
+  { left: '6%',  top: '16%', size: 3, duration: 9,   delay: 0 },
+  { left: '14%', top: '74%', size: 2, duration: 12,  delay: 1.5 },
+  { left: '22%', top: '42%', size: 2, duration: 10,  delay: 3 },
+  { left: '33%', top: '86%', size: 3, duration: 14,  delay: 0.8 },
+  { left: '40%', top: '10%', size: 2, duration: 11,  delay: 4.2 },
+  { left: '52%', top: '62%', size: 3, duration: 13,  delay: 2.1 },
+  { left: '61%', top: '26%', size: 2, duration: 9.5, delay: 5 },
+  { left: '69%', top: '80%', size: 2, duration: 12.5, delay: 1 },
+  { left: '77%', top: '14%', size: 3, duration: 10.5, delay: 3.6 },
+  { left: '85%', top: '56%', size: 2, duration: 15,  delay: 0.3 },
+  { left: '91%', top: '32%', size: 3, duration: 11.5, delay: 2.8 },
+  { left: '4%',  top: '52%', size: 2, duration: 13.5, delay: 4.8 },
+  { left: '48%', top: '36%', size: 2, duration: 9.2,  delay: 6 },
+  { left: '95%', top: '84%', size: 3, duration: 12.8, delay: 1.9 },
+]
+
 function BackgroundGlow() {
   return (
     <div className="absolute inset-0 pointer-events-none overflow-hidden">
+      {/* Orb gradasi — kedalaman warna latar */}
       <div className="absolute -top-40 -left-32 w-[36rem] h-[36rem] rounded-full bg-brand-500/20 blur-[120px] animate-[floatSlow_14s_ease-in-out_infinite]" />
       <div className="absolute -bottom-48 -right-24 w-[40rem] h-[40rem] rounded-full bg-accent-500/15 blur-[130px] animate-[floatSlow_18s_ease-in-out_infinite_reverse]" />
       <div className="absolute top-1/3 right-1/4 w-72 h-72 rounded-full bg-yellow-400/10 blur-[100px] animate-[floatSlow_20s_ease-in-out_infinite]" />
+
+      {/* Cincin denyut sinyal — dua titik pemancar, senada ikon Radio */}
+      <div className="absolute left-[12%] top-[22%]">
+        {[0, 1, 2].map(i => (
+          <span
+            key={i}
+            className="absolute -translate-x-1/2 -translate-y-1/2 rounded-full border border-brand-300/40"
+            style={{ width: 40, height: 40, animation: `radarPulse 4.2s ease-out ${i * 1.4}s infinite` }}
+          />
+        ))}
+      </div>
+      <div className="absolute right-[16%] bottom-[20%]">
+        {[0, 1, 2].map(i => (
+          <span
+            key={i}
+            className="absolute -translate-x-1/2 -translate-y-1/2 rounded-full border border-accent-400/30"
+            style={{ width: 40, height: 40, animation: `radarPulse 5s ease-out ${i * 1.6 + 0.6}s infinite` }}
+          />
+        ))}
+      </div>
+
+      {/* Berkas cahaya yang menyapu pelan — kesan "menangkap sinyal" */}
+      <div className="absolute inset-0 opacity-[0.05] bg-no-repeat bg-[length:60%_100%] bg-[linear-gradient(100deg,transparent_35%,rgba(103,232,249,0.9)_50%,transparent_65%)] animate-[sweepBeam_16s_linear_infinite]" />
+
+      {/* Partikel sinyal melayang pelan */}
+      {SIGNAL_PARTICLES.map((p, i) => (
+        <span
+          key={i}
+          className="absolute rounded-full bg-brand-200"
+          style={{
+            left: p.left, top: p.top, width: p.size, height: p.size, opacity: 0,
+            animation: `driftGlow ${p.duration}s ease-in-out ${p.delay}s infinite`,
+          }}
+        />
+      ))}
+
       <style jsx global>{`
         @keyframes floatSlow {
           0%, 100% { transform: translate(0, 0) scale(1); }
           50% { transform: translate(30px, -20px) scale(1.08); }
+        }
+        @keyframes radarPulse {
+          0%   { transform: translate(-50%, -50%) scale(0.3); opacity: 0.55; }
+          100% { transform: translate(-50%, -50%) scale(7); opacity: 0; }
+        }
+        @keyframes sweepBeam {
+          0%   { transform: translateX(-60%); }
+          100% { transform: translateX(160%); }
+        }
+        @keyframes driftGlow {
+          0%   { opacity: 0; transform: translateY(0); }
+          15%  { opacity: 0.7; }
+          85%  { opacity: 0.5; }
+          100% { opacity: 0; transform: translateY(-40px); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          *, *::before, *::after {
+            animation-duration: 0.001ms !important;
+            animation-iteration-count: 1 !important;
+            transition-duration: 0.001ms !important;
+          }
         }
       `}</style>
     </div>
