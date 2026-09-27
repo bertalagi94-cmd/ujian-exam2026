@@ -115,15 +115,24 @@ export async function computeLiveLeaderboardUntukSesi(
   }
 
   const nisList = peserta.map(p => p.nis)
-  const [{ data: siswaRows }, { data: jawabanRows }] = await Promise.all([
+  const [{ data: siswaRows }, { data: jawabanRows }, { data: nilaiRows }] = await Promise.all([
     db.from('siswa').select('nis, nama').in('nis', nisList),
     db.from('jawaban')
       .select('nis, soal_id, jawaban')
       .eq('sesi_id', sesi.id)
       .in('nis', nisList),
+    // Layar Pantau HANYA memantau PG — baris `nilai` dibuat oleh
+    // /api/siswa/ujian/selesai TEPAT saat siswa submit PG, TIDAK PEDULI
+    // sesi ini punya fase essay aktif atau tidak (lihat komentar di sana:
+    // essay yang menggantung sengaja TIDAK menahan penulisan baris ini,
+    // hanya menahan siswa_ujian.status jadi SELESAI). Jadi ini sinyal yang
+    // tepat untuk "sudah selesai PG" tanpa ikut menunggu essay, berbeda
+    // dari siswa_ujian.status yang baru berubah setelah essay juga dikirim.
+    db.from('nilai').select('nis').eq('sesi_id', sesi.id).in('nis', nisList),
   ])
 
   const namaMap = new Map(((siswaRows ?? []) as { nis: string; nama: string }[]).map(s => [s.nis, s.nama]))
+  const pgSelesaiSet = new Set(((nilaiRows ?? []) as { nis: string }[]).map(n => n.nis))
 
   // Kelompokkan jawaban per siswa
   const jawabanPerSiswa = new Map<string, { soal_id: string; jawaban: string }[]>()
@@ -149,7 +158,13 @@ export async function computeLiveLeaderboardUntukSesi(
       terjawab,
       totalSoal,
       nilaiSementara,
-      selesai: p.status === 'SELESAI',
+      // FIX (Layar Pantau harus fokus PG saja): sebelumnya pakai
+      // `p.status === 'SELESAI'`, yang di sesi ber-essay baru menjadi
+      // true SETELAH siswa juga mengirim essay (lihat komentar di
+      // selesai/route.ts) -- padahal essay tidak relevan untuk papan ini.
+      // Sekarang badge "Selesai" murni menandakan PG sudah disubmit &
+      // dinilai (baris `nilai` sudah ada), berapa pun lama essay-nya nanti.
+      selesai: pgSelesaiSet.has(p.nis),
     }
   })
 
