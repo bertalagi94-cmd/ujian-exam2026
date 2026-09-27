@@ -78,9 +78,19 @@ export async function GET(req: NextRequest) {
         }
       }
 
+      // FIX (race condition): pushBoards() bisa dipanggil dari 3 sumber
+      // berbeda (muatan awal, debounce recompute, safetyTimer tiap 8 detik)
+      // dan bisa saling tumpang tindih karena masing-masing menunggu
+      // beberapa query async. Tanpa penanda generasi, hasil yang MULAI lebih
+      // dulu tapi SELESAI belakangan bisa menimpa hasil yang lebih baru yang
+      // sudah terkirim ke layar (papan "mundur sesaat"). `gen` memastikan
+      // hanya hasil dari panggilan PALING TERAKHIR yang benar-benar dikirim.
+      let gen = 0
       const pushBoards = async () => {
+        const myGen = ++gen
         try {
           const { boards, scopeWarning } = await ambilBoardsUntukViewer(db, user!)
+          if (myGen !== gen) return // sudah ada panggilan lebih baru, buang hasil basi ini
           send('boards', {
             serverTime: new Date().toISOString(),
             viewer: { nama: user!.nama, role: user!.role },
@@ -88,6 +98,7 @@ export async function GET(req: NextRequest) {
             scopeWarning,
           })
         } catch (e) {
+          if (myGen !== gen) return
           send('error', { error: e instanceof Error ? e.message : 'Gagal memuat papan.' })
         }
       }
