@@ -445,6 +445,12 @@
       <button class="btn-ghost" id="btn-mt-stop-update" disabled>⏸ Hentikan Update Otomatis</button>
     </div>
     <p class="sub" id="mt-status" style="margin-top:12px"></p>
+    <div class="banner" id="mt-tab-warning" style="display:none;margin-top:10px">
+      ⚠️ <strong>Update jawaban otomatis berjalan di tab browser ini, bukan di server.</strong>
+      Biarkan tab <code>loadtest.html</code> ini tetap TERBUKA (boleh di jendela/tab terpisah, boleh diminimize)
+      selama Anda menonton <code>/layar-pantau</code> — kalau tab ini ditutup atau dipakai untuk pindah ke URL lain,
+      timer update berhenti total dan papan akan "beku" di angka terakhir.
+    </div>
 
     <div id="mt-panel-running" style="display:none;margin-top:10px">
       <p style="font-size:12.5px;margin:0 0 8px">
@@ -3376,12 +3382,14 @@ function mtStartAutoUpdate(intervalSec) {
     for (const group of monitorTest.groups) {
       const loggedIn = group.siswaList.filter(s => s.token && s.soalList && s.soalList.length);
       if (!loggedIn.length) continue;
-      await mtSyncPartialAnswers(group.sesiId, loggedIn, 0.4, 1.0);
+      await mtSyncPartialAnswers(group.sesiId, loggedIn, 0.15, 1.0);
     }
     log(`🖥️ [Layar Pantau] Update jawaban otomatis dijalankan (${monitorTest.groups.length} kelas).`, 'info');
   }, intervalSec * 1000);
   const btn = document.getElementById('btn-mt-stop-update');
   if (btn) btn.disabled = false;
+  const warn = document.getElementById('mt-tab-warning');
+  if (warn) warn.style.display = 'block';
 }
 
 function mtStopAutoUpdate() {
@@ -3391,6 +3399,8 @@ function mtStopAutoUpdate() {
   }
   const btn = document.getElementById('btn-mt-stop-update');
   if (btn) btn.disabled = true;
+  const warn = document.getElementById('mt-tab-warning');
+  if (warn) warn.style.display = 'none';
 }
 
 async function runMonitorTest() {
