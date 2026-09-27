@@ -7,6 +7,7 @@ import { computeLiveLeaderboardUntukSesi, LiveLeaderboardSesi } from '@/lib/lead
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
+export const fetchCache = 'force-no-store'
 export const maxDuration = 60
 
 // GET /api/layar-pantau/stream?token=...
