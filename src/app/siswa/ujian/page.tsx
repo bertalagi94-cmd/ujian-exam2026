@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { BookOpen, Clock, AlertTriangle, CheckCircle, ChevronLeft, ChevronRight, Send, Maximize, KeyRound, LogOut, RefreshCw, Calendar, CheckCircle2 } from 'lucide-react'
 import { apiRequest } from '@/lib/utils'
-import { startExamLock, endExamLock } from '@/lib/exam-lock'
+import { startExamLock, endExamLock, onExamLockLost } from '@/lib/exam-lock'
 import { Soal } from '@/types'
 import { Confirm, Spinner } from '@/components/ui'
 import {
@@ -1081,6 +1081,39 @@ export default function SiswaUjianPage() {
     return () => {
       window.removeEventListener('blur', onBlur)
       if (blurCooldown) clearTimeout(blurCooldown)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, essayInfoBelumSiap])
+
+  // ── Anti-cheat (APK Android): penguncian native terlepas ─────────────────
+  // Siswa yang melepas screen pinning (tahan Back + Recent) atau masuk
+  // split-screen tetap berada di aplikasi, jadi TIDAK memicu blur/
+  // visibilitychange di atas. Plugin native ExamLock mengabarkannya lewat
+  // event 'lockLost'. Pola dedup sama dengan blur (pelanggaranActiveRef +
+  // cooldown 2 detik). No-op total di luar APK. Lihat src/lib/exam-lock.ts.
+  useEffect(() => {
+    if (phase !== 'UJIAN' && phase !== 'ESSAY_INFO' && phase !== 'ESSAY_KERJAKAN') return
+    if (essayInfoBelumSiap) return
+    let lockCooldown: ReturnType<typeof setTimeout> | null = null
+    let lepas: (() => void) | null = null
+    let batal = false
+    onExamLockLost(() => {
+      if (pelanggaranActiveRef.current) return
+      if (lockCooldown) return
+      pelanggaranActiveRef.current = true
+      pelanggRef.current++
+      laporPelanggaran('LOCK_RELEASED', `Melepas penguncian layar ke-${pelanggRef.current}`)
+      setWarningMsg('⚠ Penguncian layar terlepas!')
+      setShowWarningOverlay(true)
+      lockCooldown = setTimeout(() => { lockCooldown = null }, 2000)
+    }).then((off) => {
+      if (batal) off()
+      else lepas = off
+    })
+    return () => {
+      batal = true
+      if (lepas) lepas()
+      if (lockCooldown) clearTimeout(lockCooldown)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, essayInfoBelumSiap])
