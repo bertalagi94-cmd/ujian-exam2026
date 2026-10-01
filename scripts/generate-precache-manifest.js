@@ -45,6 +45,13 @@ const RUTE_PRECACHE = [
   '/login',
   '/guru',
   '/guru/mode-pengawas',
+  // Tahap siswa (APK Android, HP pribadi): siswa wajib bisa membuka ulang
+  // aplikasi saat offline dan langsung kembali ke ujian. Halaman-halaman ini
+  // statis ("○ Static" di hasil `next build`) dan auth-nya di sisi client
+  // (tidak ada middleware), jadi aman di-fetch tanpa login saat install SW.
+  '/siswa',
+  '/siswa/ujian',
+  '/siswa/pengiriman-tertunda',
 ]
 
 function bacaJson(p) {
