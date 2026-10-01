@@ -86,11 +86,20 @@ export async function GET(req: NextRequest) {
       // sudah terkirim ke layar (papan "mundur sesaat"). `gen` memastikan
       // hanya hasil dari panggilan PALING TERAKHIR yang benar-benar dikirim.
       let gen = 0
+      // HEMAT BANDWIDTH: jaring pengaman 8 detik tadinya selalu mengirim
+      // seluruh papan walau tidak ada yang berubah. Sekarang hasil yang
+      // identik dengan kiriman terakhir TIDAK dikirim lagi. Pengecualian:
+      // papan KOSONG selalu dikirim (klien butuh dua hasil kosong berturut-turut
+      // untuk benar-benar mengosongkan layar, lihat terapkanDataBaru di page.tsx).
+      let lastSignature = ''
       const pushBoards = async () => {
         const myGen = ++gen
         try {
           const { boards, scopeWarning } = await ambilBoardsUntukViewer(db, user!)
           if (myGen !== gen) return // sudah ada panggilan lebih baru, buang hasil basi ini
+          const signature = JSON.stringify({ boards, scopeWarning })
+          if (boards.length > 0 && signature === lastSignature) return
+          lastSignature = signature
           send('boards', {
             serverTime: new Date().toISOString(),
             viewer: { nama: user!.nama, role: user!.role },
