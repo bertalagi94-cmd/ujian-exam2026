@@ -24,3 +24,8 @@ Thumbs.db
 # `next build` (lihat "postbuild" di package.json) — jangan commit manual,
 # selalu dihasilkan ulang tiap build dan berbeda-beda per buildId.
 /public/precache-manifest.json
+
+# Android signing (jangan pernah di-commit)
+*.jks
+*.keystore
+keystore.properties
