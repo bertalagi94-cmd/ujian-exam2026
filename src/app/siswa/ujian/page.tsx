@@ -43,6 +43,7 @@ import {
 import type { ResetAmplop } from '@/lib/reset-amplop-shared'
 import { berlanggananStatusJaringan, ambilStatusJaringan } from '@/lib/status-jaringan'
 import { GambarSoalOffline } from '@/components/ui/GambarSoalOffline'
+import ScoreReveal from '@/components/siswa/ScoreReveal'
 
 type Phase = 'CEK_JADWAL' | 'PERSIAPAN' | 'KODE' | 'UJIAN' | 'ESSAY_INFO' | 'ESSAY_KERJAKAN' | 'SELESAI' | 'RESET_KODE'
 
@@ -326,6 +327,14 @@ export default function SiswaUjianPage() {
   const [confirmSelesai, setConfirmSelesai] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [hasilNilai, setHasilNilai] = useState<HasilAkhir | null>(null)
+  // Animasi pengumuman nilai (hitung mundur 10→0 → nilai besar → mengecil ke kartu).
+  // 'off'    = tidak ada animasi / sudah selesai (tampilan kartu normal)
+  // 'main'   = overlay hitung mundur + nilai besar sedang tampil (kartu disembunyikan)
+  // 'shrink' = nilai sedang mengecil menuju kartu (kartu mulai memudar masuk)
+  // HANYA diaktifkan di jalur online langsung (handleSelesai sukses). Jalur
+  // pemulihan offline di latar belakang tetap menampilkan hasil seperti biasa.
+  const [fasaAnimasiNilai, setFasaAnimasiNilai] = useState<'off' | 'main' | 'shrink'>('off')
+  const nilaiTargetRef = useRef<HTMLDivElement>(null)
 
   // ── State fase ESSAY (fitur essay) ────────────────────────────────────────
   // KKM dibawa dari response /selesai (lanjutEssay:true) supaya bisa dipakai
@@ -2414,6 +2423,7 @@ export default function SiswaUjianPage() {
         return
       }
 
+      setFasaAnimasiNilai('main')
       setHasilNilai(res as HasilAkhir)
       setPhase('SELESAI')
       if (currentSesi && user?.nis) clearBackup(currentSesi.sesiId, user.nis)
@@ -4674,7 +4684,25 @@ export default function SiswaUjianPage() {
   if (phase === 'SELESAI' && hasilNilai) {
     return (
       <div className="max-w-md mx-auto animate-fade-in">
-        <div className="card text-center">
+        {fasaAnimasiNilai !== 'off' && (
+          <ScoreReveal
+            nilai={hasilNilai.nilai}
+            lulus={hasilNilai.lulus}
+            namaMapel={sesiInfo?.namaMapel}
+            targetRef={nilaiTargetRef}
+            onShrinkStart={() => setFasaAnimasiNilai('shrink')}
+            onDone={() => setFasaAnimasiNilai('off')}
+          />
+        )}
+        <div
+          className="card text-center"
+          style={{
+            // Kartu disembunyikan selama hitung mundur & reveal, lalu memudar
+            // masuk saat angka nilai mengecil ke kotak "Nilai" di dalamnya.
+            opacity: fasaAnimasiNilai === 'main' ? 0 : 1,
+            transition: 'opacity 0.8s ease',
+          }}
+        >
           <div className={`w-20 h-20 rounded-3xl flex items-center justify-center mx-auto mb-4 ${
             hasilNilai.lulus ? 'bg-emerald-100' : 'bg-red-100'
           }`}>
@@ -4713,7 +4741,11 @@ export default function SiswaUjianPage() {
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
             <div className="bg-slate-50 rounded-xl p-4">
-              <div className="text-3xl font-bold text-slate-900">{hasilNilai.nilai}</div>
+              <div
+                ref={nilaiTargetRef}
+                className="text-3xl font-bold text-slate-900"
+                style={{ visibility: fasaAnimasiNilai === 'off' ? 'visible' : 'hidden' }}
+              >{hasilNilai.nilai}</div>
               <div className="text-xs text-slate-400 mt-1">Nilai</div>
             </div>
             <div className="bg-slate-50 rounded-xl p-4">
