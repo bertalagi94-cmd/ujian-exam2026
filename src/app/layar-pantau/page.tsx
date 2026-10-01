@@ -273,19 +273,39 @@ function BackgroundGlow() {
 // Indikator status koneksi realtime — dot berdenyut + label singkat.
 // ─────────────────────────────────────────────────────────────────────────
 function ConnBadge({ status }: { status: ConnStatus }) {
-  const map: Record<ConnStatus, { dot: string; ring: string; label: string; text: string }> = {
-    live:        { dot: 'bg-emerald-400', ring: 'ring-emerald-400/40', label: 'LIVE',           text: 'text-emerald-300' },
-    connecting:  { dot: 'bg-amber-400',  ring: 'ring-amber-400/40',  label: 'Menyambungkan…',   text: 'text-amber-300' },
-    reconnecting:{ dot: 'bg-danger-400', ring: 'ring-danger-400/40', label: 'Menyambung ulang…',text: 'text-danger-300' },
+  // Latar SOLID & terang + teks putih supaya terbaca dari jauh (layar proyektor).
+  // glow = warna denyut lingkaran cahaya di sekeliling badge (lihat keyframes di bawah).
+  const map: Record<ConnStatus, { bg: string; glow: string; label: string }> = {
+    live:         { bg: 'bg-emerald-500', glow: '16,185,129', label: 'LIVE' },
+    connecting:   { bg: 'bg-amber-500',   glow: '245,158,11', label: 'Menyambungkan…' },
+    reconnecting: { bg: 'bg-red-500',     glow: '239,68,68',  label: 'Menyambung ulang…' },
   }
   const s = map[status]
   return (
-    <div className={`flex items-center gap-2 text-sm font-bold uppercase tracking-wide bg-slate-800 rounded-full px-3 py-1.5 ${s.text}`}>
-      <span className="relative flex h-2 w-2">
-        <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${s.dot} opacity-75`} />
-        <span className={`relative inline-flex rounded-full h-2 w-2 ${s.dot} ring-2 ${s.ring}`} />
+    <div
+      className={`conn-badge flex items-center gap-2 text-sm font-extrabold uppercase tracking-wider text-white rounded-full px-3.5 py-1.5 ring-2 ring-white/40 ${s.bg}`}
+      style={{ ['--glow' as string]: s.glow }}
+    >
+      <span className="relative flex h-2.5 w-2.5">
+        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-90" />
+        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-white" />
       </span>
-      {s.label}
+      <span className="conn-badge-text">{s.label}</span>
+      <style>{`
+        @keyframes connGlow {
+          0%, 100% { box-shadow: 0 0 0 0 rgba(var(--glow), 0.75), 0 0 10px 1px rgba(var(--glow), 0.55); }
+          50%      { box-shadow: 0 0 0 9px rgba(var(--glow), 0), 0 0 22px 5px rgba(var(--glow), 0.9); }
+        }
+        @keyframes connText {
+          0%, 100% { opacity: 1;   transform: scale(1); }
+          50%      { opacity: 0.55; transform: scale(1.07); }
+        }
+        .conn-badge      { animation: connGlow 1.4s ease-in-out infinite; }
+        .conn-badge-text { display: inline-block; animation: connText 1.4s ease-in-out infinite; }
+        @media (prefers-reduced-motion: reduce) {
+          .conn-badge, .conn-badge-text { animation: none; }
+        }
+      `}</style>
     </div>
   )
 }
@@ -631,7 +651,7 @@ function PapanLive({ session, onLogout }: { session: Session; onLogout: () => vo
             <span className="text-slate-400">· {ROLE_LABEL[session.role] ?? session.role}</span>
           </div>
 
-          <FullscreenButton />
+          <FullscreenButton iconOnly />
 
           <button onClick={onLogout} className="btn-ghost btn-sm text-slate-300 hover:text-white" title="Keluar">
             <LogOut className="w-3.5 h-3.5" />
