@@ -332,12 +332,16 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
 
   function triggerUpload(key: string) {
     setPendingUploadKey(key)
-    setTimeout(() => fileInputRef.current?.click(), 50)
+    // Panggil .click() LANGSUNG (jangan setTimeout) — WebView Android
+    // menolak diam-diam membuka galeri kalau ini tidak dianggap aksi
+    // langsung pengguna. Browser desktop tetap toleran walau ditunda,
+    // makanya bug ini cuma kelihatan di aplikasi Android, bukan di laptop.
+    fileInputRef.current?.click()
   }
 
   function triggerEditUpload(key: string) {
     setPendingEditUploadKey(key)
-    setTimeout(() => editFileInputRef.current?.click(), 50)
+    editFileInputRef.current?.click()
   }
 
   // Inti penyimpanan satu soal dari form "Buat Soal". Dipakai baik oleh
@@ -1511,7 +1515,7 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
 
   function triggerUpload(key: string) {
     setPendingUploadKey(key)
-    setTimeout(() => fileInputRef.current?.click(), 50)
+    fileInputRef.current?.click()
   }
 
   async function handleTambahSoal(e: React.FormEvent<HTMLFormElement>) {
