@@ -38,7 +38,7 @@ function isFullscreen() {
  * Beda dengan mode ujian siswa: di sini TIDAK ada anti-cheat/paksaan apa pun —
  * murni kenyamanan tampilan, jadi pengguna bebas keluar masuk fullscreen kapan saja.
  */
-export function FullscreenButton() {
+export function FullscreenButton({ iconOnly = false }: { iconOnly?: boolean }) {
   const [fs, setFs] = useState(false)
 
   useEffect(() => {
@@ -63,14 +63,17 @@ export function FullscreenButton() {
     }
   }
 
+  const judul = fs ? 'Keluar dari layar penuh' : 'Tampilkan layar penuh'
+
   return (
     <button
       onClick={toggle}
       className="btn-secondary btn-sm shadow-card-md bg-white"
-      title={fs ? 'Keluar dari layar penuh' : 'Tampilkan layar penuh'}
+      title={judul}
+      aria-label={judul}
     >
-      {fs ? <Minimize className="w-3.5 h-3.5" /> : <Maximize className="w-3.5 h-3.5" />}
-      <span>{fs ? 'Keluar Fullscreen' : 'Layar Penuh'}</span>
+      {fs ? <Minimize className={iconOnly ? 'w-4 h-4' : 'w-3.5 h-3.5'} /> : <Maximize className={iconOnly ? 'w-4 h-4' : 'w-3.5 h-3.5'} />}
+      {!iconOnly && <span>{fs ? 'Keluar Fullscreen' : 'Layar Penuh'}</span>}
     </button>
   )
 }
