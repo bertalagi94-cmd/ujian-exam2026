@@ -319,7 +319,7 @@ function NilaiTertinggi({ boards }: { boards: LiveLeaderboardSesi[] }) {
     return (
       <div className="flex items-center justify-center gap-2 text-slate-300 text-lg px-4 py-2 min-w-0">
         <Trophy className="w-5 h-5 shrink-0 text-slate-400" />
-        <span className="truncate">Nilai tertinggi: belum ada</span>
+        <span className="truncate">Tertinggi : belum ada</span>
       </div>
     )
   }
@@ -327,16 +327,16 @@ function NilaiTertinggi({ boards }: { boards: LiveLeaderboardSesi[] }) {
   return (
     <div
       key={`${top.nilai}|${top.nama}`}
-      className="flex items-center justify-center gap-3 min-w-0 max-w-full rounded-2xl border border-yellow-300/60 bg-gradient-to-r from-amber-950 via-amber-900/80 to-amber-950 px-5 py-1.5 shadow-[0_0_24px_rgba(250,204,21,0.18)] animate-[fadeIn_0.4s_ease]"
+      className="flex items-center justify-center gap-2.5 min-w-0 max-w-full rounded-2xl border border-yellow-300/60 bg-gradient-to-r from-amber-950 via-amber-900/80 to-amber-950 px-4 py-1 shadow-[0_0_24px_rgba(250,204,21,0.18)] animate-[fadeIn_0.4s_ease]"
       title={`Nilai tertinggi saat ini: ${top.nilai} (${top.nama}, Kelas ${top.kelas})`}
     >
-      <Trophy className="w-7 h-7 shrink-0 text-yellow-300" />
-      <span className="text-lg text-amber-100 whitespace-nowrap shrink-0">Nilai tertinggi saat ini</span>
-      <span className="text-4xl font-black text-yellow-300 tabular-nums leading-none shrink-0 [text-shadow:0_1px_3px_rgba(0,0,0,0.9)]">{top.nilai}</span>
-      <span className="text-2xl font-extrabold text-white truncate min-w-0 [text-shadow:0_1px_3px_rgba(0,0,0,0.9)]">{top.nama}</span>
-      <span className="text-lg text-amber-100 whitespace-nowrap shrink-0">
-        Kelas {top.kelas}{top.sama > 0 ? ` · +${top.sama} siswa lain` : ''}
-      </span>
+      <Trophy className="w-5 h-5 shrink-0 text-yellow-300" />
+      <span className="text-base font-semibold text-amber-100 whitespace-nowrap shrink-0">Tertinggi :</span>
+      <span className="text-3xl font-black text-yellow-300 tabular-nums leading-none shrink-0 [text-shadow:0_1px_3px_rgba(0,0,0,0.9)]">{top.nilai}</span>
+      <span className="text-lg font-bold text-white truncate min-w-0 [text-shadow:0_1px_3px_rgba(0,0,0,0.9)]">({top.nama})</span>
+      {top.sama > 0 && (
+        <span className="text-sm text-amber-100/90 whitespace-nowrap shrink-0">+{top.sama} lainnya</span>
+      )}
     </div>
   )
 }
