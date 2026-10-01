@@ -34,6 +34,10 @@ export interface LiveLeaderboardRow {
   totalSoal: number
   nilaiSementara: number
   selesai: boolean
+  // Status siswa_ujian (AKTIF | RESET | TERKUNCI | SELESAI). RESET = baru
+  // melanggar & menunggu kode dari pengawas; TERKUNCI = melewati batas
+  // pelanggaran. Dipakai Layar Pantau untuk menandai baris siswa.
+  status: string
 }
 
 export interface LiveLeaderboardSesi {
@@ -178,6 +182,7 @@ export async function computeLiveLeaderboardUntukSesi(
       // Sekarang badge "Selesai" murni menandakan PG sudah disubmit &
       // dinilai (baris `nilai` sudah ada), berapa pun lama essay-nya nanti.
       selesai: pgSelesaiSet.has(p.nis),
+      status: p.status,
     }
   })
 
