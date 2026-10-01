@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
-import { CheckCircle2, Flag, PartyPopper, Trophy } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Flag, Lock, PartyPopper, Trophy } from 'lucide-react'
 import type { LiveLeaderboardSesi } from '@/lib/leaderboard-live'
 
 // ── Animasi FLIP manual (First-Last-Invert-Play) ────────────────────────────
@@ -137,8 +137,14 @@ export function LiveLeaderboardBoard({
             // cuma relatif terhadap si nomor satu saat itu.
             const barPct = p.totalSoal > 0 ? Math.max((p.benar / p.totalSoal) * 100, 3) : 3
             const trackStyle = i < 3 ? TRACK_STYLES[i] : TRACK_STYLE_DEFAULT
-            const rowRing = i < 3 ? ROW_RING[i] : 'ring-1 ring-white/10'
             const edge = i < 3 ? TRACK_EDGE[i] : TRACK_EDGE_DEFAULT
+            // Pelanggaran: RESET = baru melanggar, menunggu kode pengawas
+            // (baris berkedip merah). TERKUNCI = melewati batas (merah tetap).
+            // Keduanya hilang sendiri begitu status kembali AKTIF.
+            const reset = p.status === 'RESET'
+            const terkunci = p.status === 'TERKUNCI'
+            const bermasalah = reset || terkunci
+            const rowRing = bermasalah ? 'ring-2 ring-red-500' : i < 3 ? ROW_RING[i] : 'ring-1 ring-white/10'
 
             return (
               <div
@@ -157,6 +163,13 @@ export function LiveLeaderboardBoard({
                   {/* Kilau bergerak — cuma dekorasi, memberi kesan "energik/hidup" */}
                   <div className="absolute inset-y-0 w-1/4 bg-gradient-to-r from-transparent via-white/10 to-transparent animate-[shine_2.8s_linear_infinite]" />
                 </div>
+                {/* Lapisan merah penanda pelanggaran (di atas bar, di bawah teks).
+                    Tanpa animasi (mis. 'kurangi gerakan' aktif) tetap merah statis. */}
+                {bermasalah && (
+                  <div
+                    className={`absolute inset-0 bg-red-600 ${reset ? 'opacity-40 animate-[pelanggaranBlink_1s_ease-in-out_infinite]' : 'opacity-45'}`}
+                  />
+                )}
                 {/* Garis finis di ujung kanan, penanda batas total soal */}
                 <div className="absolute inset-y-0 right-0 w-px bg-white/30" />
 
@@ -172,7 +185,17 @@ export function LiveLeaderboardBoard({
                     <p className={`text-white font-extrabold truncate [text-shadow:0_1px_3px_rgba(0,0,0,0.9)] shrink min-w-0 ${padat ? 'text-2xl' : 'text-3xl'}`}>{p.nama}</p>
                     <p className={`text-slate-100 font-medium whitespace-nowrap shrink-0 ${padat ? 'text-base' : 'text-lg'}`}>
                       Terjawab {p.terjawab}/{p.totalSoal} · Nilai sementara {p.nilaiSementara}
-                      {p.selesai && (
+                      {reset && (
+                        <span className="ml-2 inline-flex items-center gap-1.5 rounded-md bg-red-700 px-2 py-0.5 font-extrabold text-white">
+                          <AlertTriangle className="w-4 h-4" /> Pelanggaran · menunggu pengawas
+                        </span>
+                      )}
+                      {terkunci && (
+                        <span className="ml-2 inline-flex items-center gap-1.5 rounded-md bg-red-800 px-2 py-0.5 font-extrabold text-white">
+                          <Lock className="w-4 h-4" /> Terkunci · ujian dihentikan
+                        </span>
+                      )}
+                      {p.selesai && !terkunci && (
                         <span className="ml-1.5 inline-flex items-center gap-1 text-emerald-300 font-bold">
                           <CheckCircle2 className="w-4 h-4" /> Selesai
                         </span>
@@ -197,6 +220,10 @@ export function LiveLeaderboardBoard({
       )}
 
       <style jsx global>{`
+        @keyframes pelanggaranBlink {
+          0%, 100% { opacity: 0.15; }
+          50%      { opacity: 0.7; }
+        }
         @keyframes shine {
           0% { transform: translateX(-150%); }
           100% { transform: translateX(500%); }
