@@ -116,8 +116,30 @@ interface JawabanEssayMap { [soalEssayId: string]: string }
 
 interface HasilAkhir { id?: string; nilai: number; benar: number; total: number; grade: string; lulus: boolean; kkm: number }
 
+// ── Jembatan aplikasi Android (EXAMFLOW) ────────────────────────────────────
+// Hanya terdefinisi kalau halaman ini dibuka DI DALAM aplikasi Android
+// (lihat MainActivity.kt di proyek EXAMFLOW) — di browser biasa,
+// window.AndroidBridge selalu undefined, jadi semua pemanggilan di bawah
+// otomatis aman diabaikan (optional chaining).
+//
+// PENTING — JANGAN DIHAPUS LAGI: tanpa mulaiModeUjian() terpanggil di sini,
+// aplikasi Android tidak pernah tahu ujian sedang berlangsung, sehingga
+// mode kunci (Screen Pinning) tidak pernah aktif dan TOMBOL KEMBALI JADI
+// BISA DIPAKAI BEBAS SELAMA UJIAN — ini pernah kejadian nyata (lihat
+// riwayat chat) gara-gara fungsi ini ditulis ulang tanpa baris ini.
+declare global {
+  interface Window {
+    AndroidBridge?: {
+      mulaiModeUjian?: () => void
+      selesaiModeUjian?: () => void
+      dukungScreenShare?: () => boolean
+    }
+  }
+}
+
 // ── Fullscreen helpers ────────────────────────────────────────────────────────
 function requestFullscreen(el: Element) {
+  window.AndroidBridge?.mulaiModeUjian?.()
   if (el.requestFullscreen) return el.requestFullscreen()
   const anyEl = el as unknown as Record<string, () => Promise<void>>
   if (anyEl.webkitRequestFullscreen) return anyEl.webkitRequestFullscreen()
@@ -127,6 +149,7 @@ function requestFullscreen(el: Element) {
 }
 
 function exitFullscreen() {
+  window.AndroidBridge?.selesaiModeUjian?.()
   if (document.exitFullscreen) return document.exitFullscreen()
   const anyDoc = document as unknown as Record<string, () => Promise<void>>
   if (anyDoc.webkitExitFullscreen) return anyDoc.webkitExitFullscreen()
