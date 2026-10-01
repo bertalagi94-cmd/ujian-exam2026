@@ -23,8 +23,8 @@
 // + polling pelan tetap disediakan untuk browser TV lawas yang tidak
 // mendukung EventSource sama sekali (jarang, tapi mungkin).
 
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { Lock, LogOut, Radio, User } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { ChevronDown, Lock, LogOut, Radio, Trophy, User } from 'lucide-react'
 import { FullscreenButton } from '@/components/shared/FullscreenButton'
 import { LiveLeaderboardBoard } from '@/components/leaderboard/LiveLeaderboardBoard'
 import type { LiveLeaderboardSesi } from '@/lib/leaderboard-live'
@@ -274,18 +274,142 @@ function BackgroundGlow() {
 // ─────────────────────────────────────────────────────────────────────────
 function ConnBadge({ status }: { status: ConnStatus }) {
   const map: Record<ConnStatus, { dot: string; ring: string; label: string; text: string }> = {
-    live:        { dot: 'bg-accent-400', ring: 'ring-accent-400/40', label: 'LIVE',            text: 'text-accent-300' },
+    live:        { dot: 'bg-emerald-400', ring: 'ring-emerald-400/40', label: 'LIVE',           text: 'text-emerald-300' },
     connecting:  { dot: 'bg-amber-400',  ring: 'ring-amber-400/40',  label: 'Menyambungkan…',   text: 'text-amber-300' },
     reconnecting:{ dot: 'bg-danger-400', ring: 'ring-danger-400/40', label: 'Menyambung ulang…',text: 'text-danger-300' },
   }
   const s = map[status]
   return (
-    <div className={`flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide bg-white/5 rounded-full px-3 py-1.5 ${s.text}`}>
+    <div className={`flex items-center gap-2 text-sm font-bold uppercase tracking-wide bg-slate-800 rounded-full px-3 py-1.5 ${s.text}`}>
       <span className="relative flex h-2 w-2">
         <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${s.dot} opacity-75`} />
         <span className={`relative inline-flex rounded-full h-2 w-2 ${s.dot} ring-2 ${s.ring}`} />
       </span>
       {s.label}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Banner "Nilai tertinggi saat ini" di tengah header.
+// Dihitung dari SEMUA kelas yang sedang berjalan (bukan hanya kelas yang
+// sedang tampil), jadi tetap satu baris ringkas walau ada 30 kelas ujian
+// bersamaan: yang ditampilkan hanya 1 siswa teratas + kelasnya, dan kalau
+// ada yang nilainya sama persis cukup ditulis "+N siswa lain".
+// ─────────────────────────────────────────────────────────────────────────
+function NilaiTertinggi({ boards }: { boards: LiveLeaderboardSesi[] }) {
+  const top = useMemo(() => {
+    const aktif = boards.filter(b => b.statusSesi !== 'SELESAI')
+    const sumber = aktif.length > 0 ? aktif : boards
+    let best: { nilai: number; terjawab: number; nama: string; kelas: string } | null = null
+    for (const b of sumber) {
+      for (const p of b.peserta) {
+        if (!best || p.nilaiSementara > best.nilai || (p.nilaiSementara === best.nilai && p.terjawab > best.terjawab)) {
+          best = { nilai: p.nilaiSementara, terjawab: p.terjawab, nama: p.nama, kelas: b.kelas }
+        }
+      }
+    }
+    if (!best || best.nilai <= 0) return null
+    let sama = -1 // dikurangi diri sendiri
+    for (const b of sumber) for (const p of b.peserta) if (p.nilaiSementara === best.nilai) sama++
+    return { ...best, sama }
+  }, [boards])
+
+  if (!top) {
+    return (
+      <div className="flex items-center justify-center gap-2 text-slate-300 text-lg px-4 py-2 min-w-0">
+        <Trophy className="w-5 h-5 shrink-0 text-slate-400" />
+        <span className="truncate">Nilai tertinggi: belum ada</span>
+      </div>
+    )
+  }
+
+  return (
+    <div
+      key={`${top.nilai}|${top.nama}`}
+      className="flex items-center justify-center gap-3 min-w-0 max-w-full rounded-2xl border border-yellow-300/60 bg-gradient-to-r from-amber-950 via-amber-900/80 to-amber-950 px-5 py-1.5 shadow-[0_0_24px_rgba(250,204,21,0.18)] animate-[fadeIn_0.4s_ease]"
+      title={`Nilai tertinggi saat ini: ${top.nilai} (${top.nama}, Kelas ${top.kelas})`}
+    >
+      <Trophy className="w-7 h-7 shrink-0 text-yellow-300" />
+      <span className="text-lg text-amber-100 whitespace-nowrap shrink-0">Nilai tertinggi saat ini</span>
+      <span className="text-4xl font-black text-yellow-300 tabular-nums leading-none shrink-0 [text-shadow:0_1px_3px_rgba(0,0,0,0.9)]">{top.nilai}</span>
+      <span className="text-2xl font-extrabold text-white truncate min-w-0 [text-shadow:0_1px_3px_rgba(0,0,0,0.9)]">{top.nama}</span>
+      <span className="text-lg text-amber-100 whitespace-nowrap shrink-0">
+        Kelas {top.kelas}{top.sama > 0 ? ` · +${top.sama} siswa lain` : ''}
+      </span>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Baris pemilih kelas — terpisah dari header supaya header tidak meluap
+// kalau kelasnya banyak. ≤6 kelas: tombol langsung. >6 kelas: tombol
+// "Pilih kelas" yang membuka kisi rapi. Selalu ada penanda posisi rotasi
+// ("Kelas 3 dari 30") dan strip segmen kecil per kelas.
+// ─────────────────────────────────────────────────────────────────────────
+const CHIP_LANGSUNG_MAKS = 6
+
+function PemilihKelas({
+  boards, pinnedSesiId, activeIndex, onPin,
+}: {
+  boards: LiveLeaderboardSesi[]
+  pinnedSesiId: string | null
+  activeIndex: number
+  onPin: (id: string | null) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const rotasi = pinnedSesiId === null
+  const aktifId = rotasi ? boards[activeIndex]?.sesiId : pinnedSesiId
+  const banyak = boards.length > CHIP_LANGSUNG_MAKS
+  const chipCls = (aktif: boolean) =>
+    `px-3 py-1.5 rounded-lg text-sm font-semibold transition ${aktif ? 'bg-gradient-to-r from-brand-500 to-accent-500 text-white' : 'bg-slate-800 text-slate-100 hover:bg-slate-700'}`
+
+  return (
+    <div className="relative z-20 flex items-center gap-3 px-6 py-2 border-b border-white/10 bg-slate-950/70">
+      <button onClick={() => onPin(null)} className={chipCls(rotasi) + ' whitespace-nowrap'}>
+        Rotasi otomatis{rotasi ? ` · Kelas ${Math.min(activeIndex + 1, boards.length)} dari ${boards.length}` : ''}
+      </button>
+
+      {!banyak && boards.map(b => (
+        <button key={b.sesiId} onClick={() => onPin(b.sesiId)} className={chipCls(pinnedSesiId === b.sesiId)} title={b.namaMapel}>
+          {b.kelas}
+        </button>
+      ))}
+
+      {banyak && (
+        <div className="relative">
+          <button onClick={() => setOpen(o => !o)} className={chipCls(!rotasi) + ' flex items-center gap-1.5 whitespace-nowrap'}>
+            {rotasi ? 'Pilih kelas' : `Kelas ${boards.find(b => b.sesiId === pinnedSesiId)?.kelas ?? ''}`}
+            <ChevronDown className={`w-4 h-4 transition-transform ${open ? 'rotate-180' : ''}`} />
+          </button>
+          {open && (
+            <>
+              <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
+              <div className="absolute left-0 top-full mt-2 z-40 w-[min(46rem,90vw)] max-h-[60vh] overflow-y-auto rounded-2xl border border-white/15 bg-slate-900 p-3 shadow-2xl shadow-black/60">
+                <div className="grid gap-2 [grid-template-columns:repeat(auto-fill,minmax(6.5rem,1fr))]">
+                  {boards.map(b => (
+                    <button
+                      key={b.sesiId}
+                      onClick={() => { onPin(b.sesiId); setOpen(false) }}
+                      className={chipCls(pinnedSesiId === b.sesiId) + ' truncate text-center'}
+                      title={`${b.namaMapel} · ${b.totalPeserta} siswa`}
+                    >
+                      {b.kelas}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Strip posisi: satu segmen kecil per kelas, yang tampil menyala */}
+      <div className="flex-1 flex items-center gap-[3px] min-w-0" aria-hidden>
+        {boards.map(b => (
+          <span key={b.sesiId} className={`h-1.5 flex-1 max-w-6 rounded-full transition-colors ${b.sesiId === aktifId ? 'bg-brand-300' : 'bg-slate-700'}`} />
+        ))}
+      </div>
     </div>
   )
 }
@@ -486,42 +610,25 @@ function PapanLive({ session, onLogout }: { session: Session; onLogout: () => vo
     <div className="relative min-h-screen bg-slate-950 flex flex-col overflow-hidden">
       <BackgroundGlow />
 
-      {/* Header */}
-      <header className="relative z-10 flex items-center justify-between gap-3 px-6 py-4 border-b border-white/10 bg-white/[0.03] backdrop-blur-md flex-wrap">
-        <div className="flex items-center gap-2.5">
+      {/* Header: kiri = judul/jam/status, tengah = nilai tertinggi, kanan = akun */}
+      <header className="relative z-10 flex items-center gap-x-4 gap-y-2 px-6 py-3 border-b border-white/10 bg-white/[0.03] backdrop-blur-md flex-wrap">
+        <div className="flex items-center gap-2.5 shrink-0">
           <Radio className="w-5 h-5 text-brand-400" />
-          <span className="text-white font-bold text-lg bg-gradient-to-r from-white to-slate-300 bg-clip-text">Layar Pantau Ujian</span>
-          <span className="text-slate-500 text-sm hidden sm:inline">{clock} WITA</span>
+          <span className="text-white font-bold text-lg">Layar Pantau Ujian</span>
+          <span className="text-slate-200 text-base hidden sm:inline">{clock} WITA</span>
           <ConnBadge status={connStatus} />
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
-          {boards.length > 1 && (
-            <div className="flex items-center gap-1.5 bg-white/5 rounded-xl p-1">
-              <button
-                onClick={() => setPinnedSesiId(null)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition
-                  ${pinnedSesiId === null ? 'bg-gradient-to-r from-brand-500 to-accent-500 text-white' : 'text-slate-300 hover:bg-white/10'}`}
-              >
-                Rotasi Semua
-              </button>
-              {boards.map(b => (
-                <button
-                  key={b.sesiId}
-                  onClick={() => setPinnedSesiId(b.sesiId)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition
-                    ${pinnedSesiId === b.sesiId ? 'bg-gradient-to-r from-brand-500 to-accent-500 text-white' : 'text-slate-300 hover:bg-white/10'}`}
-                >
-                  {b.kelas}
-                </button>
-              ))}
-            </div>
-          )}
+        {/* Di layar sempit pindah ke baris sendiri (order-last + w-full) */}
+        <div className="order-last w-full lg:order-none lg:w-auto lg:flex-1 min-w-0 flex justify-center">
+          {data && <NilaiTertinggi boards={boards} />}
+        </div>
 
+        <div className="flex items-center gap-2 shrink-0 ml-auto lg:ml-0">
           <div className="flex items-center gap-1.5 text-slate-300 text-sm bg-white/5 rounded-xl px-3 py-1.5">
             <User className="w-3.5 h-3.5" />
             <span className="font-medium text-white">{session.nama}</span>
-            <span className="text-slate-500">· {ROLE_LABEL[session.role] ?? session.role}</span>
+            <span className="text-slate-400">· {ROLE_LABEL[session.role] ?? session.role}</span>
           </div>
 
           <FullscreenButton />
@@ -531,6 +638,10 @@ function PapanLive({ session, onLogout }: { session: Session; onLogout: () => vo
           </button>
         </div>
       </header>
+
+      {boards.length > 1 && (
+        <PemilihKelas boards={boards} pinnedSesiId={pinnedSesiId} activeIndex={activeIndex} onPin={setPinnedSesiId} />
+      )}
 
       {/* Konten */}
       <main className="relative z-10 flex-1 p-6 overflow-hidden">
