@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { AlertTriangle, CheckCircle2, Flag, Lock, PartyPopper, Trophy } from 'lucide-react'
 import type { LiveLeaderboardSesi } from '@/lib/leaderboard-live'
 
@@ -47,6 +47,35 @@ function useFlipAnimation(rowKeys: string[], containerRef: React.RefObject<HTMLD
   }, [rowKeys.join('|')])
 }
 
+// ── Tinggi baris proporsional ───────────────────────────────────────────────
+// Tinggi tiap baris siswa menyesuaikan jumlah siswa: sedikit siswa → baris
+// agak tinggi (maks), banyak siswa → baris menipis (min) supaya makin banyak
+// yang muat di layar. Batasnya relatif terhadap tinggi layar (vh) supaya sama
+// proporsinya di laptop, TV, maupun proyektor, dengan lantai piksel agar teks
+// tidak pernah terlalu kecil. Kalau siswa masih terlalu banyak walau sudah
+// setipis batas minimum, daftar bisa di-scroll.
+const GAP_BARIS = 4
+function useTinggiBaris(containerRef: React.RefObject<HTMLDivElement>, jumlah: number): number {
+  const [h, setH] = useState(0)
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const ukur = () => setH(el.clientHeight)
+    ukur()
+    const ro = new ResizeObserver(ukur)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [containerRef, jumlah > 0])
+
+  const vh = typeof window !== 'undefined' ? window.innerHeight / 100 : 10
+  const min = Math.max(40, Math.round(vh * 4.4))
+  const max = Math.max(min, Math.round(vh * 7))
+  if (!jumlah || !h) return max
+  const ideal = Math.floor((h - (jumlah - 1) * GAP_BARIS) / jumlah)
+  return Math.min(max, Math.max(min, ideal))
+}
+const px = (v: number, lo: number, hi: number) => Math.round(Math.min(hi, Math.max(lo, v)))
+
 const MEDAL_STYLES = [
   'bg-gradient-to-br from-yellow-200 via-yellow-400 to-amber-500 text-yellow-900 shadow-[0_0_18px_rgba(250,204,21,0.55)]', // #1
   'bg-gradient-to-br from-slate-100 via-slate-300 to-slate-400 text-slate-700 shadow-[0_0_12px_rgba(203,213,225,0.35)]',   // #2
@@ -91,6 +120,7 @@ export function LiveLeaderboardBoard({
   const containerRef = useRef<HTMLDivElement>(null)
   const rowKeys = board.peserta.map(p => p.nis)
   useFlipAnimation(rowKeys, containerRef)
+  const rowH = useTinggiBaris(containerRef, board.peserta.length)
 
   const sesiBaruDitutup = board.statusSesi === 'SELESAI' && sisaDetikTutup !== undefined
 
@@ -98,29 +128,30 @@ export function LiveLeaderboardBoard({
   const kapasitasTotal = board.totalPeserta * (board.peserta[0]?.totalSoal ?? 0)
   const progres = kapasitasTotal > 0 ? Math.round((terjawabTotal / kapasitasTotal) * 100) : 0
   const totalSoalBoard = board.peserta[0]?.totalSoal ?? 0
-  // Banyak siswa → rapatkan sedikit supaya semua baris muat di layar.
-  const padat = board.peserta.length > 12
+  // Banyak siswa → kepala papan (kelas/mapel/statistik) ikut diciutkan supaya
+  // ruang untuk baris siswa lebih lega.
+  const ringkas = board.peserta.length > 6
 
   return (
-    <div className="relative flex flex-col h-full">
+    <div className="relative flex flex-col h-full flex-1 min-h-0">
       {sesiBaruDitutup && <OverlaySelesai sisaDetik={sisaDetikTutup!} />}
 
-      <div className="flex items-end justify-between mb-6 flex-wrap gap-3">
+      <div className={`flex items-end justify-between flex-wrap gap-3 ${ringkas ? 'mb-3' : 'mb-6'}`}>
         <div>
-          <p className="inline-block text-base font-bold tracking-wider uppercase bg-slate-800 border border-brand-300/60 text-white rounded-full px-4 py-1 mb-2">
+          <p className={`inline-block font-bold tracking-wider uppercase bg-slate-800 border border-brand-300/60 text-white rounded-full px-4 py-1 mb-2 ${ringkas ? 'text-sm' : 'text-base'}`}>
             Kelas {board.kelas}
           </p>
-          <h2 className="text-5xl font-extrabold text-white">
+          <h2 className={`${ringkas ? 'text-3xl' : 'text-5xl'} font-extrabold text-white`}>
             {board.namaMapel}
           </h2>
         </div>
         <div className="text-right text-slate-100">
-          <p className="text-lg flex items-center justify-end gap-1.5">
+          <p className={`${ringkas ? 'text-sm' : 'text-lg'} flex items-center justify-end gap-1.5`}>
             <Flag className="w-4 h-4 text-accent-300" />
             Menuju {totalSoalBoard} soal
           </p>
-          <p className="text-4xl font-bold text-white">{board.totalPeserta} siswa</p>
-          <p className="text-lg text-slate-200">Progres pengerjaan ± {progres}%</p>
+          <p className={`${ringkas ? 'text-2xl' : 'text-4xl'} font-bold text-white`}>{board.totalPeserta} siswa</p>
+          <p className={`${ringkas ? 'text-sm' : 'text-lg'} text-slate-200`}>Progres pengerjaan ± {progres}%</p>
         </div>
       </div>
 
@@ -129,7 +160,7 @@ export function LiveLeaderboardBoard({
           Menunggu jawaban pertama masuk…
         </div>
       ) : (
-        <div ref={containerRef} className={`flex-1 overflow-y-auto pr-1 ${padat ? 'space-y-1' : 'space-y-2'}`}>
+        <div ref={containerRef} className="flex-1 min-h-0 overflow-y-auto pr-1 flex flex-col gap-1">
           {board.peserta.map((p, i) => {
             // Panjang bar = progres menuju "garis finis" (total soal) —
             // semua siswa berbagi garis finis yang sama, jadi bar yang lebih
@@ -150,8 +181,9 @@ export function LiveLeaderboardBoard({
               <div
                 key={p.nis}
                 data-row-nis={p.nis}
-                className={`relative overflow-hidden rounded-xl will-change-transform transition-transform
+                className={`relative shrink-0 overflow-hidden rounded-lg will-change-transform transition-transform
                   bg-slate-950/90 ${rowRing}`}
+                style={{ height: rowH }}
               >
                 {/* "Lintasan balap": lebar bar mengejar garis finis di kanan,
                     beranimasi tiap kali jumlah benar berubah. */}
@@ -173,43 +205,55 @@ export function LiveLeaderboardBoard({
                 {/* Garis finis di ujung kanan, penanda batas total soal */}
                 <div className="absolute inset-y-0 right-0 w-px bg-white/30" />
 
-                <div className={`relative z-10 flex items-center gap-4 px-4 ${padat ? 'py-1.5' : 'py-3'}`}>
+                <div className="relative z-10 h-full flex items-center gap-3 px-3">
                   <div
-                    className={`${padat ? 'w-8 h-8 text-sm' : 'w-11 h-11 text-lg'} shrink-0 rounded-full flex items-center justify-center font-bold ring-2 ring-white/30
+                    className={`shrink-0 rounded-full flex items-center justify-center font-bold ring-2 ring-white/30
                       ${i < 3 ? MEDAL_STYLES[i] : 'bg-slate-700 text-white'}`}
+                    style={{ width: px(rowH * 0.62, 26, 44), height: px(rowH * 0.62, 26, 44), fontSize: px(rowH * 0.3, 12, 20) }}
                   >
-                    {i < 3 ? <Trophy className={padat ? 'w-4 h-4' : 'w-5 h-5'} /> : i + 1}
+                    {i < 3 ? <Trophy style={{ width: '50%', height: '50%' }} /> : i + 1}
                   </div>
 
-                  <div className="flex-1 min-w-0 flex items-baseline gap-x-4 gap-y-0 flex-wrap">
-                    <p className={`text-white font-extrabold truncate [text-shadow:0_1px_3px_rgba(0,0,0,0.9)] shrink min-w-0 ${padat ? 'text-2xl' : 'text-3xl'}`}>{p.nama}</p>
-                    <p className={`text-slate-100 font-medium whitespace-nowrap shrink-0 ${padat ? 'text-base' : 'text-lg'}`}>
-                      Terjawab {p.terjawab}/{p.totalSoal} · Nilai sementara {p.nilaiSementara}
-                      {reset && (
-                        <span className="ml-2 inline-flex items-center gap-1.5 rounded-md bg-red-700 px-2 py-0.5 font-extrabold text-white">
-                          <AlertTriangle className="w-4 h-4" /> Pelanggaran · menunggu pengawas
-                        </span>
-                      )}
-                      {terkunci && (
-                        <span className="ml-2 inline-flex items-center gap-1.5 rounded-md bg-red-800 px-2 py-0.5 font-extrabold text-white">
-                          <Lock className="w-4 h-4" /> Terkunci · ujian dihentikan
-                        </span>
-                      )}
-                      {p.selesai && !terkunci && (
-                        <span className="ml-1.5 inline-flex items-center gap-1 text-emerald-300 font-bold">
-                          <CheckCircle2 className="w-4 h-4" /> Selesai
-                        </span>
-                      )}
-                    </p>
-                  </div>
+                  <p
+                    className="text-white font-extrabold truncate shrink-0 max-w-[38%] [text-shadow:0_1px_3px_rgba(0,0,0,0.9)]"
+                    style={{ fontSize: px(rowH * 0.4, 16, 30) }}
+                  >
+                    {p.nama}
+                  </p>
 
-                  <div className="flex items-baseline gap-1.5 shrink-0">
-                    <span className="text-sm font-semibold uppercase tracking-wide text-slate-200 whitespace-nowrap">
+                  <p
+                    className="text-slate-100 font-medium whitespace-nowrap truncate min-w-0 flex-1"
+                    style={{ fontSize: px(rowH * 0.24, 12, 18) }}
+                  >
+                    Terjawab {p.terjawab}/{p.totalSoal} · Nilai sementara {p.nilaiSementara}
+                  </p>
+
+                  {p.selesai && !terkunci && (
+                    <span className="shrink-0 inline-flex items-center gap-1 text-emerald-300 font-bold" style={{ fontSize: px(rowH * 0.24, 12, 18) }}>
+                      <CheckCircle2 className="w-[1.1em] h-[1.1em]" /> Selesai
+                    </span>
+                  )}
+                  {reset && (
+                    <span className="shrink-0 inline-flex items-center gap-1.5 rounded-md bg-red-700 px-2 py-0.5 font-extrabold text-white" style={{ fontSize: px(rowH * 0.24, 12, 18) }}>
+                      <AlertTriangle className="w-[1.1em] h-[1.1em]" /> Pelanggaran · menunggu pengawas
+                    </span>
+                  )}
+                  {terkunci && (
+                    <span className="shrink-0 inline-flex items-center gap-1.5 rounded-md bg-red-800 px-2 py-0.5 font-extrabold text-white" style={{ fontSize: px(rowH * 0.24, 12, 18) }}>
+                      <Lock className="w-[1.1em] h-[1.1em]" /> Terkunci · ujian dihentikan
+                    </span>
+                  )}
+
+                  <div className="flex items-baseline gap-1.5 shrink-0 ml-auto">
+                    <span
+                      className="font-semibold uppercase tracking-wide text-slate-200 whitespace-nowrap"
+                      style={{ fontSize: px(rowH * 0.19, 11, 14) }}
+                    >
                       Jawaban benar
                     </span>
-                    <p className={`${padat ? 'text-3xl' : 'text-5xl'} font-black text-white tabular-nums leading-none [text-shadow:0_1px_3px_rgba(0,0,0,0.9)]`}>
+                    <p className="font-black text-white tabular-nums leading-none [text-shadow:0_1px_3px_rgba(0,0,0,0.9)]" style={{ fontSize: px(rowH * 0.55, 22, 44) }}>
                       {p.benar}
-                      <span className="text-xl font-semibold text-slate-200">/{p.totalSoal}</span>
+                      <span className="font-semibold text-slate-200" style={{ fontSize: px(rowH * 0.28, 13, 22) }}>/{p.totalSoal}</span>
                     </p>
                   </div>
                 </div>
