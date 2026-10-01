@@ -1327,7 +1327,11 @@ export default function SiswaUjianPage() {
   useEffect(() => {
     if (phase !== 'UJIAN') return
     syncRef.current = setInterval(() => syncJawaban(), 30000)
-    return () => clearInterval(syncRef.current!)
+    return () => {
+      clearInterval(syncRef.current!)
+      if (syncCepatTimerRef.current) { clearTimeout(syncCepatTimerRef.current); syncCepatTimerRef.current = null }
+      syncCepatMulaiRef.current = 0
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase])
 
@@ -1545,6 +1549,35 @@ export default function SiswaUjianPage() {
     jawabanTsRef.current = { ...jawabanTsRef.current, [soalId]: trustedNow() }
     jawabanRevisiRef.current = { ...jawabanRevisiRef.current, [soalId]: nextRevisi(jawabanRevisiRef.current, soalId) }
     setJawaban(prev => ({ ...prev, [soalId]: label }))
+    jadwalkanSyncCepat()
+  }
+
+  // ── Sync CEPAT (supaya Layar Pantau terasa realtime) ─────────────────────
+  // Sebelumnya jawaban baru terkirim ke server hanya lewat autosync 30 detik,
+  // jadi persentase di Layar Pantau bisa tertinggal sampai ~30 detik. Sekarang
+  // setiap pilihan jawaban memicu sync "tertunda": ditunggu SYNC_CEPAT_DEBOUNCE_MS
+  // setelah klik TERAKHIR (siswa yang mengubah jawaban beruntun cuma
+  // memicu 1 request), tapi tidak pernah ditunda lebih dari
+  // SYNC_CEPAT_MAKS_TUNDA_MS walau siswa terus mengklik. Hemat bandwidth:
+  // rata-rata cuma 1 request per beberapa soal, bukan 1 per klik. Tetap lewat
+  // antrean syncJawaban() (serial, aman dari race) dan autosync 30 detik tetap
+  // jalan sebagai jaring pengaman.
+  const SYNC_CEPAT_DEBOUNCE_MS = 2500
+  const SYNC_CEPAT_MAKS_TUNDA_MS = 8000
+  const syncCepatTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const syncCepatMulaiRef = useRef(0)
+  function jadwalkanSyncCepat() {
+    const now = Date.now()
+    if (!syncCepatMulaiRef.current) syncCepatMulaiRef.current = now
+    const sisaMaks = Math.max(0, SYNC_CEPAT_MAKS_TUNDA_MS - (now - syncCepatMulaiRef.current))
+    if (syncCepatTimerRef.current) clearTimeout(syncCepatTimerRef.current)
+    syncCepatTimerRef.current = setTimeout(() => {
+      syncCepatTimerRef.current = null
+      syncCepatMulaiRef.current = 0
+      // Offline: jangan menumpuk antrean retry — autosync/submit yang akan menyusul.
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) return
+      void syncJawaban()
+    }, Math.min(SYNC_CEPAT_DEBOUNCE_MS, sisaMaks))
   }
 
   // Padanan pilihJawaban() untuk essay mode DIGITAL — sekarang juga mencatat
