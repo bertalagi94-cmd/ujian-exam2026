@@ -16,6 +16,7 @@ export function terjemahJenisPelanggaran(jenis: string): string {
     CONTEXT_MENU:    'Klik Kanan',
     KEYBOARD_BLOCK:  'Shortcut Terlarang',
     DRAG_DROP:       'Drag & Drop',
+    LOCK_RELEASED:   'Melepas Penguncian Layar',
   }
   return map[jenis] ?? jenis.replace(/_/g, ' ')
 }
