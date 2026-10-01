@@ -25,6 +25,7 @@ import { kunciIdentitasTab, identitasTabBerubah } from '@/lib/identitas-tab'
 import { AlertTriangle } from 'lucide-react'
 import { mulaiPemantauJaringan } from '@/lib/status-jaringan'
 import { StatusJaringanBar } from '@/components/shared/StatusJaringanBar'
+import { KunciLayarWajib } from '@/components/shared/KunciLayarWajib'
 import { DashboardPhotoBackground } from '@/components/shared/DashboardPhotoBackground'
 
 export default function SiswaLayout({ children }: { children: React.ReactNode }) {
@@ -126,6 +127,8 @@ export default function SiswaLayout({ children }: { children: React.ReactNode })
         </main>
       </div>
       {isUjian && <StatusJaringanBar />}
+      {/* APK Android: tutup soal sampai layar tersemat (screen pinning). No-op di browser. */}
+      <KunciLayarWajib />
     </div>
   )
 }
