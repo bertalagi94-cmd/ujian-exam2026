@@ -607,7 +607,7 @@ function PapanLive({ session, onLogout }: { session: Session; onLogout: () => vo
   const sisaDetikDisplayed = displayedBoard ? hitungSisaDetik(displayedBoard) : null
 
   return (
-    <div className="relative min-h-screen bg-slate-950 flex flex-col overflow-hidden">
+    <div className="relative h-screen bg-slate-950 flex flex-col overflow-hidden">
       <BackgroundGlow />
 
       {/* Header: kiri = judul/jam/status, tengah = nilai tertinggi, kanan = akun */}
@@ -644,7 +644,7 @@ function PapanLive({ session, onLogout }: { session: Session; onLogout: () => vo
       )}
 
       {/* Konten */}
-      <main className="relative z-10 flex-1 p-6 overflow-hidden">
+      <main className="relative z-10 flex-1 min-h-0 flex flex-col p-6 overflow-hidden">
         {fetchError && (
           <p className="text-center text-amber-400 text-sm mb-4">{fetchError}</p>
         )}
@@ -653,16 +653,16 @@ function PapanLive({ session, onLogout }: { session: Session; onLogout: () => vo
         )}
 
         {!data ? (
-          <div className="h-full flex items-center justify-center text-slate-400 text-lg">Memuat…</div>
+          <div className="flex-1 flex items-center justify-center text-slate-400 text-lg">Memuat…</div>
         ) : boards.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center text-center gap-2">
+          <div className="flex-1 flex flex-col items-center justify-center text-center gap-2">
             <p className="text-2xl font-semibold text-slate-300">Belum ada ujian yang sedang berlangsung</p>
             <p className="text-slate-500 text-sm">Papan akan otomatis tampil begitu ada sesi ujian yang berjalan.</p>
           </div>
         ) : displayedBoard ? (
           <div
             key={displayedBoard.sesiId}
-            className="h-full rounded-3xl bg-gradient-to-br from-white/[0.07] to-white/[0.02] border border-white/10 backdrop-blur-xl shadow-2xl shadow-black/40 p-6 md:p-8 animate-[fadeIn_0.4s_ease]"
+            className="flex-1 min-h-0 flex flex-col rounded-3xl bg-gradient-to-br from-white/[0.07] to-white/[0.02] border border-white/10 backdrop-blur-xl shadow-2xl shadow-black/40 p-6 md:p-8 animate-[fadeIn_0.4s_ease]"
           >
             <LiveLeaderboardBoard board={displayedBoard} sisaDetikTutup={sisaDetikDisplayed ?? undefined} />
           </div>
