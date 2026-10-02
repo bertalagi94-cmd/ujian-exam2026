@@ -115,6 +115,9 @@ interface SoalEssay {
 
 interface JawabanEssayMap { [soalEssayId: string]: string }
 
+// Nilai PG yang dibuka setelah essay dikirim. nilai/grade/lulus hanya ada kalau server
+// mengembalikannya — dipakai untuk animasi pengumuman nilai (ScoreReveal).
+interface NilaiPgEssay { id?: string; benar: number; total: number; kkm: number; nilai?: number; grade?: string; lulus?: boolean }
 interface HasilAkhir { id?: string; nilai: number; benar: number; total: number; grade: string; lulus: boolean; kkm: number }
 
 // ── Jembatan aplikasi Android (EXAMFLOW) ────────────────────────────────────
@@ -366,7 +369,7 @@ export default function SiswaUjianPage() {
   // Kirim essay
   const [confirmKirimEssay, setConfirmKirimEssay] = useState(false)
   const [submittingEssay, setSubmittingEssay] = useState(false)
-  const [nilaiPgSetelahEssay, setNilaiPgSetelahEssay] = useState<{ id?: string; benar: number; total: number; kkm: number } | null>(null)
+  const [nilaiPgSetelahEssay, setNilaiPgSetelahEssay] = useState<NilaiPgEssay | null>(null)
   // true = siswa baru saja mengirim essay — halaman SELESAI harus menampilkan
   // tampilan "menunggu koreksi guru" (bukan lulus/grade seperti ujian biasa,
   // karena nilai_total memang belum ada sampai guru mengoreksi & merilis).
@@ -1139,7 +1142,7 @@ export default function SiswaUjianPage() {
   // diambil alih device, phase lain, atau SELESAI tanpa animasi) tetap
   // melepas seketika seperti semula.
   const tahanLockUntukAnimasi =
-    phase === 'SELESAI' && !!hasilNilai && fasaAnimasiNilai !== 'off' &&
+    phase === 'SELESAI' && fasaAnimasiNilai !== 'off' &&
     !dikeluarkan && !diambilAlihDevice
 
   useEffect(() => {
@@ -3545,7 +3548,7 @@ export default function SiswaUjianPage() {
     clearInterval(essaySyncRef.current!)
 
     try {
-      const res = await apiRequest<{ sudahDikirim: boolean; nilaiPg: { id?: string; benar: number; total: number; kkm: number } | null }>(
+      const res = await apiRequest<{ sudahDikirim: boolean; nilaiPg: NilaiPgEssay | null }>(
         '/api/siswa/ujian/essay/kirim',
         // FIX BUG (essay/kirim tidak memeriksa deviceId): sertakan deviceId,
         // sama seperti syncJawaban()/essay/jawab, supaya backend bisa menolak
@@ -3558,6 +3561,12 @@ export default function SiswaUjianPage() {
       // karena 'SELESAI' termasuk dalam daftar fase yang melepas fullscreen).
       setNilaiPgSetelahEssay(res.nilaiPg)
       setEssaySelesaiDikirim(true)
+      // FIX (animasi hitung mundur nilai tidak muncul setelah essay): layar
+      // "Ujian Selesai" khusus essay dulu TIDAK punya animasi sama sekali,
+      // jadi pin layar langsung dilepas. Sekarang animasi dinyalakan di sini
+      // (sebelum phase berubah) — pelepasan fullscreen/pin ditahan oleh efek
+      // `tahanLockUntukAnimasi` sampai animasi selesai.
+      if (typeof res.nilaiPg?.nilai === 'number') setFasaAnimasiNilai('main')
       setPhase('SELESAI')
     } catch (err: unknown) {
       console.error(err)
@@ -4645,7 +4654,23 @@ export default function SiswaUjianPage() {
   if (phase === 'SELESAI' && essaySelesaiDikirim) {
     return (
       <div className="max-w-md mx-auto animate-fade-in">
-        <div className="card text-center">
+        {fasaAnimasiNilai !== 'off' && typeof nilaiPgSetelahEssay?.nilai === 'number' && (
+          <ScoreReveal
+            nilai={nilaiPgSetelahEssay.nilai}
+            lulus={nilaiPgSetelahEssay.lulus ?? nilaiPgSetelahEssay.nilai >= nilaiPgSetelahEssay.kkm}
+            namaMapel={essayInfo?.namaMapel}
+            targetRef={nilaiTargetRef}
+            onShrinkStart={() => setFasaAnimasiNilai('shrink')}
+            onDone={() => setFasaAnimasiNilai('off')}
+          />
+        )}
+        <div
+          className="card text-center"
+          style={{
+            opacity: fasaAnimasiNilai === 'main' ? 0 : 1,
+            transition: 'opacity 0.8s ease',
+          }}
+        >
           <div className={`w-20 h-20 rounded-3xl flex items-center justify-center mx-auto mb-4 ${essayTertunda ? 'bg-amber-100' : 'bg-emerald-100'}`}>
             {essayTertunda ? (
               <RefreshCw className="w-10 h-10 text-amber-600" />
@@ -4691,7 +4716,17 @@ export default function SiswaUjianPage() {
           )}
 
           {nilaiPgSetelahEssay && (
-            <div className="grid grid-cols-3 gap-3 mb-6">
+            <div className={`grid gap-3 mb-6 ${typeof nilaiPgSetelahEssay.nilai === 'number' ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-3'}`}>
+              {typeof nilaiPgSetelahEssay.nilai === 'number' && (
+                <div className="bg-slate-50 rounded-xl p-4">
+                  <div
+                    ref={nilaiTargetRef}
+                    className="text-2xl font-bold text-slate-900"
+                    style={{ visibility: fasaAnimasiNilai === 'off' ? 'visible' : 'hidden' }}
+                  >{nilaiPgSetelahEssay.nilai}</div>
+                  <div className="text-xs text-slate-400 mt-1">Nilai PG</div>
+                </div>
+              )}
               <div className="bg-slate-50 rounded-xl p-4">
                 <div className="text-2xl font-bold text-slate-900">{nilaiPgSetelahEssay.benar}/{nilaiPgSetelahEssay.total}</div>
                 <div className="text-xs text-slate-400 mt-1">Benar PG</div>
