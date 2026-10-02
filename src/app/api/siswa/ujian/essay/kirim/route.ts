@@ -52,14 +52,14 @@ export async function POST(req: NextRequest) {
   if (siswaUjian.status_essay === 'SUDAH_KIRIM') {
     const { data: nilaiSudahAda } = await db
       .from('nilai')
-      .select('id, benar, total, kkm')
+      .select('id, benar, total, kkm, nilai, grade, lulus')
       .eq('sesi_id', sesiId)
       .eq('nis', nis)
       .single()
     return NextResponse.json({
       sudahDikirim: true,
       nilaiPg: nilaiSudahAda
-        ? { id: nilaiSudahAda.id, benar: nilaiSudahAda.benar, total: nilaiSudahAda.total, kkm: nilaiSudahAda.kkm }
+        ? { id: nilaiSudahAda.id, benar: nilaiSudahAda.benar, total: nilaiSudahAda.total, kkm: nilaiSudahAda.kkm, nilai: nilaiSudahAda.nilai, grade: nilaiSudahAda.grade, lulus: nilaiSudahAda.lulus }
         : null,
     })
   }
@@ -259,14 +259,14 @@ export async function POST(req: NextRequest) {
   // transaksi RPC di atas — nilai tidak ditulis di sini maupun oleh RPC ini.
   const { data: nilai } = await db
     .from('nilai')
-    .select('id, benar, total, kkm')
+    .select('id, benar, total, kkm, nilai, grade, lulus')
     .eq('sesi_id', sesiId)
     .eq('nis', nis)
     .single()
 
   return NextResponse.json({
     sudahDikirim: true,
-    nilaiPg: nilai ? { id: nilai.id, benar: nilai.benar, total: nilai.total, kkm: nilai.kkm } : null,
+    nilaiPg: nilai ? { id: nilai.id, benar: nilai.benar, total: nilai.total, kkm: nilai.kkm, nilai: nilai.nilai, grade: nilai.grade, lulus: nilai.lulus } : null,
     ...(hasil === 'OK'
       ? { pesan: 'Jawaban essay terkirim. Nilai akhir akan dirilis guru setelah dikoreksi.' }
       : {}),
