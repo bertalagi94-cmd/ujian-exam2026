@@ -3,6 +3,7 @@ import '../styles/globals.css'
 import { createAdminClient } from '@/lib/supabase'
 import { cachedFetch } from '@/lib/cache'
 import { ServiceWorkerRegister } from '@/components/shared/ServiceWorkerRegister'
+import { StatusModeOffline } from '@/components/shared/StatusModeOffline'
 
 // FIX (judul tab tidak generik): sebelumnya title/description di-hardcode ke
 // nama satu sekolah ("MTS Alkhairaat Tatakalai"), padahal aplikasi ini dipakai
@@ -51,6 +52,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="id">
       <body>
         <ServiceWorkerRegister />
+        {/* Penanda "Mode Offline" / "Online" di atas semua halaman (fixed, tidak menggeser layout). */}
+        <StatusModeOffline />
         {children}
       </body>
     </html>
