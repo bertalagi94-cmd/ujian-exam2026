@@ -391,7 +391,16 @@
 .exam-header {
   background: linear-gradient(135deg, #0891b2 0%, #2563eb 100%);
   border: none;
-  position: relative;
+  /* FIX (header ikut tergeser saat scroll): sebelumnya di sini `position:
+     relative` — karena aturan ini berada DI LUAR @layer dan ditulis setelah
+     utilitas Tailwind, ia mengalahkan class `sticky top-0` di komponen
+     sehingga header tetap ikut ter-scroll. Sekarang `sticky` ditetapkan
+     langsung di sini (sticky juga tetap jadi acuan posisi untuk ::before
+     yang absolute, jadi tampilan gradient tidak berubah). !important
+     dipakai agar tidak ada utilitas lain yang menimpanya lagi. */
+  position: sticky !important;
+  top: 0;
+  z-index: 30;
   overflow: hidden;
 }
 .exam-header::before {
