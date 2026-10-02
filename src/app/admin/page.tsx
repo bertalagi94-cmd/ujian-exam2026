@@ -5,6 +5,7 @@ import { Users, BookOpen, GraduationCap, BarChart3, Calendar, ClipboardCheck, Tr
 import { StatCard, PageLoader, Badge, StatusBadge } from '@/components/ui'
 import { apiRequest, formatDateTime, nilaiColor } from '@/lib/utils'
 import MonitoringPanel from '@/components/shared/MonitoringPanel'
+import { SesiBelumDitutupAdmin } from '@/components/shared/SesiBelumDitutupAdmin'
 import NetworkFlowMonitor from '@/components/shared/NetworkFlowMonitor'
 
 interface DashboardData {
@@ -85,6 +86,9 @@ export default function AdminDashboard() {
             : 'Dashboard Admin'}
         </p>
       </div>
+
+      {/* Sesi yang sudah lewat waktunya tapi belum ditutup pengawas (null jika tidak ada) */}
+      <SesiBelumDitutupAdmin />
 
       {/* Stats Grid */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
