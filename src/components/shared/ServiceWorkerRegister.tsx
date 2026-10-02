@@ -15,9 +15,16 @@ export function ServiceWorkerRegister() {
   useEffect(() => {
     if (typeof window === 'undefined') return
     if (!('serviceWorker' in navigator)) return
-    navigator.serviceWorker.register('/sw.js').catch(() => {
-      // Lihat catatan di atas — kegagalan registrasi bukan blocker.
-    })
+    navigator.serviceWorker
+      .register('/sw.js')
+      // Paksa cek versi baru setiap aplikasi dibuka (saat online). Tanpa ini,
+      // browser baru mengecek paling cepat 24 jam sekali, sehingga HP siswa
+      // bisa tertinggal di cache build lama setelah deploy. Gagal saat
+      // offline itu wajar dan diabaikan.
+      .then((reg) => { reg.update().catch(() => {}) })
+      .catch(() => {
+        // Lihat catatan di atas — kegagalan registrasi bukan blocker.
+      })
   }, [])
   return null
 }
