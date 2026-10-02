@@ -1128,6 +1128,20 @@ export default function SiswaUjianPage() {
   }, [phase, essayInfoBelumSiap])
 
   // ── Keluar fullscreen saat ujian selesai ──────────────────────────────────
+  // FIX (animasi hitung mundur nilai kadang tidak tampil / langsung loncat ke
+  // nilai): sebelumnya fullscreen + pin layar (APK) dilepas SEKETIKA saat
+  // phase berubah ke 'SELESAI' — padahal pada saat yang sama animasi
+  // ScoreReveal baru mulai. Proses lepas pin/fullscreen membuat WebView
+  // berganti ukuran, tampil ulang, dan sempat menahan timer/render, sehingga
+  // hitung mundur sering terpotong dan nilai langsung muncul. Sekarang kalau
+  // animasi nilai sedang berjalan (fasaAnimasiNilai !== 'off'), pelepasan
+  // DITUNDA sampai animasi benar-benar selesai (onDone). Jalur lain (dikunci,
+  // diambil alih device, phase lain, atau SELESAI tanpa animasi) tetap
+  // melepas seketika seperti semula.
+  const tahanLockUntukAnimasi =
+    phase === 'SELESAI' && !!hasilNilai && fasaAnimasiNilai !== 'off' &&
+    !dikeluarkan && !diambilAlihDevice
+
   useEffect(() => {
     // BUG FIX: sebelumnya kondisi ini HANYA memeriksa `phase`. Saat siswa
     // dikunci permanen (TERKUNCI) atau sesinya diambil alih device lain
@@ -1136,24 +1150,51 @@ export default function SiswaUjianPage() {
     // berubah cuma flag `dikeluarkan`/`diambilAlihDevice` — `phase` itu
     // sendiri TIDAK PERNAH di-set balik, jadi baris ini tidak pernah jalan
     // dan siswa tetap terjebak di fullscreen web + screen pinning APK
-    // Android tanpa henti (layar kosong/terkunci walau kartu "Ujian
-    // Dihentikan" sudah semestinya tampil di baliknya). Sekarang flag itu
-    // ikut memicu pelepasan lock, disamping daftar phase yang sudah ada.
+    // Android tanpa henti. Sekarang flag itu ikut memicu pelepasan lock,
+    // disamping daftar phase yang sudah ada.
     const harusLepasLock =
       dikeluarkan || diambilAlihDevice ||
       phase === 'SELESAI' || phase === 'RESET_KODE' || phase === 'CEK_JADWAL' || phase === 'PERSIAPAN'
+    if (!harusLepasLock) return
 
-    if (harusLepasLock && isFullscreen()) {
-      exitFullscreen().catch(() => {})
-    }
-    // FIX (APK Android): lepas screen pinning + immersive mode begitu ujian
-    // benar-benar selesai/keluar dari fase mengerjakan soal, ATAU begitu
-    // siswa dipaksa keluar (dikunci permanen / device takeover). Sama
-    // seperti startExamLock(), ini no-op aman kalau bukan APK Android.
-    if (harusLepasLock) {
+    function lepasSekarang() {
+      if (isFullscreen()) {
+        exitFullscreen().catch(() => {})
+      }
+      // APK Android: lepas screen pinning + immersive mode. No-op aman di browser.
       endExamLock()
     }
-  }, [phase, dikeluarkan, diambilAlihDevice])
+
+    if (!tahanLockUntukAnimasi) {
+      lepasSekarang()
+      return
+    }
+
+    // Animasi nilai sedang berjalan: pertahankan fullscreen/pin dulu.
+    let sudahLepas = false
+    const lepasSekali = () => {
+      if (sudahLepas) return
+      sudahLepas = true
+      lepasSekarang()
+    }
+    // Jaring pengaman: kalau animasi macet dan tidak pernah memanggil onDone,
+    // siswa tetap tidak terjebak di fullscreen/pin selamanya.
+    const timerAman = setTimeout(lepasSekali, 40000)
+    // Kalau siswa sendiri melepas pin saat animasi (ujian sudah selesai,
+    // bukan pelanggaran), lepas semuanya sekalian supaya layar penutup
+    // "Penguncian Layar Diperlukan" tidak menutupi animasi nilai.
+    let berhenti: (() => void) | null = null
+    let batal = false
+    onExamLockLost(() => lepasSekali()).then((off) => {
+      if (batal) off()
+      else berhenti = off
+    })
+    return () => {
+      batal = true
+      clearTimeout(timerAman)
+      if (berhenti) berhenti()
+    }
+  }, [phase, dikeluarkan, diambilAlihDevice, tahanLockUntukAnimasi])
 
   // ── Polling status sesi setiap 10 detik — jika SELESAI, paksa submit ─────
   const cekStatusSesi = useCallback(async () => {
@@ -3923,6 +3964,23 @@ export default function SiswaUjianPage() {
                 <Clock className="w-3.5 h-3.5" />
                 {formatWaktu(sisaWaktuEssay)}
               </div>
+              {/* FIX (permintaan: tombol Kirim/Selesai essay terlalu dekat dengan
+                  tombol Sebelumnya/Berikutnya sehingga siswa mudah salah klik):
+                  tombol dipindah ke header (sticky, di atas) — sama seperti
+                  halaman PG — jadi terpisah jauh dari bar navigasi bawah.
+                  Tetap membuka dialog konfirmasi yang sama seperti sebelumnya. */}
+              <button
+                onClick={() => setConfirmKirimEssay(true)}
+                disabled={submittingEssay}
+                className="btn-sm btn-success flex items-center gap-1.5 font-semibold flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {modeJawaban === 'DIGITAL'
+                  ? <Send className="w-3.5 h-3.5" />
+                  : <LogOut className="w-3.5 h-3.5" />}
+                <span>
+                  {submittingEssay ? '...' : modeJawaban === 'DIGITAL' ? 'Kirim' : 'Selesai'}
+                </span>
+              </button>
             </div>
             {modeJawaban === 'DIGITAL' && (
               <div className={`relative z-[1] text-[11px] mt-1.5 flex items-center gap-1 ${
@@ -4059,32 +4117,10 @@ export default function SiswaUjianPage() {
             </div>
           )}
 
-          {/* Tombol aksi bawah — mode DIGITAL: kirim jawaban yang diketik.
-              Mode KERTAS: TIDAK ada tombol kirim/unggah foto sama sekali —
-              siswa hanya membaca soal & menulis di kertas. Kalau sudah
-              selesai menjawab semua soal di kertas, siswa menekan "Selesai"
-              untuk menutup halaman soal (irreversible, lihat dialog konfirmasi
-              di bawah — TIDAK ada proses kirim/unggah data apapun ke server
-              selain menandai status ujian selesai). */}
-          {modeJawaban === 'DIGITAL' ? (
-            <button
-              onClick={() => setConfirmKirimEssay(true)}
-              disabled={submittingEssay}
-              className="btn-success w-full justify-center py-3 text-base disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              <Send className="w-4 h-4" />
-              {submittingEssay ? 'Mengirim...' : 'Kirim Jawaban Essay'}
-            </button>
-          ) : (
-            <button
-              onClick={() => setConfirmKirimEssay(true)}
-              disabled={submittingEssay}
-              className="btn-success w-full justify-center py-3 text-base disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              <LogOut className="w-4 h-4" />
-              {submittingEssay ? 'Memproses...' : 'Selesai'}
-            </button>
-          )}
+          {/* Tombol Kirim/Selesai essay SENGAJA tidak lagi di sini (di bawah soal,
+              dekat bar Sebelumnya/Berikutnya) — sekarang ada di header atas.
+              Mode KERTAS: tidak ada proses kirim/unggah apapun, "Selesai" hanya
+              menutup halaman soal (lihat dialog konfirmasi di bawah). */}
         </div>
 
         {/* FIX (UX kirim essay): sebelumnya siswa bisa langsung kirim walau
