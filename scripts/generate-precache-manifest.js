@@ -42,6 +42,9 @@ const NEXT_DIR = path.join(ROOT, '.next')
 // Tahap 1 (mendesak): alur darurat guru saat mengawas ujian.
 // Tahap berikutnya akan menambah rute admin/kepsek/siswa lain di sini.
 const RUTE_PRECACHE = [
+  // "/" adalah alamat yang SELALU dibuka APK Android saat dijalankan. Wajib
+  // ikut di-precache, kalau tidak, membuka aplikasi saat offline gagal total.
+  '/',
   '/login',
   '/guru',
   '/guru/mode-pengawas',
@@ -119,6 +122,26 @@ function main() {
 
   const outPath = path.join(ROOT, 'public', 'precache-manifest.json')
   fs.writeFileSync(outPath, JSON.stringify(out, null, 2))
+  // CAP VERSI KE sw.js. Browser/WebView hanya memasang ulang Service Worker
+  // kalau ISI file sw.js berubah. Tanpa ini, sw.js identik di setiap deploy,
+  // sehingga HP yang sudah terpasang TIDAK PERNAH mengunduh ulang precache
+  // build baru (event `install` tidak berjalan lagi) dan cache lama tidak
+  // pernah dibuang. Menulis buildId ke baris pertama sw.js membuat tiap
+  // deploy menghasilkan sw.js yang berbeda, jadi pembaruan otomatis berjalan.
+  try {
+    const swPath = path.join(ROOT, 'public', 'sw.js')
+    if (fs.existsSync(swPath)) {
+      const isi = fs.readFileSync(swPath, 'utf8')
+      const penanda = `// SW_BUILD_ID: ${buildId}`
+      const baru = /^\/\/ SW_BUILD_ID:.*$/m.test(isi)
+        ? isi.replace(/^\/\/ SW_BUILD_ID:.*$/m, penanda)
+        : `${penanda}\n${isi}`
+      if (baru !== isi) fs.writeFileSync(swPath, baru)
+    }
+  } catch (e) {
+    console.warn('[precache-manifest] Gagal mencap versi ke sw.js:', e)
+  }
+
   console.log(
     `[precache-manifest] Selesai: ${urls.length} URL dicatat untuk precache ` +
     `(build ${buildId}), rute: ${ruteDitemukan.join(', ')}.`
