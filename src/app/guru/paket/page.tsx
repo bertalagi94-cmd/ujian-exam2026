@@ -9,6 +9,7 @@ import { Modal, Confirm, StatusBadge, EmptyState, Spinner, Toast, Badge } from '
 import { EssayFlowGuide } from '@/components/shared/EssayFlowGuide'
 import { PaletSimbol } from '@/components/shared/PaletSimbol'
 import { ImporSoalModal, type ImporSoalHasil } from '@/components/shared/ImporSoalModal'
+import { ImporSelesaiPopup, type ImporSelesaiInfo } from '@/components/shared/ImporSelesaiPopup'
 import { apiRequest, formatDateTime, generateId } from '@/lib/utils'
 import { PaketSoal, Mapel, Kelas, Soal, PaketEssay, SoalEssay } from '@/types'
 
@@ -127,12 +128,20 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
 
   // ── Impor soal PG dari file Word (lihat components/shared/ImporSoalModal) ──
   const [imporOpen, setImporOpen] = useState(false)
+  const [imporInfo, setImporInfo] = useState<ImporSelesaiInfo | null>(null)
+
+  function scrollKeDaftarSoal() {
+    setImporInfo(null)
+    setTimeout(() => document.getElementById('daftar-soal-dibuat')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100)
+  }
 
   async function handleImporSelesai(h: ImporSoalHasil) {
     if (h.jumlahOpsi) setPaketJumlahOpsi(h.jumlahOpsi)
+    let total = h.jumlah
     if (h.paketId) {
       const existing = await loadSoalPaket(h.paketId)
       setSoalDibuat(existing)
+      total = existing.length
       try {
         const listRes = await apiRequest<{ data: PaketSoal[] }>('/api/guru/paket')
         setPakets(listRes.data)
@@ -140,7 +149,7 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
         if (updated) setActivePaket(updated)
       } catch { /* daftar paket akan dimuat ulang oleh SYNC_EVENT di bawah */ }
     }
-    showToast(`${h.jumlah} soal berhasil diimpor dari Word`)
+    setImporInfo({ jenis: 'pg', diimpor: h.jumlah, total: Math.max(total, h.jumlah) })
     window.dispatchEvent(new Event(SYNC_EVENT))
   }
 
@@ -716,6 +725,7 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
           jumlahOpsiBawaan={paketJumlahOpsi === 5 ? 5 : 4}
           onSelesai={handleImporSelesai}
         />
+        <ImporSelesaiPopup info={imporInfo} onTutup={() => setImporInfo(null)} onLihatSoal={scrollKeDaftarSoal} />
 
         {/* Form tambah soal baru */}
         <div className="card">
@@ -807,7 +817,7 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
 
         {/* Daftar soal yang sudah dibuat (dengan tombol edit/hapus) */}
         {soalDibuat.length > 0 && (
-          <div className="card">
+          <div className="card" id="daftar-soal-dibuat">
             <p className="text-sm font-medium text-slate-600 mb-3">Soal yang sudah dibuat ({soalDibuat.length})</p>
             <div className="space-y-2">
               {renderSoalList(soalDibuat, activePaket.status, activePaket.id)}
@@ -1406,10 +1416,18 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
 
   // ── Impor soal essay dari file Word (lihat components/shared/ImporSoalModal) ──
   const [imporOpen, setImporOpen] = useState(false)
+  const [imporInfo, setImporInfo] = useState<ImporSelesaiInfo | null>(null)
+
+  function scrollKeDaftarSoal() {
+    setImporInfo(null)
+    setTimeout(() => document.getElementById('daftar-soal-dibuat')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100)
+  }
 
   async function handleImporSelesai(h: ImporSoalHasil) {
+    let total = h.jumlah
     if (activePaket) {
-      await loadSoalPaket(activePaket.id)
+      const existing = await loadSoalPaket(activePaket.id)
+      total = existing.length
       try {
         const listRes = await apiRequest<{ data: PaketEssay[] }>('/api/guru/paket-essay')
         setPakets(listRes.data)
@@ -1417,7 +1435,7 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
         if (updated) setActivePaket(updated)
       } catch { /* dimuat ulang lewat ESSAY_SYNC_EVENT di bawah */ }
     }
-    showToast(`${h.jumlah} soal essay berhasil diimpor dari Word`)
+    setImporInfo({ jenis: 'essay', diimpor: h.jumlah, total: Math.max(total, h.jumlah) })
     window.dispatchEvent(new Event(ESSAY_SYNC_EVENT))
   }
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -1849,6 +1867,7 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
             onSelesai={handleImporSelesai}
           />
         )}
+        <ImporSelesaiPopup info={imporInfo} onTutup={() => setImporInfo(null)} onLihatSoal={scrollKeDaftarSoal} />
 
         {!editable && (
           <div className="alert-info text-sm flex items-center gap-2">
@@ -1905,7 +1924,7 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
         )}
 
         {(soalList.length > 0 || loadingSoal) && (
-          <div className="card">
+          <div className="card" id="daftar-soal-dibuat">
             <p className="text-sm font-medium text-slate-600 mb-3">Soal yang sudah dibuat ({soalList.length})</p>
             {loadingSoal ? (
               <div className="flex justify-center py-4"><Spinner size="sm" /></div>
