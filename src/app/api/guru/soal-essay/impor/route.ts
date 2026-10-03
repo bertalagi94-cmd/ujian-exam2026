@@ -19,6 +19,7 @@ import { requireRole } from '@/lib/auth'
 import { generateId, stripHtmlTags } from '@/lib/utils'
 import { cekSesiMapelKelasSudahMulai, pesanBankSoalTerkunci } from '@/lib/sesi-kelas'
 import { catatAktivitas } from '@/lib/aktivitas'
+import { tandaEssay, tandaEssayDariDb } from '@/lib/impor-soal/duplikat'
 
 const MAKS_SOAL = 200
 
@@ -112,6 +113,34 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `${tampil}${sisa}` }, { status: 400 })
   }
 
+  // Pengaman duplikat: buang soal yang sama dengan yang sudah ada di paket.
+  const { data: adaEssay, error: errDup } = await db
+    .from('soal_essay')
+    .select('teks, gambar_url')
+    .eq('paket_essay_id', paket.id)
+  if (errDup) return NextResponse.json({ error: errDup.message }, { status: 500 })
+  const sudahAda = new Set<string>()
+  for (const r of adaEssay ?? []) {
+    const t = tandaEssayDariDb(r as Record<string, unknown>)
+    if (t) sudahAda.add(t)
+  }
+  const unik: typeof bersih = []
+  for (const b of bersih) {
+    const t = tandaEssay(b.teks, !!b.gambar)
+    if (t && sudahAda.has(t)) continue
+    if (t) sudahAda.add(t)
+    unik.push(b)
+  }
+  const dilewati = bersih.length - unik.length
+  if (unik.length === 0) {
+    return NextResponse.json(
+      { error: `Semua ${bersih.length} soal dalam file ini sudah ada di paket (isinya sama persis), jadi tidak ada yang diimpor lagi.` },
+      { status: 409 }
+    )
+  }
+  bersih.length = 0
+  bersih.push(...unik)
+
   const { data: terakhir, error: errUrut } = await db
     .from('soal_essay')
     .select('urutan')
@@ -152,7 +181,7 @@ export async function POST(req: NextRequest) {
   catatAktivitas(db, user.username, 'BUAT_SOAL', `Guru ${user.username} mengimpor ${baris.length} soal essay dari file Word`)
 
   return NextResponse.json(
-    { message: `${baris.length} soal essay berhasil diimpor`, jumlah: baris.length },
+    { message: `${baris.length} soal essay berhasil diimpor`, jumlah: baris.length, dilewati },
     { status: 201 }
   )
 }
