@@ -315,7 +315,7 @@ function ModalSusulanAdmin({
               </div>
 
               <p className="text-xs text-slate-400 text-center">
-                Guru yang ditugaskan dapat memantau dan menutup sesi ini dari menu <strong>Mode Pengawas</strong>.
+                Guru yang ditugaskan dapat memantau dan menutup sesi ini dari menu <strong>Jadwal Mengawas Saya</strong> (tab Mode Pengawas).
                 Admin juga dapat menutupnya kapan saja.
               </p>
 
