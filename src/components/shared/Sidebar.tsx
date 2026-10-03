@@ -7,7 +7,7 @@ import {
   LayoutDashboard, Users, BookOpen, Calendar, ClipboardList,
   BarChart3, Settings, LogOut, Menu, X, ChevronRight, ChevronLeft,
   GraduationCap, School, Bell, User, FileText, Eye, ShieldAlert,
-  FileBarChart, CheckSquare, Send
+  FileBarChart, CheckSquare, Send, CalendarDays
 } from 'lucide-react'
 import { cn, apiRequest } from '@/lib/utils'
 import { AuthUser } from '@/types'
@@ -546,6 +546,10 @@ export function GuruSidebar() {
 
   const navItems: NavItem[] = [
     { label: 'Dashboard', href: '/guru', icon: LayoutDashboard },
+    // FITUR BARU: daftar jadwal ujian untuk mapel yang DIAMPU guru ini
+    // (bukan tugas pengawasan). Selalu tampil untuk semua guru; kalau belum
+    // ada mapel/jadwal, halamannya sendiri menampilkan pesan kosong.
+    { label: 'Jadwal Mapel Saya', href: '/guru/jadwal-mapel', icon: CalendarDays },
     {
       label: 'Kisi-kisi',
       href: '/guru/kisi-kisi',
