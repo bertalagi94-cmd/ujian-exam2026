@@ -18,6 +18,9 @@ interface RincianSoal {
   // dikirim server (bukan dihilangkan dari daftar) — `dijawab: false`.
   dijawab: boolean
   benar: boolean
+  // Dikirim server hanya setelah sesi SELESAI (rincian tidak null).
+  jawaban_siswa?: string | null
+  kunci?: string | null
 }
 
 interface NilaiDetail {
@@ -316,12 +319,24 @@ export default function RincianNilaiPage() {
                 const opsiText = s[`opsi_${label.toLowerCase()}` as keyof RincianSoal] as string | undefined
                 const opsiGambar = s[`gambar_opsi_${label.toLowerCase()}` as keyof RincianSoal] as string | null | undefined
                 if (!opsiText) return null
+                const dipilihSiswa = s.jawaban_siswa === label
+                const adalahKunci = s.kunci === label
+                // Hijau = kunci jawaban; merah = jawaban siswa yang salah.
+                const kelasOpsi = adalahKunci
+                  ? 'soal-opsi-correct'
+                  : dipilihSiswa
+                    ? 'soal-opsi-wrong'
+                    : 'soal-opsi-default'
                 return (
-                  <div key={label} className="soal-opsi soal-opsi-default w-full text-left cursor-default">
-                    <span className="w-7 h-7 rounded-lg text-xs font-bold flex items-center justify-center flex-shrink-0 bg-slate-100 text-slate-600">
+                  <div key={label} className={`${kelasOpsi} w-full text-left cursor-default items-center`}>
+                    <span className={`w-7 h-7 rounded-lg text-xs font-bold flex items-center justify-center flex-shrink-0 ${
+                      adalahKunci ? 'bg-emerald-100 text-emerald-700'
+                      : dipilihSiswa ? 'bg-red-100 text-red-700'
+                      : 'bg-slate-100 text-slate-600'
+                    }`}>
                       {label}
                     </span>
-                    <span className="text-slate-800 flex flex-col gap-1">
+                    <span className="flex-1 min-w-0 text-slate-800 flex flex-col gap-1">
                       {opsiText}
                       {opsiGambar && (
                         <img
@@ -332,6 +347,26 @@ export default function RincianNilaiPage() {
                         />
                       )}
                     </span>
+                    {(dipilihSiswa || adalahKunci) && (
+                      <span className="flex flex-col items-end gap-1 flex-shrink-0 sm:flex-row sm:items-center sm:gap-2">
+                        {dipilihSiswa && (
+                          <span className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                            adalahKunci ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'
+                          }`}>
+                            {adalahKunci
+                              ? <CheckCircle2 className="w-3.5 h-3.5" />
+                              : <XCircle className="w-3.5 h-3.5 text-red-600" />}
+                            Jawaban Anda
+                          </span>
+                        )}
+                        {adalahKunci && (
+                          <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-emerald-600 px-2 py-0.5 text-[11px] font-semibold text-white">
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            Jawaban yang benar
+                          </span>
+                        )}
+                      </span>
+                    )}
                   </div>
                 )
               })}
