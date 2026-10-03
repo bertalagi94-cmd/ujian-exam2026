@@ -22,6 +22,7 @@ import { generateId, stripHtmlTags } from '@/lib/utils'
 import { cekSesiMapelKelasSudahMulai, pesanBankSoalTerkunci } from '@/lib/sesi-kelas'
 import { catatAktivitas } from '@/lib/aktivitas'
 import { validasiKunciOpsi } from '@/lib/validasi-soal'
+import { tandaPgDariDb } from '@/lib/impor-soal/duplikat'
 import { verifikasiKepemilikanMapelKelas, verifikasiKepemilikanPaketSoal } from '@/lib/guru-scope'
 
 const MAKS_SOAL = 200
@@ -190,6 +191,38 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `${tampil}${sisa}` }, { status: 400 })
   }
 
+  // ── Pengaman duplikat: buang soal yang SAMA dengan soal yang sudah ada di
+  //    paket (atau kembar di dalam file ini). Pratinjau di browser sudah
+  //    menandainya; ini jaring pengaman untuk klik ganda / dua tab. ──
+  let dilewati = 0
+  if (paketIdBody) {
+    const { data: ada, error: errDup } = await db
+      .from('soal')
+      .select('teks, opsi_a, opsi_b, opsi_c, opsi_d, opsi_e, kunci, gambar_pertanyaan, gambar_opsi_a, gambar_opsi_b, gambar_opsi_c, gambar_opsi_d, gambar_opsi_e')
+      .eq('paket_id', paketIdBody)
+    if (errDup) return NextResponse.json({ error: errDup.message }, { status: 500 })
+    const sudahAda = new Set<string>()
+    for (const r of ada ?? []) {
+      const t = tandaPgDariDb(r as Record<string, unknown>, jumlahOpsi)
+      if (t) sudahAda.add(t)
+    }
+    const unik: Record<string, unknown>[] = []
+    for (const b of baris) {
+      const t = tandaPgDariDb(b, jumlahOpsi)
+      if (t && sudahAda.has(t)) { dilewati++; continue }
+      if (t) sudahAda.add(t)
+      unik.push(b)
+    }
+    if (unik.length === 0) {
+      return NextResponse.json(
+        { error: `Semua ${baris.length} soal dalam file ini sudah ada di paket (isinya sama persis), jadi tidak ada yang diimpor lagi.` },
+        { status: 409 }
+      )
+    }
+    baris.length = 0
+    baris.push(...unik)
+  }
+
   // ── Tulis: paket (jika baru) lalu semua soal dalam satu INSERT ──
   let paketId = paketIdBody
   let paketBaru = false
@@ -224,7 +257,7 @@ export async function POST(req: NextRequest) {
   catatAktivitas(db, user.username, 'BUAT_SOAL', `Guru ${user.username} mengimpor ${baris.length} soal PG dari file Word`)
 
   return NextResponse.json(
-    { message: `${baris.length} soal berhasil diimpor`, paket_id: paketId, jumlah: baris.length },
+    { message: `${baris.length} soal berhasil diimpor`, paket_id: paketId, jumlah: baris.length, dilewati },
     { status: 201 }
   )
 }
