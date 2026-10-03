@@ -3,11 +3,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Plus, ChevronDown, ChevronUp, Trash2, ImagePlus, X, ArrowLeft, CheckCircle2, Pencil, Eye, Lock,
-  ListChecks, PenSquare, Send, RotateCcw, Copy, Info, ChevronRight,
+  ListChecks, PenSquare, Send, RotateCcw, Copy, Info, ChevronRight, FileUp,
 } from 'lucide-react'
 import { Modal, Confirm, StatusBadge, EmptyState, Spinner, Toast, Badge } from '@/components/ui'
 import { EssayFlowGuide } from '@/components/shared/EssayFlowGuide'
 import { PaletSimbol } from '@/components/shared/PaletSimbol'
+import { ImporSoalModal, type ImporSoalHasil } from '@/components/shared/ImporSoalModal'
 import { apiRequest, formatDateTime, generateId } from '@/lib/utils'
 import { PaketSoal, Mapel, Kelas, Soal, PaketEssay, SoalEssay } from '@/types'
 
@@ -123,6 +124,25 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
   const [kunciJumlahOpsi, setKunciJumlahOpsi] = useState(true)
   const [setupJumlahOpsi, setSetupJumlahOpsi] = useState(4)
   const [paketJumlahOpsi, setPaketJumlahOpsi] = useState(4)
+
+  // ── Impor soal PG dari file Word (lihat components/shared/ImporSoalModal) ──
+  const [imporOpen, setImporOpen] = useState(false)
+
+  async function handleImporSelesai(h: ImporSoalHasil) {
+    if (h.jumlahOpsi) setPaketJumlahOpsi(h.jumlahOpsi)
+    if (h.paketId) {
+      const existing = await loadSoalPaket(h.paketId)
+      setSoalDibuat(existing)
+      try {
+        const listRes = await apiRequest<{ data: PaketSoal[] }>('/api/guru/paket')
+        setPakets(listRes.data)
+        const updated = listRes.data.find(x => x.id === h.paketId)
+        if (updated) setActivePaket(updated)
+      } catch { /* daftar paket akan dimuat ulang oleh SYNC_EVENT di bawah */ }
+    }
+    showToast(`${h.jumlah} soal berhasil diimpor dari Word`)
+    window.dispatchEvent(new Event(SYNC_EVENT))
+  }
 
   // Soal form state
   const [imgPertanyaan, setImgPertanyaan] = useState('')
@@ -668,10 +688,34 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
               {namaMapel} · Kelas {namaKelas} · {activePaket.acak === 'YA' ? 'Soal diacak' : 'Urutan tetap'} · {soalDibuat.length} soal ditambahkan
             </p>
           </div>
-          <button onClick={selesaiBuat} className="btn-secondary btn-sm">
-            <CheckCircle2 className="w-4 h-4" /> Selesai Membuat Soal
-          </button>
+          <div className="flex items-center gap-2 flex-wrap">
+            <button onClick={() => setImporOpen(true)} className="btn-secondary btn-sm" disabled={saving}>
+              <FileUp className="w-4 h-4" /> Impor dari Word
+            </button>
+            <button onClick={selesaiBuat} className="btn-secondary btn-sm">
+              <CheckCircle2 className="w-4 h-4" /> Selesai Membuat Soal
+            </button>
+          </div>
         </div>
+
+        <ImporSoalModal
+          open={imporOpen}
+          onClose={() => setImporOpen(false)}
+          jenis="pg"
+          namaMapel={namaMapel}
+          namaKelas={namaKelas}
+          paketId={activePaket.id}
+          mapelId={activePaket.mapel_id}
+          kelasId={activePaket.kelas_id}
+          acak={activePaket.acak === 'TIDAK' ? 'TIDAK' : 'YA'}
+          jumlahOpsiPaksa={
+            soalDibuat.length > 0
+              ? (paketJumlahOpsi === 5 ? 5 : 4)
+              : kunciJumlahOpsi ? (globalJumlahOpsi === 5 ? 5 : 4) : null
+          }
+          jumlahOpsiBawaan={paketJumlahOpsi === 5 ? 5 : 4}
+          onSelesai={handleImporSelesai}
+        />
 
         {/* Form tambah soal baru */}
         <div className="card">
@@ -1359,6 +1403,23 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
   // Soal form (tambah)
   const [gambarUrl, setGambarUrl] = useState('')
   const [uploadingImg, setUploadingImg] = useState<string | null>(null)
+
+  // ── Impor soal essay dari file Word (lihat components/shared/ImporSoalModal) ──
+  const [imporOpen, setImporOpen] = useState(false)
+
+  async function handleImporSelesai(h: ImporSoalHasil) {
+    if (activePaket) {
+      await loadSoalPaket(activePaket.id)
+      try {
+        const listRes = await apiRequest<{ data: PaketEssay[] }>('/api/guru/paket-essay')
+        setPakets(listRes.data)
+        const updated = listRes.data.find(x => x.id === activePaket.id)
+        if (updated) setActivePaket(updated)
+      } catch { /* dimuat ulang lewat ESSAY_SYNC_EVENT di bawah */ }
+    }
+    showToast(`${h.jumlah} soal essay berhasil diimpor dari Word`)
+    window.dispatchEvent(new Event(ESSAY_SYNC_EVENT))
+  }
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [pendingUploadKey, setPendingUploadKey] = useState<string | null>(null)
   const formRef = useRef<HTMLFormElement>(null)
@@ -1768,6 +1829,26 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
         </div>
 
         <EssayFlowGuide current="buat-soal" />
+
+        {editable && (
+          <div className="flex justify-end">
+            <button onClick={() => setImporOpen(true)} className="btn-secondary btn-sm" disabled={saving}>
+              <FileUp className="w-4 h-4" /> Impor Soal dari Word
+            </button>
+          </div>
+        )}
+
+        {editable && (
+          <ImporSoalModal
+            open={imporOpen}
+            onClose={() => setImporOpen(false)}
+            jenis="essay"
+            namaMapel={namaMapel}
+            namaKelas={namaKelas}
+            paketId={activePaket.id}
+            onSelesai={handleImporSelesai}
+          />
+        )}
 
         {!editable && (
           <div className="alert-info text-sm flex items-center gap-2">
