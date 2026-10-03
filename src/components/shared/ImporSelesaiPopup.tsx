@@ -65,20 +65,20 @@ export function ImporSelesaiPopup({ info, onTutup, onLihatSoal }: Props) {
           </div>
 
           <div className="rounded-lg bg-slate-50 border border-slate-200 p-3 space-y-2">
-            <p className="font-medium text-slate-800">Kenapa sekarang tampil &ldquo;Soal ke-{berikutnya}&rdquo;?</p>
+            <p className="font-medium text-slate-800">Mengapa form menampilkan &ldquo;Soal ke-{berikutnya}&rdquo;?</p>
             <p>
-              Form di halaman ini selalu untuk <b>menambah soal berikutnya</b>. Karena sudah ada {info.total} soal,
-              form otomatis siap untuk soal ke-{berikutnya}. Soal yang diimpor <b>tidak hilang</b>, daftarnya ada di
-              bagian <b>&ldquo;Soal yang sudah dibuat&rdquo;</b> di bawah form.
+              Form pada halaman ini digunakan untuk <b>menambahkan soal berikutnya</b>. Karena paket sudah berisi {info.total} soal,
+              form otomatis menampilkan soal ke-{berikutnya}. Seluruh soal hasil impor <b>telah tersimpan</b> dan dapat
+              dilihat pada bagian <b>&ldquo;Soal yang sudah dibuat&rdquo;</b> di bawah form.
             </p>
           </div>
 
           <div>
             <p className="font-medium text-slate-800 mb-1">Langkah selanjutnya</p>
             <ul className="list-disc pl-5 space-y-1 text-slate-600">
-              <li>Periksa soal yang diimpor di daftar bawah. Tiap soal bisa diedit atau dihapus.</li>
-              <li>Ingin menambah soal lagi? Isi form soal ke-{berikutnya}, atau impor file Word lainnya.</li>
-              <li>Kalau soal sudah lengkap, klik tombol <b>&ldquo;Selesai&rdquo;</b> di bagian atas halaman.</li>
+              <li>Periksa soal hasil impor pada daftar di bawah form. Setiap soal dapat diedit atau dihapus.</li>
+              <li>Untuk menambah soal, isi form soal ke-{berikutnya} atau impor file Word lainnya.</li>
+              <li>Apabila soal sudah lengkap, klik tombol <b>&ldquo;Selesai&rdquo;</b> di bagian atas halaman.</li>
             </ul>
           </div>
         </div>
