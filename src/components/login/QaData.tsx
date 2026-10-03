@@ -1,7 +1,7 @@
 // PERF: data Q&A/FAQ diekstrak dari src/app/login/page.tsx agar
 // file utama halaman login lebih ringkas dan bisa di-lazy-load lewat QAModal.
 import type { ReactNode } from 'react'
-import { Info, ClipboardList, Settings, Lock, AlertTriangle } from 'lucide-react'
+import { Info, ClipboardList, Settings, Lock, AlertTriangle, FileText } from 'lucide-react'
 
 export interface QaEntry {
   q: string
@@ -98,6 +98,38 @@ export const QA_ITEMS: QaSection[] = [
     ],
   },
   {
+    category: 'Guru & Pembuatan Soal',
+    icon: <FileText className="w-4 h-4" />,
+    color: 'text-teal-600',
+    bg: 'bg-teal-50',
+    items: [
+      {
+        q: 'Bagaimana cara mengimpor soal dari Word?',
+        a: 'Buka menu Buat Soal, lalu klik \"Impor dari Word\" (untuk essay: \"Impor Soal dari Word\"). Unduh template, isi satu tabel per nomor soal di Word, lalu unggah file .docx. Periksa pratinjau, kemudian klik Impor. Tidak ada soal yang tersimpan sebelum tombol Impor ditekan. Gambar disisipkan lewat Sisipkan ▸ Gambar di dalam sel soal atau sel opsi yang sesuai (satu gambar per sel).',
+      },
+      {
+        q: 'Mengapa setelah impor selesai, form menampilkan nomor soal berikutnya?',
+        a: 'Form pada halaman Buat Soal selalu digunakan untuk menambahkan soal berikutnya. Sebagai contoh, setelah 5 soal berhasil diimpor, form akan menampilkan \"Soal ke-6\". Seluruh soal hasil impor tersimpan dan dapat dilihat pada bagian \"Soal yang sudah dibuat\" di bawah form, tempat setiap soal dapat diedit atau dihapus. Apabila jumlah soal sudah mencukupi, form tersebut tidak perlu diisi; lanjutkan ke tahap selesai dan kirim paket.',
+      },
+      {
+        q: 'Saya tidak sengaja mengimpor file yang sama dua kali, apakah soalnya jadi ganda?',
+        a: 'Tidak. Sebelum mengimpor, sistem membandingkan teks soal, teks pilihan jawaban, dan kunci dengan soal yang sudah ada di paket. Soal yang sama persis ditandai kuning di pratinjau dan dilewati; untuk essay yang dibandingkan adalah teks soalnya. Gambar tidak ikut dibandingkan, jadi dua soal dengan teks, opsi, dan kunci yang persis sama tetapi gambar berbeda akan dianggap kembar. Jika ini terjadi pada soal yang memang berbeda, tambahkan soal tersebut lewat form \"Soal ke-N\". Soal yang soal dan semua opsinya hanya berupa gambar tidak bisa dicek duplikatnya.',
+      },
+      {
+        q: 'Soal saya ditandai merah di pratinjau impor, apa artinya?',
+        a: 'Artinya ada isian yang perlu diperbaiki. Alasannya tertulis di bawah soal tersebut, misalnya: soal atau opsi belum diisi, kunci kosong atau tidak sesuai (kunci harus satu huruf dalam rentang opsi, mis. A–D), atau bobot essay belum diisi atau bukan angka lebih dari 0. Perbaiki di file Word lalu unggah ulang, atau centang \"Lewati soal yang bermasalah\" untuk mengimpor soal yang sudah benar saja.',
+      },
+      {
+        q: 'Gambar atau rumus di soal Word saya tidak terbaca, bagaimana?',
+        a: 'Gunakan gambar berformat PNG atau JPG yang disisipkan lewat Sisipkan ▸ Gambar. Format EMF/WMF/SVG tidak didukung, dan diagram, bentuk, atau kotak teks Word bukan gambar sehingga tidak ikut terimpor. Cara termudah adalah menjadikannya gambar lalu menyisipkannya ulang. Hanya satu gambar per sel yang dipakai. Ukuran gambar yang terlalu besar akan dikecilkan otomatis saat impor.',
+      },
+      {
+        q: 'Muncul pesan bahwa paket terkunci atau jumlah opsi tidak sama saat impor',
+        a: 'Soal hanya bisa ditambah selama paket berstatus draft atau ditolak. Paket yang sudah dikirim atau disetujui terkunci, begitu pula bila sesi ujian mapel dan kelas tersebut sudah dimulai. Untuk jumlah opsi, semua soal dalam satu paket harus memakai jumlah opsi yang sama (4 atau 5). Jika paket sudah berisi soal 4 opsi, unduh template dengan 4 opsi.',
+      },
+    ],
+  },
+  {
     category: 'Skenario Darurat',
     icon: <AlertTriangle className="w-4 h-4" />,
     color: 'text-red-600',
@@ -145,7 +177,7 @@ export const QA_ITEMS: QaSection[] = [
       },
       {
         q: 'Apakah soal bisa digunakan ulang untuk ujian berikutnya?',
-        a: 'Soal PG dan essay dibuat langsung di dalam satu paket lewat menu Buat Soal, jadi tidak ada bank soal terpisah yang bisa dipakai lintas paket. Yang bisa dilakukan adalah menduplikasi paket soal yang sudah ada untuk ujian susulan atau semester berikutnya.',
+        a: 'Soal PG dan essay dibuat langsung di dalam satu paket lewat menu Buat Soal, jadi tidak ada bank soal terpisah yang bisa dipakai lintas paket. Yang bisa dilakukan adalah menduplikasi paket soal yang sudah ada untuk ujian susulan atau semester berikutnya. Untuk soal baru dalam jumlah banyak, gunakan fitur Impor dari Word di menu Buat Soal.',
       },
       {
         q: 'Apa itu fitur "Lihat Sebagai" untuk admin?',
