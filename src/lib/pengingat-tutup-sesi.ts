@@ -193,7 +193,7 @@ export function pesanWhatsAppPengawas(a: {
   return (
     `Assalamu'alaikum ${a.namaPengawas}. Sesi ujian ${a.namaMapel} kelas ${a.namaKelas} ` +
     `(${a.labelTanggal}) di SmartExam masih berstatus berjalan dan belum ditutup. ` +
-    `Mohon segera ditutup lewat menu Mode Pengawas agar nilai siswa dapat diproses. Terima kasih.`
+    `Mohon segera ditutup lewat menu Jadwal Mengawas Saya (tab Mode Pengawas) agar nilai siswa dapat diproses. Terima kasih.`
   )
 }
 
