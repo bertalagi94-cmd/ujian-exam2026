@@ -6,7 +6,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import {
   LayoutDashboard, Users, BookOpen, Calendar, ClipboardList,
   BarChart3, Settings, LogOut, Menu, X, ChevronRight, ChevronLeft,
-  GraduationCap, School, Bell, User, FileText, Eye, ShieldAlert,
+  GraduationCap, School, User, FileText, Eye, ShieldAlert,
   FileBarChart, CheckSquare, Send, CalendarDays
 } from 'lucide-react'
 import { cn, apiRequest } from '@/lib/utils'
@@ -605,8 +605,10 @@ export function GuruSidebar() {
 
   const extras: NavItem[] = []
   if (hasPengawasan) {
-    extras.push({ label: 'Jadwal Pengawasan', href: '/guru/jadwal-pengawasan', icon: Calendar })
-    extras.push({ label: 'Mode Pengawas', href: '/guru/mode-pengawas', icon: Bell })
+    // FIX (konsolidasi menu): "Jadwal Pengawasan" + "Mode Pengawas" digabung
+    // jadi satu menu bertab (lihat src/app/guru/jadwal-pengawasan/page.tsx).
+    // Kondisi tampil TIDAK berubah (hanya untuk guru yang punya jadwal jaga).
+    extras.push({ label: 'Jadwal Mengawas Saya', href: '/guru/jadwal-pengawasan', icon: Calendar })
   }
   navItems.splice(1, 0, ...extras)
 
