@@ -21,8 +21,8 @@
 //    tidak 404 — pola yang sama seperti redirect /guru/soal → /guru/paket.
 import { Suspense, useCallback, useEffect, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { CheckSquare, BarChart3, Send, Check, AlertTriangle, CheckCircle2 } from 'lucide-react'
-import { Spinner } from '@/components/ui'
+import { CheckSquare, BarChart3, Send, Check, AlertTriangle, CheckCircle2, ClipboardList } from 'lucide-react'
+import { EmptyState, Spinner } from '@/components/ui'
 import { apiRequest, cn } from '@/lib/utils'
 import { PeriksaEssayTab } from './tabs/PeriksaEssayTab'
 import { RekapNilaiTab } from './tabs/RekapNilaiTab'
@@ -126,12 +126,26 @@ function PenilaianContent() {
   // server-side di /api/guru/nilai dari nilai_final/lulus_final, dan TIDAK
   // ikut menghitung siswa yang belum ujian sama sekali — persis yang
   // dibutuhkan di sini.
+  //
+  // FITUR BARU (tampilan kosong kalau belum ada ujian sama sekali): fetch
+  // yang sama dipakai juga untuk `statusNilai` — apakah sudah ada SATU PUN
+  // nilai siswa yang benar-benar masuk (`stats` null = belum ada, karena
+  // baris placeholder "belum ujian" memang tidak dihitung di sana), dan apakah
+  // guru ini punya mapel ampuan. Kalau fetch gagal, `statusNilai` diisi
+  // "ada nilai" (fail-open) supaya error jaringan tidak salah menyembunyikan
+  // menu Penilaian di depan guru yang sebenarnya punya data.
+  const [statusNilai, setStatusNilai] = useState<{ adaNilai: boolean; punyaMapel: boolean } | null>(null)
+
   const fetchRingkasanRekap = useCallback(() => {
-    apiRequest<{ stats: { tidakLulus: number } | null }>('/api/guru/nilai')
+    apiRequest<{ stats: { tidakLulus: number } | null; mapelList?: unknown[] | null }>('/api/guru/nilai')
       .then(res => {
         setRingkasanRekap({ diBawahKkm: res.stats?.tidakLulus ?? 0, adaData: !!res.stats })
+        setStatusNilai({ adaNilai: !!res.stats, punyaMapel: (res.mapelList ?? []).length > 0 })
       })
-      .catch(() => setRingkasanRekap(null))
+      .catch(() => {
+        setRingkasanRekap(null)
+        setStatusNilai(prev => prev ?? { adaNilai: true, punyaMapel: true })
+      })
   }, [])
 
   useEffect(() => { fetchRingkasanRekap() }, [fetchRingkasanRekap])
@@ -337,14 +351,63 @@ function PenilaianContent() {
     return null
   }
 
+  const judulHalaman = (
+    <div>
+      <h1 className="page-title">Penilaian</h1>
+      <p className="page-subtitle">
+        Periksa jawaban essay, lihat rekapnya, lalu kirim nilai akhir ke wali kelas — dalam satu alur.
+      </p>
+    </div>
+  )
+
+  // FITUR BARU (tampilan kosong kalau belum ada ujian sama sekali): selama
+  // belum ada nilai siswa DAN belum ada sesi essay, ketiga tab pasti kosong
+  // (atau, untuk Rekap & Kirim Nilai, cuma berisi daftar siswa "belum ujian"
+  // dari jadwal) — jadi tab bar disembunyikan dan guru cukup melihat satu
+  // pesan yang jelas. Sesi essay ikut dihitung supaya guru yang sudah punya
+  // sesi essay tetap bisa membuka tab "Periksa Jawaban Essay".
+  //
+  // Selagi dua pengecekan awal belum selesai, tampilkan spinner (bukan tab
+  // bar) supaya guru yang belum punya data tidak melihat tab bar berkedip
+  // lalu hilang.
+  const masihMengecek = statusNilai === null || adaEssay === null
+  const belumAdaUjian = statusNilai !== null && !statusNilai.adaNilai && adaEssay === false
+
+  if (masihMengecek) {
+    return (
+      <div className="space-y-6 animate-fade-in">
+        {judulHalaman}
+        <div className="flex justify-center py-20"><Spinner size="lg" /></div>
+      </div>
+    )
+  }
+
+  if (belumAdaUjian) {
+    return (
+      <div className="space-y-6 animate-fade-in">
+        {judulHalaman}
+        <div className="card">
+          {statusNilai?.punyaMapel ? (
+            <EmptyState
+              icon={ClipboardList}
+              title="Belum ada ujian yang dilaksanakan"
+              description="Koreksi essay, rekap nilai, dan pengiriman nilai ke wali kelas akan muncul di sini setelah siswa mulai mengerjakan ujian."
+            />
+          ) : (
+            <EmptyState
+              icon={ClipboardList}
+              title="Belum ada mata pelajaran yang Anda ampu"
+              description="Menu ini akan terisi setelah admin menetapkan Anda sebagai guru pengampu mata pelajaran."
+            />
+          )}
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6 animate-fade-in">
-      <div>
-        <h1 className="page-title">Penilaian</h1>
-        <p className="page-subtitle">
-          Periksa jawaban essay, lihat rekapnya, lalu kirim nilai akhir ke wali kelas — dalam satu alur.
-        </p>
-      </div>
+      {judulHalaman}
 
       {/* Tab bar */}
       <div className="flex flex-col sm:flex-row gap-2.5">
