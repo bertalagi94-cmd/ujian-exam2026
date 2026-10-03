@@ -4,7 +4,7 @@ import type { ReactNode } from 'react'
 import {
   Shield, GraduationCap, Users, UserCheck,
   BookMarked, LayoutDashboard, ClipboardList, BarChart2, Settings,
-  Eye, User, Radio,
+  Eye, User, Radio, CalendarDays, FileUp,
 } from 'lucide-react'
 
 export interface RoleStep {
@@ -125,6 +125,11 @@ export const ROLES: RoleData[] = [
     desc: 'Membuat soal, paket soal, dan memantau ujian mata pelajaran yang diampu.',
     steps: [
       {
+        title: 'Jadwal Mapel Saya',
+        icon: <CalendarDays className="w-4 h-4" />,
+        detail: 'Daftar jadwal ujian untuk mata pelajaran yang Anda ampu (berbeda dengan tugas mengawas). Berguna untuk memastikan paket soal sudah divalidasi dan siap sebelum hari ujian.',
+      },
+      {
         title: 'Kisi-Kisi',
         icon: <BarChart2 className="w-4 h-4" />,
         detail: 'Buat dan kelola kisi-kisi soal sebagai panduan pembuatan soal sesuai kompetensi dasar. Kisi-kisi juga bisa diakses siswa sebagai bahan belajar.',
@@ -132,7 +137,12 @@ export const ROLES: RoleData[] = [
       {
         title: 'Buat Soal',
         icon: <ClipboardList className="w-4 h-4" />,
-        detail: 'Menu "Buat Soal" menggantikan Bank Soal + Paket Soal yang terpisah — sekarang jadi satu tempat. Buat soal pilihan ganda dan soal essay langsung di dalam paket, tentukan jumlah soal, urutan tampil, dan waktu pengerjaan, lalu kirim, tarik, atau duplikasi paket dari halaman yang sama. Paket perlu divalidasi admin sebelum bisa dipakai.',
+        detail: 'Menu "Buat Soal" menggantikan Bank Soal + Paket Soal yang terpisah — sekarang jadi satu tempat. Buat soal pilihan ganda dan soal essay langsung di dalam paket, tentukan jumlah soal, urutan tampil, dan waktu pengerjaan, lalu kirim, tarik, atau duplikasi paket dari halaman yang sama. Paket perlu divalidasi admin sebelum bisa dipakai. Setelah paket terkirim/disetujui, soal di dalamnya terkunci dan tidak bisa ditambah, diedit, atau dihapus.',
+      },
+      {
+        title: 'Impor Soal dari Word',
+        icon: <FileUp className="w-4 h-4" />,
+        detail: 'Punya banyak soal? Klik tombol \"Impor dari Word\" di halaman Buat Soal (PG maupun Essay). (1) Unduh template Word, tentukan jumlah tabel soal (dan 4 atau 5 opsi untuk PG). (2) Isi satu tabel per nomor soal; gambar disisipkan lewat Sisipkan ▸ Gambar di dalam sel yang sesuai (satu gambar per sel, format PNG/JPG). Jangan ubah label di kolom kiri, dan tabel \"CONTOH\" otomatis diabaikan. (3) Unggah file .docx, lalu periksa pratinjau: soal bermasalah ditandai merah beserta alasannya, dan soal yang sama persis dengan yang sudah ada di paket ditandai kuning dan tidak diimpor lagi sehingga aman bila Anda tidak sengaja mengunggah file yang sama dua kali. (4) Klik Impor. Tidak ada yang tersimpan sebelum tombol Impor ditekan. Soal essay wajib punya bobot, dan maksimal 200 soal per sekali impor. Setelah berhasil, soal tampil di daftar \"Soal yang sudah dibuat\", sedangkan form di atasnya adalah untuk soal berikutnya (misalnya \"Soal ke-6\" setelah mengimpor 5 soal).',
       },
       {
         title: 'Penilaian',
@@ -200,7 +210,7 @@ export const ROLES: RoleData[] = [
       {
         title: 'Melihat Nilai',
         icon: <BarChart2 className="w-4 h-4" />,
-        detail: 'Setelah ujian selesai dan nilai diproses, Anda bisa melihat nilai dan status kelulusan di menu Nilai. Jika mata pelajaran punya soal essay, nilai total baru muncul setelah guru selesai memeriksa essay dan merilis nilainya. Kisi-kisi soal juga tersedia sebagai panduan belajar.',
+        detail: 'Setelah ujian selesai dan nilai diproses, Anda bisa melihat nilai dan status kelulusan di menu Nilai Saya. Jika mata pelajaran punya soal essay, nilai total baru muncul setelah guru selesai memeriksa essay dan merilis nilainya. Kisi-kisi soal juga tersedia sebagai panduan belajar.',
       },
       {
         title: 'Profil Saya',
