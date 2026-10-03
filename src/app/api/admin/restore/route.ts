@@ -15,6 +15,8 @@ import {
   isKnownBucket,
   isMissingTableError,
   isSafeStoragePath,
+  KUNCI_PENGATURAN_DILINDUNGI_RESTORE,
+  filterKunciPengaturanDilindungi,
   listBucketFiles,
   mulaiModeMaintenanceUntukProses,
   pkOf,
@@ -104,6 +106,11 @@ async function clearTable(db: Db, table: string): Promise<string | null> {
       // Akun ADMIN sengaja tidak dihapus supaya admin yang sedang login tidak
       // terkunci di tengah proses.
       q = q.neq('role', 'ADMIN')
+    } else if (table === 'pengaturan') {
+      // FIX: jangan hapus token/penanda proses restore & flag maintenance —
+      // kalau terhapus, action `insert` berikutnya ditolak (token tidak valid)
+      // dan database tertinggal kosong. Lihat KUNCI_PENGATURAN_DILINDUNGI_RESTORE.
+      q = q.not('key', 'in', filterKunciPengaturanDilindungi())
     } else {
       // `NOT (kolom IS NULL)` valid untuk semua tipe kolom PK (TEXT & BIGINT).
       q = q.not(pkOf(table)[0], 'is', null)
@@ -316,6 +323,11 @@ async function actionInsert(db: Db, body: Record<string, unknown>) {
   let rows = body.rows as Record<string, unknown>[]
   // Akun ADMIN tidak dihapus saat clear, jadi jangan di-insert lagi (duplicate key).
   if (table === 'users') rows = rows.filter(r => r?.role !== 'ADMIN')
+  // FIX: kunci pengaturan yang dilindungi tidak boleh ditimpa dari file backup
+  // (lihat KUNCI_PENGATURAN_DILINDUNGI_RESTORE di backup-restore-shared.ts).
+  if (table === 'pengaturan') {
+    rows = rows.filter(r => !KUNCI_PENGATURAN_DILINDUNGI_RESTORE.includes(String(r?.key)))
+  }
   if (rows.length === 0) return res({ ok: true, table, inserted: 0 })
 
   // upsert (bukan insert) supaya batch yang dikirim ulang setelah gangguan
