@@ -126,7 +126,7 @@ export async function POST(req: NextRequest) {
   }
   const unik: typeof bersih = []
   for (const b of bersih) {
-    const t = tandaEssay(b.teks, !!b.gambar)
+    const t = tandaEssay(b.teks)
     if (t && sudahAda.has(t)) continue
     if (t) sudahAda.add(t)
     unik.push(b)
