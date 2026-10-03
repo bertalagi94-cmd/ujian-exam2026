@@ -49,10 +49,30 @@ function idbTersedia(): boolean {
 
 let dbPromise: Promise<IDBDatabase> | null = null
 
+// FIX (celah #4): dua masalah di versi lama.
+//  1) `dbPromise` yang GAGAL tetap tersimpan, jadi satu kegagalan sesaat
+//     membuat SEMUA operasi IndexedDB berikutnya gagal sampai halaman
+//     dimuat ulang. Sekarang dibersihkan saat gagal supaya dicoba lagi.
+//  2) Kalau ada tab lama yang masih memegang koneksi ke versi database
+//     lama, upgrade versi tertahan (onblocked) dan open() menggantung
+//     tanpa hasil. Sekarang ada batas waktu (BUKA_DB_TIMEOUT_MS) yang
+//     menolak promise (pemanggil sudah punya fallback localStorage), dan
+//     koneksi yang terlanjur terbuka belakangan ditutup agar tidak bocor.
+//     Koneksi kita juga menutup diri saat tab lain meminta upgrade
+//     (onversionchange) supaya tidak menjadi penghalang bagi tab itu.
+const BUKA_DB_TIMEOUT_MS = 8000
+
 function bukaDb(): Promise<IDBDatabase> {
   if (!idbTersedia()) return Promise.reject(new Error('IndexedDB tidak tersedia'))
   if (dbPromise) return dbPromise
-  dbPromise = new Promise((resolve, reject) => {
+  const janji = new Promise<IDBDatabase>((resolve, reject) => {
+    let selesai = false
+    const timer = setTimeout(() => {
+      if (selesai) return
+      selesai = true
+      reject(new Error('Membuka IndexedDB melewati batas waktu (kemungkinan tertahan tab lain)'))
+    }, BUKA_DB_TIMEOUT_MS)
+
     const req = indexedDB.open(DB_NAME, DB_VERSION)
     req.onupgradeneeded = () => {
       const db = req.result
@@ -75,10 +95,33 @@ function bukaDb(): Promise<IDBDatabase> {
         db.createObjectStore(STORE_RESET_PENDING)
       }
     }
-    req.onsuccess = () => resolve(req.result)
-    req.onerror = () => reject(req.error ?? new Error('Gagal membuka IndexedDB'))
+    req.onsuccess = () => {
+      const db = req.result
+      if (selesai) {
+        // Sudah dinyatakan gagal karena timeout — jangan bocorkan koneksi.
+        try { db.close() } catch { /* abaikan */ }
+        return
+      }
+      selesai = true
+      clearTimeout(timer)
+      db.onversionchange = () => {
+        try { db.close() } catch { /* abaikan */ }
+        dbPromise = null
+      }
+      db.onclose = () => { dbPromise = null }
+      resolve(db)
+    }
+    req.onerror = () => {
+      if (selesai) return
+      selesai = true
+      clearTimeout(timer)
+      reject(req.error ?? new Error('Gagal membuka IndexedDB'))
+    }
   })
-  return dbPromise
+  dbPromise = janji
+  // Gagal -> lupakan promise ini supaya pemanggilan berikutnya mencoba lagi.
+  janji.catch(() => { if (dbPromise === janji) dbPromise = null })
+  return janji
 }
 
 export async function simpanAsset(record: AssetRecord): Promise<void> {
