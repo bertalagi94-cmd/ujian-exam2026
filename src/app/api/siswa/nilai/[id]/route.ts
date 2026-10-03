@@ -7,10 +7,10 @@ import { hitungGrade } from '@/lib/utils'
 // Rincian hasil ujian per nomor soal.
 //
 // PENTING (privasi antar siswa saat ujian masih berjalan):
-// Endpoint ini HANYA mengembalikan status benar/salah per soal — TIDAK PERNAH
-// mengirim kunci jawaban maupun jawaban yang dipilih siswa ke client. Tujuannya
-// supaya siswa yang sudah selesai ujian tidak bisa membocorkan ke siswa lain
-// (yang masih ujian) opsi mana yang benar untuk soal tertentu.
+// Kunci jawaban & jawaban yang dipilih siswa HANYA dikirim ke client kalau
+// sesi sudah SELESAI (ditutup pengawas) — lihat blok `if (sesiSelesai ...)`
+// di bawah. Selama sesi masih BERJALAN, `rincian` = null sehingga siswa yang
+// sudah submit duluan tidak bisa membocorkan opsi yang benar ke temannya.
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   const auth = requireRole(req, ['SISWA'])
   if ('error' in auth) return auth.error
@@ -266,11 +266,13 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     gambar_opsi_e: string | null
     dijawab: boolean
     benar: boolean
+    // Hanya terisi karena blok ini cuma jalan saat sesi SELESAI.
+    jawaban_siswa: string | null
+    kunci: string | null
   }[] | null = null
 
   if (sesiSelesai && sesi?.paket_soal_id) {
-    // Jawaban siswa untuk sesi ini — soal_id + jawaban dipakai SERVER-SIDE
-    // saja untuk menghitung benar/salah, tidak diteruskan ke response.
+    // Jawaban siswa untuk sesi ini (dikirim ke client hanya karena sesi SELESAI).
     const { data: jawabanSiswa } = await db
       .from('jawaban')
       .select('soal_id, jawaban')
@@ -303,9 +305,10 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
         gambar_opsi_c: (s as any).gambar_opsi_c ?? null,
         gambar_opsi_d: (s as any).gambar_opsi_d ?? null,
         gambar_opsi_e: (s as any).gambar_opsi_e ?? null,
-        // Hanya status dijawab/benar-salah. TIDAK ADA field kunci atau
-        // jawaban siswa di sini — sengaja tidak pernah dikirim ke client.
+        // Aman dikirim: blok ini hanya jalan kalau sesi sudah SELESAI.
         dijawab,
+        jawaban_siswa: dijawab ? String(jawabanMap[s.id] ?? '').trim().toUpperCase() || null : null,
+        kunci: s.kunci ? String(s.kunci).trim().toUpperCase() : null,
         benar: dijawab && jawabanMap[s.id] === s.kunci,
       }
     })
