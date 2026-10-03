@@ -128,7 +128,7 @@ export function PengingatTutupSesi() {
             : 'Semua peserta sudah selesai. Segera tutup agar nilai masuk ke rekap.'
         } else {
           keterangan = sedangMengerjakan > 0
-            ? `Masih ada ${sedangMengerjakan} siswa berstatus mengerjakan. Periksa dulu di Mode Pengawas sebelum menutup sesi.`
+            ? `Masih ada ${sedangMengerjakan} siswa berstatus mengerjakan. Periksa dulu di tab Mode Pengawas sebelum menutup sesi.`
             : 'Tidak ada siswa yang sedang mengerjakan. Segera tutup agar nilai masuk ke rekap.'
         }
 
@@ -169,7 +169,7 @@ export function PengingatTutupSesi() {
                   ) : (
                     <button
                       type="button"
-                      onClick={() => router.push('/guru/mode-pengawas')}
+                      onClick={() => router.push('/guru/jadwal-pengawasan?tab=mode')}
                       className="inline-flex items-center gap-1.5 rounded-lg bg-slate-700 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-slate-800"
                     >
                       <Eye className="w-3 h-3" /> Buka Mode Pengawas
