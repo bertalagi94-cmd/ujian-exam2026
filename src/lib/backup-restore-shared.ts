@@ -18,9 +18,15 @@ import { cacheDelPrefix } from '@/lib/cache'
 export type Db = SupabaseClient<any>
 
 // Urutan INSERT saat restore (induk sebelum anak). Urutan DELETE = kebalikannya.
-// Tidak ada FK antar tabel aplikasi KECUALI users.sekolah_id & kelas.sekolah_id
-// → sekolah (ON DELETE SET NULL, lihat 18_catat_tabel_sekolah_dan_kisi_kisi.sql),
-// karena itu `sekolah` harus di-insert lebih dulu dan dihapus paling akhir.
+// Tidak ada FK antar tabel aplikasi KECUALI:
+//   - users.sekolah_id & kelas.sekolah_id → sekolah (ON DELETE SET NULL, lihat
+//     18_catat_tabel_sekolah_dan_kisi_kisi.sql), dan
+//   - guru_sekolah.username → users & guru_sekolah.sekolah_id → sekolah
+//     (ON DELETE CASCADE, lihat 29_guru_multi_sekolah.sql).
+// Karena itu `sekolah` & `users` harus di-insert lebih dulu dari `guru_sekolah`,
+// dan `sekolah` dihapus paling akhir. FIX: `guru_sekolah` sebelumnya TIDAK ada
+// di daftar ini, sehingga relasi guru–sekolah hilang (terhapus CASCADE saat
+// `users` dikosongkan) dan tidak pernah dipulihkan oleh restore.
 //
 // Tidak termasuk: `metrik_sistem` — data telemetri sementara yang dibuang
 // otomatis setelah 6 jam (lihat 15_metrik_sistem.sql), tidak ada gunanya
@@ -33,6 +39,7 @@ export const INSERT_ORDER: string[] = [
   'kelas_mapel',
   'siswa',
   'users',
+  'guru_sekolah',
   'jadwal',
   'paket_soal',
   'soal',
@@ -68,6 +75,8 @@ export const TABLE_PK: Record<string, string[]> = {
   users: ['username'],
   // PK gabungan (lihat 19_essay_amplop_offline.sql) — TIDAK punya kolom `id`.
   essay_amplop_offline: ['sesi_id', 'nis'],
+  // PK gabungan (lihat 29_guru_multi_sekolah.sql) — TIDAK punya kolom `id`.
+  guru_sekolah: ['username', 'sekolah_id'],
 }
 
 export function pkOf(table: string): string[] {
@@ -188,6 +197,28 @@ const SEMUA_KEY_PROSES = [
   PENGATURAN_KEY_MAINTENANCE_SEBELUM,
   PENGATURAN_KEY_PROSES_TOKEN,
 ]
+
+// FIX (restore selalu gagal setelah data dihapus): token & penanda proses
+// restore disimpan di tabel `pengaturan` — tabel yang SAMA yang dikosongkan oleh
+// action `clear` dan diisi ulang oleh action `insert`. Akibatnya begitu
+// `pengaturan` dikosongkan (tabel terakhir di DELETE_ORDER), token ikut hilang
+// dan insert pertama (`pengaturan`) ditolak 409 — database tertinggal kosong.
+// Kunci-kunci di bawah ini DILINDUNGI selama restore:
+//   - clear  : baris dengan kunci ini tidak dihapus
+//   - insert : baris dari file backup dengan kunci ini diabaikan (supaya
+//              `maintenanceAktif` dari file backup tidak mematikan maintenance
+//              di tengah restore, dan penanda proses basi tidak menimpa token).
+// `maintenanceAktif` dikembalikan ke nilai SEBELUM restore oleh
+// selesaiModeMaintenanceUntukProses() di action `finish`.
+export const KUNCI_PENGATURAN_DILINDUNGI_RESTORE: string[] = [
+  PENGATURAN_KEY_MAINTENANCE_AKTIF,
+  ...SEMUA_KEY_PROSES,
+]
+
+/** Format filter PostgREST untuk `.not('key', 'in', ...)`: "(a,b,c)". */
+export function filterKunciPengaturanDilindungi(): string {
+  return `(${KUNCI_PENGATURAN_DILINDUNGI_RESTORE.join(',')})`
+}
 
 export interface StatusProsesBesar {
   sedangBerjalan: boolean
