@@ -150,9 +150,9 @@ export const ROLES: RoleData[] = [
         detail: 'Muncul di sidebar hanya untuk guru yang ditugaskan sebagai wali kelas. Digunakan untuk memantau dan menerima kiriman nilai siswa di kelas yang diampu.',
       },
       {
-        title: 'Jadwal Pengawasan & Mode Pengawas',
+        title: 'Jadwal Mengawas Saya',
         icon: <Shield className="w-4 h-4" />,
-        detail: 'Muncul di sidebar hanya untuk guru yang punya jadwal jaga. "Jadwal Pengawasan" menampilkan sesi yang akan diawasi. "Mode Pengawas" dipakai untuk membuka sesi, memantau peserta secara real-time, mereset siswa yang kena pelanggaran (memberi kode lanjut), membuka/menutup akses mulai soal essay, dan menutup sesi.',
+        detail: 'Muncul di sidebar hanya untuk guru yang punya jadwal jaga. Berisi 2 tab: "Jadwal Mengawas" menampilkan sesi yang akan diawasi, dan "Mode Pengawas" dipakai untuk membuka sesi, memantau peserta secara real-time, mereset siswa yang kena pelanggaran (memberi kode lanjut), membuka/menutup akses mulai soal essay, dan menutup sesi. Kalau ada ujian yang sedang berlangsung, halaman ini langsung terbuka di tab Mode Pengawas.',
       },
       {
         title: 'Mengawasi Ujian saat Internet Mati (Mode Offline)',
