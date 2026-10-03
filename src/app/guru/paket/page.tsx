@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import { Modal, Confirm, StatusBadge, EmptyState, Spinner, Toast, Badge } from '@/components/ui'
 import { EssayFlowGuide } from '@/components/shared/EssayFlowGuide'
+import { PaletSimbol } from '@/components/shared/PaletSimbol'
 import { apiRequest, formatDateTime, generateId } from '@/lib/utils'
 import { PaketSoal, Mapel, Kelas, Soal, PaketEssay, SoalEssay } from '@/types'
 
@@ -682,6 +683,7 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
           </div>
 
           <form ref={formRef} id="soal-buat-form" onSubmit={handleTambahSoal} className="space-y-4">
+            <PaletSimbol />
             <div>
               <label className="label">Teks Pertanyaan *</label>
               <textarea name="teks" className="textarea" rows={3} required placeholder="Tulis pertanyaan di sini..." />
@@ -1154,6 +1156,7 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
     if (!editSoal) return null
     return (
       <form id={formId} onSubmit={handleSaveEditSoal} className="space-y-4">
+        <PaletSimbol />
         <div>
           <label className="label">Teks Pertanyaan *</label>
           <textarea name="teks" className="textarea" rows={3} required
@@ -1782,6 +1785,7 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
               <h2 className="font-semibold text-slate-800">Soal ke-{soalList.length + 1}</h2>
             </div>
             <form ref={formRef} onSubmit={handleTambahSoal} className="space-y-4">
+              <PaletSimbol />
               <div>
                 <label className="label">Teks Pertanyaan *</label>
                 <textarea name="teks" className="textarea" rows={3} required placeholder="Tulis pertanyaan essay di sini..." />
@@ -1843,6 +1847,7 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
         >
           {editSoal && (
             <form id="soal-essay-edit-form" onSubmit={handleSaveEditSoal} className="space-y-4">
+              <PaletSimbol />
               <div>
                 <label className="label">Teks Pertanyaan *</label>
                 <textarea name="teks" className="textarea" rows={3} required defaultValue={editSoal.teks ?? ''} />
