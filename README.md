@@ -235,6 +235,36 @@ hasil pengujian eksplisit di repo ini.
   jawaban ↔ essay ↔ nilai ↔ pelanggaran). Saat ini restore **bukan satu
   transaksi**; audit integritas belum selesai.
 
+## IMPOR SOAL DARI WORD (PG & ESSAY)
+
+Guru bisa mengunduh template Word (satu **tabel per nomor soal**), mengisinya,
+lalu mengimpornya dari halaman **Buat Soal** (tombol "Impor dari Word" di
+langkah Buat Soal PG dan di halaman Kelola Soal Essay).
+
+- **Tidak ada migrasi database baru.** Memakai kolom yang sudah ada
+  (`soal.gambar_pertanyaan`, `gambar_opsi_a–e`, `soal_essay.gambar_url`).
+- `src/lib/impor-soal/template-docx.ts` — membuat template `.docx` di browser
+  (JSZip, tanpa dependensi baru). Label kolom kiri: PG = No/Soal/A–E/Kunci/
+  Pembahasan, Essay = No/Soal/Bobot. Tabel dengan No "CONTOH" dan tabel kosong
+  dilewati saat impor.
+- `src/lib/impor-soal/parser-docx.ts` — membaca `.docx` di browser (DOMParser).
+  Baris dikenali dari **label**, bukan posisi. Mendukung gambar di sel soal dan
+  sel opsi (1 gambar per sel), superscript/subscript Word → Unicode, dan
+  persamaan OMML → teks linear. Objek non-gambar (diagram/kotak teks) dilaporkan
+  sebagai peringatan, bukan dibuang diam-diam.
+- `src/components/shared/ImporSoalModal.tsx` — unduh template, unggah, pratinjau
+  + daftar kesalahan per nomor, unggah gambar berurutan lewat
+  `/api/guru/soal/upload` (nama file server memakai `Date.now()`, jadi **jangan
+  diparalelkan**), lalu simpan.
+- `POST /api/guru/soal/impor` dan `POST /api/guru/soal-essay/impor` — validasi
+  ulang di server dengan aturan yang sama dengan endpoint tambah-satu-soal
+  (`guru-scope`, `validasi-soal`, `sesi-kelas`, paket harus DRAFT/DITOLAK, jumlah
+  opsi harus seragam dalam satu paket, URL gambar hanya dari `assets/soal/`).
+  Semua soal ditulis dengan **satu INSERT** (atomik); paket PG yang baru dibuat
+  di-rollback bila INSERT soal gagal. `created_at` soal PG sengaja dibedakan
+  1 ms per soal agar urutan terjaga. Essay idempoten lewat `idempotency_key`
+  (`${key}:${i}` per baris, UNIQUE INDEX migrasi 13). Batas 200 soal per impor.
+
 ## PRODUCTION DEPLOYMENT
 
 Urutan **wajib** saat rilis yang menyentuh database:
