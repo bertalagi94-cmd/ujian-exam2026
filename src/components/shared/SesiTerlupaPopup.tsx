@@ -61,7 +61,7 @@ export function SesiTerlupaPopup() {
 
   function lihatDiModePengawas(sesiId: string) {
     setDismissed(prev => new Set(prev).add(sesiId))
-    router.push('/guru/mode-pengawas')
+    router.push('/guru/jadwal-pengawasan?tab=mode')
   }
 
   const tampil = daftar.filter(s => !dismissed.has(s.sesiId))
@@ -179,7 +179,7 @@ export function SesiTerlupaPopup() {
             <X className="w-4 h-4" /> Nanti Saja
           </button>
           <p className="text-[11px] text-slate-400 text-center mt-2 flex items-center justify-center gap-1">
-            <BookOpen className="w-3 h-3" /> Anda bisa menutup sesi kapan saja dari menu Mode Pengawas.
+            <BookOpen className="w-3 h-3" /> Anda bisa menutup sesi kapan saja dari menu Jadwal Mengawas Saya (tab Mode Pengawas).
           </p>
         </div>
       </div>
