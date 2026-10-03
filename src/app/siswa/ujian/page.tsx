@@ -2613,6 +2613,13 @@ export default function SiswaUjianPage() {
           setPhase('ESSAY_INFO')
           fetchEssayInfo()
         } else {
+          // FIX (animasi nilai tidak muncul pada siswa yang selesai OFFLINE):
+          // jalur pemulihan ini dulu langsung ke layar hasil tanpa menyalakan
+          // animasi, sehingga pin/fullscreen dilepas seketika. Sekarang sama
+          // seperti handleSelesai(): animasi dinyalakan SEBELUM phase berubah,
+          // dan pelepasan pin ditahan oleh efek `tahanLockUntukAnimasi`.
+          // Hanya kalau server memang mengembalikan angka nilai.
+          if (typeof res.nilai === 'number') setFasaAnimasiNilai('main')
           setHasilNilai(res as HasilAkhir)
           setPhase('SELESAI')
         }
