@@ -1,636 +1,278 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
-import { Calendar, Clock, BookOpen, Users, CheckCircle, PlayCircle, AlertCircle, RefreshCw, ClipboardList, X, UserX, RotateCcw, Copy } from 'lucide-react'
-import { apiRequest, formatDate } from '@/lib/utils'
-import { PageLoader, Spinner } from '@/components/ui'
+// FIX (konsolidasi menu): "Jadwal Pengawasan" dan "Mode Pengawas" sebelumnya
+// 2 menu terpisah di sidebar guru dengan nama yang mirip, sehingga guru
+// sering bingung harus membuka yang mana. Digabung jadi 1 menu "Jadwal
+// Mengawas Saya" dengan 2 tab bernomor, mengikuti pola menu "Penilaian":
+//
+//   1. Jadwal Mengawas — kapan & kelas mana saya mengawas (+ Ujian Susulan)
+//   2. Mode Pengawas   — membuka sesi, memantau siswa, menutup sesi
+//
+// Aturan penting (baca sebelum mengubah):
+//  - Isi tab ada di ./tabs sebagai komponen mandiri (state & fetch masing-
+//    masing tidak berubah dari halaman aslinya). Hanya tab aktif yang
+//    di-mount, supaya tidak ada polling tersembunyi di tab yang tidak
+//    sedang dilihat.
+//  - Tab awal PINTAR: kalau saat halaman dibuka ada sesi yang sedang
+//    berlangsung, langsung masuk ke tab "Mode Pengawas" (itu yang dicari
+//    guru saat ujian jalan); selain itu mulai dari tab "Jadwal Mengawas".
+//    Tab awal ditentukan SEKALI saja, supaya tampilan tidak tiba-tiba
+//    berpindah sendiri saat guru sedang membaca.
+//  - Route lama /guru/mode-pengawas tetap ada sebagai redirect
+//    (?tab=mode) supaya link/bookmark lama tidak 404.
+//  - Tab bar sengaja 2 kolom sejajar di HP (bukan ditumpuk) supaya kedua
+//    pilihan langsung terlihat tanpa scroll.
+import { Suspense, useCallback, useEffect, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
+import { Calendar, Shield, Check, PlayCircle } from 'lucide-react'
+import { Spinner } from '@/components/ui'
+import { apiRequest, cn } from '@/lib/utils'
+import { JadwalTab } from './tabs/JadwalTab'
+import { ModePengawasTab } from './tabs/ModePengawasTab'
 
-interface JadwalPengawasan {
-  id: string
-  tanggal: string
-  sesi: number
-  jam_mulai: string
-  jam_selesai: string
-  mapel_id: string
-  kelas: string
-  pengawas: string
-  durasi: number
-  status: 'AKTIF' | 'BERJALAN' | 'SELESAI'
-  nama_mapel: string
-  nama_kelas: string
-  sesi_ujian?: { id: string; status: string } | null
-}
+type TabKey = 'jadwal' | 'mode'
 
-interface SiswaInfo {
-  nis: string
-  nama: string
-}
-
-interface SusulanResult {
-  bisa: boolean
-  message: string
-  sesiBaruId?: string
-  kodeSesi?: string
-  siswa?: SiswaInfo[]
-  konflik?: boolean       // guru masih punya sesi lain yang berjalan
-  sudahBerjalan?: boolean // sudah ada sesi berjalan untuk jadwal ini
-  sesiAktifId?: string
-  error?: string
-}
-
-const STATUS_CONFIG = {
-  AKTIF:    { label: 'Akan Datang', cls: 'bg-blue-100 text-blue-700 border-blue-200',    icon: <Clock className="w-3.5 h-3.5" /> },
-  BERJALAN: { label: 'Sedang Berlangsung', cls: 'bg-amber-100 text-amber-700 border-amber-200', icon: <PlayCircle className="w-3.5 h-3.5" /> },
-  SELESAI:  { label: 'Selesai', cls: 'bg-emerald-100 text-emerald-700 border-emerald-200', icon: <CheckCircle className="w-3.5 h-3.5" /> },
-}
-
-function groupByMonth(list: JadwalPengawasan[]) {
-  const map: Record<string, JadwalPengawasan[]> = {}
-  list.forEach(j => {
-    const key = j.tanggal.slice(0, 7)
-    if (!map[key]) map[key] = []
-    map[key].push(j)
-  })
-  return Object.entries(map).sort(([a], [b]) => a.localeCompare(b))
-}
-
-// Zona waktu sekolah (offset jam dari UTC), dikirim oleh server lewat API
-// /api/guru/jadwal-pengawasan — JANGAN dihitung dari timezone browser,
-// karena guru bisa membuka aplikasi dari device dengan timezone berbeda
-// (misalnya laptop yang salah-set, atau guru yang sedang di luar kota).
-// Status ujian harus satu kebenaran tunggal yang sama untuk semua orang,
-// ditentukan oleh lokasi SEKOLAH, bukan lokasi/perangkat masing-masing guru.
-interface ZonaWaktuInfo {
-  utcOffsetJam: number
+interface TabDef {
+  key: TabKey
   label: string
+  desc: string
+  icon: React.ElementType
+  accent: 'indigo' | 'orange'
 }
 
-const ZONA_FALLBACK: ZonaWaktuInfo = { utcOffsetJam: 7, label: 'WIB (UTC+7)' }
-
-// Tanggal "hari ini" pada zona waktu sekolah (bukan UTC, bukan timezone browser)
-function tanggalHariIniDiZona(zona: ZonaWaktuInfo, now: Date): string {
-  const shifted = new Date(now.getTime() + zona.utcOffsetJam * 60 * 60 * 1000)
-  return shifted.toISOString().slice(0, 10)
+// Kelas literal per warna — SENGAJA ditulis lengkap (bukan dirakit lewat
+// template string) supaya Tailwind bisa mendeteksinya saat build.
+const ACCENT: Record<TabDef['accent'], {
+  activeBg: string
+  numberActive: string
+  numberInactive: string
+  iconInactive: string
+  badge: string
+}> = {
+  indigo: {
+    activeBg: 'bg-gradient-to-br from-indigo-500 to-indigo-600 border-indigo-600 shadow-indigo-500/30',
+    numberActive: 'bg-white/25 text-white',
+    numberInactive: 'bg-indigo-100 text-indigo-700',
+    iconInactive: 'text-indigo-600',
+    badge: 'bg-indigo-600 text-white',
+  },
+  orange: {
+    activeBg: 'bg-gradient-to-br from-orange-500 to-orange-600 border-orange-600 shadow-orange-500/30',
+    numberActive: 'bg-white/25 text-white',
+    numberInactive: 'bg-orange-100 text-orange-700',
+    iconInactive: 'text-orange-600',
+    badge: 'bg-orange-600 text-white',
+  },
 }
 
-function isToday(dateStr: string, zona: ZonaWaktuInfo, now: Date) {
-  return dateStr === tanggalHariIniDiZona(zona, now)
+const TABS: TabDef[] = [
+  {
+    key: 'jadwal',
+    label: 'Jadwal Mengawas',
+    desc: 'Kapan & kelas mana',
+    icon: Calendar,
+    accent: 'indigo',
+  },
+  {
+    key: 'mode',
+    label: 'Mode Pengawas',
+    desc: 'Mulai & pantau ujian',
+    icon: Shield,
+    accent: 'orange',
+  },
+]
+
+const TAB_KEYS = TABS.map(t => t.key)
+
+function isTabKey(v: string | null): v is TabKey {
+  return !!v && (TAB_KEYS as string[]).includes(v)
 }
 
-function isPast(dateStr: string, zona: ZonaWaktuInfo, now: Date) {
-  return dateStr < tanggalHariIniDiZona(zona, now)
+interface RingkasanPengawasan {
+  hariIni: number
+  berjalan: number
 }
 
-// Kembalikan true jika sekarang sudah 15 menit sebelum jam_mulai (dan belum lewat jam_selesai)
-function canStartSesi(tanggal: string, jamMulai: string, jamSelesai: string, now: Date, zona: ZonaWaktuInfo): boolean {
-  if (!isToday(tanggal, zona, now)) return false
-  const offsetStr = `+${String(zona.utcOffsetJam).padStart(2, '0')}:00`
-  const mulaiMs   = new Date(`${tanggal}T${jamMulai}:00${offsetStr}`).getTime() - 15 * 60 * 1000
-  const selesaiMs = new Date(`${tanggal}T${jamSelesai}:00${offsetStr}`).getTime()
-  const nowMs = now.getTime()
-  return nowMs >= mulaiMs && nowMs < selesaiMs
-}
+function MengawasContent() {
+  const searchParams = useSearchParams()
 
-// Hitung sisa menit sebelum boleh mulai (negatif = sudah boleh)
-function menitMenunggu(tanggal: string, jamMulai: string, now: Date, zona: ZonaWaktuInfo): number {
-  if (!isToday(tanggal, zona, now)) return 999
-  const offsetStr = `+${String(zona.utcOffsetJam).padStart(2, '0')}:00`
-  const mulaiMs = new Date(`${tanggal}T${jamMulai}:00${offsetStr}`).getTime() - 15 * 60 * 1000
-  return Math.ceil((mulaiMs - now.getTime()) / 60000)
-}
+  // Ringkasan RINGAN untuk badge tab bar & penentuan tab awal. Sengaja fetch
+  // sendiri (bukan menunggu tab dibuka) — pola yang sama seperti menu
+  // Penilaian. Diulang tiap 60 detik dan tiap pindah tab supaya badge
+  // "sedang berlangsung" tidak basi.
+  const [ringkasan, setRingkasan] = useState<RingkasanPengawasan | null>(null)
+  const [tabAwal, setTabAwal] = useState<TabKey | null>(null)
 
-// ── Modal Ujian Susulan ──────────────────────────────────────────────────────
-function ModalSusulan({
-  jadwal,
-  onClose,
-}: {
-  jadwal: JadwalPengawasan
-  onClose: () => void
-}) {
-  // 'idle' → 'checking' → 'confirm' (ada siswa belum) | 'empty' (semua sudah) → 'opening' → 'opened'
-  type Phase = 'idle' | 'checking' | 'confirm' | 'empty' | 'opening' | 'opened'
-  const [phase, setPhase] = useState<Phase>('idle')
-  const [siswaBelum, setSiswaBelum] = useState<SiswaInfo[]>([])
-  const [kodeSesi, setKodeSesi] = useState<string | null>(null)
-  const [errorMsg, setErrorMsg] = useState<string | null>(null)
-  const [copied, setCopied] = useState(false)
-
-  useEffect(() => {
-    const timer = setTimeout(() => cekSiswa(), 600)
-    return () => clearTimeout(timer)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const fetchRingkasan = useCallback(() => {
+    interface Resp {
+      data?: { tanggal: string; status: string }[]
+      zonaWaktu?: { utcOffsetJam: number }
+    }
+    apiRequest<Resp>('/api/guru/jadwal-pengawasan', { timeoutMs: 8_000 })
+      .then(res => {
+        const list = res.data ?? []
+        // "Hari ini" mengikuti zona waktu SEKOLAH dari server, bukan
+        // timezone browser (sama seperti di tab Jadwal Mengawas).
+        const offsetJam = res.zonaWaktu?.utcOffsetJam ?? 7
+        const hariIni = new Date(Date.now() + offsetJam * 3600 * 1000).toISOString().slice(0, 10)
+        const r: RingkasanPengawasan = {
+          hariIni: list.filter(j => j.tanggal === hariIni).length,
+          berjalan: list.filter(j => j.status === 'BERJALAN').length,
+        }
+        setRingkasan(r)
+        // Tab awal ditentukan SEKALI (callback fungsional: kalau sudah
+        // terisi, biarkan).
+        setTabAwal(prev => prev ?? (r.berjalan > 0 ? 'mode' : 'jadwal'))
+      })
+      // Gagal memuat → tidak ada badge, mulai dari tab Jadwal.
+      .catch(() => setTabAwal(prev => prev ?? 'jadwal'))
   }, [])
 
-  // Step 1: Panggil API susulan berdasarkan jadwal_id (mode CEK / dry-run — tidak insert apa pun)
-  async function cekSiswa() {
-    setPhase('checking')
-    setErrorMsg(null)
-    try {
-      await new Promise(r => setTimeout(r, 1800))
-      const res = await apiRequest<SusulanResult>(
-        `/api/guru/susulan`,
-        { method: 'POST', body: JSON.stringify({ jadwalId: jadwal.id }) }
-      )
-      // Guru masih memiliki sesi aktif di jadwal lain — blokir
-      if (res.konflik || res.error) {
-        setErrorMsg(res.error ?? res.message ?? 'Tidak dapat membuka sesi susulan.')
-        setPhase('confirm')
-        return
-      }
-      // Sudah ada sesi berjalan untuk jadwal ini (mungkin re-open)
-      if (res.sudahBerjalan) {
-        setKodeSesi(res.kodeSesi ?? null)
-        setPhase('confirm')
-        setErrorMsg(res.message ?? 'Sudah ada sesi yang sedang berjalan.')
-        return
-      }
-      if (!res.bisa) {
-        setPhase('empty')
-      } else {
-        setSiswaBelum(res.siswa ?? [])
-        setKodeSesi(null) // belum ada sesi nyata — baru preview, belum di-insert
-        setPhase('confirm')
-      }
-    } catch (err: unknown) {
-      setErrorMsg(err instanceof Error ? err.message : 'Gagal mengecek data susulan')
-      setPhase('confirm')
+  useEffect(() => {
+    fetchRingkasan()
+    const interval = setInterval(fetchRingkasan, 60_000)
+    return () => clearInterval(interval)
+  }, [fetchRingkasan])
+
+  // Ganti tab murni state lokal (instan, tanpa round-trip server); URL tetap
+  // diupdate lewat window.history supaya link & tombol back/forward jalan.
+  // Alasan lengkapnya sama dengan komentar di menu Penilaian.
+  const [manualTab, setManualTab] = useState<TabKey | null>(null)
+
+  useEffect(() => {
+    function onPopState() {
+      const tab = new URLSearchParams(window.location.search).get('tab')
+      setManualTab(isTabKey(tab) ? tab : null)
     }
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
+  }, [])
+
+  const tabDariUrl = searchParams.get('tab')
+  const tabEksplisit: TabKey | null = manualTab ?? (isTabKey(tabDariUrl) ? tabDariUrl : null)
+  // null = belum tahu tab mana yang harus dibuka (masih menunggu ringkasan).
+  const activeKey: TabKey | null = tabEksplisit ?? tabAwal
+
+  function gotoTab(key: TabKey) {
+    setManualTab(key)
+    window.history.pushState(null, '', `/guru/jadwal-pengawasan?tab=${key}`)
+    // Dari tombol "Mulai Sesi" di bagian bawah daftar jadwal, guru perlu
+    // langsung melihat bagian atas tab tujuan (terutama di HP).
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+    fetchRingkasan()
   }
 
-  // Step 2: Dipanggil saat tombol "Ya, Buka Susulan" ditekan — baru di sini sesi benar-benar di-insert.
-  async function bukaSusulan() {
-    setPhase('opening')
-    setErrorMsg(null)
-    try {
-      const res = await apiRequest<SusulanResult>(
-        `/api/guru/susulan`,
-        { method: 'POST', body: JSON.stringify({ jadwalId: jadwal.id, konfirmasi: true }) }
-      )
-      if (res.konflik || res.error) {
-        setErrorMsg(res.error ?? res.message ?? 'Tidak dapat membuka sesi susulan.')
-        setPhase('confirm')
-        return
-      }
-      if (res.sudahBerjalan) {
-        setKodeSesi(res.kodeSesi ?? null)
-        setPhase('opened')
-        return
-      }
-      if (!res.bisa) {
-        setPhase('empty')
-        return
-      }
-      setKodeSesi(res.kodeSesi ?? null)
-      setPhase('opened')
-    } catch (err: unknown) {
-      setErrorMsg(err instanceof Error ? err.message : 'Gagal membuka sesi susulan')
-      setPhase('confirm')
+  function pesanTab(key: TabKey): { label: string; berdenyut?: boolean; amber?: boolean } | null {
+    if (!ringkasan) return null
+    if (key === 'jadwal' && ringkasan.hariIni > 0) {
+      return { label: `${ringkasan.hariIni} jadwal hari ini` }
     }
-  }
-
-  function copyKode(kode: string) {
-    navigator.clipboard.writeText(kode)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2500)
+    if (key === 'mode' && ringkasan.berjalan > 0) {
+      return { label: `${ringkasan.berjalan} sedang berlangsung`, berdenyut: true, amber: true }
+    }
+    return null
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full animate-fade-in overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-purple-100 flex items-center justify-center">
-              <ClipboardList className="w-4 h-4 text-purple-600" />
-            </div>
-            <div>
-              <div className="text-sm font-bold text-slate-900">Ujian Susulan</div>
-              <div className="text-xs text-slate-400">{jadwal.nama_mapel} — Kelas {jadwal.nama_kelas}</div>
-            </div>
-          </div>
-          <button onClick={onClose} className="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-600">
-            <X className="w-4 h-4" />
+    <div className="space-y-5 sm:space-y-6 animate-fade-in">
+      <div>
+        <h1 className="page-title">Jadwal Mengawas Saya</h1>
+        <p className="page-subtitle">
+          Lihat jadwal mengawas Anda, lalu mulai dan pantau ujian — semuanya dari satu halaman.
+        </p>
+      </div>
+
+      {/* Tab bar — 2 kolom sejajar di semua ukuran layar */}
+      <div role="tablist" aria-label="Jadwal mengawas" className="grid grid-cols-2 gap-2 sm:gap-2.5">
+        {TABS.map((tab, i) => {
+          const isActive = tab.key === activeKey
+          const style = ACCENT[tab.accent]
+          const Icon = tab.icon
+          const pesan = pesanTab(tab.key)
+          return (
+            <button
+              key={tab.key}
+              type="button"
+              role="tab"
+              aria-selected={isActive}
+              onClick={() => gotoTab(tab.key)}
+              className={cn(
+                'flex min-w-0 items-center gap-2 sm:gap-3 rounded-2xl border px-3 py-2.5 sm:px-4 sm:py-3 text-left transition-all',
+                isActive
+                  ? cn('text-white shadow-lg', style.activeBg)
+                  : 'bg-white border-slate-200 hover:border-slate-300 hover:shadow-sm'
+              )}
+            >
+              <span
+                className={cn(
+                  'w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center flex-shrink-0 text-xs sm:text-sm font-bold',
+                  isActive ? style.numberActive : style.numberInactive
+                )}
+              >
+                {i + 1}
+              </span>
+              <Icon className={cn('hidden sm:block w-4.5 h-4.5 flex-shrink-0', isActive ? 'text-white' : style.iconInactive)} />
+              <span className="min-w-0 flex-1">
+                <span className={cn('block text-sm font-semibold leading-tight', isActive ? 'text-white' : 'text-slate-800')}>
+                  {tab.label}
+                </span>
+                <span className={cn('block text-[11px] sm:text-xs leading-snug mt-0.5', isActive ? 'text-white/85' : 'text-slate-400')}>
+                  {tab.desc}
+                </span>
+                {pesan && (
+                  <span
+                    className={cn(
+                      'mt-1 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-bold leading-tight',
+                      pesan.amber ? 'bg-amber-500 text-white' : isActive ? 'bg-white/25 text-white' : style.badge
+                    )}
+                  >
+                    {pesan.berdenyut && <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse flex-shrink-0" />}
+                    {pesan.label}
+                  </span>
+                )}
+              </span>
+              {isActive && <Check className="hidden sm:block w-4 h-4 text-white/90 flex-shrink-0" />}
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Pengingat: ada ujian berjalan tapi guru sedang di tab Jadwal. Tombolnya
+          besar & lebar penuh di HP supaya mudah ditekan. */}
+      {activeKey === 'jadwal' && ringkasan && ringkasan.berjalan > 0 && (
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2.5 rounded-2xl bg-amber-50 border border-amber-200 px-4 py-3">
+          <p className="flex-1 text-sm text-amber-800">
+            <strong>{ringkasan.berjalan} ujian sedang berlangsung.</strong> Pantau siswa dan tutup sesi di tab Mode Pengawas.
+          </p>
+          <button
+            type="button"
+            onClick={() => gotoTab('mode')}
+            className="inline-flex items-center justify-center gap-2 rounded-xl bg-orange-600 hover:bg-orange-700 text-white text-sm font-semibold px-4 py-2.5 transition-colors"
+          >
+            <PlayCircle className="w-4 h-4" />
+            Buka Mode Pengawas
           </button>
         </div>
-
-        <div className="p-6">
-          {/* Idle */}
-          {phase === 'idle' && (
-            <div className="flex flex-col items-center py-8 gap-4">
-              <Spinner size="lg" />
-              <p className="text-sm text-slate-400">Mempersiapkan...</p>
-            </div>
-          )}
-
-          {/* Checking */}
-          {phase === 'checking' && (
-            <div className="flex flex-col items-center py-8 gap-5">
-              <div className="relative w-24 h-24">
-                <div className="absolute inset-0 rounded-full border-4 border-purple-100" />
-                <div className="absolute inset-2 rounded-full border-2 border-purple-200 animate-ping" style={{ animationDuration: '1.5s' }} />
-                <div className="absolute inset-0 rounded-full border-4 border-purple-500 border-t-transparent animate-spin" />
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <Users className="w-8 h-8 text-purple-500" />
-                </div>
-              </div>
-              <div className="text-center">
-                <p className="text-base font-semibold text-slate-800">Mengecek Data Siswa...</p>
-                <p className="text-sm text-slate-400 mt-1">Sistem sedang memverifikasi kehadiran semua siswa</p>
-              </div>
-              <div className="flex gap-2">
-                {[0, 1, 2].map(i => (
-                  <div key={i} className="w-2 h-2 rounded-full bg-purple-400 animate-bounce" style={{ animationDelay: `${i * 0.15}s` }} />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Opening — sesi sedang benar-benar dibuka (insert berjalan) */}
-          {phase === 'opening' && (
-            <div className="flex flex-col items-center py-8 gap-5">
-              <div className="relative w-24 h-24">
-                <div className="absolute inset-0 rounded-full border-4 border-purple-100" />
-                <div className="absolute inset-0 rounded-full border-4 border-purple-500 border-t-transparent animate-spin" />
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <ClipboardList className="w-8 h-8 text-purple-500" />
-                </div>
-              </div>
-              <div className="text-center">
-                <p className="text-base font-semibold text-slate-800">Membuka Sesi Susulan...</p>
-                <p className="text-sm text-slate-400 mt-1">Mohon tunggu, sesi sedang dibuat</p>
-              </div>
-            </div>
-          )}
-
-          {/* Empty — semua siswa sudah ujian */}
-          {phase === 'empty' && (
-            <div className="flex flex-col items-center py-4 gap-4">
-              <div className="w-16 h-16 rounded-2xl bg-emerald-100 flex items-center justify-center">
-                <CheckCircle className="w-8 h-8 text-emerald-600" />
-              </div>
-              <div className="text-center">
-                <h3 className="font-bold text-slate-900 text-base mb-1">Semua Siswa Sudah Ujian</h3>
-                <p className="text-sm text-slate-500">Tidak ada siswa yang perlu mengikuti ujian susulan.</p>
-              </div>
-              <button onClick={onClose} className="mt-2 px-6 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-900 text-white text-sm font-semibold">
-                Tutup
-              </button>
-            </div>
-          )}
-
-          {/* Confirm — ada siswa belum ujian */}
-          {phase === 'confirm' && (
-            <div className="flex flex-col gap-4">
-              {errorMsg ? (
-                <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
-                  <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                  {errorMsg}
-                </div>
-              ) : (
-                <>
-                  <div className="flex items-center gap-3 p-3 bg-amber-50 border border-amber-200 rounded-xl">
-                    <UserX className="w-5 h-5 text-amber-600 flex-shrink-0" />
-                    <div>
-                      <p className="text-sm font-semibold text-amber-800">
-                        {siswaBelum.length} siswa belum mengikuti ujian
-                      </p>
-                      <p className="text-xs text-amber-600">Sesi susulan siap dibuka. Apakah Anda yakin?</p>
-                    </div>
-                  </div>
-
-                  <div>
-                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Daftar Siswa Belum Ujian:</p>
-                    <div className="max-h-44 overflow-y-auto space-y-1.5 pr-1">
-                      {siswaBelum.map((s, i) => (
-                        <div key={s.nis} className="flex items-center gap-2 px-3 py-2 bg-slate-50 rounded-xl">
-                          <div className="w-5 h-5 rounded-full bg-amber-100 text-amber-700 text-xs font-bold flex items-center justify-center flex-shrink-0">
-                            {i + 1}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-slate-800 truncate">{s.nama}</p>
-                            <p className="text-xs text-slate-400 font-mono">{s.nis}</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  <p className="text-xs text-slate-400 bg-slate-50 px-3 py-2 rounded-xl">
-                    ℹ Durasi sesi susulan ditentukan pengawas. Tutup sesi kapan pun via Mode Pengawas.
-                  </p>
-
-                  <div className="flex gap-3">
-                    <button onClick={onClose} className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 text-sm font-medium">
-                      Batal
-                    </button>
-                    <button
-                      onClick={bukaSusulan}
-                      className="flex-1 px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-sm font-semibold flex items-center justify-center gap-2"
-                    >
-                      <RotateCcw className="w-4 h-4" />
-                      Ya, Buka Susulan
-                    </button>
-                  </div>
-                </>
-              )}
-              {errorMsg && (
-                <button onClick={onClose} className="px-6 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-900 text-white text-sm font-semibold">
-                  Tutup
-                </button>
-              )}
-            </div>
-          )}
-
-          {/* Opened — tampilkan kode sesi */}
-          {phase === 'opened' && kodeSesi && (
-            <div className="flex flex-col items-center gap-5 py-2">
-              <div className="w-14 h-14 rounded-2xl bg-purple-100 flex items-center justify-center">
-                <ClipboardList className="w-7 h-7 text-purple-600" />
-              </div>
-              <div className="text-center">
-                <h3 className="font-bold text-slate-900 text-base mb-1">Sesi Susulan Dibuka!</h3>
-                <p className="text-sm text-slate-500">Bagikan kode ini kepada siswa yang belum ujian</p>
-              </div>
-
-              <div className="flex flex-col items-center gap-3">
-                <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Kode Sesi Susulan</p>
-                <div className="flex items-center gap-2">
-                  {kodeSesi.split('').map((char, i) => (
-                    <div key={i} className="w-11 h-14 rounded-xl bg-gradient-to-b from-purple-500 to-purple-700 flex items-center justify-center text-white text-2xl font-black shadow-lg">
-                      {char}
-                    </div>
-                  ))}
-                </div>
-                <button
-                  onClick={() => copyKode(kodeSesi)}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all ${copied ? 'bg-purple-100 text-purple-700 border border-purple-200' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 border border-slate-200'}`}
-                >
-                  {copied ? <CheckCircle className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                  {copied ? 'Tersalin!' : 'Salin Kode'}
-                </button>
-              </div>
-
-              <p className="text-xs text-slate-400 text-center">
-                Tutup sesi kapan pun dari menu <strong>Mode Pengawas</strong> saat ujian susulan selesai.
-              </p>
-
-              <button onClick={onClose} className="w-full px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-900 text-white text-sm font-semibold">
-                Tutup
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-export default function JadwalPengawasanPage() {
-  const [jadwal, setJadwal] = useState<JadwalPengawasan[]>([])
-  const [loading, setLoading] = useState(true)
-  const [hasJadwal, setHasJadwal] = useState(false)
-  const [refreshing, setRefreshing] = useState(false)
-  const [susulanTarget, setSusulanTarget] = useState<JadwalPengawasan | null>(null)
-  const [now, setNow] = useState(() => new Date())
-  const [zonaWaktu, setZonaWaktu] = useState<ZonaWaktuInfo>(ZONA_FALLBACK)
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
-
-  const load = useCallback(async (silent = false) => {
-    if (!silent) setLoading(true)
-    else setRefreshing(true)
-    try {
-      const res = await apiRequest<{ data: JadwalPengawasan[]; hasJadwal: boolean; zonaWaktu?: ZonaWaktuInfo }>('/api/guru/jadwal-pengawasan')
-      setJadwal(res.data ?? [])
-      setHasJadwal(res.hasJadwal ?? (res.data?.length > 0))
-      if (res.zonaWaktu) setZonaWaktu(res.zonaWaktu)
-    } catch (e) {
-      console.error(e)
-    } finally {
-      setLoading(false)
-      setRefreshing(false)
-    }
-  }, [])
-
-  useEffect(() => { load() }, [load])
-
-  // Update jam setiap detik (untuk deteksi 15 menit sebelum dan status real-time)
-  useEffect(() => {
-    const tick = setInterval(() => setNow(new Date()), 1000)
-    return () => clearInterval(tick)
-  }, [])
-
-  // Auto-refresh data dari server setiap 30 detik
-  useEffect(() => {
-    intervalRef.current = setInterval(() => load(true), 30000)
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
-  }, [load])
-
-  if (loading) return <PageLoader />
-
-  const grouped = groupByMonth(jadwal)
-  const upcoming = jadwal.filter(j => j.status === 'AKTIF' && !isPast(j.tanggal, zonaWaktu, now))
-  const total = jadwal.length
-  const selesai = jadwal.filter(j => j.status === 'SELESAI').length
-  const berjalan = jadwal.filter(j => j.status === 'BERJALAN').length
-
-  return (
-    <div className="space-y-8 animate-fade-in pb-10">
-      {/* Header */}
-      <div className="flex items-start justify-between flex-wrap gap-4">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center">
-              <Calendar className="w-4 h-4 text-white" />
-            </div>
-            <span className="text-xs font-semibold text-indigo-600 uppercase tracking-wider">Jadwal Pengawasan</span>
-          </div>
-          <h1 className="page-title">Jadwal Mengawas Ujian</h1>
-          <p className="page-subtitle">Daftar seluruh jadwal ujian yang Anda awasi</p>
-        </div>
-        <button
-          onClick={() => load(true)}
-          disabled={refreshing}
-          className="flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 text-sm font-medium transition-colors"
-        >
-          <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
-          Refresh
-        </button>
-      </div>
-
-      {/* Stat Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <MiniStat bg="bg-indigo-50" icon={<Calendar className="w-5 h-5 text-indigo-600" />} label="Total Jadwal" value={total} />
-        <MiniStat bg="bg-blue-50" icon={<Clock className="w-5 h-5 text-blue-600" />} label="Akan Datang" value={upcoming.length} />
-        <MiniStat bg="bg-amber-50" icon={<PlayCircle className="w-5 h-5 text-amber-600" />} label="Berlangsung" value={berjalan} />
-        <MiniStat bg="bg-emerald-50" icon={<CheckCircle className="w-5 h-5 text-emerald-600" />} label="Selesai" value={selesai} />
-      </div>
-
-      {/* Empty state */}
-      {!hasJadwal && (
-        <div className="flex flex-col items-center justify-center py-24 text-center">
-          <div className="w-20 h-20 rounded-full bg-slate-100 flex items-center justify-center mb-4">
-            <Calendar className="w-10 h-10 text-slate-300" />
-          </div>
-          <h3 className="text-lg font-semibold text-slate-600">Belum Ada Jadwal Pengawasan</h3>
-          <p className="text-slate-400 text-sm mt-1">Hubungi administrator untuk penugasan pengawasan ujian.</p>
-        </div>
       )}
 
-      {/* Grouped list */}
-      {grouped.map(([monthKey, items]) => {
-        const monthLabel = new Date(monthKey + '-01').toLocaleDateString('id-ID', { month: 'long', year: 'numeric' })
-        return (
-          <section key={monthKey}>
-            <div className="flex items-center gap-3 mb-4">
-              <h2 className="text-sm font-bold text-slate-600 uppercase tracking-wider">{monthLabel}</h2>
-              <div className="flex-1 h-px bg-slate-100" />
-              <span className="text-xs text-slate-400">{items.length} jadwal</span>
-            </div>
-
-            <div className="space-y-3">
-              {items.map(j => {
-                const cfg = STATUS_CONFIG[j.status] ?? STATUS_CONFIG.AKTIF
-                const today = isToday(j.tanggal, zonaWaktu, now)
-                const dayName = new Date(j.tanggal).toLocaleDateString('id-ID', { weekday: 'long' })
-                const isSelesai = j.status === 'SELESAI'
-
-                return (
-                  <div
-                    key={j.id}
-                    className={`bg-white border rounded-2xl shadow-sm hover:shadow-md transition-all overflow-hidden
-                      ${today ? 'border-indigo-200 ring-2 ring-indigo-100' : 'border-slate-100'}`}
-                  >
-                    <div className="flex items-stretch">
-                      {/* Left accent */}
-                      <div className={`w-1.5 flex-shrink-0 rounded-l-2xl ${
-                        j.status === 'BERJALAN' ? 'bg-amber-400' :
-                        j.status === 'SELESAI'  ? 'bg-emerald-400' :
-                        today ? 'bg-indigo-500' : 'bg-slate-200'
-                      }`} />
-
-                      <div className="flex-1 p-4">
-                        <div className="flex items-start justify-between gap-3 flex-wrap">
-                          <div className="flex-1 min-w-0">
-                            {/* Mapel + Kelas */}
-                            <div className="flex items-center gap-2 flex-wrap mb-2">
-                              <span className="font-bold text-slate-900">{j.nama_mapel}</span>
-                              <span className="text-slate-300">·</span>
-                              <span className="text-sm text-slate-600 flex items-center gap-1">
-                                <Users className="w-3.5 h-3.5" />
-                                Kelas {j.nama_kelas}
-                              </span>
-                              {today && (
-                                <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 font-semibold">
-                                  Hari Ini
-                                </span>
-                              )}
-                            </div>
-
-                            {/* Info grid */}
-                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                              <InfoItem icon={<Calendar className="w-3.5 h-3.5" />} label="Tanggal" value={`${dayName}, ${formatDate(j.tanggal)}`} />
-                              <InfoItem icon={<BookOpen className="w-3.5 h-3.5" />} label="Sesi" value={`Sesi ${j.sesi}`} />
-                              <InfoItem icon={<Clock className="w-3.5 h-3.5" />} label="Jam" value={`${j.jam_mulai} – ${j.jam_selesai}`} />
-                              <InfoItem icon={<Clock className="w-3.5 h-3.5" />} label="Durasi" value={`${j.durasi} menit`} />
-                            </div>
-                          </div>
-
-                          {/* Status badge */}
-                          <span className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border font-medium flex-shrink-0 ${cfg.cls}`}>
-                            {cfg.icon}
-                            {cfg.label}
-                          </span>
-                        </div>
-
-                        {/* Today reminder + tombol mulai */}
-                        {today && j.status === 'AKTIF' && (() => {
-                          const bisa = canStartSesi(j.tanggal, j.jam_mulai, j.jam_selesai, now, zonaWaktu)
-                          const menit = menitMenunggu(j.tanggal, j.jam_mulai, now, zonaWaktu)
-                          if (bisa) {
-                            return (
-                              <div className="mt-3 flex items-center justify-between gap-3 flex-wrap">
-                                <div className="flex items-center gap-2 text-xs text-emerald-700 bg-emerald-50 px-3 py-2 rounded-xl flex-1">
-                                  <PlayCircle className="w-3.5 h-3.5 flex-shrink-0" />
-                                  {menit <= 0 ? 'Ujian sudah dimulai!' : `${menit} menit lagi — Anda sudah bisa memulai sesi`}
-                                </div>
-                                <a
-                                  href="/guru/mode-pengawas"
-                                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold transition-all shadow-sm"
-                                >
-                                  <PlayCircle className="w-3.5 h-3.5" />
-                                  Mulai Sesi
-                                </a>
-                              </div>
-                            )
-                          }
-                          return (
-                            <div className="mt-3 flex items-center gap-2 text-xs text-indigo-600 bg-indigo-50 px-3 py-2 rounded-xl">
-                              <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
-                              Ujian hari ini — tombol mulai tersedia <strong className="mx-1">{menit} menit lagi</strong> (15 mnt sebelum jam {j.jam_mulai})
-                            </div>
-                          )
-                        })()}
-                        {today && j.status === 'BERJALAN' && (
-                          <div className="mt-3 flex items-center gap-2 text-xs text-amber-600 bg-amber-50 px-3 py-2 rounded-xl">
-                            <PlayCircle className="w-3.5 h-3.5 flex-shrink-0" />
-                            Sesi sedang berlangsung — pantau di <strong className="mx-1">Mode Pengawas</strong>.
-                          </div>
-                        )}
-
-                        {/* Tombol Ujian Susulan — muncul kapan saja selama status SELESAI */}
-                        {isSelesai && (
-                          <div className="mt-3 flex items-center justify-between gap-3 flex-wrap">
-                            <p className="text-xs text-slate-400">Ada siswa yang tidak hadir?</p>
-                            <button
-                              onClick={() => setSusulanTarget(j)}
-                              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-purple-50 hover:bg-purple-100 border border-purple-200 text-purple-700 text-xs font-semibold transition-all"
-                            >
-                              <ClipboardList className="w-3.5 h-3.5" />
-                              Ujian Susulan
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </section>
-        )
-      })}
-
-      {/* Modal Susulan */}
-      {susulanTarget && (
-        <ModalSusulan
-          jadwal={susulanTarget}
-          onClose={() => {
-            setSusulanTarget(null)
-            load(true)
-          }}
-        />
-      )}
-    </div>
-  )
-}
-
-function MiniStat({ bg, icon, label, value }: { bg: string; icon: React.ReactNode; label: string; value: number }) {
-  return (
-    <div className="bg-white border border-slate-100 rounded-2xl shadow-sm p-4 flex items-center gap-3">
-      <div className={`w-10 h-10 rounded-xl ${bg} flex items-center justify-center flex-shrink-0`}>{icon}</div>
+      {/* Isi tab — hanya tab aktif yang di-mount */}
       <div>
-        <div className="text-xs text-slate-500">{label}</div>
-        <div className="text-xl font-bold text-slate-900">{value}</div>
+        {activeKey === null ? (
+          <div className="flex justify-center py-20"><Spinner size="lg" /></div>
+        ) : activeKey === 'mode' ? (
+          <ModePengawasTab />
+        ) : (
+          <JadwalTab onBukaMode={() => gotoTab('mode')} />
+        )}
       </div>
     </div>
   )
 }
 
-function InfoItem({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+export default function JadwalMengawasPage() {
   return (
-    <div className="flex flex-col gap-0.5">
-      <span className="text-xs text-slate-400 flex items-center gap-1">{icon}{label}</span>
-      <span className="text-xs font-semibold text-slate-700">{value}</span>
-    </div>
+    <Suspense fallback={<div className="flex justify-center py-20"><Spinner size="lg" /></div>}>
+      <MengawasContent />
+    </Suspense>
   )
 }
