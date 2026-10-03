@@ -85,7 +85,10 @@ async function pastikanJawabanTersinkron(
   if (entries.length === 0) return { sinkron: true }
 
   try {
-    const res = await apiRequest<{ totalSynced: number }>('/api/siswa/ujian/sync', {
+    const res = await apiRequest<{
+      totalSynced: number
+      acked?: { soal_id: string; revisi: number; accepted: boolean }[]
+    }>('/api/siswa/ujian/sync', {
       method: 'POST',
       body: JSON.stringify({
         sesiId,
@@ -99,7 +102,22 @@ async function pastikanJawabanTersinkron(
         deviceId,
       }),
     })
-    return { sinkron: (res.totalSynced ?? 0) >= entries.length }
+    const cukupJumlah = (res.totalSynced ?? 0) >= entries.length
+    // FIX (celah #2): halaman ujian memverifikasi PER SOAL lewat revisi ACK
+    // (semuaSoalTerkonfirmasiRevisi), sedangkan outbox dulu hanya
+    // membandingkan jumlah baris. Sekarang, kalau server mengembalikan
+    // `acked`, setiap soal yang kita kirim harus punya ACK dengan revisi
+    // >= revisi lokal (sama dengan revisi kita = diterima; lebih tinggi =
+    // perangkat lain menulis lebih baru dan server yang menang — itu sah
+    // dan tidak boleh membuat paket menunggu selamanya). Kalau `acked`
+    // tidak ada (DB lama), tetap memakai hitungan jumlah seperti semula.
+    if (!res.acked) return { sinkron: cukupJumlah }
+    const ackPerSoal = new Map(res.acked.map(a => [a.soal_id, a]))
+    const semuaCocok = entries.every(([soal_id]) => {
+      const ack = ackPerSoal.get(soal_id)
+      return !!ack && ack.revisi >= (backup.r?.[soal_id] ?? 1)
+    })
+    return { sinkron: cukupJumlah && semuaCocok }
   } catch (err: unknown) {
     const status = (err as { status?: number } | undefined)?.status
     // FIX (bug: paket ditandai GAGAL PERMANEN padahal koneksi ada): daftar
