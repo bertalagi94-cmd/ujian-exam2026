@@ -289,13 +289,10 @@ export function ImporSoalModal(p: Props) {
         const sp = s as HasilBacaPg['soal'][number]
         const n = (hasil as HasilBacaPg).jumlahOpsi
         const h = SEMUA_HURUF.slice(0, n)
-        tanda = tandaPg({
-          teks: sp.teks, opsi: h.map(x => sp.opsi[x].teks), kunci: sp.kunci,
-          adaGambar: !!sp.gambarSoal || h.some(x => !!sp.opsi[x].gambar),
-        })
+        tanda = tandaPg({ teks: sp.teks, opsi: h.map(x => sp.opsi[x].teks), kunci: sp.kunci })
       } else {
         const se = s as HasilBacaEssay['soal'][number]
-        tanda = tandaEssay(se.teks, !!se.gambar)
+        tanda = tandaEssay(se.teks)
       }
       if (tanda) {
         if (tandaAda.has(tanda)) duplikat = 'paket'
@@ -586,8 +583,9 @@ export function ImporSoalModal(p: Props) {
                           <div className="text-xs text-amber-700 flex items-start gap-1">
                             <AlertTriangle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
                             {duplikat === 'paket'
-                              ? 'Soal ini sudah ada di paket (isinya sama persis), jadi tidak akan diimpor lagi.'
+                              ? 'Soal ini sudah ada di paket (teks soal, pilihan jawaban, dan kunci sama persis), jadi tidak akan diimpor lagi.'
                               : 'Soal ini kembar dengan soal lain di file ini, jadi hanya satu yang diimpor.'}
+                            {(pg?.gambarSoal || es?.gambar || (pg && SEMUA_HURUF.some(h => pg.opsi[h].gambar))) && ' Gambar tidak ikut dibandingkan.'}
                           </div>
                         )}
                         {galat.map((g, i) => (
