@@ -125,11 +125,6 @@ export const ROLES: RoleData[] = [
     desc: 'Membuat soal, paket soal, dan memantau ujian mata pelajaran yang diampu.',
     steps: [
       {
-        title: 'Jadwal Mapel Saya',
-        icon: <CalendarDays className="w-4 h-4" />,
-        detail: 'Daftar jadwal ujian untuk mata pelajaran yang Anda ampu (berbeda dengan tugas mengawas). Berguna untuk memastikan paket soal sudah divalidasi dan siap sebelum hari ujian.',
-      },
-      {
         title: 'Kisi-Kisi',
         icon: <BarChart2 className="w-4 h-4" />,
         detail: 'Buat dan kelola kisi-kisi soal sebagai panduan pembuatan soal sesuai kompetensi dasar. Kisi-kisi juga bisa diakses siswa sebagai bahan belajar.',
@@ -145,6 +140,11 @@ export const ROLES: RoleData[] = [
         detail: 'Punya banyak soal? Klik tombol \"Impor dari Word\" di halaman Buat Soal (PG maupun Essay). (1) Unduh template Word, tentukan jumlah tabel soal (dan 4 atau 5 opsi untuk PG). (2) Isi satu tabel per nomor soal, hanya pada kolom kuning; kolom biru (nama baris) jangan diubah. Teks soal dan gambar soal ditulis di sel yang sama: klik di dalam sel Soal, lalu Sisipkan ▸ Gambar (satu gambar per sel, format PNG/JPG; cara yang sama untuk opsi bergambar). Tabel oranye di bagian awal hanyalah contoh dan otomatis diabaikan. (3) Unggah file .docx, lalu periksa pratinjau: soal bermasalah ditandai merah beserta alasannya, dan soal yang sama persis dengan yang sudah ada di paket ditandai kuning dan tidak diimpor lagi sehingga aman bila Anda tidak sengaja mengunggah file yang sama dua kali. (4) Klik Impor. Tidak ada yang tersimpan sebelum tombol Impor ditekan. Soal essay wajib punya bobot, dan maksimal 200 soal per sekali impor. Setelah berhasil, soal tampil di daftar \"Soal yang sudah dibuat\", sedangkan form di atasnya adalah untuk soal berikutnya (misalnya \"Soal ke-6\" setelah mengimpor 5 soal).',
       },
       {
+        title: 'Jadwal Mapel Saya',
+        icon: <CalendarDays className="w-4 h-4" />,
+        detail: 'Daftar jadwal ujian untuk mata pelajaran yang Anda ampu (berbeda dengan tugas mengawas). Berguna untuk memastikan paket soal sudah divalidasi dan siap sebelum hari ujian.',
+      },
+      {
         title: 'Penilaian',
         icon: <BarChart2 className="w-4 h-4" />,
         detail: 'Satu menu dengan tiga tab: Periksa Jawaban Essay (koreksi manual jawaban essay), Rekap Nilai (nilai gabungan PG + essay per siswa), dan Kirim Nilai ke Wali Kelas.',
@@ -155,11 +155,6 @@ export const ROLES: RoleData[] = [
         detail: 'Lihat analisis butir soal — soal mana yang mudah atau sulit, dan distribusi pilihan jawaban siswa — untuk evaluasi kualitas soal.',
       },
       {
-        title: 'Wali Kelas',
-        icon: <Users className="w-4 h-4" />,
-        detail: 'Muncul di sidebar hanya untuk guru yang ditugaskan sebagai wali kelas. Digunakan untuk memantau dan menerima kiriman nilai siswa di kelas yang diampu.',
-      },
-      {
         title: 'Jadwal Mengawas Saya',
         icon: <Shield className="w-4 h-4" />,
         detail: 'Muncul di sidebar hanya untuk guru yang punya jadwal jaga. Berisi 2 tab: "Jadwal Mengawas" menampilkan sesi yang akan diawasi, dan "Mode Pengawas" dipakai untuk membuka sesi, memantau peserta secara real-time, mereset siswa yang kena pelanggaran (memberi kode lanjut), membuka/menutup akses mulai soal essay, dan menutup sesi. Kalau ada ujian yang sedang berlangsung, halaman ini langsung terbuka di tab Mode Pengawas.',
@@ -168,6 +163,11 @@ export const ROLES: RoleData[] = [
         title: 'Mengawasi Ujian saat Internet Mati (Mode Offline)',
         icon: <Radio className="w-4 h-4" />,
         detail: 'Kalau internet sekolah mati total, jawaban pilihan ganda siswa tetap aman — tersimpan dulu di perangkat siswa dan otomatis terkirim begitu koneksi kembali, jadi pengawas tidak perlu tindakan khusus untuk PG. Untuk soal essay, tombol "Tampilkan Kode Darurat" di Mode Pengawas akan menampilkan kode khusus per sesi — bacakan atau tuliskan kode ini di papan tulis (JANGAN lewat chat/internet) supaya siswa bisa membuka soal essay secara offline tanpa menunggu server. Begitu internet pulih, sistem otomatis menyinkronkan waktu mulai dan jawaban essay siswa yang tadinya offline.',
+      },
+      {
+        title: 'Wali Kelas',
+        icon: <Users className="w-4 h-4" />,
+        detail: 'Muncul di sidebar hanya untuk guru yang ditugaskan sebagai wali kelas. Digunakan untuk memantau dan menerima kiriman nilai siswa di kelas yang diampu.',
       },
     ],
   },
