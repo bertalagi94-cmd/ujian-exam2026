@@ -64,6 +64,10 @@ export const QA_ITEMS: QaSection[] = [
     bg: 'bg-emerald-50',
     items: [
       {
+        q: 'Bagaimana saya tahu ujian sudah dibuka oleh pengawas?',
+        a: 'Setelah pengawas membuka sesi, muncul angka kecil berwarna merah pada menu Beranda dan Mulai Ujian selama Anda belum menyelesaikan ujian tersebut. Jika sesi sudah terbuka saat Anda login, tampil juga pemberitahuan satu kali. Angka ini akan hilang setelah Anda menyelesaikan ujian. Untuk memulai, buka menu Mulai Ujian dan masukkan kode ujian dari pengawas.',
+      },
+      {
         q: 'Apakah jawaban tersimpan otomatis?',
         a: 'Ya, setiap jawaban yang dipilih langsung tersimpan ke server secara otomatis. Tidak perlu khawatir jika tiba-tiba koneksi terputus sebentar — jawaban yang sudah dijawab tetap tersimpan.',
       },
