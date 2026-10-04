@@ -190,7 +190,7 @@ export const ROLES: RoleData[] = [
       {
         title: 'Dashboard & Jadwal',
         icon: <LayoutDashboard className="w-4 h-4" />,
-        detail: 'Lihat jadwal ujian yang akan datang. Ujian hanya bisa diakses sesuai jadwal yang ditetapkan — tidak bisa dikerjakan sebelum atau sesudah waktu yang ditentukan.',
+        detail: 'Lihat jadwal ujian yang akan datang. Ujian hanya bisa diakses sesuai jadwal yang ditetapkan — tidak bisa dikerjakan sebelum atau sesudah waktu yang ditentukan. Saat pengawas sudah membuka sesi ujian dan Anda belum mengikutinya, muncul pemberitahuan setelah login serta angka kecil pada menu Beranda dan Mulai Ujian; buka menu Mulai Ujian untuk masuk.',
       },
       {
         title: 'Mengerjakan Ujian',
