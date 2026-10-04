@@ -7,7 +7,7 @@ import {
   LayoutDashboard, Users, BookOpen, Calendar, ClipboardList,
   BarChart3, Settings, LogOut, Menu, X, ChevronRight, ChevronLeft,
   GraduationCap, School, User, FileText, Eye, ShieldAlert,
-  FileBarChart, CheckSquare, Send, CalendarDays
+  FileBarChart, CheckSquare, Send, CalendarDays, TrendingUp
 } from 'lucide-react'
 import { cn, apiRequest } from '@/lib/utils'
 import { AuthUser } from '@/types'
@@ -34,6 +34,9 @@ interface NavItem {
   //    di halaman ini" tetap konsisten di seluruh sidebar.
   divider?: boolean
   variant?: 'default' | 'highlight'
+  // Judul kelompok menu (huruf kecil kapital di atas item ini). Dipasang pada
+  // item PERTAMA tiap kelompok. Murni tampilan; tidak memengaruhi navigasi.
+  section?: string
 }
 
 interface SidebarProps {
@@ -126,7 +129,11 @@ function SidebarContent({ navItems, roleColor, roleLabel, accent, user, siteInfo
           const isHighlight = item.variant === 'highlight' && !isActive
           return (
             <div key={item.href}>
-              {item.divider && (
+              {item.section ? (
+                <div className="mt-3 mb-1 pt-3 px-3 border-t border-slate-200/70 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                  {item.section}
+                </div>
+              ) : item.divider && (
                 <div className="my-2 border-t border-slate-200/70" />
               )}
               <Link
@@ -453,13 +460,15 @@ function useBadgeCounts(role: 'ADMIN' | 'GURU' | 'SISWA') {
 export function AdminSidebar() {
   const counts = useBadgeCounts('ADMIN')
 
+  // Urutan mengikuti alur kerja admin: siapkan data master (kelas dulu, karena
+  // siswa & jadwal bergantung padanya) → siapkan ujian → pantau & lihat hasil.
   const navItems: NavItem[] = [
     { label: 'Dashboard', href: '/admin', icon: LayoutDashboard },
+    { label: 'Kelas', href: '/admin/kelas', icon: School, section: 'Data Master' },
     { label: 'Data Siswa', href: '/admin/siswa', icon: Users },
     { label: 'Data Pengguna', href: '/admin/users', icon: User },
-    { label: 'Kelas', href: '/admin/kelas', icon: School },
     { label: 'Mata Pelajaran', href: '/admin/mapel', icon: BookOpen },
-    { label: 'Jadwal Ujian', href: '/admin/jadwal', icon: Calendar },
+    { label: 'Jadwal Ujian', href: '/admin/jadwal', icon: Calendar, section: 'Persiapan Ujian' },
     { label: 'Kisi-kisi', href: '/admin/kisi-kisi', icon: FileText },
     {
       label: 'Validasi Soal',
@@ -467,11 +476,12 @@ export function AdminSidebar() {
       icon: ClipboardList,
       badge: counts.validasiSoal || undefined,
     },
+    { label: 'Pelanggaran', href: '/admin/pelanggaran', icon: ShieldAlert, section: 'Hasil & Pemantauan' },
     { label: 'Rekap Nilai', href: '/admin/nilai', icon: BarChart3 },
-    { label: 'Analisis Ujian', href: '/admin/analisis-ujian', icon: BarChart3 },
-    { label: 'Pelanggaran', href: '/admin/pelanggaran', icon: ShieldAlert },
+    // Ikon dibedakan dari "Rekap Nilai" (sebelumnya sama-sama BarChart3).
+    { label: 'Analisis Ujian', href: '/admin/analisis-ujian', icon: TrendingUp },
     { label: 'Laporan Lengkap', href: '/admin/laporan', icon: FileBarChart },
-    { label: 'Pengaturan', href: '/admin/pengaturan', icon: Settings },
+    { label: 'Pengaturan', href: '/admin/pengaturan', icon: Settings, section: 'Sistem' },
   ]
 
   return (
@@ -544,12 +554,16 @@ export function GuruSidebar() {
       .catch(() => {})
   }, [pathname])
 
+  // Urutan mengikuti alur kerja guru: rencana (kisi-kisi) → buat soal →
+  // cek jadwal ujian mapel → nilai → analisis. Posisi menu TETAP untuk semua
+  // guru; peran tambahan (mengawas / wali kelas) ditaruh di kelompok
+  // "Tugas Tambahan" paling bawah sehingga tidak menggeser menu utama.
+  //
+  // Catatan konsolidasi (tetap berlaku): "Bank Soal" digabung ke "Buat Soal";
+  // "Koreksi Essay", "Rekap Nilai", dan "Kirim Nilai ke Wali Kelas" digabung
+  // ke "Penilaian" (3 tab). Route lama masih ada sebagai redirect.
   const navItems: NavItem[] = [
     { label: 'Dashboard', href: '/guru', icon: LayoutDashboard },
-    // FITUR BARU: daftar jadwal ujian untuk mapel yang DIAMPU guru ini
-    // (bukan tugas pengawasan). Selalu tampil untuk semua guru; kalau belum
-    // ada mapel/jadwal, halamannya sendiri menampilkan pesan kosong.
-    { label: 'Jadwal Mapel Saya', href: '/guru/jadwal-mapel', icon: CalendarDays },
     {
       label: 'Kisi-kisi',
       href: '/guru/kisi-kisi',
@@ -557,60 +571,33 @@ export function GuruSidebar() {
       badge: counts.kisiKisiBaru || undefined,
     },
     {
-      // FIX (konsolidasi menu): menu "Bank Soal" (/guru/soal) digabung ke
-      // sini — satu tempat untuk PG & Essay: buat, edit, kirim, tarik,
-      // duplicate paket soal. Halaman /guru/soal masih ada sebagai redirect
-      // supaya link/bookmark lama tidak 404, tapi tidak lagi punya menu sendiri.
       label: 'Buat Soal',
       href: '/guru/paket',
       icon: ClipboardList,
       badge: counts.bankSoal || undefined,
     },
-    // FIX (konsolidasi menu): "Koreksi Essay", "Rekap Nilai", dan "Kirim
-    // Nilai ke Wali Kelas" digabung jadi satu menu "Penilaian" dengan 3 tab
-    // bernomor (lihat src/app/guru/penilaian/page.tsx) — guru cuma perlu
-    // satu tempat untuk seluruh alur penilaian, dari periksa jawaban essay
-    // sampai kirim nilai akhir. Route lama (/guru/koreksi-essay, /guru/nilai,
-    // /guru/kirim-nilai) masih ada sebagai redirect supaya link/bookmark
-    // lama tidak 404, tapi tidak lagi punya menu sendiri.
+    // Jadwal ujian untuk mapel yang DIAMPU guru ini (bukan tugas pengawasan).
+    { label: 'Jadwal Mapel Saya', href: '/guru/jadwal-mapel', icon: CalendarDays },
     { label: 'Penilaian', href: '/guru/penilaian', icon: CheckSquare },
-    // FIX (kejelasan menu): sebelumnya pakai ikon BarChart3 yang sama persis
-    // dengan "Rekap Nilai" (kini tab di dalam "Penilaian"), jadi dua menu
-    // berbeda fungsi terlihat seperti menu yang sama sekilas pandang.
-    // Dipakaikan FileBarChart (sudah dipakai di sidebar admin untuk "Laporan
-    // Lengkap", jadi maknanya konsisten: laporan/analisis, bukan tabel nilai
-    // mentah) supaya guru bisa membedakan dua menu ini tanpa harus membaca
-    // labelnya dulu.
+    // Ikon FileBarChart agar tidak tertukar dengan "Penilaian".
     { label: 'Analisis Ujian', href: '/guru/analisis-ujian', icon: FileBarChart },
   ]
 
-  // FIX (kejelasan menu — permintaan: menu "Wali Kelas" sering tertukar
-  // dengan menu "Penilaian" karena sama-sama soal nilai dan posisinya
-  // berdekatan di atas): "Wali Kelas" TIDAK lagi digabung dengan extras lain
-  // di posisi awal. Sekarang selalu ditaruh PALING AKHIR (setelah "Analisis
-  // Ujian"), dipisahkan dengan garis pembatas (`divider`) dan gaya berbeda
-  // (`variant: 'highlight'` — latar putih, teks hitam tebal, lihat
-  // SidebarContent) supaya guru sadar ini adalah "topi" / peran yang
-  // berbeda (wali kelas), bukan sekadar menu penilaian mapel biasa.
-  // Kondisi tampil (hanya untuk guru yang memang wali kelas) TIDAK berubah.
-  if (isWaliKelas) {
-    navItems.push({
-      label: 'Wali Kelas',
-      href: '/guru/wali-kelas',
-      icon: School,
-      divider: true,
-      variant: 'highlight',
-    })
-  }
-
-  const extras: NavItem[] = []
+  // Kelompok "Tugas Tambahan": hanya muncul untuk guru yang memang punya
+  // jadwal jaga (pengawas) dan/atau menjadi wali kelas. Kondisi tampil
+  // masing-masing TIDAK berubah. Judul kelompok dipasang di item pertama.
+  const tugasTambahan: NavItem[] = []
   if (hasPengawasan) {
-    // FIX (konsolidasi menu): "Jadwal Pengawasan" + "Mode Pengawas" digabung
-    // jadi satu menu bertab (lihat src/app/guru/jadwal-pengawasan/page.tsx).
-    // Kondisi tampil TIDAK berubah (hanya untuk guru yang punya jadwal jaga).
-    extras.push({ label: 'Jadwal Mengawas Saya', href: '/guru/jadwal-pengawasan', icon: Calendar })
+    // "Jadwal Pengawasan" + "Mode Pengawas" sudah digabung jadi satu menu bertab.
+    tugasTambahan.push({ label: 'Jadwal Mengawas Saya', href: '/guru/jadwal-pengawasan', icon: Calendar })
   }
-  navItems.splice(1, 0, ...extras)
+  if (isWaliKelas) {
+    // Tetap bergaya 'highlight' (latar putih, teks tebal) supaya guru sadar ini
+    // peran yang berbeda dari menu penilaian mapel biasa.
+    tugasTambahan.push({ label: 'Wali Kelas', href: '/guru/wali-kelas', icon: School, variant: 'highlight' })
+  }
+  if (tugasTambahan.length > 0) tugasTambahan[0].section = 'Tugas Tambahan'
+  navItems.push(...tugasTambahan)
 
   return (
     <Sidebar
@@ -632,12 +619,12 @@ export function KepsekSidebar() {
       accent="#7c3aed"
       navItems={[
         { label: 'Dashboard', href: '/kepsek', icon: LayoutDashboard },
+        { label: 'Monitoring Ujian', href: '/kepsek/monitoring', icon: Eye, section: 'Pemantauan' },
+        { label: 'Hasil Ujian', href: '/kepsek/nilai', icon: BarChart3 },
+        { label: 'Jadwal Ujian', href: '/kepsek/jadwal', icon: Calendar, section: 'Data Sekolah' },
+        { label: 'Kisi-kisi', href: '/kepsek/kisi-kisi', icon: FileText },
         { label: 'Data Kelas', href: '/kepsek/kelas', icon: Users },
         { label: 'Guru & Mapel', href: '/kepsek/guru', icon: BookOpen },
-        { label: 'Jadwal Ujian', href: '/kepsek/jadwal', icon: Calendar },
-        { label: 'Kisi-kisi', href: '/kepsek/kisi-kisi', icon: FileText },
-        { label: 'Hasil Ujian', href: '/kepsek/nilai', icon: BarChart3 },
-        { label: 'Monitoring Ujian', href: '/kepsek/monitoring', icon: Eye },
       ]}
     />
   )
@@ -722,22 +709,24 @@ export function SiswaSidebar() {
       .catch(() => {})
   }, [pathname])
 
+  // Urutan: hal yang mendesak di atas (pengiriman tertunda, mulai ujian), lalu
+  // persiapan (jadwal, kisi-kisi), lalu hasil (nilai), dan profil di paling bawah.
   const navItems: NavItem[] = [
     { label: 'Beranda', href: '/siswa', icon: LayoutDashboard },
+    ...(jumlahTertunda > 0
+      ? [{ label: 'Pengiriman Tertunda', href: '/siswa/pengiriman-tertunda', icon: Send, badge: jumlahTertunda } as NavItem]
+      : []),
+    ...(adaJadwalHariIni ? [{ label: 'Mulai Ujian', href: '/siswa/ujian', icon: BookOpen } as NavItem] : []),
+    { label: 'Jadwal', href: '/siswa/jadwal', icon: Calendar },
     {
       label: 'Kisi-kisi',
       href: '/siswa/kisi-kisi',
       icon: FileText,
       badge: counts.kisiKisiBaru || undefined,
     },
-    ...(adaJadwalHariIni ? [{ label: 'Mulai Ujian', href: '/siswa/ujian', icon: BookOpen } as NavItem] : []),
-    ...(jumlahTertunda > 0
-      ? [{ label: 'Pengiriman Tertunda', href: '/siswa/pengiriman-tertunda', icon: Send, badge: jumlahTertunda } as NavItem]
-      : []),
     { label: 'Nilai Saya', href: '/siswa/nilai', icon: BarChart3 },
-    { label: 'Jadwal', href: '/siswa/jadwal', icon: Calendar },
-    // FITUR (Halaman profil siswa): biodata + ganti password sendiri.
-    { label: 'Profil Saya', href: '/siswa/profil', icon: User },
+    // Halaman profil siswa: biodata + ganti password sendiri.
+    { label: 'Profil Saya', href: '/siswa/profil', icon: User, divider: true },
   ]
 
   return (
