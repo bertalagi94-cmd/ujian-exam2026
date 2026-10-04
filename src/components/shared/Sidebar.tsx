@@ -16,6 +16,7 @@ import { useSidebarCollapsedPref } from '@/lib/sidebar-collapsed-pref'
 // dipakai untuk badge jumlah paket tertunda di menu SiswaSidebar.
 import { ambilSemuaPaketTertunda } from '@/lib/ujian-outbox'
 import { hapusCadanganLihatSebagai } from '@/lib/lihat-sebagai'
+import { SesiDibukaPopup } from '@/components/shared/SesiDibukaPopup'
 
 interface NavItem {
   label: string
@@ -712,11 +713,13 @@ export function SiswaSidebar() {
   // Urutan: hal yang mendesak di atas (pengiriman tertunda, mulai ujian), lalu
   // persiapan (jadwal, kisi-kisi), lalu hasil (nilai), dan profil di paling bawah.
   const navItems: NavItem[] = [
-    { label: 'Beranda', href: '/siswa', icon: LayoutDashboard },
+    // Badge angka = jumlah sesi yang sudah dibuka pengawas tapi belum diikuti
+    // siswa (sama dengan badge di "Mulai Ujian"), supaya terlihat dari halaman manapun.
+    { label: 'Beranda', href: '/siswa', icon: LayoutDashboard, badge: counts.ujianDibuka || undefined },
     ...(jumlahTertunda > 0
       ? [{ label: 'Pengiriman Tertunda', href: '/siswa/pengiriman-tertunda', icon: Send, badge: jumlahTertunda } as NavItem]
       : []),
-    ...(adaJadwalHariIni ? [{ label: 'Mulai Ujian', href: '/siswa/ujian', icon: BookOpen } as NavItem] : []),
+    ...(adaJadwalHariIni ? [{ label: 'Mulai Ujian', href: '/siswa/ujian', icon: BookOpen, badge: counts.ujianDibuka || undefined } as NavItem] : []),
     { label: 'Jadwal', href: '/siswa/jadwal', icon: Calendar },
     {
       label: 'Kisi-kisi',
@@ -730,12 +733,16 @@ export function SiswaSidebar() {
   ]
 
   return (
-    <Sidebar
-      role="SISWA"
-      roleColor="bg-cyan-600"
-      roleLabel="Siswa"
-      accent="#0891b2"
-      navItems={navItems}
-    />
+    <>
+      <Sidebar
+        role="SISWA"
+        roleColor="bg-cyan-600"
+        roleLabel="Siswa"
+        accent="#0891b2"
+        navItems={navItems}
+      />
+      {/* Popup sekali per login bila ada sesi yang sudah dibuka & belum diikuti. */}
+      <SesiDibukaPopup jumlah={counts.ujianDibuka} />
+    </>
   )
 }
