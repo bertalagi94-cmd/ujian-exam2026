@@ -105,7 +105,7 @@ export const QA_ITEMS: QaSection[] = [
     items: [
       {
         q: 'Bagaimana cara mengimpor soal dari Word?',
-        a: 'Buka menu Buat Soal, lalu klik \"Impor dari Word\" (untuk essay: \"Impor Soal dari Word\"). Unduh template, isi satu tabel per nomor soal di Word, lalu unggah file .docx. Periksa pratinjau, kemudian klik Impor. Tidak ada soal yang tersimpan sebelum tombol Impor ditekan. Gambar disisipkan lewat Sisipkan ▸ Gambar di dalam sel soal atau sel opsi yang sesuai (satu gambar per sel).',
+        a: 'Buka menu Buat Soal, lalu klik \"Impor dari Word\" (untuk essay: \"Impor Soal dari Word\"). Unduh template, isi satu tabel per nomor soal di Word, lalu unggah file .docx. Periksa pratinjau, kemudian klik Impor. Tidak ada soal yang tersimpan sebelum tombol Impor ditekan. Isi hanya kolom kuning dan jangan ubah kolom biru (nama baris). Teks soal dan gambar soal ditulis di sel yang sama: klik di dalam sel Soal, lalu Sisipkan ▸ Gambar (satu gambar per sel). Cara yang sama berlaku untuk opsi jawaban bergambar. Tabel oranye di awal template hanyalah contoh dan tidak ikut diimpor.',
       },
       {
         q: 'Mengapa setelah impor selesai, form menampilkan nomor soal berikutnya?',
