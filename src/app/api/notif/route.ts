@@ -4,11 +4,14 @@
 // - GURU: jumlah paket soal milik guru yang sudah DISETUJUI atau DITOLAK
 //   (belum dilihat), + jumlah kisi-kisi BARU dari guru LAIN (rekan kerja)
 //   yang belum dilihat guru ini
-// - SISWA: jumlah kisi-kisi TERKIRIM baru untuk kelasnya yang belum dilihat
+// - SISWA: jumlah kisi-kisi TERKIRIM baru untuk kelasnya yang belum dilihat,
+//   + jumlah sesi ujian yang SUDAH DIBUKA pengawas tapi belum diikuti siswa
+//   (`ujianDibuka`, lihat src/lib/sesi-dibuka-siswa.ts)
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 import { getGuruSekolahScope } from '@/lib/kepsek-scope'
+import { hitungUjianDibukaSiswa } from '@/lib/sesi-dibuka-siswa'
 
 export const dynamic = 'force-dynamic'
 
@@ -100,7 +103,7 @@ export async function GET(req: NextRequest) {
     // di atas — timestamp per-akun di tabel siswa (migrasi 30), bandingkan
     // dengan kisi-kisi TERKIRIM (siswa tidak boleh lihat DRAFT) untuk
     // kelasnya.
-    if (!user.kelas) return NextResponse.json({ kisiKisiBaru: 0 })
+    if (!user.kelas) return NextResponse.json({ kisiKisiBaru: 0, ujianDibuka: 0 })
 
     const { data: siswaRow } = await db
       .from('siswa')
@@ -126,9 +129,15 @@ export async function GET(req: NextRequest) {
     if (siswaRow?.kisi_kisi_terakhir_dilihat) {
       q = q.gt('updated_at', siswaRow.kisi_kisi_terakhir_dilihat)
     }
-    const { count } = await q
+    const [{ count }, ujianDibuka] = await Promise.all([
+      q,
+      // Gagal menghitung sesi tidak boleh merusak badge kisi-kisi: anggap 0.
+      user.nis
+        ? hitungUjianDibukaSiswa(db, String(user.kelas), String(user.nis)).catch(() => 0)
+        : Promise.resolve(0),
+    ])
 
-    return NextResponse.json({ kisiKisiBaru: count ?? 0 })
+    return NextResponse.json({ kisiKisiBaru: count ?? 0, ujianDibuka })
   }
 
   return NextResponse.json({})
