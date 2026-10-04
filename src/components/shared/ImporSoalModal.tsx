@@ -449,8 +449,9 @@ export function ImporSoalModal(p: Props) {
             Unduh template Word
           </div>
           <p className="text-sm text-slate-600">
-            Template berisi satu tabel untuk setiap nomor soal, jadi soal, opsi, kunci, dan gambarnya tetap utuh.
-            Gambar (pada soal, opsi jawaban{isPg ? '' : ', maupun soal essay'}) cukup disisipkan lewat <b>Sisipkan ▸ Gambar</b> di dalam sel yang sesuai.
+            Template berisi satu tabel untuk setiap nomor soal. Isi hanya <b>kolom kuning</b>; kolom biru (nama baris) jangan diubah.
+            Teks soal dan gambar soal ditulis di <b>sel yang sama</b>: klik di dalam sel Soal, lalu <b>Sisipkan ▸ Gambar</b>
+            {isPg ? ' (cara yang sama untuk opsi jawaban bergambar)' : ''}. Tabel oranye di bagian awal hanyalah contoh dan tidak ikut diimpor.
           </p>
           <div className="flex flex-wrap items-end gap-3">
             <div>
@@ -527,7 +528,7 @@ export function ImporSoalModal(p: Props) {
 
             {hasil.soal.length === 0 && (
               <div className="alert-warning text-sm">
-                Tidak ada soal terisi yang ditemukan. Pastikan soal diisi di dalam tabel template (jangan mengubah label di kolom kiri) dan bukan di tabel &ldquo;Contoh&rdquo;.
+                Tidak ada soal terisi yang ditemukan. Pastikan soal diisi pada kolom kuning di tabel template (jangan mengubah kolom biru) dan bukan di tabel contoh yang berwarna oranye.
               </div>
             )}
 
