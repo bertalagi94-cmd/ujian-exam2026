@@ -103,6 +103,11 @@ export async function POST(req: NextRequest) {
   })
 
   if (rpcError) {
+    // Status paket sudah berubah sejak halaman admin dimuat — ditolak oleh
+    // fungsi database dengan SQLSTATE 'PT409' (migrasi 37).
+    if (rpcError.code === 'PT409') {
+      return NextResponse.json({ error: rpcError.message }, { status: 409 })
+    }
     if (rpcError.code === '23505') {
       return NextResponse.json(
         { error: 'Ada paket lain yang baru saja disetujui untuk mapel & kelas yang sama. Muat ulang halaman dan coba lagi.' },
