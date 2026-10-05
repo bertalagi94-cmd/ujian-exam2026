@@ -228,17 +228,24 @@ export async function POST(req: NextRequest) {
   let paketBaru = false
   if (!paketId) {
     paketId = generateId('PKT')
-    const { error: errBuat } = await db.from('paket_soal').insert({
-      id: paketId,
-      mapel_id: mapelId,
-      kelas_id: kelasId,
-      guru_id: user.username,
-      status: 'DRAFT',
-      jumlah_soal: 0,
-      acak: acakPaket,
-      mode_jawaban: 'DIGITAL',
+    // Cek-duplikat + insert paket sebagai satu langkah atomik di database
+    // (migrasi 37: buat_paket_soal_atomik) supaya klik ganda / dua tab tidak
+    // bisa membuat dua paket untuk guru+mapel+kelas yang sama.
+    const { data: dibuat, error: errBuat } = await db.rpc('buat_paket_soal_atomik', {
+      p_id: paketId,
+      p_mapel_id: mapelId,
+      p_kelas_id: kelasId,
+      p_guru_id: user.username,
+      p_acak: acakPaket,
+      p_mode_jawaban: 'DIGITAL',
     })
     if (errBuat) return NextResponse.json({ error: errBuat.message }, { status: 500 })
+    if (dibuat === false) {
+      return NextResponse.json(
+        { error: 'Paket soal untuk mapel dan kelas ini sudah ada. Buka paket tersebut lalu impor dari sana.' },
+        { status: 409 }
+      )
+    }
     paketBaru = true
   }
 

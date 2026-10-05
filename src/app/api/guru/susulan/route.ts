@@ -8,6 +8,7 @@ import { requireRole } from '@/lib/auth'
 import { generateId } from '@/lib/utils'
 import { cekSesiBentrokKelas, pesanBentrokKelas } from '@/lib/sesi-kelas'
 import { resolveEssayInfoJson } from '@/lib/gabungKirim'
+import { isKonflikSesiBerjalan } from '@/lib/sesi-unik'
 
 function generateKode7(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
@@ -213,7 +214,29 @@ export async function POST(req: NextRequest) {
     info_json: infoJsonEssay,
   })
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (error) {
+    // Penjaga database (migrasi 37, uq_sesi_berjalan_per_jadwal): sesi lain
+    // untuk jadwal ini baru saja dibuka di antara pengecekan di atas dan
+    // insert ini. Jawab sama seperti cabang "sudah ada sesi berjalan".
+    if (isKonflikSesiBerjalan(error)) {
+      const { data: sesiPemenang } = await db
+        .from('sesi_ujian')
+        .select('id, kode_sesi')
+        .eq('jadwal_id', jadwalId)
+        .eq('status', 'BERJALAN')
+        .maybeSingle()
+      if (sesiPemenang) {
+        return NextResponse.json({
+          bisa: false,
+          message: 'Sudah ada sesi ujian yang sedang berjalan untuk jadwal ini.',
+          sesiAktifId: sesiPemenang.id,
+          kodeSesi: sesiPemenang.kode_sesi,
+          sudahBerjalan: true,
+        })
+      }
+    }
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
 
   // Sinkronkan status jadwal agar admin/kepsek melihat status "Berjalan" selama susulan aktif
   // (simetris dengan /api/pengawas/sesi/[id]/tutup yang mengembalikannya ke SELESAI saat ditutup)

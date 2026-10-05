@@ -119,18 +119,28 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ message: 'Valid, siap membuat soal' })
   }
 
+  // FIX (paket ganda): pengecekan duplikat di atas dan insert dulu dua langkah
+  // terpisah tanpa penjaga, jadi dua request yang nyaris bersamaan (dua tab /
+  // perangkat) sama-sama lolos cek lalu sama-sama insert. Sekarang cek +
+  // insert dijalankan sebagai satu langkah serial di database (advisory lock
+  // per guru+mapel+kelas, lihat migrasi 37: buat_paket_soal_atomik). Cek di
+  // atas tetap dipertahankan sebagai jalur cepat dan untuk pesan dry_run.
   const id = generateId('PKT')
-  const { error } = await db.from('paket_soal').insert({
-    id,
-    mapel_id: body.mapel_id,
-    kelas_id: body.kelas_id,
-    guru_id: user.username,
-    status: 'DRAFT',
-    jumlah_soal: 0,
-    acak: body.acak ?? 'YA',
-    mode_jawaban: body.mode_jawaban === 'KERTAS' ? 'KERTAS' : 'DIGITAL',
+  const { data: dibuat, error } = await db.rpc('buat_paket_soal_atomik', {
+    p_id: id,
+    p_mapel_id: body.mapel_id,
+    p_kelas_id: body.kelas_id,
+    p_guru_id: user.username,
+    p_acak: body.acak ?? 'YA',
+    p_mode_jawaban: body.mode_jawaban === 'KERTAS' ? 'KERTAS' : 'DIGITAL',
   })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (dibuat === false) {
+    return NextResponse.json(
+      { error: 'Paket soal untuk mapel dan kelas ini sudah ada. Silakan lanjutkan mengisi soal pada paket yang sudah dibuat.' },
+      { status: 409 }
+    )
+  }
   return NextResponse.json({ id, message: 'Paket berhasil dibuat' }, { status: 201 })
 }

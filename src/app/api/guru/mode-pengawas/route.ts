@@ -6,6 +6,7 @@ import { getZonaWaktuSekolah, tanggalHariIni } from '@/lib/pengaturan-waktu'
 import { computeStatusSoalDetailMap, getStatusSoalDetail, isStatusSoalSiap, pesanStatusSoal, buildStatusSoalKey } from '@/lib/soal-status'
 import { cekSesiBentrokKelas, pesanBentrokKelas } from '@/lib/sesi-kelas'
 import { resolveEssayInfoJson } from '@/lib/gabungKirim'
+import { isKonflikSesiBerjalan } from '@/lib/sesi-unik'
 
 function generateKodeSesi7(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
@@ -467,7 +468,40 @@ export async function POST(req: NextRequest) {
     info_json: infoJsonEssay,
   })
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (error) {
+    // Penjaga database (migrasi 37, uq_sesi_berjalan_per_jadwal): request lain
+    // (tab/perangkat lain, atau admin lewat susulan) menang balapan dan sudah
+    // membuka sesi untuk jadwal ini di antara pengecekan di atas dan insert
+    // ini. Jangan buat sesi kedua — kembalikan sesi yang sudah ada, sama
+    // seperti cabang "Sesi sudah berjalan" di atas.
+    if (isKonflikSesiBerjalan(error)) {
+      const { data: sesiPemenang } = await db
+        .from('sesi_ujian')
+        .select('id, kode_sesi, info_json')
+        .eq('jadwal_id', jadwalId)
+        .eq('status', 'BERJALAN')
+        .maybeSingle()
+
+      if (sesiPemenang) {
+        const pengawasSusulan = sesiPemenang.info_json?.dibuka_oleh_admin
+          ? sesiPemenang.info_json?.pengawas_susulan
+          : undefined
+        if (pengawasSusulan && pengawasSusulan !== user.username) {
+          return NextResponse.json({
+            error: 'Sesi untuk jadwal ini sedang aktif dengan pengawas lain (ditugaskan admin).',
+            diambilAlih: true,
+          }, { status: 409 })
+        }
+        return NextResponse.json({
+          message: 'Sesi sudah berjalan',
+          sesiId: sesiPemenang.id,
+          kodeSesi: sesiPemenang.kode_sesi,
+          sudahAda: true,
+        })
+      }
+    }
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
 
   await db.from('jadwal').update({ status: 'BERJALAN' }).eq('id', jadwalId)
 

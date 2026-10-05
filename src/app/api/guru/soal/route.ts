@@ -75,6 +75,28 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: verifikasiPaket.error }, { status: verifikasiPaket.status })
   }
 
+  // FIX (soal masuk ke paket yang sudah dikirim): route impor
+  // (guru/soal/impor) sudah menolak paket yang bukan DRAFT/DITOLAK, tapi
+  // endpoint ini tidak. Soal baru yang ditambahkan ke paket berstatus
+  // MENUNGGU belum pernah dilihat admin, tetapi ikut berstatus DISETUJUI saat
+  // admin menyetujui paketnya (set_status_paket_soal mengubah SEMUA soal di
+  // paket). Aturan di sini sama persis dengan route impor.
+  if (body.paket_id) {
+    const { data: paketTujuan, error: errPaketTujuan } = await db
+      .from('paket_soal')
+      .select('status')
+      .eq('id', body.paket_id)
+      .maybeSingle()
+    if (errPaketTujuan) return NextResponse.json({ error: errPaketTujuan.message }, { status: 500 })
+    if (!paketTujuan) return NextResponse.json({ error: 'Paket tidak ditemukan' }, { status: 404 })
+    if (!['DRAFT', 'DITOLAK'].includes(paketTujuan.status)) {
+      return NextResponse.json(
+        { error: 'Paket sudah dikirim/disetujui dan terkunci — soal tidak bisa ditambah. Tarik paket dulu kalau ingin menambah soal.' },
+        { status: 400 }
+      )
+    }
+  }
+
   // Validasi: teks opsi wajib diisi KECUALI kalau gambar opsi sudah ada.
   // Opsi D dan E opsional sepenuhnya (tergantung jumlah_opsi).
   const jumlahOpsi = parseInt(body.jumlah_opsi) || 4

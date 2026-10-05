@@ -124,12 +124,24 @@ export async function POST(
     if (paket.status !== 'MENUNGGU') {
       return NextResponse.json({ error: 'Hanya paket berstatus MENUNGGU yang bisa ditarik' }, { status: 400 })
     }
-    const { error } = await db
+    // Update BERSYARAT: hanya berhasil kalau paket MASIH berstatus MENUNGGU
+    // saat update dijalankan. Pengecekan status di atas sudah basi begitu
+    // admin sempat menyetujui/menolak paket ini di antara dua query — tanpa
+    // syarat di sini, "tarik" akan menimpa status DISETUJUI/DITOLAK.
+    const { data: ditarik, error } = await db
       .from('paket_soal')
       .update({ status: 'DRAFT', notif_dibaca: true })
       .eq('id', paketId)
+      .eq('status', 'MENUNGGU')
+      .select('id')
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    if (!ditarik || ditarik.length === 0) {
+      return NextResponse.json(
+        { error: 'Status paket sudah berubah (kemungkinan baru diproses admin), jadi tidak bisa ditarik. Muat ulang halaman.' },
+        { status: 409 }
+      )
+    }
     await db.from('soal').update({ status: 'DRAFT' }).eq('paket_id', paketId).eq('status', 'MENUNGGU')
     return NextResponse.json({ message: 'Paket berhasil ditarik' })
   }
