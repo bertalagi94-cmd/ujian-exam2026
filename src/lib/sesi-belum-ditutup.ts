@@ -9,6 +9,7 @@
 import { createAdminClient } from '@/lib/supabase'
 import { getZonaWaktuSekolah } from '@/lib/pengaturan-waktu'
 import { ambilTargetSiswaSesi } from '@/lib/target-siswa-sesi'
+import { durasiTotalSesi } from '@/lib/durasi-ujian'
 import {
   bolehTutupLangsung,
   hitungPeserta,
@@ -118,9 +119,11 @@ export async function muatPengingatSesi(
       )
       belumMasuk = target.filter(t => !masuk.has(t.nis)).length
     }
+    // Waktu selesai sesi = durasi PG + durasi essay (kalau ada essay). Tanpa
+    // ini sesi dengan essay ditandai "lewat waktu" terlalu cepat.
     const kondisi = tentukanKondisiSesi({
       sekarang, utcOffsetJam: off, waktuMulai: s.waktu_mulai,
-      durasiMenit: s.durasi, peserta, belumMasuk,
+      durasiMenit: durasiTotalSesi(s.durasi, s.info_json), peserta, belumMasuk,
     })
     if (kondisi.jenis) kandidat.push({ sesi: s, peserta, belumMasuk, kondisi })
   }
@@ -154,7 +157,7 @@ export async function muatPengingatSesi(
         waktuMulai: sesi.waktu_mulai,
         labelTanggal: labelTanggalZona(sesi.waktu_mulai, off),
         labelJamMulai: labelJamZona(sesi.waktu_mulai, off),
-        durasiMenit: sesi.durasi && sesi.durasi > 0 ? sesi.durasi : 90,
+        durasiMenit: durasiTotalSesi(sesi.durasi, sesi.info_json) || 90,
         jenis: kondisi.jenis!,
         kemarin: kondisi.kemarin,
         lewatWaktu: kondisi.lewatWaktu,

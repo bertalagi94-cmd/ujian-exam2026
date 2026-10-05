@@ -11,6 +11,7 @@
 // masing-masing sendiri) — yang digabung hanya proses PENGIRIMANNYA.
 
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { tentukanDurasiEssay } from '@/lib/durasi-ujian'
 
 interface CounterpartResult {
   submitted: boolean
@@ -115,7 +116,15 @@ export async function kirimPasanganPaket(
  */
 export async function resolveEssayInfoJson(
   db: SupabaseClient,
-  opts: { mapelId: string; kelasNama: string; instruksi?: string | null }
+  opts: {
+    mapelId: string
+    kelasNama: string
+    instruksi?: string | null
+    // jadwal.essay_durasi_menit — durasi essay yang ditetapkan ADMIN. Kalau
+    // diisi, nilai ini yang dipakai; paket_essay.durasi_menit hanya usulan guru
+    // (lihat src/lib/durasi-ujian.ts dan migrasi 38).
+    durasiEssayAdmin?: number | null
+  }
 ): Promise<Record<string, unknown>> {
   const { data: kelasRow } = await db
     .from('kelas')
@@ -135,10 +144,17 @@ export async function resolveEssayInfoJson(
 
   if (!paketEssay) return {}
 
+  const durasiEssay = tentukanDurasiEssay({
+    durasiAdmin: opts.durasiEssayAdmin,
+    usulanGuru: paketEssay.durasi_menit,
+  })
+
   return {
     essay_aktif: true,
     essay_mode_jawaban: paketEssay.mode_jawaban ?? 'DIGITAL',
-    essay_durasi_menit: paketEssay.durasi_menit ?? 30,
+    essay_durasi_menit: durasiEssay.menit,
+    essay_durasi_sumber: durasiEssay.sumber,
+    essay_durasi_usulan_guru: paketEssay.durasi_menit ?? null,
     essay_bobot_pg_persen: paketEssay.bobot_pg_persen ?? 50,
     essay_bobot_essay_persen: paketEssay.bobot_essay_persen ?? 50,
     essay_instruksi: opts.instruksi ?? null,

@@ -45,6 +45,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
+import { durasiTotalSesi } from '@/lib/durasi-ujian'
 
 export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['GURU'])
@@ -130,7 +131,8 @@ export async function GET(req: NextRequest) {
   const sesiKandidat = sesiRelevan
     .filter(s => !adaAktivitasMap[s.id])
     .map(s => {
-      const durasiMenit = s.durasi ?? 90
+      // Durasi PG + durasi essay (kalau sesi ini punya essay).
+      const durasiMenit = durasiTotalSesi(s.durasi, s.info_json) || 90
       const batasWaktu = new Date(s.waktu_mulai).getTime() + durasiMenit * 60 * 1000
       return { ...s, tingkat: now >= batasWaktu ? 'lupa' as const : 'info' as const }
     })

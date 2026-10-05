@@ -3,6 +3,21 @@ import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 import { generateId } from '@/lib/utils'
 import { pastikanLokasiSekolahLengkap } from '@/lib/pengaturan-waktu'
+import { bacaBatasDurasiEssay, tentukanDurasiEssay, validasiDurasiEssayAdmin } from '@/lib/durasi-ujian'
+
+// Baca & validasi durasi essay yang diisi admin di form jadwal.
+// Kosong = "ikuti usulan guru" (disimpan sebagai NULL). Batas min/maks diambil
+// dari Pengaturan > Ujian, sama dengan batas yang berlaku untuk usulan guru.
+async function ambilDurasiEssayAdmin(
+  db: ReturnType<typeof createAdminClient>,
+  nilai: unknown
+): Promise<{ ok: true; nilai: number | null } | { ok: false; error: string }> {
+  const { data: batasRows } = await (db as any)
+    .from('pengaturan')
+    .select('key, value')
+    .in('key', ['batas_durasi_essay_min_menit', 'batas_durasi_essay_max_menit'])
+  return validasiDurasiEssayAdmin(nilai, bacaBatasDurasiEssay(batasRows))
+}
 
 // FIX (cegah jadwal baru untuk ujian yang sudah pernah dilaksanakan dan
 // sudah dinilai): sebelumnya, cek duplikat saat membuat/mengedit jadwal
@@ -116,6 +131,28 @@ export async function GET(req: NextRequest) {
       const existing = paketStatusMap[key]
       if (!existing || (statusPriority[p.status] ?? 0) > (statusPriority[existing] ?? 0)) {
         paketStatusMap[key] = p.status
+      }
+    }
+  }
+
+  // Enrich usulan durasi essay dari guru: paket_essay per (mapel_id, kelas).
+  // Prioritas status sama seperti paket PG di atas. Nilai usulan dipakai admin
+  // sebagai acuan; keputusan akhirnya di jadwal.essay_durasi_menit.
+  const essayUsulanMap: Record<string, { durasi: number | null; status: string }> = {}
+  if (mapelIds.length > 0) {
+    const { data: essayList } = await (db as any)
+      .from('paket_essay')
+      .select('mapel_id, kelas_id, durasi_menit, status')
+      .in('mapel_id', mapelIds)
+      .order('tanggal', { ascending: false })
+
+    const essayPriority: Record<string, number> = { DISETUJUI: 4, MENUNGGU: 3, DRAFT: 2, DITOLAK: 1 }
+    for (const p of (essayList ?? []) as { mapel_id: string; kelas_id: string; durasi_menit: number | null; status: string }[]) {
+      const kelasNamaEssay = idToNamaKelas[p.kelas_id] ?? p.kelas_id
+      const key = `${p.mapel_id}__${kelasNamaEssay}`
+      const existing = essayUsulanMap[key]
+      if (!existing || (essayPriority[p.status] ?? 0) > (essayPriority[existing.status] ?? 0)) {
+        essayUsulanMap[key] = { durasi: p.durasi_menit ?? null, status: p.status }
       }
     }
   }
@@ -236,8 +273,19 @@ export async function GET(req: NextRequest) {
       isPengawasSusulan = sesiAktif.pengawasUsername !== r.pengawas
     }
 
+    // Durasi essay: keputusan admin (jadwal.essay_durasi_menit) kalau ada,
+    // kalau tidak usulan guru. null = mapel+kelas ini tidak punya paket essay.
+    const essayUsulan = essayUsulanMap[soalKey]
+    const durasiEssay = essayUsulan
+      ? tentukanDurasiEssay({ durasiAdmin: r.essay_durasi_menit, usulanGuru: essayUsulan.durasi })
+      : null
+
     return {
       ...r,
+      essay_usulan_guru: essayUsulan?.durasi ?? null,
+      essay_status: essayUsulan?.status ?? null,
+      essay_durasi_efektif: durasiEssay?.menit ?? null,
+      essay_durasi_sumber: durasiEssay?.sumber ?? null,
       nama_mapel: mapelMap[r.mapel_id] ?? r.mapel_id,
       nama_pengawas: r.pengawas ? (guruMap[r.pengawas] ?? r.pengawas) : null,
       status_soal: paketStatusMap[soalKey] ?? 'BELUM_ADA',
@@ -264,6 +312,12 @@ export async function POST(req: NextRequest) {
 
   const db = createAdminClient()
   const body = await req.json()
+
+  // Durasi essay ditetapkan admin di jadwal (kosong = ikuti usulan guru).
+  const cekDurasiEssay = await ambilDurasiEssayAdmin(db, body.essay_durasi_menit)
+  if (!cekDurasiEssay.ok) {
+    return NextResponse.json({ error: cekDurasiEssay.error }, { status: 422 })
+  }
 
   // FIX (jaring pengaman untuk penilaian essay): tolak pembuatan jadwal kalau
   // mapel-nya belum punya guru pengampu (mapel.guru_id kosong). Sejak
@@ -381,6 +435,7 @@ export async function POST(req: NextRequest) {
     kelas: String(body.kelas),
     pengawas: body.pengawas || null,
     durasi: body.durasi || 90,
+    essay_durasi_menit: cekDurasiEssay.nilai,
     status: 'AKTIF',
   })
 
@@ -394,6 +449,16 @@ export async function PUT(req: NextRequest) {
 
   const db = createAdminClient()
   const { id, ...update } = await req.json()
+
+  // Durasi essay ditetapkan admin. Hanya diproses kalau field-nya dikirim;
+  // string kosong dari form berarti "ikuti usulan guru" dan disimpan NULL.
+  if ('essay_durasi_menit' in update) {
+    const cekDurasiEssay = await ambilDurasiEssayAdmin(db, update.essay_durasi_menit)
+    if (!cekDurasiEssay.ok) {
+      return NextResponse.json({ error: cekDurasiEssay.error }, { status: 422 })
+    }
+    update.essay_durasi_menit = cekDurasiEssay.nilai
+  }
 
   // FIX (sama seperti POST): kalau mapel_id diganti saat edit, pastikan
   // mapel tujuannya sudah punya guru pengampu.

@@ -105,7 +105,7 @@ export async function POST(req: NextRequest) {
   const durasiMax = Number(batasMap.batas_durasi_essay_max_menit) || 180
   if (durasiMenit < durasiMin || durasiMenit > durasiMax) {
     return NextResponse.json(
-      { error: `Durasi essay harus antara ${durasiMin} dan ${durasiMax} menit (diatur oleh admin).` },
+      { error: `Usulan durasi essay harus antara ${durasiMin} dan ${durasiMax} menit. Durasi final ditetapkan admin di jadwal ujian.` },
       { status: 400 }
     )
   }

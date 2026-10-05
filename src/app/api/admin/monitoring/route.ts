@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
+import { durasiTotalSesi } from '@/lib/durasi-ujian'
 
 // ── Status "Server" NYATA ────────────────────────────────────────────────
 // FIX ARSITEKTUR (pemisahan "Status Server" vs "Beban Ujian"): sebelumnya
@@ -169,7 +170,7 @@ export async function GET(req: NextRequest) {
     // dipakai front-end untuk menandai sesi yang sudah BERJALAN jauh lebih
     // lama dari durasi seharusnya (kemungkinan lupa/tidak ditutup pengawas),
     // supaya admin tahu sesi mana yang perlu ditutup paksa.
-    .select('id, kelas, mapel_id, waktu_mulai, jumlah_peserta, durasi')
+    .select('id, kelas, mapel_id, waktu_mulai, jumlah_peserta, durasi, info_json')
     .eq('status', 'BERJALAN')
     .order('waktu_mulai', { ascending: false })
 
@@ -275,11 +276,15 @@ export async function GET(req: NextRequest) {
   // (durasi seharusnya + 30 menit toleransi), indikasi kuat sesi ini
   // lupa/tidak ditutup pengawas. Dipakai front-end untuk menyorot sesi ini
   // dan menawarkan tombol "Tutup Paksa".
-  const sesiAktif = (sesiAktifRaw ?? []).map((s: { id: string; kelas: string; mapel_id: string; waktu_mulai: string; jumlah_peserta: number; durasi: number | null }) => {
+  const sesiAktif = (sesiAktifRaw ?? []).map((s: { id: string; kelas: string; mapel_id: string; waktu_mulai: string; jumlah_peserta: number; durasi: number | null; info_json?: unknown }) => {
     const durasiMenit = Math.floor((now.getTime() - new Date(s.waktu_mulai).getTime()) / 60000)
-    const durasiSeharusnya = s.durasi ?? 0
+    // Durasi seharusnya = durasi PG + durasi essay (kalau sesi punya essay),
+    // supaya sesi yang sedang mengerjakan essay tidak ditandai "terlambat"
+    // hanya karena durasi PG-nya sudah lewat.
+    const durasiSeharusnya = durasiTotalSesi(s.durasi, s.info_json)
+    const { info_json: _infoJson, ...sisa } = s
     return {
-      ...s,
+      ...sisa,
       nama_mapel: mapelMap[s.mapel_id] ?? s.mapel_id,
       durasi_menit: durasiMenit,
       durasi_seharusnya: durasiSeharusnya,

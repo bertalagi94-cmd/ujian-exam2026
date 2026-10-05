@@ -9,6 +9,7 @@ import {
 import { Modal, Confirm, StatusBadge, SearchInput, EmptyState, Spinner, Toast, Pagination } from '@/components/ui'
 import { apiRequest, formatDate } from '@/lib/utils'
 import { Jadwal, Mapel, Kelas, User } from '@/types'
+import { DURASI_ESSAY_DEFAULT_MENIT, DURASI_ESSAY_MAX_DEFAULT, DURASI_ESSAY_MIN_DEFAULT, labelDurasiTotal } from '@/lib/durasi-ujian'
 
 const PER_PAGE = 20
 
@@ -373,7 +374,12 @@ export default function AdminJadwalPage() {
   // perilaku submit (FormData) yang sudah berjalan baik.
   const [formWatch, setFormWatch] = useState<{
     tanggal?: string; jam_mulai?: string; jam_selesai?: string; kelas?: string; pengawas?: string
+    durasi?: string; essay_durasi?: string
   }>({})
+  // Usulan durasi essay dari guru untuk mapel+kelas yang dipilih di form, dan
+  // batas min/maks dari Pengaturan > Ujian. Keputusan akhir diisi admin.
+  const [usulanEssay, setUsulanEssay] = useState<{ ada: boolean; durasi: number | null; status: string | null } | null>(null)
+  const [batasEssay, setBatasEssay] = useState({ min: DURASI_ESSAY_MIN_DEFAULT, max: DURASI_ESSAY_MAX_DEFAULT })
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [perluLengkapiPengaturan, setPerluLengkapiPengaturan] = useState(false)
@@ -457,6 +463,29 @@ export default function AdminJadwalPage() {
     })
   }, [])
 
+  // Batas min/maks durasi essay (Pengaturan > Ujian) untuk atribut min/max input.
+  useEffect(() => {
+    apiRequest<{ data: Record<string, string> }>('/api/public/pengaturan')
+      .then(r => {
+        const min = Number(r.data?.batas_durasi_essay_min_menit)
+        const max = Number(r.data?.batas_durasi_essay_max_menit)
+        setBatasEssay(prev => ({ min: min > 0 ? min : prev.min, max: max > 0 ? max : prev.max }))
+      })
+      .catch(() => { })
+  }, [])
+
+  // Usulan durasi essay dari guru untuk mapel+kelas yang sedang dipilih di form.
+  useEffect(() => {
+    if (!modalOpen || !selectedMapelId || !formWatch.kelas) { setUsulanEssay(null); return }
+    let batal = false
+    apiRequest<{ data: { ada: boolean; durasi: number | null; status: string | null } }>(
+      `/api/admin/jadwal/usulan-essay?mapel_id=${encodeURIComponent(selectedMapelId)}&kelas=${encodeURIComponent(formWatch.kelas)}`
+    )
+      .then(r => { if (!batal) setUsulanEssay(r.data) })
+      .catch(() => { if (!batal) setUsulanEssay(null) })
+    return () => { batal = true }
+  }, [modalOpen, selectedMapelId, formWatch.kelas])
+
   const filtered = jadwal.filter(j => {
     const matchSearch = !search || (j.nama_mapel ?? '').toLowerCase().includes(search.toLowerCase())
     const matchStatus = !filterStatus || j.status === filterStatus
@@ -479,7 +508,10 @@ export default function AdminJadwalPage() {
       jam_selesai: j?.jam_selesai ?? '',
       kelas: j?.kelas ?? '',
       pengawas: j?.pengawas ?? '',
+      durasi: String(j?.durasi ?? 90),
+      essay_durasi: j?.essay_durasi_menit ? String(j.essay_durasi_menit) : '',
     })
+    setUsulanEssay(null)
     setModalOpen(true)
   }
 
@@ -974,7 +1006,7 @@ export default function AdminJadwalPage() {
                   <tr key={j.id}>
                     <td>
                       <div className="font-medium text-slate-800">{formatDate(j.tanggal)}</div>
-                      <div className="text-xs text-slate-400">Sesi {j.sesi} · {j.durasi} mnt</div>
+                      <div className="text-xs text-slate-400">Sesi {j.sesi} · {j.essay_durasi_efektif ? `PG ${j.durasi} + Essay ${j.essay_durasi_efektif} mnt` : `${j.durasi} mnt`}</div>
                     </td>
                     <td className="font-medium text-slate-800">{j.nama_mapel ?? j.mapel_id}</td>
                     <td><span className="badge-blue">{j.kelas}</span></td>
@@ -1081,7 +1113,7 @@ export default function AdminJadwalPage() {
                   <div className="text-slate-500">Kelas</div>
                   <div><span className="badge-blue">{j.kelas}</span></div>
                   <div className="text-slate-500">Waktu</div>
-                  <div className="text-slate-700">{j.jam_mulai} – {j.jam_selesai} <span className="text-slate-400">({j.durasi} mnt)</span></div>
+                  <div className="text-slate-700">{j.jam_mulai} – {j.jam_selesai} <span className="text-slate-400">({j.essay_durasi_efektif ? `PG ${j.durasi} + Essay ${j.essay_durasi_efektif} mnt` : `${j.durasi} mnt`})</span></div>
                   <div className="text-slate-500">Pengawas</div>
                   <div className="text-slate-700">
                     {j.status === 'BERJALAN' && j.is_pengawas_susulan ? (
@@ -1335,10 +1367,70 @@ export default function AdminJadwalPage() {
                 onChange={e => setFormWatch(prev => ({ ...prev, jam_selesai: e.target.value }))} />
             </div>
             <div>
-              <label className="label">Durasi (menit)</label>
-              <input name="durasi" type="number" className="input" defaultValue={editData?.durasi ?? 90} min={15} max={240} />
+              <label className="label">Durasi PG (menit)</label>
+              <input name="durasi" type="number" className="input" defaultValue={editData?.durasi ?? 90} min={15} max={240}
+                onChange={e => setFormWatch(prev => ({ ...prev, durasi: e.target.value }))} />
             </div>
           </div>
+          {(() => {
+            // Durasi essay: admin yang memutuskan. Usulan guru hanya acuan;
+            // kolom dikosongkan = pakai usulan guru.
+            const adaEssay = !!usulanEssay?.ada
+            const durasiPg = Number(formWatch.durasi ?? editData?.durasi ?? 90) || 0
+            const isiAdmin = Number(formWatch.essay_durasi) || 0
+            const usulanGuru = usulanEssay?.durasi ?? null
+            const durasiEssay = adaEssay ? (isiAdmin || usulanGuru || DURASI_ESSAY_DEFAULT_MENIT) : 0
+            const total = durasiPg + durasiEssay
+            const menitAntara = (a?: string, b?: string) => {
+              if (!a || !b) return null
+              const [ah, am] = a.split(':').map(Number)
+              const [bh, bm] = b.split(':').map(Number)
+              const selisih = (bh * 60 + bm) - (ah * 60 + am)
+              return selisih > 0 ? selisih : null
+            }
+            const jendela = menitAntara(formWatch.jam_mulai, formWatch.jam_selesai)
+            const melebihiJendela = adaEssay && jendela !== null && total > jendela
+            return (
+              <div>
+                <label className="label">Durasi Essay (menit)</label>
+                <input
+                  name="essay_durasi_menit"
+                  type="number"
+                  className="input"
+                  disabled={!adaEssay}
+                  min={batasEssay.min}
+                  max={batasEssay.max}
+                  defaultValue={editData?.essay_durasi_menit ?? ''}
+                  placeholder={adaEssay && usulanGuru ? `Ikuti usulan guru (${usulanGuru} menit)` : 'Kosongkan = ikuti usulan guru'}
+                  onChange={e => setFormWatch(prev => ({ ...prev, essay_durasi: e.target.value }))}
+                />
+                {!selectedMapelId || !formWatch.kelas ? (
+                  <p className="mt-1.5 text-xs text-slate-400">Pilih mata pelajaran dan kelas dulu untuk melihat usulan guru.</p>
+                ) : !adaEssay ? (
+                  <p className="mt-1.5 text-xs text-slate-400">Mapel dan kelas ini belum punya paket soal essay, jadi tidak ada durasi essay.</p>
+                ) : (
+                  <p className="mt-1.5 text-xs text-slate-500">
+                    Usulan guru: <strong>{usulanGuru ?? '-'} menit</strong>. Isi kolom ini untuk menetapkan durasi sendiri
+                    (batas {batasEssay.min}–{batasEssay.max} menit); kosongkan untuk mengikuti usulan guru.
+                  </p>
+                )}
+                {durasiPg > 0 && (
+                  <p className="mt-1.5 text-xs font-medium text-slate-700">
+                    Total waktu siswa: {labelDurasiTotal(durasiPg, durasiEssay)}
+                  </p>
+                )}
+                {melebihiJendela && (
+                  <div className="mt-1.5 flex items-start gap-2 p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-800">
+                    <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                    <span>
+                      Total {total} menit melebihi rentang jam ujian ({formWatch.jam_mulai}–{formWatch.jam_selesai} = {jendela} menit).
+                      Perpanjang jam selesai atau kurangi durasi agar tidak menabrak sesi berikutnya.
+                    </span>
+                  </div>
+                )}
+              </div>
+            )
+          })()}
           <div>
             <label className="label">Pengawas</label>
             {(() => {

@@ -1828,7 +1828,7 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
           <h1 className="page-title">Kelola Soal Essay</h1>
           <p className="page-subtitle flex items-center gap-2 flex-wrap">
             <span>
-              {namaMapel} · Kelas {namaKelas} · Mode {activePaket.mode_jawaban} · {activePaket.durasi_menit} menit · Bobot PG {activePaket.bobot_pg_persen}% : Essay {activePaket.bobot_essay_persen}% · {soalList.length} soal
+              {namaMapel} · Kelas {namaKelas} · Mode {activePaket.mode_jawaban} · usulan durasi {activePaket.durasi_menit} menit · Bobot PG {activePaket.bobot_pg_persen}% : Essay {activePaket.bobot_essay_persen}% · {soalList.length} soal
             </span>
             {activePaket.status !== 'DISETUJUI' && (
               <button
@@ -2046,7 +2046,7 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
             <ArrowLeft className="w-4 h-4" /> Kembali
           </button>
           <h1 className="page-title">Buat Paket Soal Essay</h1>
-          <p className="page-subtitle">Atur mata pelajaran, kelas, mode jawaban, dan durasi terlebih dahulu</p>
+          <p className="page-subtitle">Atur mata pelajaran, kelas, mode jawaban, dan usulan durasi terlebih dahulu</p>
         </div>
 
         <div className="card max-w-lg">
@@ -2079,9 +2079,12 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
               </select>
             </div>
             <div>
-              <label className="label">Durasi (menit) *</label>
+              <label className="label">Usulan Durasi Essay (menit) *</label>
               <input type="number" min={durasiMin} max={durasiMax} className="input" value={setupDurasi} onChange={e => setSetupDurasi(e.target.value)} required />
-              <p className="text-xs text-slate-400 mt-1">Durasi harus antara {durasiMin}–{durasiMax} menit (ditentukan admin).</p>
+              <p className="text-xs text-slate-400 mt-1">
+                Ini usulan untuk admin ({durasiMin}–{durasiMax} menit). Admin yang menetapkan durasi essay final di jadwal ujian,
+                dan bisa menyesuaikannya. Durasi PG juga ditentukan admin.
+              </p>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
@@ -2151,7 +2154,7 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
                     <StatusBadge status={p.status} />
                   </div>
                   <div className="text-[11px] lg:text-xs text-slate-400 mt-0.5 lg:mt-1">
-                    {p.jumlah_soal} soal · Mode {p.mode_jawaban} · {p.durasi_menit} menit · Bobot PG {p.bobot_pg_persen}% : Essay {p.bobot_essay_persen}% · {formatDateTime(p.tanggal)}
+                    {p.jumlah_soal} soal · Mode {p.mode_jawaban} · usulan durasi {p.durasi_menit} menit · Bobot PG {p.bobot_pg_persen}% : Essay {p.bobot_essay_persen}% · {formatDateTime(p.tanggal)}
                   </div>
                   {p.catatan && (
                     <div className="mt-2 text-[11px] lg:text-xs text-amber-700 bg-amber-50 rounded-lg px-2.5 lg:px-3 py-1.5 lg:py-2 border border-amber-100">

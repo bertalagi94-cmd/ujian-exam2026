@@ -85,9 +85,16 @@ export interface Jadwal {
   mapel_id: string
   kelas: string
   pengawas?: string
-  durasi: number
+  durasi: number // durasi PG (menit), ditetapkan admin
+  // Durasi essay yang ditetapkan ADMIN (menit). null/kosong = ikuti usulan guru.
+  essay_durasi_menit?: number | null
   status: 'AKTIF' | 'BERJALAN' | 'SELESAI'
-  // joined
+  // joined (diisi /api/admin/jadwal): usulan guru & durasi essay yang berlaku.
+  // essay_durasi_efektif null = mapel+kelas ini tidak punya paket essay.
+  essay_usulan_guru?: number | null
+  essay_status?: string | null
+  essay_durasi_efektif?: number | null
+  essay_durasi_sumber?: 'ADMIN' | 'USULAN_GURU' | 'DEFAULT' | null
   nama_mapel?: string
   nama_pengawas?: string
   status_soal?: 'BELUM_ADA' | 'DRAFT' | 'MENUNGGU' | 'DITOLAK' | 'DISETUJUI'

@@ -197,6 +197,7 @@ export async function POST(req: NextRequest) {
     mapelId: jadwal.mapel_id,
     kelasNama: String(jadwal.kelas),
     instruksi: jadwal.essay_instruksi,
+    durasiEssayAdmin: jadwal.essay_durasi_menit,
   })
 
   const { error } = await db.from('sesi_ujian').insert({
