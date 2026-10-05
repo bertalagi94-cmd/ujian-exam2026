@@ -1379,7 +1379,10 @@ export default function AdminJadwalPage() {
             const durasiPg = Number(formWatch.durasi ?? editData?.durasi ?? 90) || 0
             const isiAdmin = Number(formWatch.essay_durasi) || 0
             const usulanGuru = usulanEssay?.durasi ?? null
-            const durasiEssay = adaEssay ? (isiAdmin || usulanGuru || DURASI_ESSAY_DEFAULT_MENIT) : 0
+            // Kolom selalu bisa diisi: admin sering membuat jadwal sebelum guru
+            // membuat soal essay. Angka yang diisi admin dipakai kalau nanti
+            // ada paket essay; kalau tidak ada essay, angkanya diabaikan.
+            const durasiEssay = isiAdmin || (adaEssay ? (usulanGuru || DURASI_ESSAY_DEFAULT_MENIT) : 0)
             const total = durasiPg + durasiEssay
             const menitAntara = (a?: string, b?: string) => {
               if (!a || !b) return null
@@ -1389,7 +1392,7 @@ export default function AdminJadwalPage() {
               return selisih > 0 ? selisih : null
             }
             const jendela = menitAntara(formWatch.jam_mulai, formWatch.jam_selesai)
-            const melebihiJendela = adaEssay && jendela !== null && total > jendela
+            const melebihiJendela = durasiEssay > 0 && jendela !== null && total > jendela
             return (
               <div>
                 <label className="label">Durasi Essay (menit)</label>
@@ -1397,7 +1400,6 @@ export default function AdminJadwalPage() {
                   name="essay_durasi_menit"
                   type="number"
                   className="input"
-                  disabled={!adaEssay}
                   min={batasEssay.min}
                   max={batasEssay.max}
                   defaultValue={editData?.essay_durasi_menit ?? ''}
@@ -1407,7 +1409,10 @@ export default function AdminJadwalPage() {
                 {!selectedMapelId || !formWatch.kelas ? (
                   <p className="mt-1.5 text-xs text-slate-400">Pilih mata pelajaran dan kelas dulu untuk melihat usulan guru.</p>
                 ) : !adaEssay ? (
-                  <p className="mt-1.5 text-xs text-slate-400">Mapel dan kelas ini belum punya paket soal essay, jadi tidak ada durasi essay.</p>
+                  <p className="mt-1.5 text-xs text-slate-400">
+                    Mapel dan kelas ini belum punya paket soal essay. Boleh dikosongkan: durasi bisa ditetapkan nanti saat
+                    memvalidasi soal essay, atau otomatis mengikuti usulan guru. Kalau ternyata tidak ada essay, angka ini tidak dipakai.
+                  </p>
                 ) : (
                   <p className="mt-1.5 text-xs text-slate-500">
                     Usulan guru: <strong>{usulanGuru ?? '-'} menit</strong>. Isi kolom ini untuk menetapkan durasi sendiri

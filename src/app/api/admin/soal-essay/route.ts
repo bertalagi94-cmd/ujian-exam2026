@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 import { cekSesiMapelKelasSudahMulai, pesanBankSoalTerkunci } from '@/lib/sesi-kelas'
+import { bacaBatasDurasiEssay, validasiDurasiEssayAdmin } from '@/lib/durasi-ujian'
 
 export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['ADMIN'])
@@ -34,12 +35,36 @@ export async function GET(req: NextRequest) {
   const mapelMap = Object.fromEntries((mapelList ?? []).map(m => [m.id, m.nama]))
   const kelasMap = Object.fromEntries((kelasList ?? []).map(k => [k.id, String(k.nama)]))
 
-  const enriched = pakets.map(p => ({
-    ...p,
-    nama_guru: guruMap[p.guru_id] ?? p.guru_id,
-    nama_mapel: mapelMap[p.mapel_id] ?? p.mapel_id,
-    nama_kelas: kelasMap[p.kelas_id] ?? p.kelas_id,
-  }))
+  // Info jadwal untuk popup "tetapkan durasi essay" saat validasi. Jadwal
+  // menyimpan kelas sebagai NAMA (mis. "13"), sedangkan paket memakai id
+  // kelas, jadi dicocokkan lewat kelasMap. Jadwal SELESAI diabaikan.
+  const { data: jadwalList } = await (db as any)
+    .from('jadwal')
+    .select('id, mapel_id, kelas, tanggal, jam_mulai, jam_selesai, durasi, essay_durasi_menit, status')
+    .in('mapel_id', mapelIds)
+    .neq('status', 'SELESAI')
+  const jadwalMap: Record<string, any> = {}
+  for (const j of (jadwalList ?? []) as any[]) {
+    jadwalMap[`${j.mapel_id}__${String(j.kelas)}`] = j
+  }
+
+  const enriched = pakets.map(p => {
+    const namaKelas = kelasMap[p.kelas_id] ?? p.kelas_id
+    const j = jadwalMap[`${p.mapel_id}__${String(namaKelas)}`]
+    return {
+      ...p,
+      nama_guru: guruMap[p.guru_id] ?? p.guru_id,
+      nama_mapel: mapelMap[p.mapel_id] ?? p.mapel_id,
+      nama_kelas: namaKelas,
+      // Info jadwal (null/false kalau admin belum membuat jadwalnya)
+      jadwal_ada: !!j,
+      jadwal_durasi_pg: j?.durasi ?? null,
+      jadwal_durasi_essay: j?.essay_durasi_menit ?? null, // keputusan admin; null = ikut usulan guru
+      jadwal_tanggal: j?.tanggal ?? null,
+      jadwal_jam_mulai: j?.jam_mulai ?? null,
+      jadwal_jam_selesai: j?.jam_selesai ?? null,
+    }
+  })
 
   return NextResponse.json({ data: enriched })
 }
@@ -49,7 +74,7 @@ export async function POST(req: NextRequest) {
   if ('error' in auth) return auth.error
 
   const db = createAdminClient()
-  const { paket_id, action, catatan } = await req.json()
+  const { paket_id, action, catatan, durasi_essay_menit } = await req.json()
 
   let newStatus: string
   if (action === 'SETUJUI') newStatus = 'DISETUJUI'
@@ -62,6 +87,22 @@ export async function POST(req: NextRequest) {
       { error: 'Alasan penolakan wajib diisi agar guru bisa memperbaiki soalnya.' },
       { status: 400 }
     )
+  }
+
+  // Durasi essay yang ditetapkan admin lewat popup saat validasi (opsional).
+  // Hanya relevan untuk SETUJUI. Tidak dikirim / kosong = admin tidak
+  // mengubah, jadi jadwal dibiarkan apa adanya (kosong = ikut usulan guru).
+  // Divalidasi SEBELUM status paket diubah supaya angka salah tidak membuat
+  // paket terlanjur disetujui.
+  let durasiTetapAdmin: number | null = null
+  if (action === 'SETUJUI' && durasi_essay_menit !== undefined && durasi_essay_menit !== null && String(durasi_essay_menit).trim() !== '') {
+    const { data: batasRows } = await (db as any)
+      .from('pengaturan')
+      .select('key, value')
+      .in('key', ['batas_durasi_essay_min_menit', 'batas_durasi_essay_max_menit'])
+    const cek = validasiDurasiEssayAdmin(durasi_essay_menit, bacaBatasDurasiEssay(batasRows))
+    if (!cek.ok) return NextResponse.json({ error: cek.error }, { status: 422 })
+    durasiTetapAdmin = cek.nilai
   }
 
   // FIX BUG (bank soal Essay tidak terkunci di sisi Admin setelah sesi
@@ -117,6 +158,37 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: rpcError.message }, { status: 500 })
   }
 
+  // Simpan durasi pilihan admin ke jadwal mapel+kelas paket ini (kalau ada).
+  let peringatan: string | undefined
+  let durasiTersimpan: number | null = null
+  if (action === 'SETUJUI' && durasiTetapAdmin !== null && paketUntukGuard) {
+    const { data: kelasRow } = await (db as any)
+      .from('kelas')
+      .select('nama')
+      .eq('id', paketUntukGuard.kelas_id)
+      .maybeSingle()
+    const namaKelas = String(kelasRow?.nama ?? paketUntukGuard.kelas_id)
+    const { data: diubah, error: errJadwal } = await (db as any)
+      .from('jadwal')
+      .update({ essay_durasi_menit: durasiTetapAdmin })
+      .eq('mapel_id', paketUntukGuard.mapel_id)
+      .eq('kelas', namaKelas)
+      .neq('status', 'SELESAI')
+      .select('id')
+    if (errJadwal) {
+      peringatan = 'Paket sudah disetujui, tetapi durasi essay di jadwal gagal disimpan. Atur manual di menu Jadwal.'
+    } else if (!diubah || diubah.length === 0) {
+      peringatan = 'Paket sudah disetujui, tetapi belum ada jadwal untuk mapel & kelas ini, jadi durasi tidak disimpan.'
+    } else {
+      durasiTersimpan = durasiTetapAdmin
+    }
+  }
+
   const pesanStatus = newStatus === 'DISETUJUI' ? 'disetujui' : newStatus === 'DITOLAK' ? 'ditolak' : 'dikembalikan ke draft'
-  return NextResponse.json({ message: `Paket berhasil ${pesanStatus}` })
+  const pesanDurasi = durasiTersimpan !== null ? ` Durasi essay di jadwal ditetapkan ${durasiTersimpan} menit.` : ''
+  return NextResponse.json({
+    message: `Paket berhasil ${pesanStatus}.${pesanDurasi}`,
+    durasi_essay_jadwal: durasiTersimpan,
+    peringatan,
+  })
 }

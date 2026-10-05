@@ -44,11 +44,26 @@ export async function GET(req: NextRequest) {
     if (s.paket_essay_id) countMap[s.paket_essay_id] = (countMap[s.paket_essay_id] ?? 0) + 1
   }
 
+  // Durasi final yang ditetapkan admin di jadwal (jadwal.essay_durasi_menit),
+  // supaya guru tahu kalau usulannya diganti. Jadwal menyimpan kelas sebagai
+  // NAMA, jadi dicocokkan lewat kelasMap. null = admin belum menetapkan
+  // (berarti usulan guru yang dipakai).
+  const { data: jadwalList } = await (db as any)
+    .from('jadwal')
+    .select('mapel_id, kelas, essay_durasi_menit, status')
+    .in('mapel_id', mapelIds)
+    .neq('status', 'SELESAI')
+  const durasiAdminMap: Record<string, number | null> = {}
+  for (const j of (jadwalList ?? []) as any[]) {
+    durasiAdminMap[`${j.mapel_id}__${String(j.kelas)}`] = j.essay_durasi_menit ?? null
+  }
+
   const enriched = pakets.map(p => ({
     ...p,
     nama_mapel: mapelMap[p.mapel_id] ?? undefined,
     nama_kelas: kelasMap[p.kelas_id] ?? undefined,
     jumlah_soal: countMap[p.id] ?? 0,
+    durasi_final_admin: durasiAdminMap[`${p.mapel_id}__${kelasMap[p.kelas_id] ?? p.kelas_id}`] ?? null,
   }))
 
   return NextResponse.json({ data: enriched })

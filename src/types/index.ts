@@ -180,6 +180,15 @@ export interface PaketEssay {
   nama_mapel?: string
   nama_kelas?: string
   nama_guru?: string
+  // Info jadwal (diisi GET /api/admin/soal-essay untuk popup validasi)
+  jadwal_ada?: boolean
+  jadwal_durasi_pg?: number | null
+  jadwal_durasi_essay?: number | null
+  jadwal_tanggal?: string | null
+  jadwal_jam_mulai?: string | null
+  jadwal_jam_selesai?: string | null
+  // Durasi final yang ditetapkan admin di jadwal (diisi GET /api/guru/paket-essay)
+  durasi_final_admin?: number | null
 }
 
 export interface SoalEssay {

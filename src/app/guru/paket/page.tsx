@@ -1337,6 +1337,35 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
     }
   }
 
+  // Ubah USULAN durasi essay (hanya saat paket Draf/Ditolak) — lihat PUT
+  // /api/guru/paket-essay/[id]/route.ts. Durasi final tetap ditetapkan admin.
+  const [ubahDurasiOpen, setUbahDurasiOpen] = useState(false)
+  const [durasiBaru, setDurasiBaru] = useState('')
+
+  async function handleUbahDurasi() {
+    if (!activePaket) return
+    const n = Number(durasiBaru)
+    if (!Number.isInteger(n) || n < durasiMin || n > durasiMax) {
+      showToast(`Usulan durasi harus bilangan bulat antara ${durasiMin} dan ${durasiMax} menit`, 'error')
+      return
+    }
+    setSaving(true)
+    try {
+      const res = await apiRequest<{ message: string }>(`/api/guru/paket-essay/${activePaket.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ durasi_menit: n }),
+      })
+      setActivePaket({ ...activePaket, durasi_menit: n })
+      setPakets(prev => prev.map(p => (p.id === activePaket.id ? { ...p, durasi_menit: n } : p)))
+      setUbahDurasiOpen(false)
+      showToast(res.message ?? 'Usulan durasi berhasil diubah')
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Gagal mengubah usulan durasi', 'error')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   // Setup state
   const [setupMapel, setSetupMapel] = useState('')
   const [setupKelas, setSetupKelas] = useState('')
@@ -1377,6 +1406,17 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
       })
       .catch(() => { })
   }, [])
+
+  // Teks durasi: usulan guru + (kalau admin sudah menetapkan) durasi final.
+  function teksDurasi(p: PaketEssay) {
+    const final = p.durasi_final_admin
+    if (final && final > 0) {
+      return final === p.durasi_menit
+        ? `durasi ${final} menit (sesuai usulan, ditetapkan admin)`
+        : `usulan durasi ${p.durasi_menit} menit → ditetapkan admin: ${final} menit`
+    }
+    return `usulan durasi ${p.durasi_menit} menit`
+  }
 
   // Aksi paket: kirim/tarik/duplikasi/hapus
   const [kirimId, setKirimId] = useState<string | null>(null)
@@ -1828,7 +1868,7 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
           <h1 className="page-title">Kelola Soal Essay</h1>
           <p className="page-subtitle flex items-center gap-2 flex-wrap">
             <span>
-              {namaMapel} · Kelas {namaKelas} · Mode {activePaket.mode_jawaban} · usulan durasi {activePaket.durasi_menit} menit · Bobot PG {activePaket.bobot_pg_persen}% : Essay {activePaket.bobot_essay_persen}% · {soalList.length} soal
+              {namaMapel} · Kelas {namaKelas} · Mode {activePaket.mode_jawaban} · {teksDurasi(activePaket)} · Bobot PG {activePaket.bobot_pg_persen}% : Essay {activePaket.bobot_essay_persen}% · {soalList.length} soal
             </span>
             {activePaket.status !== 'DISETUJUI' && (
               <button
@@ -1836,6 +1876,14 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
                 className="btn-danger btn-sm"
               >
                 Ubah Mode Jawaban
+              </button>
+            )}
+            {['DRAFT', 'DITOLAK'].includes(activePaket.status) && (
+              <button
+                onClick={() => { setDurasiBaru(String(activePaket.durasi_menit)); setUbahDurasiOpen(true) }}
+                className="btn-secondary btn-sm"
+              >
+                Ubah Usulan Durasi
               </button>
             )}
           </p>
@@ -2032,6 +2080,34 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
             )}
           </div>
         </Modal>
+
+        {/* Modal Ubah Usulan Durasi */}
+        <Modal open={ubahDurasiOpen} onClose={() => setUbahDurasiOpen(false)} title="Ubah Usulan Durasi Essay"
+          footer={
+            <>
+              <button onClick={() => setUbahDurasiOpen(false)} className="btn-secondary" disabled={saving}>Batal</button>
+              <button onClick={handleUbahDurasi} className="btn-primary"
+                disabled={saving || !durasiBaru || Number(durasiBaru) === activePaket.durasi_menit}>
+                {saving ? <Spinner size="sm" /> : 'Simpan'}
+              </button>
+            </>
+          }
+        >
+          <div className="space-y-3">
+            <p className="text-sm text-slate-600">
+              Ini hanya <strong>usulan</strong> untuk admin ({durasiMin}–{durasiMax} menit). Saat memvalidasi, admin bisa
+              menetapkan durasi final yang berbeda; kalau admin tidak mengubahnya, usulan Anda yang dipakai.
+            </p>
+            <input type="number" className="input" min={durasiMin} max={durasiMax} value={durasiBaru}
+              onChange={e => setDurasiBaru(e.target.value)} />
+            {activePaket.durasi_final_admin ? (
+              <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
+                Admin sudah menetapkan durasi {activePaket.durasi_final_admin} menit di jadwal, jadi angka itu yang dipakai
+                kecuali admin menggantinya.
+              </p>
+            ) : null}
+          </div>
+        </Modal>
       </div>
     )
   }
@@ -2154,7 +2230,7 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
                     <StatusBadge status={p.status} />
                   </div>
                   <div className="text-[11px] lg:text-xs text-slate-400 mt-0.5 lg:mt-1">
-                    {p.jumlah_soal} soal · Mode {p.mode_jawaban} · usulan durasi {p.durasi_menit} menit · Bobot PG {p.bobot_pg_persen}% : Essay {p.bobot_essay_persen}% · {formatDateTime(p.tanggal)}
+                    {p.jumlah_soal} soal · Mode {p.mode_jawaban} · {teksDurasi(p)} · Bobot PG {p.bobot_pg_persen}% : Essay {p.bobot_essay_persen}% · {formatDateTime(p.tanggal)}
                   </div>
                   {p.catatan && (
                     <div className="mt-2 text-[11px] lg:text-xs text-amber-700 bg-amber-50 rounded-lg px-2.5 lg:px-3 py-1.5 lg:py-2 border border-amber-100">

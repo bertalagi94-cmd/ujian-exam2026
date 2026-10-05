@@ -5,6 +5,7 @@ import { CheckCircle, XCircle, Eye, BookOpen, RotateCcw } from 'lucide-react'
 import { Modal, StatusBadge, EmptyState, Spinner, Toast, Badge } from '@/components/ui'
 import { apiRequest, formatDateTime } from '@/lib/utils'
 import { PaketSoal, Soal, PaketEssay, SoalEssay } from '@/types'
+import { DURASI_ESSAY_MIN_DEFAULT, DURASI_ESSAY_MAX_DEFAULT } from '@/lib/durasi-ujian'
 
 type CombinedPaket = PaketSoal | PaketEssay
 type CombinedSoal = Soal | SoalEssay
@@ -34,6 +35,31 @@ export default function AdminSoalPage() {
   const [pendingCounts, setPendingCounts] = useState<{ PG: number; ESSAY: number }>({ PG: 0, ESSAY: 0 })
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => setToast({ msg, type })
+
+  // Popup durasi essay saat menyetujui paket essay yang sudah punya jadwal.
+  // Nilai awal = durasi yang saat ini berlaku (keputusan admin di jadwal kalau
+  // ada, kalau tidak usulan guru). Hanya dikirim ke server kalau admin
+  // mengubahnya; kalau tidak diubah, jadwal dibiarkan (kosong = ikut usulan guru).
+  const [durasiEssayInput, setDurasiEssayInput] = useState('')
+  const [batasEssay, setBatasEssay] = useState({ min: DURASI_ESSAY_MIN_DEFAULT, max: DURASI_ESSAY_MAX_DEFAULT })
+
+  useEffect(() => {
+    apiRequest<{ data: Record<string, string> }>('/api/public/pengaturan')
+      .then(r => {
+        const min = Number(r.data?.batas_durasi_essay_min_menit)
+        const max = Number(r.data?.batas_durasi_essay_max_menit)
+        setBatasEssay(prev => ({ min: min > 0 ? min : prev.min, max: max > 0 ? max : prev.max }))
+      })
+      .catch(() => { })
+  }, [])
+
+  const paketAksi = actionId ? (pakets.find(p => p.id === actionId) as PaketEssay | undefined) : undefined
+  const popupDurasi = jenisSoal === 'ESSAY' && actionType === 'SETUJUI' && !!paketAksi?.jadwal_ada
+  const durasiAwal = popupDurasi ? (paketAksi?.jadwal_durasi_essay ?? paketAksi?.durasi_menit ?? null) : null
+
+  useEffect(() => {
+    setDurasiEssayInput(durasiAwal ? String(durasiAwal) : '')
+  }, [actionId, actionType, durasiAwal])
 
   const loadPendingCounts = useCallback(async () => {
     try {
@@ -74,15 +100,34 @@ export default function AdminSoalPage() {
 
   async function handleAction() {
     if (!actionId || !actionType) return
+
+    // Durasi essay: kirim hanya kalau admin benar-benar mengubah angkanya.
+    let durasiDikirim: number | undefined
+    if (popupDurasi && durasiEssayInput.trim() !== '' && Number(durasiEssayInput) !== durasiAwal) {
+      const n = Number(durasiEssayInput)
+      if (!Number.isInteger(n) || n < batasEssay.min || n > batasEssay.max) {
+        showToast(`Durasi essay harus bilangan bulat antara ${batasEssay.min} dan ${batasEssay.max} menit`, 'error')
+        return
+      }
+      durasiDikirim = n
+    }
+
     setSaving(true)
     try {
-      await apiRequest(jenisSoal === 'ESSAY' ? '/api/admin/soal-essay' : '/api/admin/soal', {
+      const res = await apiRequest<{ message?: string; peringatan?: string }>(jenisSoal === 'ESSAY' ? '/api/admin/soal-essay' : '/api/admin/soal', {
         method: 'POST',
-        body: JSON.stringify({ paket_id: actionId, action: actionType, catatan: catatanTolak }),
+        body: JSON.stringify({
+          paket_id: actionId,
+          action: actionType,
+          catatan: catatanTolak,
+          ...(durasiDikirim !== undefined ? { durasi_essay_menit: durasiDikirim } : {}),
+        }),
       })
       showToast(
-        actionType === 'SETUJUI'
-          ? 'Paket berhasil disetujui'
+        res?.peringatan
+          ? res.peringatan
+          : actionType === 'SETUJUI'
+          ? (durasiDikirim !== undefined ? `Paket berhasil disetujui. Durasi essay ditetapkan ${durasiDikirim} menit.` : 'Paket berhasil disetujui')
           : actionType === 'TOLAK'
           ? 'Paket berhasil ditolak'
           : 'Persetujuan berhasil dibatalkan'
@@ -268,6 +313,7 @@ export default function AdminSoalPage() {
                     Guru: <span className="font-medium text-slate-700">{p.nama_guru}</span>
                     &nbsp;· {p.jumlah_soal} soal
                     &nbsp;· Mode {p.mode_jawaban === 'KERTAS' ? 'Kertas' : 'Digital'}
+                    {jenisSoal === 'ESSAY' && (p as PaketEssay).durasi_menit ? <>&nbsp;· Usulan durasi {(p as PaketEssay).durasi_menit} menit</> : null}
                     &nbsp;· Dikirim {formatDateTime(p.tanggal)}
                   </div>
                   {p.catatan && (
@@ -397,7 +443,7 @@ export default function AdminSoalPage() {
             ? 'Tolak Paket Soal'
             : 'Batalkan Persetujuan'
         }
-        size="sm"
+        size={popupDurasi ? 'md' : 'sm'}
         footer={
           <>
             <button onClick={() => { setActionId(null); setActionType(null) }}
@@ -450,9 +496,57 @@ export default function AdminSoalPage() {
             <p className="text-xs text-slate-400">Alasan ini akan dikirimkan sebagai catatan ke guru.</p>
           </div>
         ) : (
-          <p className="text-sm text-slate-600">
-            Semua soal dalam paket ini akan disetujui dan bisa digunakan dalam ujian. Lanjutkan?
-          </p>
+          <div className="space-y-3">
+            <p className="text-sm text-slate-600">
+              Semua soal dalam paket ini akan disetujui dan bisa digunakan dalam ujian. Lanjutkan?
+            </p>
+            {popupDurasi && paketAksi && (() => {
+              const durasiPg = Number(paketAksi.jadwal_durasi_pg) || 0
+              const essayNow = Number(durasiEssayInput) || 0
+              const total = durasiPg + essayNow
+              const menitAntara = (a?: string | null, b?: string | null) => {
+                if (!a || !b) return null
+                const [ah, am] = a.split(':').map(Number)
+                const [bh, bm] = b.split(':').map(Number)
+                const d = (bh * 60 + bm) - (ah * 60 + am)
+                return d > 0 ? d : null
+              }
+              const jendela = menitAntara(paketAksi.jadwal_jam_mulai, paketAksi.jadwal_jam_selesai)
+              const melebihi = jendela !== null && essayNow > 0 && total > jendela
+              return (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
+                  <p className="text-sm font-semibold text-slate-700">Durasi essay di jadwal ujian</p>
+                  <p className="text-xs text-slate-500">
+                    Usulan guru: <strong>{paketAksi.durasi_menit} menit</strong>
+                    {paketAksi.jadwal_durasi_essay ? <> · Sudah ditetapkan admin di jadwal: <strong>{paketAksi.jadwal_durasi_essay} menit</strong></> : null}.
+                    {' '}Biarkan angka ini kalau sudah sesuai, atau ubah untuk menetapkan durasi sendiri.
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      className="input w-28"
+                      min={batasEssay.min}
+                      max={batasEssay.max}
+                      value={durasiEssayInput}
+                      onChange={e => setDurasiEssayInput(e.target.value)}
+                    />
+                    <span className="text-sm text-slate-500">menit (batas {batasEssay.min}–{batasEssay.max})</span>
+                  </div>
+                  {durasiPg > 0 && essayNow > 0 && (
+                    <p className="text-xs font-medium text-slate-700">
+                      Total waktu siswa: PG {durasiPg} + Essay {essayNow} = {total} menit
+                    </p>
+                  )}
+                  {melebihi && (
+                    <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
+                      Total {total} menit melebihi rentang jam ujian ({paketAksi.jadwal_jam_mulai}–{paketAksi.jadwal_jam_selesai} = {jendela} menit).
+                      Anda tetap bisa menyetujui, tetapi sebaiknya perpanjang jam selesai di menu Jadwal.
+                    </p>
+                  )}
+                </div>
+              )
+            })()}
+          </div>
         )}
       </Modal>
 
