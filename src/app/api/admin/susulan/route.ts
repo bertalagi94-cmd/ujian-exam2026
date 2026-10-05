@@ -19,6 +19,7 @@ import { requireRole } from '@/lib/auth'
 import { generateId } from '@/lib/utils'
 import { cekSesiBentrokKelas, pesanBentrokKelas } from '@/lib/sesi-kelas'
 import { resolveEssayInfoJson } from '@/lib/gabungKirim'
+import { isKonflikSesiBerjalan } from '@/lib/sesi-unik'
 
 function generateKode7(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
@@ -200,7 +201,33 @@ export async function POST(req: NextRequest) {
     },
   })
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (error) {
+    // Penjaga database (migrasi 37, uq_sesi_berjalan_per_jadwal): sesi lain
+    // untuk jadwal ini baru saja dibuka (mis. oleh pengawas) di antara
+    // pengecekan "ANTI-TABRAKAN" di atas dan insert ini. Jawab sama seperti
+    // cabang anti-tabrakan di atas.
+    if (isKonflikSesiBerjalan(error)) {
+      const { data: sesiPemenang } = await db
+        .from('sesi_ujian')
+        .select('id, kode_sesi, info_json')
+        .eq('jadwal_id', jadwalId)
+        .eq('status', 'BERJALAN')
+        .limit(1)
+        .maybeSingle()
+      if (sesiPemenang) {
+        const dibukaOleh = sesiPemenang.info_json?.dibuka_oleh_admin
+          ? `admin (pengawas: ${sesiPemenang.info_json?.pengawas_susulan_nama ?? sesiPemenang.info_json?.pengawas_susulan ?? '-'})`
+          : 'pengawas yang bertugas pada jadwal ini'
+        return NextResponse.json({
+          error: `Sudah ada sesi ujian yang sedang berjalan untuk jadwal ini (dibuka oleh ${dibukaOleh}). Tutup sesi tersebut terlebih dahulu sebelum membuka sesi susulan baru, agar tidak terjadi tabrakan sesi.`,
+          konflik: true,
+          sesiAktifId: sesiPemenang.id,
+          kodeSesi: sesiPemenang.kode_sesi,
+        }, { status: 409 })
+      }
+    }
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
 
   // Sinkronkan status jadwal agar tampil "Berjalan" selama susulan ini aktif
   await db.from('jadwal').update({ status: 'BERJALAN' }).eq('id', jadwal.id)
