@@ -120,6 +120,13 @@ export async function POST(req: NextRequest) {
   })
 
   if (rpcError) {
+    // Status paket sudah berubah sejak halaman admin dimuat (mis. guru baru
+    // saja menarik paketnya, atau admin lain sudah memprosesnya). Fungsi
+    // database menolak transisi yang tidak sah dengan SQLSTATE 'PT409'
+    // (migrasi 37) — beri tahu admin untuk memuat ulang, bukan error 500.
+    if (rpcError.code === 'PT409') {
+      return NextResponse.json({ error: rpcError.message }, { status: 409 })
+    }
     // unique_violation dari uq_paket_soal_disetujui_per_kelas — seharusnya
     // nyaris tidak pernah terjadi berkat row lock di dalam fungsi, tapi kalau
     // toh terjadi, admin diberi pesan yang jelas (bukan error 500 generik)
