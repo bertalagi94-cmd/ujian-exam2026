@@ -16,11 +16,10 @@ import { mulaiPenjagaOutbox } from '@/lib/ujian-outbox'
 // outbox di atas — event pelanggaran yang sempat gagal terkirim (offline)
 // harus tetap dicoba ulang selama siswa berada di area /siswa manapun, bukan
 // cuma persis saat berada di halaman ujian. Lihat src/lib/pelanggaran-outbox.ts.
-import { mulaiPenjagaPelanggaran } from '@/lib/pelanggaran-outbox'
+import { mulaiPenjagaAntreanBerurutan } from '@/lib/antrean-berurutan'
 // P0 (audit reset offline R1/R2/R3): penjaga rekonsiliasi reset yang sempat
 // diverifikasi OFFLINE (lihat src/lib/reset-offline-client.ts), alasan sama
 // dengan dua penjaga di atas — harus tetap jalan selama siswa di area /siswa.
-import { mulaiPenjagaResetOffline } from '@/lib/reset-offline-client'
 import { kunciIdentitasTab, identitasTabBerubah } from '@/lib/identitas-tab'
 import { AlertTriangle } from 'lucide-react'
 import { mulaiPemantauJaringan } from '@/lib/status-jaringan'
@@ -62,16 +61,15 @@ export default function SiswaLayout({ children }: { children: React.ReactNode })
     window.addEventListener('storage', cek)
     const idCek = setInterval(cek, 3000)
     const stopOutbox = mulaiPenjagaOutbox(nis)
-    const stopPelanggaran = mulaiPenjagaPelanggaran(nis)
-    const stopResetOffline = mulaiPenjagaResetOffline()
+    // Satu penjaga untuk pelanggaran + reset offline (urut waktu, per NIS).
+    const stopAntrean = mulaiPenjagaAntreanBerurutan(nis)
 
     return () => {
       window.removeEventListener('storage', cek)
       clearInterval(idCek)
       kunciIdentitasTab(null)
       stopOutbox()
-      stopPelanggaran()
-      stopResetOffline()
+      stopAntrean()
     }
   }, [])
 
