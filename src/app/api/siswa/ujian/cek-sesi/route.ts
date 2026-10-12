@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
   const [{ data: sesi }, { data: siswaUjian }] = await Promise.all([
     db.from('sesi_ujian').select('id, status').eq('id', sesiId).single(),
     db.from('siswa_ujian')
-      .select('status, device_id')
+      .select('status, device_id, reset_terpakai')
       .eq('sesi_id', sesiId)
       .eq('nis', user.nis!)
       .single(),
@@ -89,6 +89,9 @@ export async function GET(req: NextRequest) {
     sesi_status: sesi.status,
     siswa_status: siswaUjian?.status ?? 'TIDAK_TERDAFTAR',
     jumlah_pelanggaran: jumlahPelanggaran,
+    // Dipakai klien untuk menyelaraskan progres reset offline (lihat
+    // selaraskanTerpakaiLokal di reset-offline-client.ts).
+    reset_terpakai: siswaUjian?.reset_terpakai ?? 0,
     dipantau: !!sidDipantau,
     dipantau_sid: sidDipantau ?? undefined,
   })

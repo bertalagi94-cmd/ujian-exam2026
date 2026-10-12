@@ -38,6 +38,8 @@ import {
   verifikasiKodeResetOffline,
   antrekanResetOffline,
   nomorResetBerikutnya,
+  selaraskanTerpakaiLokal,
+  ambilTerpakaiLokal,
   EnkripsiTidakDidukungError as ResetEnkripsiTidakDidukungError,
 } from '@/lib/reset-offline-client'
 import type { ResetAmplop } from '@/lib/reset-amplop-shared'
@@ -84,6 +86,9 @@ interface SesiInfo {
   // src/lib/reset-offline-client.ts.
   resetMaterial?: ResetAmplop[]
   maksReset?: number
+  // reset_terpakai di SERVER saat sesi dibuka — untuk menyelaraskan progres
+  // reset offline (selaraskanTerpakaiLokal).
+  reset_terpakai?: number
 }
 
 interface SoalUjian extends Soal {
@@ -1205,7 +1210,7 @@ export default function SiswaUjianPage() {
     const currentPhase = phaseRef.current
     if (!currentSesi || (currentPhase !== 'UJIAN' && currentPhase !== 'ESSAY_INFO' && currentPhase !== 'ESSAY_KERJAKAN')) return
     try {
-      const res = await apiRequest<{ sesi_status?: string; siswa_status?: string; diambil_alih_device_lain?: boolean } | null>(
+      const res = await apiRequest<{ sesi_status?: string; siswa_status?: string; diambil_alih_device_lain?: boolean; reset_terpakai?: number } | null>(
         `/api/siswa/ujian/cek-sesi?sesiId=${currentSesi.sesiId}&deviceId=${getDeviceId()}`
       )
       if (!res) return
@@ -1251,13 +1256,29 @@ export default function SiswaUjianPage() {
         return
       }
 
+      // Selaraskan progres reset offline dengan server tiap polling.
+      let nisPoll: string | undefined
+      try { nisPoll = JSON.parse(localStorage.getItem('user') ?? '{}')?.nis } catch { /* abaikan */ }
+      if (nisPoll && typeof res.reset_terpakai === 'number') {
+        await selaraskanTerpakaiLokal(currentSesi.sesiId, nisPoll, res.reset_terpakai)
+      }
+
       // FIX Bug #3: handle siswa_status RESET dari polling.
       // Jika pengawas me-reset siswa dari mode pengawas saat siswa sedang
       // mengerjakan, siswa_ujian.status berubah ke RESET tapi polling tidak
       // bereaksi — overlay pelanggaran tidak muncul, sync jawaban diam-diam
       // ditolak 403, dan siswa bingung kenapa jawaban tidak tersimpan.
       // Sekarang: munculkan overlay warning agar siswa tahu dan menghubungi pengawas.
-      if ((res as { siswa_status?: string }).siswa_status === 'RESET' && !showWarningOverlay) {
+      // Dua perbaikan di sini:
+      //  1) cekStatusSesi dibungkus useCallback([]), jadi `showWarningOverlay`
+      //     di sini SELALU nilai awal (false) -> overlay/pesan ditimpa tiap 10
+      //     detik. Pakai pelanggaranActiveRef (ref, selalu terbaru).
+      //  2) Kalau siswa SUDAH memverifikasi reset ini secara offline (progres
+      //     lokal >= nomor yang ditunggu server), server hanya belum menerima
+      //     R(N)-nya (antrean berurutan masih berjalan). Jangan blokir lagi.
+      const nomorDitungguServer = (typeof res.reset_terpakai === 'number' ? res.reset_terpakai : 0) + 1
+      const sudahResetLokal = !!nisPoll && ambilTerpakaiLokal(currentSesi.sesiId, nisPoll) >= nomorDitungguServer
+      if ((res as { siswa_status?: string }).siswa_status === 'RESET' && !pelanggaranActiveRef.current && !sudahResetLokal) {
         pelanggaranActiveRef.current = true
         setWarningMsg('⚠ Pengawas telah me-reset akun Anda karena pelanggaran terdeteksi.')
         setShowWarningOverlay(true)
@@ -1865,6 +1886,11 @@ export default function SiswaUjianPage() {
           return
         }
       }
+      // Selaraskan progres reset lokal dengan server (reload / proses dimatikan
+      // Android / reset online sebelumnya / admin me-reset jatah).
+      if (typeof res.reset_terpakai === 'number') {
+        await selaraskanTerpakaiLokal(res.sesiId, user.nis, res.reset_terpakai)
+      }
 
       const terpakai1 = Math.floor((trustedNow() - new Date(res.waktu_mulai).getTime()) / 1000)
       setSisaWaktu(Math.max(0, res.durasi * 60 - terpakai1))
@@ -1980,6 +2006,9 @@ export default function SiswaUjianPage() {
         if (!sesiRes.valid) { setError(sesiRes.message ?? 'Gagal masuk ujian'); setPhase('KODE'); return }
         setSesiInfo(sesiRes)
         if (user?.nis) simpanPaketPgOffline(user.nis, sesiRes)
+        if (user?.nis && typeof sesiRes.reset_terpakai === 'number') {
+          await selaraskanTerpakaiLokal(sesiRes.sesiId, user.nis, sesiRes.reset_terpakai)
+        }
         await resumeJawaban(sesiRes.sesiId, user.nis)
 
         // FIX Bug #1: pakai waktu_mulai dari response verifikasi reset (waktu_mulai_awal)
@@ -2736,7 +2765,7 @@ export default function SiswaUjianPage() {
     }
 
     try {
-      const res = await apiRequest<{ valid: boolean; waktu_mulai?: string; message?: string; terkunci_permanen?: boolean; jumlah_pelanggaran?: number }>('/api/siswa/ujian/verifikasi-reset', {
+      const res = await apiRequest<{ valid: boolean; waktu_mulai?: string; message?: string; terkunci_permanen?: boolean; jumlah_pelanggaran?: number; reset_terpakai?: number }>('/api/siswa/ujian/verifikasi-reset', {
         method: 'POST',
         body: JSON.stringify({ sesiId: currentSesi.sesiId, kodeReset: kodeReset.trim().toUpperCase() }),
       })
@@ -2757,6 +2786,14 @@ export default function SiswaUjianPage() {
       }
 
       if (!res.valid) { setKodeResetError(res.message ?? 'Kode tidak valid'); return }
+      // Reset ONLINE juga harus menaikkan progres lokal; kalau tidak, nomor
+      // reset offline berikutnya salah setelah reload lalu offline.
+      try {
+        const nisOnline = JSON.parse(localStorage.getItem('user') ?? '{}')?.nis as string | undefined
+        if (nisOnline && typeof res.reset_terpakai === 'number') {
+          await selaraskanTerpakaiLokal(currentSesi.sesiId, nisOnline, res.reset_terpakai)
+        }
+      } catch { /* abaikan */ }
       terapkanResetBerhasil(res.waktu_mulai)
     } catch (err: unknown) {
       const status = (err as { status?: number } | undefined)?.status

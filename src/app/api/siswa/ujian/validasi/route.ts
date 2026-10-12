@@ -93,7 +93,7 @@ export async function POST(req: NextRequest) {
     { data: pengaturanRows },
   ] = await Promise.all([
     db.from('nilai').select('id').eq('sesi_id', sesi.id).eq('nis', nis).single(),
-    db.from('siswa_ujian').select('status, waktu_mulai, waktu_mulai_awal, device_id, last_heartbeat').eq('sesi_id', sesi.id).eq('nis', nis).single(),
+    db.from('siswa_ujian').select('status, waktu_mulai, waktu_mulai_awal, device_id, last_heartbeat, reset_terpakai').eq('sesi_id', sesi.id).eq('nis', nis).single(),
     paketQuery,
     db.from('mapel').select('nama').eq('id', sesi.mapel_id).single(),
     db.from('pengaturan').select('key, value').in('key', ['minSubmitAktif', 'minSubmitMenit']),
@@ -137,7 +137,7 @@ export async function POST(req: NextRequest) {
     })
   }
   if (siswaUjian?.status === 'RESET') {
-    return NextResponse.json({ valid: false, perlu_kode_reset: true, sesiId: sesi.id, message: 'Akun Anda di-reset oleh pengawas karena pelanggaran. Masukkan kode 7 digit dari pengawas untuk melanjutkan ujian.' })
+    return NextResponse.json({ valid: false, perlu_kode_reset: true, sesiId: sesi.id, reset_terpakai: siswaUjian?.reset_terpakai ?? 0, message: 'Akun Anda di-reset oleh pengawas karena pelanggaran. Masukkan kode 7 digit dari pengawas untuk melanjutkan ujian.' })
   }
 
   // ── DETEKSI LOGIN GANDA (multi-device) ───────────────────────────────────
@@ -490,6 +490,7 @@ export async function POST(req: NextRequest) {
     minSubmitMenit,
     resetMaterial,
     maksReset,
+    reset_terpakai: siswaUjian?.reset_terpakai ?? 0,
   })
   })
 }

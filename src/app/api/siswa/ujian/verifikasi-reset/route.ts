@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
   if ('error' in auth) return auth.error
   const { user } = auth
 
-  let body: { sesiId?: unknown; kodeReset?: unknown }
+  let body: { sesiId?: unknown; kodeReset?: unknown; nomor?: unknown }
   try {
     body = await req.json()
   } catch {
@@ -103,12 +103,21 @@ export async function POST(req: NextRequest) {
 
   const terpakai = siswaUjian.reset_terpakai ?? 0
 
+  // Retry idempoten untuk nomor LAMA: antrean offline mengirim `nomor` yang ia
+  // maksud. Kalau server sudah melewati nomor itu (respons ACK hilang lalu
+  // jatah sudah maju) dan kodenya cocok HMAC nomor tsb, itu sukses — bukan
+  // "kode salah" (yang menaikkan jatah gagal & menandai entri GAGAL).
+  const nomorKlien = typeof body.nomor === 'number' && Number.isInteger(body.nomor) ? body.nomor : undefined
+  if (nomorKlien !== undefined && nomorKlien >= 1 && nomorKlien <= terpakai && kodeResetCocok(sesiId, nis, nomorKlien, kodeReset)) {
+    return NextResponse.json({ valid: true, waktu_mulai: waktuMulai, reset_terpakai: terpakai, message: 'Kode benar. Ujian dilanjutkan.' })
+  }
+
   // Retry yang sah: respons "kode benar" sebelumnya hilang di jaringan, siswa
   // sudah AKTIF, lalu mengetik kode yang sama lagi. Kode yang barusan dipakai
   // dianggap sukses (idempoten) — TIDAK mengubah state apa pun.
   if (siswaUjian.status !== 'RESET') {
     if (terpakai >= 1 && kodeResetCocok(sesiId, nis, terpakai, kodeReset)) {
-      return NextResponse.json({ valid: true, waktu_mulai: waktuMulai, message: 'Kode benar. Ujian dilanjutkan.' })
+      return NextResponse.json({ valid: true, waktu_mulai: waktuMulai, reset_terpakai: terpakai, message: 'Kode benar. Ujian dilanjutkan.' })
     }
     // BUG P0 (race rekonsiliasi offline — lihat reset-offline-client.ts): ini
     // BISA berarti siswa memang tidak butuh reset, TAPI juga bisa berarti
@@ -182,7 +191,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ valid: false, message: 'Kode belum dapat diproses. Coba lagi sebentar lagi.' }, { status: 503 })
   }
 
-  const p = pakai as { hasil: string; waktu_mulai?: string; sampai?: string }
+  const p = pakai as { hasil: string; waktu_mulai?: string; sampai?: string; reset_terpakai?: number }
   switch (p.hasil) {
     case 'OK':
     case 'SUDAH_DIPAKAI':
@@ -190,6 +199,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         valid: true,
         waktu_mulai: p.waktu_mulai ?? waktuMulai,
+        reset_terpakai: p.reset_terpakai ?? nomor,
         message: 'Kode benar. Ujian dilanjutkan.',
       })
     case 'TERKUNCI':

@@ -121,6 +121,24 @@ function simpanTerpakaiLokal(sesiId: string, nis: string, terpakai: number): voi
 }
 
 /**
+ * Selaraskan progres lokal dengan `reset_terpakai` dari SERVER (dikirim oleh
+ * /validasi, /cek-sesi dan /verifikasi-reset). Dipanggil setiap kali klien
+ * online dan tahu angka server, supaya nomorResetBerikutnya() tetap benar:
+ *   - setelah reset ONLINE (dulu progres lokal tidak pernah ikut naik),
+ *   - setelah reload / proses WebView dimatikan Android (pelanggRef kembali 0),
+ *   - setelah admin me-reset reset_terpakai ke 0 (progres lokal lama harus turun).
+ * Entri reset offline yang masih menunggu sinkron (belum GAGAL) tetap
+ * dihitung, karena itu reset yang sudah dipakai siswa secara lokal.
+ */
+export async function selaraskanTerpakaiLokal(sesiId: string, nis: string, terpakaiServer: number): Promise<void> {
+  if (!Number.isFinite(terpakaiServer) || terpakaiServer < 0) return
+  const tertunda = (await ambilSemuaResetTertunda(nis, sesiId))
+    .filter(e => e.status !== 'GAGAL')
+    .map(e => e.nomor)
+  simpanTerpakaiLokal(sesiId, nis, Math.max(terpakaiServer, 0, ...tertunda))
+}
+
+/**
  * Nomor reset yang harus dicoba SELANJUTNYA di perangkat ini: yang lebih
  * besar antara progres lokal tersimpan (bertahan lewat reload) dan perkiraan
  * dari UI (mis. hitungan pelanggRef/jumlahPelanggaran di halaman ujian, yang
@@ -324,7 +342,7 @@ async function kirimSatuResetTanpaKunci(entri: ResetTertunda): Promise<boolean> 
       '/api/siswa/ujian/verifikasi-reset',
       {
         method: 'POST',
-        body: JSON.stringify({ sesiId: current.sesiId, kodeReset: current.kode }),
+        body: JSON.stringify({ sesiId: current.sesiId, kodeReset: current.kode, nomor: current.nomor }),
       }
     )
 
