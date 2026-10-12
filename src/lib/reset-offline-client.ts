@@ -23,6 +23,7 @@
 // melompati entri yang gagal.
 
 import { apiRequest } from '@/lib/utils'
+import { jalankanBerurutan, EVENT_PICU_ANTREAN } from '@/lib/antrean-kunci'
 import {
   resetMaterialPut,
   resetMaterialGet,
@@ -257,20 +258,28 @@ export async function antrekanResetOffline(sesiId: string, nis: string, nomor: n
     status: 'BELUM_TERKIRIM',
     pesanTerakhir: null,
   }
-  try { await resetPendingPut(pendingKey(sesiId, nis, nomor), entri) } catch { /* fallback di bawah */ }
-  try {
-    // Jaga-jaga IndexedDB gagal total: tetap simpan progres nomor supaya
-    // gerbang nomorResetBerikutnya() tidak minta R(nomor) yang sama lagi.
-  } finally {
-    simpanTerpakaiLokal(sesiId, nis, Math.max(ambilTerpakaiLokal(sesiId, nis), nomor))
-  }
+  try { await resetPendingPut(pendingKey(sesiId, nis, nomor), entri) } catch { /* progres lokal tetap disimpan di bawah */ }
+  // Tetap simpan progres nomor walau IndexedDB gagal total, supaya gerbang
+  // nomorResetBerikutnya() tidak minta R(nomor) yang sama lagi.
+  simpanTerpakaiLokal(sesiId, nis, Math.max(ambilTerpakaiLokal(sesiId, nis), nomor))
+  // Beri tahu penjaga antrean berurutan bahwa ada entri baru.
+  try { window.dispatchEvent(new Event(EVENT_PICU_ANTREAN)) } catch { /* abaikan */ }
 }
 
-async function ambilSemuaResetTertunda(): Promise<ResetTertunda[]> {
+/**
+ * Entri reset tertunda MILIK SATU SISWA. Wajib difilter per NIS (dan sesiId
+ * kalau diketahui): perangkat lab dipakai bergantian, sedangkan server menilai
+ * kode memakai NIS dari token siapa yang sedang login. Mengirim entri siswa A
+ * dengan token siswa B akan menghabiskan jatah salah B dan menandai entri A
+ * GAGAL permanen.
+ */
+export async function ambilSemuaResetTertunda(nis: string, sesiId?: string): Promise<ResetTertunda[]> {
   try {
     const semua = await resetPendingGetAllValues<ResetTertunda>()
-    // Urutan nomor NAIK — server hanya menerima R(N) tepat saat gilirannya.
-    return semua.sort((a, b) => a.nomor - b.nomor || a.dibuatIso.localeCompare(b.dibuatIso))
+    return semua
+      .filter(e => e.nis === nis && (!sesiId || e.sesiId === sesiId))
+      // Urutan nomor NAIK — server hanya menerima R(N) tepat saat gilirannya.
+      .sort((a, b) => a.nomor - b.nomor || a.dibuatIso.localeCompare(b.dibuatIso))
   } catch {
     return []
   }
@@ -301,7 +310,7 @@ function statusSementara(status: number | undefined): boolean {
  * reset lagi, ujian tidak bisa difinalisasi). Sekarang HANYA `valid: true`
  * yang dianggap sukses; selain itu dicek `res.retryable` / `res.permanen`.
  */
-async function kirimSatuReset(entri: ResetTertunda): Promise<boolean> {
+async function kirimSatuResetTanpaKunci(entri: ResetTertunda): Promise<boolean> {
   const current: ResetTertunda = {
     ...entri,
     status: 'MENGIRIM',
@@ -362,12 +371,13 @@ async function kirimSatuReset(entri: ResetTertunda): Promise<boolean> {
       } catch { /* abaikan */ }
       return false
     }
-    // Status non-sementara (4xx lain) — simpan untuk jejak audit, tapi
-    // JANGAN hapus: nomor berikutnya (kalau ada) tetap menunggu di belakang
-    // sampai ada intervensi (mis. pengawas mengecek manual).
+    // Status non-sementara (4xx lain) — JANGAN hapus dan JANGAN biarkan
+    // berstatus MENGIRIM (dulu: dicoba ulang tiap 15 detik tanpa jeda
+    // selamanya). Tandai MENUNGGU_JARINGAN supaya terbaca jelas di antrean.
     try {
       await resetPendingPut(pendingKey(current.sesiId, current.nis, current.nomor), {
         ...current,
+        status: 'MENUNGGU_JARINGAN',
         pesanTerakhir: err instanceof Error ? err.message : 'Server menolak pengiriman.',
       })
     } catch { /* abaikan */ }
@@ -375,42 +385,25 @@ async function kirimSatuReset(entri: ResetTertunda): Promise<boolean> {
   }
 }
 
-let penjagaTerpasang = false
+/** Kirim satu entri; semua pengiriman antrean siswa diserialkan lewat satu kunci. */
+export function kirimSatuReset(entri: ResetTertunda): Promise<boolean> {
+  return jalankanBerurutan(() => kirimSatuResetTanpaKunci(entri))
+}
+
+/** True kalau entri berstatus MENGIRIM dan percobaannya masih baru (< 2 menit). */
+export function sedangDikirim(entri: { status: string; percobaanTerakhirIso: string | null }): boolean {
+  if (entri.status !== 'MENGIRIM') return false
+  const t = entri.percobaanTerakhirIso ? Date.parse(entri.percobaanTerakhirIso) : 0
+  return !!t && Date.now() - t <= 2 * 60 * 1000
+}
+
 
 /**
- * Penjaga latar belakang: coba rekonsiliasi antrean reset offline begitu
- * dipasang, lalu berkala, dan segera saat koneksi pulih. Pasang SEKALI di
- * siswa/layout.tsx, sejajar dengan mulaiPenjagaOutbox/mulaiPenjagaPelanggaran.
+ * @deprecated Jangan dipasang lagi. Antrean reset sekarang dikirim bersama
+ * antrean pelanggaran oleh mulaiPenjagaAntreanBerurutan(nis) di
+ * antrean-berurutan.ts (satu antrean, urut waktu). Dibiarkan sebagai no-op
+ * supaya import lama tidak merusak build.
  */
 export function mulaiPenjagaResetOffline(): () => void {
-  if (penjagaTerpasang) return () => {}
-  penjagaTerpasang = true
-
-  const flushSemua = async () => {
-    for (const entri of await ambilSemuaResetTertunda()) {
-      // Sudah ditolak PERMANEN sebelumnya (lihat kirimSatuReset) — tidak
-      // dicoba lagi otomatis, tetap tersimpan untuk audit manual. Lanjut ke
-      // nomor berikutnya (jangan break di sini) supaya entri final seperti
-      // ini tidak mengunci antrean selamanya.
-      if (entri.status === 'GAGAL') continue
-      // kirimSatuReset() mengembalikan true baik untuk sukses ASLI (valid)
-      // maupun untuk penolakan PERMANEN (disimpan sbg GAGAL) — dua-duanya
-      // "selesai diproses" sehingga aman lanjut ke nomor berikutnya. Hanya
-      // `false` (sementara/perlu diulang) yang menghentikan loop supaya
-      // urutan R1→R2→R3 tetap terjaga.
-      const lanjut = await kirimSatuReset(entri)
-      if (!lanjut) break
-    }
-  }
-
-  void flushSemua()
-  const interval = setInterval(flushSemua, 15_000)
-  const onOnline = () => void flushSemua()
-  window.addEventListener('online', onOnline)
-
-  return () => {
-    clearInterval(interval)
-    window.removeEventListener('online', onOnline)
-    penjagaTerpasang = false
-  }
+  return () => {}
 }

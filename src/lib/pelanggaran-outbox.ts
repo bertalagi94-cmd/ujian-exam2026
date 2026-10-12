@@ -42,6 +42,8 @@
 // transisi itu sendiri.
 
 import { apiRequest } from '@/lib/utils'
+import { jalankanBerurutan, EVENT_PICU_ANTREAN } from '@/lib/antrean-kunci'
+import { ambilSemuaResetTertunda } from '@/lib/reset-offline-client'
 import {
   pelanggaranQueuePut,
   pelanggaranQueueDelete,
@@ -162,7 +164,12 @@ function statusSementara(status: number | undefined): boolean {
   return !status || status >= 500 || status === 408 || status === 429
 }
 
-async function kirimSatuPelanggaran(entri: PelanggaranTertunda): Promise<HasilKirimPelanggaran | null> {
+export type HasilKirimBerurutan =
+  | { hasil: 'OK'; res: HasilKirimPelanggaran }
+  | { hasil: 'ULANG' } // sementara (jaringan/server sibuk) -> antrean berhenti di sini
+  | { hasil: 'GAGAL' } // ditolak sah -> aman dilewati, tetap tersimpan untuk audit
+
+async function kirimPelanggaranTanpaKunci(entri: PelanggaranTertunda): Promise<HasilKirimBerurutan> {
   const current: PelanggaranTertunda = {
     ...entri,
     status: 'MENGIRIM',
@@ -181,7 +188,7 @@ async function kirimSatuPelanggaran(entri: PelanggaranTertunda): Promise<HasilKi
       }),
     })
     await hapus(current.sesiId, current.nis, current.eventId)
-    return res
+    return { hasil: 'OK', res }
   } catch (err: unknown) {
     const status = (err as { status?: number } | undefined)?.status
     if (statusSementara(status)) {
@@ -192,21 +199,22 @@ async function kirimSatuPelanggaran(entri: PelanggaranTertunda): Promise<HasilKi
           ? `Server sedang sibuk (${status}), akan dicoba lagi otomatis.`
           : 'Tidak ada koneksi ke server.',
       })
-    } else {
-      // 400 (bentuk payload salah — seharusnya tak pernah terjadi dari client
-      // ini), 404 (siswa/sesi tak terdaftar), 409 (sesi sudah ditutup) tidak
-      // akan pernah berhasil kalau diulang. TETAP DISIMPAN (bukan dihapus)
-      // sebagai GAGAL untuk jejak audit — supaya pelanggaran yang sempat
-      // terdeteksi client tapi tak sempat masuk sebelum sesi ditutup tidak
-      // hilang tanpa jejak sama sekali — hanya tidak dicoba lagi otomatis.
-      await simpan({
-        ...current,
-        status: 'GAGAL',
-        pesanTerakhir: err instanceof Error ? err.message : 'Server menolak pengiriman.',
-      })
+      return { hasil: 'ULANG' }
     }
-    return null
+    // 400 / 404 / 409 tidak akan berhasil kalau diulang. TETAP DISIMPAN
+    // sebagai GAGAL untuk jejak audit, hanya tidak dicoba lagi otomatis.
+    await simpan({
+      ...current,
+      status: 'GAGAL',
+      pesanTerakhir: err instanceof Error ? err.message : 'Server menolak pengiriman.',
+    })
+    return { hasil: 'GAGAL' }
   }
+}
+
+/** Kirim satu entri pelanggaran; diserialkan dengan semua pengiriman antrean lain lewat satu kunci. */
+export function kirimSatuPelanggaranBerurutan(entri: PelanggaranTertunda): Promise<HasilKirimBerurutan> {
+  return jalankanBerurutan(() => kirimPelanggaranTanpaKunci(entri))
 }
 
 /**
@@ -240,46 +248,33 @@ export async function antrekanPelanggaran(
     pesanTerakhir: null,
   }
   await simpan(entri)
-  return kirimSatuPelanggaran(entri)
+
+  // Kirim langsung HANYA kalau tidak ada entri lain yang lebih tua (pelanggaran
+  // ATAU reset offline) yang belum selesai. Kalau ada, kirim sekarang akan
+  // menyalip antrean: server bisa menerima V(N+1) saat status masih RESET dan
+  // membuangnya. Dalam kasus itu serahkan ke penjaga berurutan.
+  return jalankanBerurutan(async () => {
+    const [pel, rst] = await Promise.all([
+      ambilSemuaPelanggaranTertunda(nis),
+      ambilSemuaResetTertunda(nis, sesiId),
+    ])
+    const adaYangLebihTua =
+      pel.some(e => e.eventId !== entri.eventId && e.status !== 'GAGAL' && e.dibuatIso <= entri.dibuatIso) ||
+      rst.some(e => e.status !== 'GAGAL' && e.dibuatIso <= entri.dibuatIso)
+    if (adaYangLebihTua) {
+      try { window.dispatchEvent(new Event(EVENT_PICU_ANTREAN)) } catch { /* abaikan */ }
+      return null
+    }
+    const r = await kirimPelanggaranTanpaKunci(entri)
+    return r.hasil === 'OK' ? r.res : null
+  })
 }
 
-// ── Penjaga latar belakang (dipasang sekali di siswa/layout.tsx) ───────────
-// Bukan React state — pakai flag modul supaya tidak terpasang dobel kalau
-// layout re-render/StrictMode double-invoke efek (sama seperti mulaiPenjagaOutbox).
-let penjagaTerpasang = false
-
-// Batas waktu satu percobaan kirim dianggap MACET (tab ditutup/reload/deploy
-// tepat di tengah percobaan) — sama seperti MENGIRIM_BASI_MS di ujian-outbox.ts.
-const MENGIRIM_BASI_MS = 2 * 60 * 1000
-
-export function mulaiPenjagaPelanggaran(nis: string): () => void {
-  if (penjagaTerpasang) return () => {}
-  penjagaTerpasang = true
-
-  const flushSemua = async () => {
-    for (const entri of await ambilSemuaPelanggaranTertunda(nis)) {
-      if (entri.status === 'GAGAL') continue // ditolak sah — hanya lewat jalur manual/audit
-      if (entri.status === 'MENGIRIM') {
-        const t = entri.percobaanTerakhirIso ? Date.parse(entri.percobaanTerakhirIso) : 0
-        if (t && Date.now() - t <= MENGIRIM_BASI_MS) continue // sedang berjalan sungguhan, jangan dobel kirim
-      }
-      await kirimSatuPelanggaran(entri)
-    }
-  }
-
-  // Coba segera saat dipasang (mis. siswa buka lagi setelah offline lama /
-  // browser crash dengan event yang belum sempat terkirim), lalu ulangi tiap
-  // 15 detik (lebih rapat dari outbox PG/Essay karena ini menyangkut
-  // anti-cheat — reset R1/R2/R3 di pengawas idealnya tidak menunggu lama),
-  // dan segera lagi begitu browser melaporkan koneksi pulih.
-  void flushSemua()
-  const interval = setInterval(flushSemua, 15_000)
-  const onOnline = () => void flushSemua()
-  window.addEventListener('online', onOnline)
-
-  return () => {
-    clearInterval(interval)
-    window.removeEventListener('online', onOnline)
-    penjagaTerpasang = false
-  }
+// Penjaga lama dihapus: pelanggaran dan reset offline sekarang dikirim oleh
+// SATU penjaga berurutan (mulaiPenjagaAntreanBerurutan di antrean-berurutan.ts).
+// Dua timer terpisah membuat urutan tiba di server tidak terjamin, dan server
+// membuang pelanggaran yang tiba saat status siswa masih RESET.
+/** @deprecated No-op. Pakai mulaiPenjagaAntreanBerurutan(nis). */
+export function mulaiPenjagaPelanggaran(_nis: string): () => void {
+  return () => {}
 }
