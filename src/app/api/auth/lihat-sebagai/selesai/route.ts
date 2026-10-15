@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { verifyViewAsTokenAllowExpired } from '@/lib/auth'
 import { catatAktivitas } from '@/lib/aktivitas'
 import { invalidasiDipantau } from '@/lib/dipantau'
@@ -17,7 +17,14 @@ export async function POST(req: NextRequest) {
   if (!payload) return NextResponse.json({ error: 'Bukan sesi Lihat-sebagai' }, { status: 400 })
 
   const kedaluwarsa = !!payload.exp && payload.exp * 1000 < Date.now()
-  const db = createAdminClient()
+  let yayasanId: string
+  try {
+    yayasanId = yayasanIdDari(payload)
+  } catch {
+    return NextResponse.json({ error: 'Token tidak memuat yayasan. Silakan login ulang.' }, { status: 401 })
+  }
+  // tenantDb: baris log akhir sesi tercatat di yayasan yang benar (bukan YYS_AWAL).
+  const db = tenantDb(yayasanId)
 
   // Tutup penanda "sedang dipantau" supaya banner di sisi siswa langsung hilang.
   if (payload.viewAsSid) {

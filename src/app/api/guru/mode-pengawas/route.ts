@@ -136,7 +136,8 @@ export async function GET(req: NextRequest) {
   // ── 5c. Enrich status_soal supaya UI bisa menonaktifkan tombol "Mulai
   // Ujian" untuk jadwal yang soalnya belum disetujui ────────────────────────
   const statusSoalMap = await computeStatusSoalDetailMap(
-    jadwalList.map(j => ({ mapel_id: j.mapel_id, kelas: String(j.kelas) }))
+    jadwalList.map(j => ({ mapel_id: j.mapel_id, kelas: String(j.kelas) })),
+    yayasanIdDari(auth.user)
   )
 
   // ── 5c2. Enrich jumlah soal essay (DISETUJUI) per mapel+kelas — dipakai UI
@@ -277,7 +278,7 @@ export async function POST(req: NextRequest) {
   // kombinasi mapel + kelas pada jadwal ini belum disetujui. Sama persis
   // dengan validasi di /api/pengawas/sesi — diletakkan di server supaya
   // tidak bisa dilewati lewat panggilan API langsung.
-  const { status: statusSoal, namaGuru } = await getStatusSoalDetail(jadwal.mapel_id, String(jadwal.kelas))
+  const { status: statusSoal, namaGuru } = await getStatusSoalDetail(jadwal.mapel_id, String(jadwal.kelas), yayasanIdDari(auth.user))
   if (!isStatusSoalSiap(statusSoal)) {
     return NextResponse.json(
       { error: pesanStatusSoal(statusSoal, namaGuru), statusSoal },

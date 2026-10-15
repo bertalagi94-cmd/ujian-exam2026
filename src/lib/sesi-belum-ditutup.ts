@@ -50,8 +50,8 @@ export async function muatPengingatSesi(
     sertakanKontak?: boolean // true = sertakan no_hp pengawas (khusus admin)
     sekarang?: Date // untuk pengujian
     zona?: ZonaWaktuInfo // untuk pengujian
-    yayasanId?: string // multi-yayasan: zona waktu diambil dari pengaturan yayasan ini
-  } = {}
+    yayasanId: string // multi-yayasan (WAJIB): zona waktu diambil dari pengaturan yayasan ini
+  }
 ): Promise<SesiPengingat[]> {
   const sekarang = opsi.sekarang ?? new Date()
   const zona = opsi.zona ?? (await getZonaWaktuSekolah(opsi.yayasanId))

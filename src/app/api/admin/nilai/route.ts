@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
   // admin/analisis-ujian/route.ts — lihat komentar lengkap di file itu.
   let kelasScopeKepsek: string[] | null = null
   if (user.role === 'KEPSEK') {
-    const scope = await getKepsekScope(user.username)
+    const scope = await getKepsekScope(user.username, yayasanIdDari(user))
     if (scope.noScope) {
       return NextResponse.json(
         { error: 'Akun Anda belum diset sekolah/jenjangnya oleh Admin. Hubungi Admin untuk mengatur ini di menu Data Pengguna.' },

@@ -24,7 +24,10 @@ export async function POST(req: NextRequest) {
     const bytes = await file.arrayBuffer()
     const buffer = Buffer.from(bytes)
     const ext = file.name.split('.').pop() || 'jpg'
-    const fileName = `soal/${user.username}_${Date.now()}.${ext}`
+    // Multi-yayasan: folder per yayasan (yayasan awal tanpa folder, URL lama tidak berubah).
+    const yid = yayasanIdDari(auth.user)
+    const folder = yid === 'YYS_AWAL' ? '' : `${yid}/`
+    const fileName = `${folder}soal/${user.username}_${Date.now()}.${ext}`
 
     const { error: uploadError } = await db.storage
       .from('assets')

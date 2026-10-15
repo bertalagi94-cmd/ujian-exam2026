@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { tenantDb, yayasanIdDari } from '@/lib/tenant'
+import { tenantDb, yayasanIdDari, idsMilikYayasan } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 import { generateId } from '@/lib/utils'
 
@@ -80,6 +80,11 @@ export async function POST(req: NextRequest) {
   const db = tenantDb(yayasanIdDari(auth.user))
   const body = await req.json()
 
+  // Multi-yayasan: guru pengampu kiriman klien harus milik yayasan ini.
+  if (body.guru_id && !(await idsMilikYayasan(db, 'users', [String(body.guru_id)], 'username'))) {
+    return NextResponse.json({ error: 'Guru pengampu yang dipilih tidak ditemukan.' }, { status: 400 })
+  }
+
   const namaNormalized = String(body.nama).toUpperCase()
 
   // Cek duplikasi: nama mapel + guru_id yang sama sudah ada
@@ -126,6 +131,11 @@ export async function PUT(req: NextRequest) {
   const db = tenantDb(yayasanIdDari(auth.user))
   const { id, ...update } = await req.json()
   if (!id) return NextResponse.json({ error: 'ID mapel diperlukan' }, { status: 400 })
+
+  // Multi-yayasan: guru pengampu kiriman klien harus milik yayasan ini.
+  if (update.guru_id && !(await idsMilikYayasan(db, 'users', [String(update.guru_id)], 'username'))) {
+    return NextResponse.json({ error: 'Guru pengampu yang dipilih tidak ditemukan.' }, { status: 400 })
+  }
 
   // Ambil nama final (kalau nama tidak dikirim di payload, pakai nama lama)
   let namaFinal = update.nama ? String(update.nama).toUpperCase() : undefined

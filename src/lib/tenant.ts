@@ -23,8 +23,8 @@ import { createHash, randomBytes } from 'crypto'
 import { NextRequest } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createAdminClient } from '@/lib/supabase'
-import { requireRole, type JWTPayload } from '@/lib/auth'
-import { cachedFetch } from '@/lib/cache'
+import { requireRole, getTokenFromRequest, type JWTPayload } from '@/lib/auth'
+import { cachedFetch, cacheGet, cacheSet } from '@/lib/cache'
 
 /** Yayasan yang menampung seluruh data lama (dibuat oleh migrasi 39). */
 export const YAYASAN_AWAL_ID = 'YYS_AWAL'
@@ -129,8 +129,17 @@ export function tenantDb(yayasanId: string): AnyClient {
             const m = t[p]
             if (typeof m !== 'function') return m
             switch (p) {
-              case 'select':
               case 'update':
+                // Tolak perubahan yang memindahkan baris ke yayasan lain
+                // (mis. body request berisi yayasan_id orang lain).
+                return (...args: unknown[]) => {
+                  const isi = args[0] as { yayasan_id?: unknown } | null
+                  if (isi && typeof isi === 'object' && isi.yayasan_id != null && isi.yayasan_id !== yayasanId) {
+                    throw new Error('Pemindahan data lintas yayasan ditolak')
+                  }
+                  return m.apply(t, args).eq('yayasan_id', yayasanId)
+                }
+              case 'select':
               case 'delete':
                 return (...args: unknown[]) => m.apply(t, args).eq('yayasan_id', yayasanId)
               case 'insert':
@@ -150,10 +159,15 @@ export function tenantDb(yayasanId: string): AnyClient {
  * Pastikan SEMUA id (dari body request) memang milik yayasan ini di `tabel`.
  * Dipakai sebelum menautkan data ke id yang dikirim klien (mis. sekolah_ids).
  */
-export async function idsMilikYayasan(db: AnyClient, tabel: string, ids: string[]): Promise<boolean> {
+export async function idsMilikYayasan(
+  db: AnyClient,
+  tabel: string,
+  ids: string[],
+  kolom: string = 'id' // mis. 'username' untuk tabel users, 'nis' untuk siswa
+): Promise<boolean> {
   const unik = [...new Set(ids.map(String))]
   if (unik.length === 0) return true
-  const { data, error } = await db.from(tabel).select('id').in('id', unik)
+  const { data, error } = await db.from(tabel).select(kolom).in(kolom, unik)
   if (error) return false
   return (data?.length ?? 0) === unik.length
 }
@@ -182,6 +196,47 @@ export async function cariYayasanByKode(kode: string): Promise<Yayasan | null> {
     return (data as Yayasan | null) ?? null
   })
 }
+
+/**
+ * Tentukan yayasan untuk endpoint /api/public/* (belum tentu ada login).
+ * Urutan: (1) token login yang valid, (2) parameter ?kode= (Kode Sekolah),
+ * (3) YYS_AWAL hanya selama saklar multi-yayasan MATI. Selain itu null:
+ * pemanggil WAJIB mengembalikan data kosong (fail-closed), bukan data semua
+ * yayasan. `dariToken` true berarti respons bergantung pada token, jadi
+ * TIDAK boleh disimpan di cache bersama (CDN).
+ *
+ * Tebakan kode dibatasi: 20 kode salah / 10 menit per IP, supaya endpoint
+ * publik tidak bisa dipakai menebak Kode Sekolah milik yayasan lain.
+ */
+export async function yayasanIdPublik(
+  req: NextRequest
+): Promise<{ id: string; dariToken: boolean } | null> {
+  const user = getTokenFromRequest(req)
+  if (user) {
+    try {
+      return { id: yayasanIdDari(user), dariToken: true }
+    } catch {
+      // Token lama tanpa klaim yayasan: lanjut ke jalur kode.
+    }
+  }
+
+  const kode = normalisasiKodeSekolah(req.nextUrl.searchParams.get('kode'))
+  if (kode) {
+    const ip = req.headers.get('x-forwarded-for')?.split(',')[0].trim() || req.headers.get('x-real-ip') || 'unknown'
+    const kunci = `kode-gagal:${ip}`
+    const gagal = cacheGet<number>(kunci) ?? 0
+    if (gagal >= 20) return null
+    const yys = await cariYayasanByKode(kode)
+    if (!yys || yys.status !== 'AKTIF') {
+      cacheSet(kunci, gagal + 1, 10 * 60)
+      return null
+    }
+    return { id: yys.id, dariToken: false }
+  }
+
+  return multiYayasanAktif() ? null : { id: YAYASAN_AWAL_ID, dariToken: false }
+}
+
 
 export async function cariYayasanById(id: string): Promise<Yayasan | null> {
   return cachedFetch<Yayasan | null>(`yayasan:id:${id}`, 60, async () => {

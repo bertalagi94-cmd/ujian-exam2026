@@ -8,7 +8,7 @@
 //   + jumlah sesi ujian yang SUDAH DIBUKA pengawas tapi belum diikuti siswa
 //   (`ujianDibuka`, lihat src/lib/sesi-dibuka-siswa.ts)
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 import { getGuruSekolahScope } from '@/lib/kepsek-scope'
 import { hitungUjianDibukaSiswa } from '@/lib/sesi-dibuka-siswa'
@@ -20,7 +20,8 @@ export async function GET(req: NextRequest) {
   if ('error' in auth) return auth.error
   const { user } = auth
 
-  const db = createAdminClient()
+  const yayasanId = yayasanIdDari(user)
+  const db = tenantDb(yayasanId)
 
   if (user.role === 'ADMIN') {
     // FIX (badge tidak menghitung Essay): sebelumnya badge sidebar "Validasi
@@ -70,7 +71,7 @@ export async function GET(req: NextRequest) {
       .eq('username', user.username)
       .maybeSingle()
 
-    const scope = await getGuruSekolahScope(user.username)
+    const scope = await getGuruSekolahScope(user.username, yayasanId)
     if (!scope.noScope && scope.kelasList.length > 0) {
       const { data: kelasScopeRows } = await db
         .from('kelas')
@@ -153,7 +154,8 @@ export async function POST(req: NextRequest) {
   if ('error' in auth) return auth.error
   const { user } = auth
 
-  const db = createAdminClient()
+  const yayasanId = yayasanIdDari(user)
+  const db = tenantDb(yayasanId)
 
   let type: string | undefined
   try {

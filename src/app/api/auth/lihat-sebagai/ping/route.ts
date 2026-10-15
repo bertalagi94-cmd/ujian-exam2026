@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { getTokenFromRequest } from '@/lib/auth'
 
 // POST /api/auth/lihat-sebagai/ping
@@ -13,7 +13,13 @@ export async function POST(req: NextRequest) {
   if (!user?.viewAs || !user.viewAsSid) {
     return NextResponse.json({ error: 'Bukan sesi Lihat-sebagai siswa' }, { status: 400 })
   }
-  const { error } = await createAdminClient()
+  let yayasanId: string
+  try {
+    yayasanId = yayasanIdDari(user)
+  } catch {
+    return NextResponse.json({ error: 'Token tidak memuat yayasan. Silakan login ulang.' }, { status: 401 })
+  }
+  const { error } = await tenantDb(yayasanId)
     .from('log_aktivitas')
     .update({ created_at: new Date().toISOString() })
     .eq('id', user.viewAsSid)

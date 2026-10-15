@@ -9,7 +9,7 @@ import {
   GraduationCap, School, User, FileText, Eye, ShieldAlert,
   FileBarChart, CheckSquare, Send, CalendarDays, TrendingUp
 } from 'lucide-react'
-import { cn, apiRequest } from '@/lib/utils'
+import { cn, apiRequest, fetchPublik } from '@/lib/utils'
 import { AuthUser } from '@/types'
 import { useSidebarCollapsedPref } from '@/lib/sidebar-collapsed-pref'
 // FIX (belum ada antrean "ujian belum terkirim" yang permanen — temuan #2):
@@ -220,7 +220,7 @@ export function Sidebar({ navItems, role, roleColor, roleLabel, accent = '#0891b
   // dipakai halaman login), supaya sidebar admin/guru/kepsek/siswa ikut
   // menampilkan logo custom, bukan ikon default terus-menerus.
   const loadSiteInfo = useCallback(() => {
-    fetch('/api/public/pengaturan?t=' + Date.now(), { cache: 'no-store' })
+    fetchPublik('/api/public/pengaturan')
       .then(r => r.json())
       .then(json => {
         if (json?.data) {

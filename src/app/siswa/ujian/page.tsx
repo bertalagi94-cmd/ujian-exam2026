@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { BookOpen, Clock, AlertTriangle, CheckCircle, ChevronLeft, ChevronRight, Send, Maximize, KeyRound, LogOut, RefreshCw, Calendar, CheckCircle2 } from 'lucide-react'
-import { apiRequest } from '@/lib/utils'
+import { apiRequest, fetchPublik } from '@/lib/utils'
 import { startExamLock, endExamLock, onExamLockLost } from '@/lib/exam-lock'
 import { Soal } from '@/types'
 import { Confirm, Spinner } from '@/components/ui'
@@ -780,7 +780,7 @@ export default function SiswaUjianPage() {
 
   // ── Ambil batasPelanggaran dari pengaturan saat mount ─────────────────────
   useEffect(() => {
-    fetch(`/api/public/pengaturan?t=${Date.now()}`, { cache: 'no-store' })
+    fetchPublik('/api/public/pengaturan')
       .then(r => r.json())
       .then(json => {
         const batas = parseInt(json?.data?.batasPelanggaran ?? '3', 10)

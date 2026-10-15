@@ -5,6 +5,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { fetchPublik } from '@/lib/utils'
 import {
   X, Activity, Radio, CalendarDays, Trophy, Loader2,
   ClipboardList, GraduationCap, Users, Clock,
@@ -52,7 +53,7 @@ export default function AktivitasModal({ onClose }: AktivitasModalProps) {
   async function loadAktivitas() {
     setAktivitasLoading(true)
     try {
-      const res = await fetch('/api/public/aktivitas?t=' + Date.now(), { cache: 'no-store' })
+      const res = await fetchPublik('/api/public/aktivitas', { sertakanToken: false })
       const json = await res.json()
       setUjianBerlangsung(json.ujianBerlangsung || [])
       setJadwalList(json.jadwal || [])

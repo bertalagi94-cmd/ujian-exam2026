@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { tenantDb, yayasanIdDari } from '@/lib/tenant'
+import { tenantDb, yayasanIdDari, idsMilikYayasan } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 import { generateId } from '@/lib/utils'
 import { pastikanLokasiSekolahLengkap } from '@/lib/pengaturan-waktu'
@@ -305,13 +305,23 @@ export async function POST(req: NextRequest) {
   // Pastikan lokasi sekolah (provinsi) sudah diatur, agar zona waktu dan
   // status ujian (Akan Datang / Berlangsung / Selesai) dapat dihitung
   // dengan benar untuk jadwal yang baru dibuat ini.
-  const lokasi = await pastikanLokasiSekolahLengkap()
+  const lokasi = await pastikanLokasiSekolahLengkap(yayasanIdDari(auth.user))
   if (!lokasi.ok) {
     return NextResponse.json({ error: lokasi.error, perluLengkapiPengaturan: true }, { status: 422 })
   }
 
   const db = tenantDb(yayasanIdDari(auth.user))
   const body = await req.json()
+
+  // Multi-yayasan: mapel dan pengawas kiriman klien harus milik yayasan ini
+  // (pengecekan guru pengampu di bawah hanya bereaksi kalau mapelnya DITEMUKAN,
+  // jadi mapel yayasan lain lolos tanpa ini).
+  if (body.mapel_id && !(await idsMilikYayasan(db, 'mapel', [String(body.mapel_id)]))) {
+    return NextResponse.json({ error: 'Mata pelajaran yang dipilih tidak ditemukan.' }, { status: 400 })
+  }
+  if (body.pengawas && !(await idsMilikYayasan(db, 'users', [String(body.pengawas)], 'username'))) {
+    return NextResponse.json({ error: 'Pengawas yang dipilih tidak ditemukan.' }, { status: 400 })
+  }
 
   // Durasi essay ditetapkan admin di jadwal (kosong = ikuti usulan guru).
   const cekDurasiEssay = await ambilDurasiEssayAdmin(db, body.essay_durasi_menit)
@@ -449,6 +459,16 @@ export async function PUT(req: NextRequest) {
 
   const db = tenantDb(yayasanIdDari(auth.user))
   const { id, ...update } = await req.json()
+
+  // Multi-yayasan: mapel dan pengawas kiriman klien harus milik yayasan ini
+  // (pengecekan guru pengampu di bawah hanya bereaksi kalau mapelnya DITEMUKAN,
+  // jadi mapel yayasan lain lolos tanpa ini).
+  if (update.mapel_id && !(await idsMilikYayasan(db, 'mapel', [String(update.mapel_id)]))) {
+    return NextResponse.json({ error: 'Mata pelajaran yang dipilih tidak ditemukan.' }, { status: 400 })
+  }
+  if (update.pengawas && !(await idsMilikYayasan(db, 'users', [String(update.pengawas)], 'username'))) {
+    return NextResponse.json({ error: 'Pengawas yang dipilih tidak ditemukan.' }, { status: 400 })
+  }
 
   // Durasi essay ditetapkan admin. Hanya diproses kalau field-nya dikirim;
   // string kosong dari form berarti "ikuti usulan guru" dan disimpan NULL.

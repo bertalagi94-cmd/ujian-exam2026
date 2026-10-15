@@ -84,6 +84,13 @@ export async function POST(req: NextRequest) {
     .eq('id', paket_id)
     .single()
 
+  // Multi-yayasan: set_status_paket_soal adalah RPC yang TIDAK ter-scope otomatis.
+  // Kalau paket tidak ditemukan lewat query ber-scope di atas (bukan milik
+  // yayasan ini), berhenti di sini, jangan lanjut memanggil RPC.
+  if (!paketUntukGuard) {
+    return NextResponse.json({ error: 'Paket tidak ditemukan' }, { status: 404 })
+  }
+
   if (paketUntukGuard) {
     const sesiSudahMulai = await cekSesiMapelKelasSudahMulai(db, paketUntukGuard.mapel_id, paketUntukGuard.kelas_id)
     if (sesiSudahMulai) {

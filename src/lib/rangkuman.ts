@@ -1,4 +1,4 @@
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb } from '@/lib/tenant'
 
 export interface ItemBelumDijadwalkan {
   mapel_id: string
@@ -30,8 +30,9 @@ export interface RangkumanJadwal {
 // 1. belum_dijadwalkan   -> kombinasi mapel x kelas (dari kelas_list mapel) yang belum punya jadwal
 // 2. belum_ada_soal      -> kombinasi mapel x kelas yang belum punya paket soal DISETUJUI
 // 3. guru_belum_mengawas -> guru aktif yang belum pernah ditugaskan sebagai pengawas di jadwal manapun
-export async function getRangkumanJadwal(): Promise<RangkumanJadwal> {
-  const db = createAdminClient()
+// Multi-yayasan: yayasanId WAJIB (semua tabel yang dibaca di bawah ter-scope yayasan).
+export async function getRangkumanJadwal(yayasanId: string): Promise<RangkumanJadwal> {
+  const db = tenantDb(yayasanId)
 
   const [{ data: mapelRaw }, { data: jadwalRaw }, { data: paketRaw }, { data: guruRaw }] = await Promise.all([
     (db as any).from('mapel').select('id, nama, kelas_list, guru_id'),

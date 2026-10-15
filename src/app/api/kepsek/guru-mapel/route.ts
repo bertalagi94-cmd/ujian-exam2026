@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 import { getKepsekScope } from '@/lib/kepsek-scope'
 import { computeStatusSoalMap, buildStatusSoalKey } from '@/lib/soal-status'
@@ -22,11 +22,12 @@ export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['KEPSEK', 'ADMIN'])
   if ('error' in auth) return auth.error
 
-  const db = createAdminClient()
+  const yayasanId = yayasanIdDari(auth.user)
+  const db = tenantDb(yayasanId)
 
   let kelasScope: string[] | null = null
   if (auth.user.role === 'KEPSEK') {
-    const scope = await getKepsekScope(auth.user.username)
+    const scope = await getKepsekScope(auth.user.username, yayasanId)
     if (scope.noScope) {
       return NextResponse.json({
         scopeWarning: 'Akun Kepsek Anda belum diset sekolah/jenjangnya oleh Admin. Hubungi Admin untuk mengatur ini di menu Data Pengguna.',
@@ -66,7 +67,7 @@ export async function GET(req: NextRequest) {
   // 3. Hitung status_soal untuk SEMUA kombinasi (mapel_id, kelas) sekaligus,
   //    pakai helper terpusat yang sama dengan menu Jadwal Ujian Admin.
   const items = mapelDenganKelas.flatMap(m => m.kelasDalamScope.map(kelas => ({ mapel_id: m.id, kelas })))
-  const statusMap = items.length > 0 ? await computeStatusSoalMap(items) : {}
+  const statusMap = items.length > 0 ? await computeStatusSoalMap(items, yayasanId) : {}
 
   // 4. Resolve nama guru.
   const guruIds = [...new Set(mapelDenganKelas.map(m => m.guru_id).filter((g): g is string => !!g))]

@@ -38,7 +38,7 @@
  * ini karena melibatkan migrasi data produksi, bukan sekadar penambahan
  * pengecekan otorisasi.
  */
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb } from '@/lib/tenant'
 
 export interface KepsekScope {
   kelasList: string[]   // nama-nama kelas yang boleh diakses
@@ -46,8 +46,10 @@ export interface KepsekScope {
   noScope: boolean      // true = kepsek belum diset sekolahnya
 }
 
-export async function getKepsekScope(username: string): Promise<KepsekScope> {
-  const db = createAdminClient()
+// Multi-yayasan: yayasanId WAJIB. Semua query kelas/users dibatasi ke yayasan ini,
+// jadi nama kelas yang sama di yayasan lain tidak ikut masuk scope.
+export async function getKepsekScope(username: string, yayasanId: string): Promise<KepsekScope> {
+  const db = tenantDb(yayasanId)
 
   // 1. Ambil sekolah_id milik kepsek ini
   const { data: userRow, error: userError } = await db
@@ -96,8 +98,10 @@ export interface GuruScope {
   noScope: boolean        // true = guru belum diset sekolah manapun
 }
 
-export async function getGuruSekolahScope(username: string): Promise<GuruScope> {
-  const db = createAdminClient()
+export async function getGuruSekolahScope(username: string, yayasanId: string): Promise<GuruScope> {
+  // guru_sekolah tidak punya yayasan_id (terikat lewat username yang unik global);
+  // tabel kelas di bawah ter-scope yayasan, jadi sekolah_id asing tidak menghasilkan kelas.
+  const db = tenantDb(yayasanId)
 
   // 1. Ambil semua sekolah yang diajar guru ini
   const { data: relasiRows, error: relasiError } = await db

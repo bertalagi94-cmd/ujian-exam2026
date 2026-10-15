@@ -27,7 +27,7 @@ export async function GET(req: NextRequest) {
   const { user } = auth
   const db = tenantDb(yayasanIdDari(auth.user))
 
-  const scope = await getGuruSekolahScope(user.username)
+  const scope = await getGuruSekolahScope(user.username, yayasanIdDari(user))
   if (scope.noScope) {
     return NextResponse.json({
       scopeWarning: 'Akun Anda belum diset sekolah/jenjangnya oleh Admin. Hubungi Admin untuk mengatur ini di menu Data Pengguna.',

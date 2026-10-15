@@ -1,5 +1,5 @@
-import { NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { NextRequest, NextResponse } from 'next/server'
+import { tenantDb, yayasanIdPublik } from '@/lib/tenant'
 
 export const dynamic = 'force-dynamic'
 
@@ -13,9 +13,16 @@ function getTodayAndTomorrow() {
   return { today, tomorrow: fmt(tomorrow) }
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
-    const db = createAdminClient()
+    // Multi-yayasan: halaman login memberi ?kode= (Kode Sekolah). Tanpa yayasan
+    // yang jelas (saklar menyala), jawabannya kosong: halaman publik ini memuat
+    // nama siswa juara, jadi TIDAK boleh menggabungkan semua yayasan.
+    const yys = await yayasanIdPublik(req)
+    if (!yys) {
+      return NextResponse.json({ ujianBerlangsung: [], jadwal: [], juaraPerKelas: [] }, { headers: { 'Cache-Control': 'no-store' } })
+    }
+    const db = tenantDb(yys.id)
     const { today, tomorrow } = getTodayAndTomorrow()
 
     // ── 0. Peta kelas → sekolah, untuk melabeli setiap baris di bawah. ──

@@ -153,6 +153,32 @@ export function stripHtmlTags(input: unknown): string {
   return text.trim()
 }
 
+// Panggil endpoint /api/public/* yang bergantung pada yayasan (multi-yayasan).
+// - Halaman SETELAH login: kirim token (server membaca yayasan dari token).
+// - Halaman login (sertakanToken: false): kirim Kode Sekolah yang tersimpan di
+//   perangkat (?kode=), karena belum ada sesi login yang valid.
+// Selalu no-store di sisi browser supaya perubahan pengaturan langsung terlihat.
+export function fetchPublik(
+  path: string,
+  opsi: { sertakanToken?: boolean } = {}
+): Promise<Response> {
+  const sertakanToken = opsi.sertakanToken ?? true
+  let token: string | null = null
+  let kode: string | null = null
+  if (typeof window !== 'undefined') {
+    try {
+      token = sertakanToken ? localStorage.getItem('token') : null
+      kode = localStorage.getItem('kode_sekolah')
+    } catch { /* localStorage tidak tersedia — lanjut tanpa */ }
+  }
+  const sep = path.includes('?') ? '&' : '?'
+  const url = `${path}${sep}t=${Date.now()}${kode ? `&kode=${encodeURIComponent(kode)}` : ''}`
+  return fetch(url, {
+    cache: 'no-store',
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  })
+}
+
 // ── FIX: apiRequest dengan AbortController + timeout 10 detik ────────────────
 // Sebelumnya fetch() tidak punya batas waktu sama sekali. Ketika device idle
 // beberapa menit, OS (terutama HP) menutup koneksi TCP di background untuk

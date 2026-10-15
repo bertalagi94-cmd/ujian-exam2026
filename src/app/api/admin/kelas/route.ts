@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { tenantDb, yayasanIdDari } from '@/lib/tenant'
+import { tenantDb, yayasanIdDari, idsMilikYayasan } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 import { generateId } from '@/lib/utils'
 import { hapusFotoEssayFisik } from '@/lib/backup-restore-shared'
@@ -106,6 +106,14 @@ export async function PUT(req: NextRequest) {
   const { nama, wali_kelas, jurusan, sekolah_id } = body
 
   if (!nama) return NextResponse.json({ error: 'Nama kelas diperlukan' }, { status: 400 })
+
+  // Multi-yayasan: jenjang dan wali kelas kiriman klien harus milik yayasan ini.
+  if (sekolah_id && !(await idsMilikYayasan(db, 'sekolah', [String(sekolah_id)]))) {
+    return NextResponse.json({ error: 'Jenjang/sekolah yang dipilih tidak ditemukan.' }, { status: 400 })
+  }
+  if (wali_kelas && !(await idsMilikYayasan(db, 'users', [String(wali_kelas)], 'username'))) {
+    return NextResponse.json({ error: 'Wali kelas yang dipilih tidak ditemukan.' }, { status: 400 })
+  }
 
   const { data: existing } = await db.from('kelas').select('id').eq('nama', nama).maybeSingle()
 

@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { RealtimeChannel, SupabaseClient } from '@supabase/supabase-js'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { verifyToken, JWTPayload } from '@/lib/auth'
 import { getKepsekScope } from '@/lib/kepsek-scope'
 import { computeLiveLeaderboardUntukSesi, LiveLeaderboardSesi } from '@/lib/leaderboard-live'
@@ -59,7 +59,14 @@ export async function GET(req: NextRequest) {
     return new Response('Unauthorized', { status: 401 })
   }
 
-  const db = createAdminClient()
+  // Token tanpa klaim yayasan (saat mode multi-yayasan menyala) ditolak: login ulang.
+  let yayasanId: string
+  try {
+    yayasanId = yayasanIdDari(user)
+  } catch {
+    return new Response('Unauthorized', { status: 401 })
+  }
+  const db = tenantDb(yayasanId)
 
   let closed = false
   let debounceTimer: ReturnType<typeof setTimeout> | null = null
@@ -95,7 +102,7 @@ export async function GET(req: NextRequest) {
       const pushBoards = async () => {
         const myGen = ++gen
         try {
-          const { boards, scopeWarning } = await ambilBoardsUntukViewer(db, user!)
+          const { boards, scopeWarning } = await ambilBoardsUntukViewer(db, user!, yayasanId)
           if (myGen !== gen) return // sudah ada panggilan lebih baru, buang hasil basi ini
           const signature = JSON.stringify({ boards, scopeWarning })
           if (boards.length > 0 && signature === lastSignature) return
@@ -199,7 +206,8 @@ function buildStatusFilter(): string {
 
 async function ambilBoardsUntukViewer(
   db: SupabaseClient<any>,
-  user: ViewerUser
+  user: ViewerUser,
+  yayasanId: string
 ): Promise<{ boards: LiveLeaderboardSesi[]; scopeWarning?: string }> {
   let sesiRows: {
     id: string; jadwal_id: string; mapel_id: string; kelas: string
@@ -228,7 +236,7 @@ async function ambilBoardsUntukViewer(
     if (error) throw new Error(error.message)
     sesiRows = data ?? []
   } else if (user.role === 'KEPSEK') {
-    const scope = await getKepsekScope(user.username)
+    const scope = await getKepsekScope(user.username, yayasanId)
     if (scope.noScope || scope.kelasList.length === 0) {
       return {
         boards: [],

@@ -1,4 +1,3 @@
-import { createAdminClient } from '@/lib/supabase'
 import { tenantDb } from '@/lib/tenant'
 import { cacheGet, cacheSet } from '@/lib/cache'
 import { ZONA_WAKTU_INFO, ZonaWaktu, ZonaWaktuInfo, getZonaWaktuByProvinsiId } from '@/lib/wilayah'
@@ -21,14 +20,15 @@ export interface LokasiSekolah {
  * sekali — pemanggil WAJIB menangani kasus ini (lihat `getZonaWaktuSekolah`
  * di bawah untuk versi dengan fallback).
  */
-export async function getLokasiSekolah(yayasanId?: string): Promise<LokasiSekolah> {
-  // Multi-yayasan: lokasi (dan zona waktu) berbeda per yayasan. Tanpa
-  // yayasanId = perilaku lama (pemanggil belum dimigrasi ke Fase 2).
-  const cacheKey = yayasanId ? `${CACHE_KEY}:${yayasanId}` : CACHE_KEY
+export async function getLokasiSekolah(yayasanId: string): Promise<LokasiSekolah> {
+  // Multi-yayasan: lokasi (dan zona waktu) berbeda per yayasan. yayasanId WAJIB:
+  // sebelumnya opsional, sehingga pemanggil yang lupa mengisinya diam-diam
+  // memakai lokasi yayasan awal.
+  const cacheKey = `${CACHE_KEY}:${yayasanId}`
   const cached = cacheGet<LokasiSekolah>(cacheKey)
   if (cached) return cached
 
-  const db = yayasanId ? tenantDb(yayasanId) : createAdminClient()
+  const db = tenantDb(yayasanId)
   const { data } = await db
     .from('pengaturan')
     .select('key, value')
@@ -54,7 +54,7 @@ export async function getLokasiSekolah(yayasanId?: string): Promise<LokasiSekola
  * pakai `getLokasiSekolah()` dan blokir aksinya, lihat
  * `pastikanLokasiSekolahLengkap()` di bawah.
  */
-export async function getZonaWaktuSekolah(yayasanId?: string): Promise<ZonaWaktuInfo> {
+export async function getZonaWaktuSekolah(yayasanId: string): Promise<ZonaWaktuInfo> {
   const { zonaWaktu } = await getLokasiSekolah(yayasanId)
   return zonaWaktu ?? ZONA_WAKTU_INFO.WIB
 }
@@ -64,8 +64,8 @@ export async function getZonaWaktuSekolah(yayasanId?: string): Promise<ZonaWaktu
  * lokasi sekolah (provinsi) belum diatur — supaya admin diarahkan mengisi
  * menu Pengaturan dulu sebelum status ujian bisa dihitung dengan benar.
  */
-export async function pastikanLokasiSekolahLengkap(): Promise<{ ok: true } | { ok: false; error: string }> {
-  const { provinsiId, zonaWaktu } = await getLokasiSekolah()
+export async function pastikanLokasiSekolahLengkap(yayasanId: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { provinsiId, zonaWaktu } = await getLokasiSekolah(yayasanId)
   if (!provinsiId || !zonaWaktu) {
     return {
       ok: false,

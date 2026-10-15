@@ -7,7 +7,7 @@ import {
   PlayCircle, AlertTriangle, ChevronRight, CalendarClock,
 } from 'lucide-react'
 import { StatCard, PageLoader, EmptyState, Badge, ScopeWarningBanner } from '@/components/ui'
-import { apiRequest, nilaiColor } from '@/lib/utils'
+import { apiRequest, nilaiColor, fetchPublik } from '@/lib/utils'
 
 interface JadwalHariIni {
   id: string
@@ -77,7 +77,7 @@ export default function KepsekDashboard() {
   // SELALU menampilkan "MTS Alkhairaat Tatakalai" apa pun isi pengaturan
   // sekolah yang sebenarnya — bug ini yang dilaporkan.
   const loadSiteInfo = useCallback(() => {
-    fetch('/api/public/pengaturan?t=' + Date.now(), { cache: 'no-store' })
+    fetchPublik('/api/public/pengaturan')
       .then(r => r.json())
       .then(json => {
         if (json?.data) setSiteInfo({

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 import { getKepsekScope } from '@/lib/kepsek-scope'
 import { petakanEssayAktifPerSesi } from '@/app/api/guru/kirim-nilai/route'
@@ -8,13 +8,14 @@ export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['KEPSEK', 'ADMIN'])
   if ('error' in auth) return auth.error
 
-  const db = createAdminClient()
+  const yayasanId = yayasanIdDari(auth.user)
+  const db = tenantDb(yayasanId)
 
   // Batasi data ke kelas-kelas di sekolah/jenjang yang diawasi Kepsek.
   // ADMIN tidak dibatasi (kelasScope = null artinya "semua kelas").
   let kelasScope: string[] | null = null
   if (auth.user.role === 'KEPSEK') {
-    const scope = await getKepsekScope(auth.user.username)
+    const scope = await getKepsekScope(auth.user.username, yayasanId)
     if (scope.noScope) {
       return NextResponse.json({
         scopeWarning: 'Akun Kepsek Anda belum diset sekolah/jenjangnya oleh Admin. Hubungi Admin untuk mengatur ini di menu Data Pengguna.',

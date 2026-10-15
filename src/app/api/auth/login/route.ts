@@ -5,7 +5,7 @@ import { signToken } from '@/lib/auth'
 import { cachedFetch, cacheGet, cacheSet } from '@/lib/cache'
 import { generateId } from '@/lib/utils'
 import { instrumented } from '@/lib/metrik'
-import { cariYayasanByKode, multiYayasanAktif, normalisasiKodeSekolah, YAYASAN_AWAL_ID } from '@/lib/tenant'
+import { cariYayasanByKode, multiYayasanAktif, normalisasiKodeSekolah, tenantDb, YAYASAN_AWAL_ID } from '@/lib/tenant'
 
 // FIX BUG: catat setiap login sukses ke `log_aktivitas` (aksi='LOGIN').
 // Sebelumnya endpoint ini hanya meng-update kolom `last_login` di tabel
@@ -97,12 +97,15 @@ function buildPesanMaintenance(pengaturan: Record<string, string>): string {
   return `${pesanDasar}${rentang}`
 }
 
-// Ambil semua pengaturan sekaligus, cache 60 detik.
+// Ambil semua pengaturan YAYASAN ini sekaligus, cache 60 detik.
 // Sebelumnya: 2–3 query serial ke tabel pengaturan per login.
 // Sekarang: 0ms jika cache hit, 1 query jika cache miss.
-async function getPengaturan(): Promise<Record<string, string>> {
-  return cachedFetch('pengaturan:all', 60, async () => {
-    const db = createAdminClient()
+// Multi-yayasan: kunci cache memuat yayasanId (mode maintenance dan pengaturan
+// lain berbeda per yayasan). Prefix 'pengaturan:' tetap cocok dengan
+// cacheDelPrefix('pengaturan:') yang dipakai saat Pengaturan disimpan.
+async function getPengaturan(yayasanId: string): Promise<Record<string, string>> {
+  return cachedFetch(`pengaturan:all:${yayasanId}`, 60, async () => {
+    const db = tenantDb(yayasanId)
     const { data } = await db.from('pengaturan').select('key, value')
     const map: Record<string, string> = {}
     data?.forEach(({ key, value }: { key: string; value: string }) => { map[key] = value ?? '' })
@@ -154,10 +157,12 @@ export async function POST(req: NextRequest) {
     }
 
     // Satu cache hit menggantikan 2–3 round-trip ke DB
-    const pengaturan = await getPengaturan()
+    const pengaturan = await getPengaturan(yayasanTarget!)
 
     if (pengaturan['maintenanceAktif'] === 'true') {
-      const db = createAdminClient()
+      // Dibatasi ke yayasan tujuan login: tester/admin yayasan lain tidak
+      // boleh menembus maintenance yayasan ini (dan sebaliknya).
+      const db = tenantDb(yayasanTarget!)
       const usernameTrim = username.trim()
 
       // Diizinkan login saat maintenance: role ADMIN, ATAU akun (guru/kepsek
@@ -198,7 +203,7 @@ export async function POST(req: NextRequest) {
       const token = signToken({ username: user.username, nama: user.nama, role: user.role, yayasanId: yayasanTarget! })
       supabase.from('users').update({ last_login: new Date().toISOString() }).eq('username', user.username)
         .then(({ error }) => { if (error) console.error('Gagal update last_login (user):', error) })
-      catatLoginAktivitas(supabase, user.username, `Login sebagai ${user.role}`)
+      catatLoginAktivitas(tenantDb(yayasanTarget!), user.username, `Login sebagai ${user.role}`)
       return NextResponse.json({ token, username: user.username, nama: user.nama, role: user.role })
     }
 
@@ -209,7 +214,7 @@ export async function POST(req: NextRequest) {
       const token = signToken({ username: siswa.nis, nama: siswa.nama, role: 'SISWA', nis: siswa.nis, kelas: siswa.kelas, yayasanId: yayasanTarget! })
       supabase.from('siswa').update({ last_login: new Date().toISOString() }).eq('nis', siswa.nis)
         .then(({ error }) => { if (error) console.error('Gagal update last_login (siswa):', error) })
-      catatLoginAktivitas(supabase, siswa.nis, `Login sebagai SISWA (${siswa.nama})`)
+      catatLoginAktivitas(tenantDb(yayasanTarget!), siswa.nis, `Login sebagai SISWA (${siswa.nama})`)
       return NextResponse.json({ token, username: siswa.nis, nama: siswa.nama, role: 'SISWA', nis: siswa.nis, kelas: siswa.kelas })
     }
 

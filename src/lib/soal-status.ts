@@ -19,7 +19,7 @@
 // di banyak tempat (rawan tidak sinkron / bug saat salah satu tempat lupa
 // diupdate).
 
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb } from '@/lib/tenant'
 import type { StatusSoal } from '@/lib/soal-status-shared'
 
 export type { StatusSoal }
@@ -71,15 +71,16 @@ export type StatusSoalDetail = {
  * @returns map dengan key `${mapel_id}__${kelas}` -> StatusSoalDetail
  */
 export async function computeStatusSoalDetailMap(
-  items: { mapel_id: string; kelas: string }[]
+  items: { mapel_id: string; kelas: string }[],
+  yayasanId: string
 ): Promise<Record<string, StatusSoalDetail>> {
   const result: Record<string, StatusSoalDetail> = {}
   const mapelIds = [...new Set(items.map(i => i.mapel_id).filter(Boolean))]
   if (mapelIds.length === 0) return result
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanId)
 
-  // Ambil SEMUA kelas (tanpa filter) untuk map id -> nama yang lengkap.
+  // Ambil semua kelas MILIK YAYASAN INI (tenantDb membatasi otomatis) untuk map id -> nama yang lengkap.
   const { data: kelasListRaw } = await (db as any).from('kelas').select('id, nama')
   const kelasList = (kelasListRaw ?? []) as { id: string; nama: string }[]
   const idToNamaKelas = Object.fromEntries(kelasList.map(k => [k.id, String(k.nama)]))
@@ -203,9 +204,10 @@ export async function computeStatusSoalDetailMap(
  * @returns map dengan key `${mapel_id}__${kelas}` -> StatusSoal
  */
 export async function computeStatusSoalMap(
-  items: { mapel_id: string; kelas: string }[]
+  items: { mapel_id: string; kelas: string }[],
+  yayasanId: string
 ): Promise<Record<string, StatusSoal>> {
-  const detail = await computeStatusSoalDetailMap(items)
+  const detail = await computeStatusSoalDetailMap(items, yayasanId)
   return Object.fromEntries(Object.entries(detail).map(([k, v]) => [k, v.status]))
 }
 
@@ -213,8 +215,8 @@ export async function computeStatusSoalMap(
  * Versi single-lookup, untuk dipakai saat hanya perlu cek satu kombinasi
  * mapel_id + kelas (misal saat pengawas akan membuka satu sesi ujian).
  */
-export async function getStatusSoal(mapelId: string, kelas: string): Promise<StatusSoal> {
-  const map = await computeStatusSoalMap([{ mapel_id: mapelId, kelas }])
+export async function getStatusSoal(mapelId: string, kelas: string, yayasanId: string): Promise<StatusSoal> {
+  const map = await computeStatusSoalMap([{ mapel_id: mapelId, kelas }], yayasanId)
   return map[buildStatusSoalKey(mapelId, kelas)] ?? 'BELUM_ADA'
 }
 
@@ -223,7 +225,7 @@ export async function getStatusSoal(mapelId: string, kelas: string): Promise<Sta
  * Dipakai saat akan menampilkan pesan error yang menyebut nama guru (misal
  * saat akun GURU/PENGAWAS mencoba membuka sesi tapi soal belum siap).
  */
-export async function getStatusSoalDetail(mapelId: string, kelas: string): Promise<StatusSoalDetail> {
-  const map = await computeStatusSoalDetailMap([{ mapel_id: mapelId, kelas }])
+export async function getStatusSoalDetail(mapelId: string, kelas: string, yayasanId: string): Promise<StatusSoalDetail> {
+  const map = await computeStatusSoalDetailMap([{ mapel_id: mapelId, kelas }], yayasanId)
   return map[buildStatusSoalKey(mapelId, kelas)] ?? { status: 'BELUM_ADA', namaGuru: null }
 }

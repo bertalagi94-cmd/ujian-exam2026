@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { fetchPublik } from '@/lib/utils'
 import { useRouter, usePathname } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import {
@@ -552,7 +553,7 @@ export default function LoginPage() {
   }, [])
 
   useEffect(() => {
-    fetch('/api/public/pengaturan?t=' + Date.now(), { cache: 'no-store' })
+    fetchPublik('/api/public/pengaturan', { sertakanToken: false })
       .then(r => r.json())
       .then(json => {
         if (json?.data) setSiteInfo({ namaSekolah: json.data.namaSekolah ?? '', kota: json.data.kota ?? '', logoUrl: json.data.logoAplikasi || json.data.logoUrl || '' })

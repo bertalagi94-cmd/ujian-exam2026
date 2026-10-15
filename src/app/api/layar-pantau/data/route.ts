@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { SupabaseClient } from '@supabase/supabase-js'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole, JWTPayload } from '@/lib/auth'
 import { getKepsekScope } from '@/lib/kepsek-scope'
 import { computeLiveLeaderboardUntukSesi, LiveLeaderboardSesi } from '@/lib/leaderboard-live'
@@ -30,11 +30,12 @@ export async function GET(req: NextRequest) {
   if ('error' in auth) return auth.error
   const { user } = auth
 
-  const db = createAdminClient()
+  const yayasanId = yayasanIdDari(user)
+  const db = tenantDb(yayasanId)
   const now = new Date()
 
   try {
-    const { boards, scopeWarning } = await ambilBoardsUntukViewer(db, user)
+    const { boards, scopeWarning } = await ambilBoardsUntukViewer(db, user, yayasanId)
     return NextResponse.json({ serverTime: now.toISOString(), viewer: viewerInfo(user), boards, scopeWarning })
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : 'Gagal memuat papan.' }, { status: 500 })
@@ -69,7 +70,8 @@ function buildStatusFilter(): string {
 
 async function ambilBoardsUntukViewer(
   db: SupabaseClient<any>,
-  user: ViewerUser
+  user: ViewerUser,
+  yayasanId: string
 ): Promise<{ boards: LiveLeaderboardSesi[]; scopeWarning?: string }> {
   let sesiRows: {
     id: string; jadwal_id: string; mapel_id: string; kelas: string
@@ -98,7 +100,7 @@ async function ambilBoardsUntukViewer(
     if (error) throw new Error(error.message)
     sesiRows = data ?? []
   } else if (user.role === 'KEPSEK') {
-    const scope = await getKepsekScope(user.username)
+    const scope = await getKepsekScope(user.username, yayasanId)
     if (scope.noScope || scope.kelasList.length === 0) {
       return {
         boards: [],

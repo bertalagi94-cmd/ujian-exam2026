@@ -1,15 +1,23 @@
-import { NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { NextRequest, NextResponse } from 'next/server'
+import { tenantDb, yayasanIdPublik } from '@/lib/tenant'
 import { cachedFetch } from '@/lib/cache'
 
 export const dynamic = 'force-dynamic'
 
-export async function GET() {
+// Pengaturan publik (nama, logo, batas pelanggaran, dst.) PER YAYASAN.
+// Yayasan ditentukan dari token (halaman setelah login) atau ?kode= (halaman
+// login); lihat yayasanIdPublik di src/lib/tenant.ts. Tanpa keduanya dan
+// saat mode multi-yayasan menyala, jawabannya KOSONG (bukan data yayasan lain).
+export async function GET(req: NextRequest) {
   try {
-    // In-memory cache 60 dtk — menggantikan query DB setiap halaman load.
-    // Jika admin update pengaturan, cache expire dalam maks 60 dtk.
-    const result = await cachedFetch<Record<string, string>>('pengaturan:public', 60, async () => {
-      const db = createAdminClient()
+    const yys = await yayasanIdPublik(req)
+    if (!yys) {
+      return NextResponse.json({ data: {} }, { headers: { 'Cache-Control': 'private, no-store' } })
+    }
+
+    // In-memory cache 60 dtk per yayasan. Kunci memuat yayasanId.
+    const result = await cachedFetch<Record<string, string>>(`pengaturan:public:${yys.id}`, 60, async () => {
+      const db = tenantDb(yys.id)
       const { data, error } = await db
         .from('pengaturan')
         .select('key, value')
@@ -23,12 +31,17 @@ export async function GET() {
 
     return NextResponse.json({ data: result }, {
       headers: {
-        // CDN Vercel cache 60 dtk, stale-while-revalidate 5 menit
-        // Sebelumnya: no-store → query DB setiap request
-        'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=300',
+        // Respons berdasarkan token: JANGAN masuk cache bersama (CDN), kalau
+        // tidak yayasan A bisa menerima jawaban yayasan B pada URL yang sama.
+        // Berdasarkan ?kode=: URL-nya sudah berbeda per yayasan, aman di-cache
+        // CDN 60 dtk seperti sebelumnya.
+        'Cache-Control': yys.dariToken
+          ? 'private, no-store'
+          : 'public, s-maxage=60, stale-while-revalidate=300',
+        Vary: 'Authorization',
       },
     })
   } catch {
-    return NextResponse.json({ data: {} })
+    return NextResponse.json({ data: {} }, { headers: { 'Cache-Control': 'private, no-store' } })
   }
 }

@@ -18,7 +18,10 @@ export async function GET(req: NextRequest) {
   if ('error' in auth) return auth.error
 
   try {
-    const semua = await muatPengingatSesi(tenantDb(yayasanIdDari(auth.user)), { sertakanKontak: true })
+    const semua = await muatPengingatSesi(tenantDb(yayasanIdDari(auth.user)), {
+      sertakanKontak: true,
+      yayasanId: yayasanIdDari(auth.user),
+    })
     const data = semua.filter(s => s.kemarin || s.lewatWaktu)
     return NextResponse.json({ data })
   } catch (e) {

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, YAYASAN_AWAL_ID } from '@/lib/tenant'
 import { getRangkumanJadwal } from '@/lib/rangkuman'
 import { kirimWa } from '@/lib/wa'
 
@@ -34,7 +34,12 @@ export async function GET(req: NextRequest) {
     )
   }
 
-  const rangkuman = await getRangkumanJadwal()
+  // Multi-yayasan: nomor WA tujuan (ADMIN_WA_NUMBER) hanya satu dan milik
+  // pemilik aplikasi. Mengirim rangkuman yayasan lain ke nomor itu akan
+  // membocorkan nama guru dan mapel mereka. Karena itu cron HANYA memproses
+  // yayasan awal sampai tiap yayasan punya nomor WA sendiri (belum ada).
+  const yayasanId = YAYASAN_AWAL_ID
+  const rangkuman = await getRangkumanJadwal(yayasanId)
 
   // Kelompokkan kombinasi mapel+kelas yang belum ada soal, per guru pengampu
   const perGuru: Record<string, { nama_mapel: string; kelas: string; status_soal: string }[]> = {}
@@ -49,7 +54,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ message: 'Semua soal sudah siap, tidak ada reminder yang dikirim', terkirim: 0 })
   }
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanId)
   const { data: guruRaw } = await (db as any)
     .from('users')
     .select('username, nama, status')

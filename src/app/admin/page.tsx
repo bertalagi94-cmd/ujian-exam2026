@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Users, BookOpen, GraduationCap, BarChart3, Calendar, ClipboardCheck, TrendingUp, AlertCircle } from 'lucide-react'
 import { StatCard, PageLoader, Badge, StatusBadge } from '@/components/ui'
-import { apiRequest, formatDateTime, nilaiColor } from '@/lib/utils'
+import { apiRequest, formatDateTime, nilaiColor, fetchPublik } from '@/lib/utils'
 import MonitoringPanel from '@/components/shared/MonitoringPanel'
 import { SesiBelumDitutupAdmin } from '@/components/shared/SesiBelumDitutupAdmin'
 import NetworkFlowMonitor from '@/components/shared/NetworkFlowMonitor'
@@ -53,7 +53,7 @@ export default function AdminDashboard() {
   }, [])
 
   const loadSiteInfo = useCallback(() => {
-    fetch('/api/public/pengaturan?t=' + Date.now(), { cache: 'no-store' })
+    fetchPublik('/api/public/pengaturan')
       .then(r => r.json())
       .then(json => {
         if (json?.data) setSiteInfo({
