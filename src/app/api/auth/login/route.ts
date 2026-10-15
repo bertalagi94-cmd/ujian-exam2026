@@ -5,6 +5,7 @@ import { signToken } from '@/lib/auth'
 import { cachedFetch, cacheGet, cacheSet } from '@/lib/cache'
 import { generateId } from '@/lib/utils'
 import { instrumented } from '@/lib/metrik'
+import { cariYayasanByKode, multiYayasanAktif, normalisasiKodeSekolah, YAYASAN_AWAL_ID } from '@/lib/tenant'
 
 // FIX BUG: catat setiap login sukses ke `log_aktivitas` (aksi='LOGIN').
 // Sebelumnya endpoint ini hanya meng-update kolom `last_login` di tabel
@@ -118,7 +119,7 @@ export async function POST(req: NextRequest) {
   // error 500 atau exception (mis. Supabase down) yang dicatat 'error'.
   return instrumented('login', async () => {
   try {
-    const { username, password } = await req.json()
+    const { username, password, kodeSekolah } = await req.json()
     if (!username || !password) {
       return NextResponse.json({ error: 'Username dan password wajib diisi' }, { status: 400 })
     }
@@ -132,6 +133,24 @@ export async function POST(req: NextRequest) {
         { error: `Terlalu banyak percobaan login. Coba lagi dalam ${sisaMenit} menit.` },
         { status: 429 }
       )
+    }
+
+    // ── Kode Sekolah (multi-yayasan) ──────────────────────────────────────
+    // Kode diisi  -> yayasan dicari dari kode; akun harus milik yayasan itu.
+    // Kode kosong -> hanya boleh selama multi-yayasan MATI (login lama tetap
+    //                jalan untuk yayasan awal). Kalau sudah menyala, wajib.
+    const kodeInput = normalisasiKodeSekolah(kodeSekolah)
+    let yayasanTarget: string | null = null
+    if (kodeInput) {
+      const yys = await cariYayasanByKode(kodeInput)
+      if (!yys || yys.status !== 'AKTIF') {
+        return NextResponse.json({ error: GENERIC_LOGIN_ERROR }, { status: 401 })
+      }
+      yayasanTarget = yys.id
+    } else if (multiYayasanAktif()) {
+      return NextResponse.json({ error: 'Kode Sekolah wajib diisi' }, { status: 400 })
+    } else {
+      yayasanTarget = YAYASAN_AWAL_ID
     }
 
     // Satu cache hit menggantikan 2–3 round-trip ke DB
@@ -164,26 +183,30 @@ export async function POST(req: NextRequest) {
 
     // Query users dan siswa BERSAMAAN
     const [{ data: user }, { data: siswa }] = await Promise.all([
-      supabase.from('users').select('username, password_hash, nama, role').eq('username', username.trim()).eq('status', 'AKTIF').single(),
-      supabase.from('siswa').select('nis, password_hash, nama, kelas').eq('nis', username.trim()).eq('status', 'AKTIF').single(),
+      supabase.from('users').select('username, password_hash, nama, role, yayasan_id').eq('username', username.trim()).eq('status', 'AKTIF').single(),
+      supabase.from('siswa').select('nis, password_hash, nama, kelas, yayasan_id').eq('nis', username.trim()).eq('status', 'AKTIF').single(),
     ])
 
-    if (user) {
+    // Akun milik yayasan lain diperlakukan sama seperti "tidak ditemukan".
+    const userOk = user && (user.yayasan_id ?? YAYASAN_AWAL_ID) === yayasanTarget
+    const siswaOk = siswa && (siswa.yayasan_id ?? YAYASAN_AWAL_ID) === yayasanTarget
+
+    if (user && userOk) {
       const match = await bcrypt.compare(String(password), user.password_hash)
       if (!match) return NextResponse.json({ error: GENERIC_LOGIN_ERROR }, { status: 401 })
 
-      const token = signToken({ username: user.username, nama: user.nama, role: user.role })
+      const token = signToken({ username: user.username, nama: user.nama, role: user.role, yayasanId: yayasanTarget! })
       supabase.from('users').update({ last_login: new Date().toISOString() }).eq('username', user.username)
         .then(({ error }) => { if (error) console.error('Gagal update last_login (user):', error) })
       catatLoginAktivitas(supabase, user.username, `Login sebagai ${user.role}`)
       return NextResponse.json({ token, username: user.username, nama: user.nama, role: user.role })
     }
 
-    if (siswa) {
+    if (siswa && siswaOk) {
       const match = await bcrypt.compare(String(password), siswa.password_hash)
       if (!match) return NextResponse.json({ error: GENERIC_LOGIN_ERROR }, { status: 401 })
 
-      const token = signToken({ username: siswa.nis, nama: siswa.nama, role: 'SISWA', nis: siswa.nis, kelas: siswa.kelas })
+      const token = signToken({ username: siswa.nis, nama: siswa.nama, role: 'SISWA', nis: siswa.nis, kelas: siswa.kelas, yayasanId: yayasanTarget! })
       supabase.from('siswa').update({ last_login: new Date().toISOString() }).eq('nis', siswa.nis)
         .then(({ error }) => { if (error) console.error('Gagal update last_login (siswa):', error) })
       catatLoginAktivitas(supabase, siswa.nis, `Login sebagai SISWA (${siswa.nama})`)

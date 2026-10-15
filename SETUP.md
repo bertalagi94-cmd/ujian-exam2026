@@ -84,6 +84,8 @@ berikut:
 | `CRON_SECRET` | nilai bebas Anda sendiri, untuk otentikasi cron job internal |
 | `FONNTE_TOKEN` | token akun Fonnte Anda (notifikasi WhatsApp) |
 | `ADMIN_WA_NUMBER` | nomor WhatsApp admin tujuan notifikasi |
+| `DEVELOPER_USERNAMES` | (multi-yayasan) username admin yang boleh membuka `/developer`, pisahkan koma. Lihat `docs/MULTI_YAYASAN.md` |
+| `MULTI_YAYASAN_ENABLED` | (multi-yayasan) biarkan kosong sampai Fase 2 selesai |
 
 Redeploy project setelah env var diisi.
 

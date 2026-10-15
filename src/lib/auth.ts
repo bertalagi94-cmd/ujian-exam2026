@@ -37,6 +37,9 @@ export interface JWTPayload {
   role: 'ADMIN' | 'GURU' | 'KEPSEK' | 'SISWA'
   nis?: string
   kelas?: string
+  // Yayasan (tenant) pemilik akun ini — lihat src/lib/tenant.ts. Token lama
+  // (sebelum fitur multi-yayasan) belum punya klaim ini.
+  yayasanId?: string
   // ── Mode "Lihat sebagai" (view-as) ────────────────────────────────────────
   // Token khusus yang diterbitkan ADMIN untuk melihat aplikasi persis seperti
   // GURU/KEPSEK/SISWA tertentu. `role`/`username`/`nis` berisi identitas

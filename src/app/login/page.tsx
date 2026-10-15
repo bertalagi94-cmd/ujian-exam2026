@@ -133,8 +133,15 @@ export default function LoginPage() {
     }
     setShowSplash(false)
   }, [])
-  const [form, setForm] = useState({ username: '', password: '' })
+  const [form, setForm] = useState({ username: '', password: '', kodeSekolah: '' })
   const [showPw, setShowPw] = useState(false)
+  // Ingat Kode Sekolah terakhir supaya tidak diketik ulang tiap login.
+  useEffect(() => {
+    try {
+      const k = localStorage.getItem('kode_sekolah')
+      if (k) setForm(f => ({ ...f, kodeSekolah: k }))
+    } catch { /* abaikan */ }
+  }, [])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [siteInfo, setSiteInfo] = useState<SiteInfo>({ namaSekolah: '', kota: '', logoUrl: '' })
@@ -572,6 +579,7 @@ export default function LoginPage() {
       if (!res.ok) throw new Error(data.error || 'Login gagal')
       localStorage.removeItem('admin_token_backup')
       localStorage.removeItem('admin_user_backup')
+      try { form.kodeSekolah ? localStorage.setItem('kode_sekolah', form.kodeSekolah.trim().toUpperCase()) : localStorage.removeItem('kode_sekolah') } catch { /* abaikan */ }
       localStorage.setItem('token', data.token)
       localStorage.setItem('user', JSON.stringify({ username: data.username, nama: data.nama, role: data.role, nis: data.nis, kelas: data.kelas }))
       const roleRoutes: Record<string, string> = { ADMIN: '/admin', GURU: '/guru', KEPSEK: '/kepsek', SISWA: '/siswa' }
@@ -947,6 +955,14 @@ export default function LoginPage() {
                   </div>
                 )}
                 <div>
+                  <label className="block text-sm font-medium text-slate-600 mb-1.5">Kode Sekolah <span className="text-slate-400 font-normal">(jika diminta)</span></label>
+                  <input type="text" placeholder="Contoh: AGRABIL"
+                    className="w-full px-4 py-3 rounded-xl text-sm uppercase text-slate-900 placeholder-slate-400 bg-slate-50 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-sky-400/60 focus:border-sky-400/60 transition-all"
+                    value={form.kodeSekolah} onChange={e => setForm(f => ({ ...f, kodeSekolah: e.target.value }))}
+                    autoComplete="organization" autoCapitalize="characters"
+                  />
+                </div>
+                <div>
                   <label className="block text-sm font-medium text-slate-600 mb-1.5">Username / NIS</label>
                   <div className="relative">
                     <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -1182,6 +1198,14 @@ export default function LoginPage() {
                         <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" /><span>{error}</span>
                       </div>
                     )}
+                    <div>
+                      <label className="block text-sm font-medium text-slate-600 mb-1.5">Kode Sekolah <span className="text-slate-400 font-normal">(jika diminta)</span></label>
+                      <input type="text" placeholder="Contoh: AGRABIL"
+                        className="w-full px-4 py-2.5 rounded-xl text-sm uppercase text-slate-900 placeholder-slate-400 bg-slate-50 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-sky-400/60 focus:border-sky-400/60 transition-all"
+                        value={form.kodeSekolah} onChange={e => { setForm(f => ({ ...f, kodeSekolah: e.target.value })); resetIdleTimer() }}
+                        autoComplete="organization" autoCapitalize="characters"
+                      />
+                    </div>
                     <div>
                       <label className="block text-sm font-medium text-slate-600 mb-1.5">Username / NIS</label>
                       <div className="relative"
