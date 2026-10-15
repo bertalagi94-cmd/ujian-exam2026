@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 import { cachedFetch } from '@/lib/cache'
 import { hitungGrade } from '@/lib/utils'
 import { petakanEssayAktifPerSesi } from '@/app/api/guru/kirim-nilai/route'
 
-async function fetchDashboardData() {
-  const db = createAdminClient()
+async function fetchDashboardData(yayasanId: string) {
+  const db = tenantDb(yayasanId)
 
   // Semua query paralel, termasuk stats agregat via RPC (tidak tarik semua baris)
   const [
@@ -31,7 +31,7 @@ async function fetchDashboardData() {
     db.from('mapel').select('*', { count: 'exact', head: true }),
     db.from('jadwal').select('*', { count: 'exact', head: true }).eq('status', 'AKTIF'),
     db.from('paket_soal').select('*', { count: 'exact', head: true }).eq('status', 'MENUNGGU'),
-    db.rpc('get_dashboard_stats'),          // AVG & GROUP BY jalan di PostgreSQL
+    db.rpc('get_dashboard_stats', { p_yayasan_id: yayasanId }),          // AVG & GROUP BY jalan di PostgreSQL
     db.from('nilai')
       .select('nis, nilai, grade, lulus, timestamp, mapel_id, kelas, sesi_id, nilai_total, dirilis')
       .order('timestamp', { ascending: false })
@@ -117,6 +117,6 @@ export async function GET(req: NextRequest) {
 
   // Cache 30 dtk — dashboard tidak perlu real-time tiap detik.
   // Hemat 9+ query DB per refresh yang sering terjadi saat admin buka halaman berulang.
-  const data = await cachedFetch('admin:dashboard', 30, fetchDashboardData)
+  const data = await cachedFetch(`admin:dashboard:${yayasanIdDari(auth.user)}`, 30, () => fetchDashboardData(yayasanIdDari(auth.user)))
   return NextResponse.json(data)
 }

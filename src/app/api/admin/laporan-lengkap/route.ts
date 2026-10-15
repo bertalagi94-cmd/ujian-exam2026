@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 import { cachedFetch } from '@/lib/cache'
 import { petakanEssayAktifPerSesi } from '@/app/api/guru/kirim-nilai/route'
@@ -68,8 +68,8 @@ function safeIn<T>(arr: T[]): T[] {
   return arr.length ? arr : (['__none__'] as unknown as T[])
 }
 
-async function fetchLaporanLengkap() {
-  const db = createAdminClient()
+async function fetchLaporanLengkap(yayasanId: string) {
+  const db = tenantDb(yayasanId)
 
   // ── 1. Data master (sekolah, kelas, mapel, guru) ──────────────────────────
   const [
@@ -495,7 +495,7 @@ export async function GET(req: NextRequest) {
   try {
     // Cache singkat (20 dtk) — laporan ini berat (banyak query join), tapi
     // admin sering buka-tutup halaman/preview sebelum akhirnya klik download.
-    const data = await cachedFetch('admin:laporan-lengkap', 20, fetchLaporanLengkap)
+    const data = await cachedFetch(`admin:laporan-lengkap:${yayasanIdDari(auth.user)}`, 20, () => fetchLaporanLengkap(yayasanIdDari(auth.user)))
     return NextResponse.json(data)
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Gagal memuat laporan'

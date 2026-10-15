@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari, idsMilikYayasan } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 
 export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['ADMIN'])
   if ('error' in auth) return auth.error
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   const { searchParams } = new URL(req.url)
   const tester = searchParams.get('tester') === 'true'
   const semua = searchParams.get('all') === 'true'
@@ -67,7 +67,7 @@ export async function POST(req: NextRequest) {
   const auth = requireRole(req, ['ADMIN'])
   if ('error' in auth) return auth.error
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   const body = await req.json()
   const { username, nama, role, password, status, no_hp, nip, sekolah_id, sekolah_ids } = body
 
@@ -82,6 +82,15 @@ export async function POST(req: NextRequest) {
   const VALID_ROLES = ['ADMIN', 'GURU', 'KEPSEK']
   if (!VALID_ROLES.includes(role)) {
     return NextResponse.json({ error: `Role tidak valid. Role yang diizinkan: ${VALID_ROLES.join(', ')}` }, { status: 400 })
+  }
+
+  // Multi-yayasan: sekolah yang ditautkan harus milik yayasan ini.
+  const idSekolahDikirim = [
+    ...(role === 'KEPSEK' && sekolah_id ? [String(sekolah_id)] : []),
+    ...(role === 'GURU' && Array.isArray(sekolah_ids) ? sekolah_ids.map((x: string) => String(x)) : []),
+  ]
+  if (!(await idsMilikYayasan(db, 'sekolah', idSekolahDikirim))) {
+    return NextResponse.json({ error: 'Sekolah tidak valid' }, { status: 400 })
   }
 
   const password_hash = await bcrypt.hash(String(password), 10)

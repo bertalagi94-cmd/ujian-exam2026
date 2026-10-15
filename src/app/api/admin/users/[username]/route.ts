@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari, idsMilikYayasan } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 
 interface Ctx { params: { username: string } }
@@ -9,7 +9,7 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
   const auth = requireRole(req, ['ADMIN'])
   if ('error' in auth) return auth.error
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   const { nama, role, status, no_hp, nip, sekolah_id, sekolah_ids, is_tester } = await req.json()
 
   // Role akun yang sah hanya 4 ini — lihat catatan di POST /api/admin/users
@@ -26,6 +26,18 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
   // supaya tidak bisa diisi nilai sembarangan lewat panggilan API langsung.
   if (is_tester !== undefined && !['YES', 'NO'].includes(is_tester)) {
     return NextResponse.json({ error: "is_tester harus 'YES' atau 'NO'" }, { status: 400 })
+  }
+
+  // Multi-yayasan: akun harus milik yayasan ini (guru_sekolah tidak ter-scope
+  // otomatis), dan sekolah yang ditautkan juga harus milik yayasan ini.
+  const { data: userAda } = await db.from('users').select('username').eq('username', params.username).maybeSingle()
+  if (!userAda) return NextResponse.json({ error: 'Pengguna tidak ditemukan' }, { status: 404 })
+  const idSekolahDikirim = [
+    ...(role === 'KEPSEK' && sekolah_id ? [String(sekolah_id)] : []),
+    ...(role === 'GURU' && Array.isArray(sekolah_ids) ? sekolah_ids.map((x: string) => String(x)) : []),
+  ]
+  if (!(await idsMilikYayasan(db, 'sekolah', idSekolahDikirim))) {
+    return NextResponse.json({ error: 'Sekolah tidak valid' }, { status: 400 })
   }
 
   // FIX (multi-sekolah): sekolah_id (kolom tunggal) sekarang HANYA dipakai
@@ -70,7 +82,7 @@ export async function DELETE(req: NextRequest, { params }: Ctx) {
   const auth = requireRole(req, ['ADMIN'])
   if ('error' in auth) return auth.error
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   const { error } = await db.from('users').delete().eq('username', params.username)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ message: 'Pengguna berhasil dihapus' })

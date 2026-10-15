@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 
 // GET /api/admin/jadwal/usulan-essay?mapel_id=...&kelas=...
@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ data: { ada: false, durasi: null, status: null } })
   }
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   const { data: kelasRow } = await (db as any)
     .from('kelas')
     .select('id')

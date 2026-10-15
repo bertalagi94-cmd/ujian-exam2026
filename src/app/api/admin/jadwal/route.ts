@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 import { generateId } from '@/lib/utils'
 import { pastikanLokasiSekolahLengkap } from '@/lib/pengaturan-waktu'
@@ -9,7 +9,7 @@ import { bacaBatasDurasiEssay, tentukanDurasiEssay, validasiDurasiEssayAdmin } f
 // Kosong = "ikuti usulan guru" (disimpan sebagai NULL). Batas min/maks diambil
 // dari Pengaturan > Ujian, sama dengan batas yang berlaku untuk usulan guru.
 async function ambilDurasiEssayAdmin(
-  db: ReturnType<typeof createAdminClient>,
+  db: ReturnType<typeof tenantDb>,
   nilai: unknown
 ): Promise<{ ok: true; nilai: number | null } | { ok: false; error: string }> {
   const { data: batasRows } = await (db as any)
@@ -32,7 +32,7 @@ async function ambilDurasiEssayAdmin(
 // Fungsi ini mengecek riwayat tsb secara langsung dari sesi_ujian + nilai,
 // terlepas dari ada/tidaknya baris jadwal yang bersangkutan saat ini.
 async function cekSudahPernahDinilai(
-  db: ReturnType<typeof createAdminClient>,
+  db: ReturnType<typeof tenantDb>,
   mapelId: string,
   kelas: string
 ): Promise<{ sudahAda: boolean; jumlahSiswa: number }> {
@@ -58,7 +58,7 @@ export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['ADMIN', 'GURU', 'KEPSEK', 'SISWA'])
   if ('error' in auth) return auth.error
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   const { searchParams } = new URL(req.url)
   const status = searchParams.get('status')
   const kelas = searchParams.get('kelas')
@@ -310,7 +310,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: lokasi.error, perluLengkapiPengaturan: true }, { status: 422 })
   }
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   const body = await req.json()
 
   // Durasi essay ditetapkan admin di jadwal (kosong = ikuti usulan guru).
@@ -447,7 +447,7 @@ export async function PUT(req: NextRequest) {
   const auth = requireRole(req, ['ADMIN'])
   if ('error' in auth) return auth.error
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   const { id, ...update } = await req.json()
 
   // Durasi essay ditetapkan admin. Hanya diproses kalau field-nya dikirim;
@@ -588,7 +588,7 @@ export async function DELETE(req: NextRequest) {
   const auth = requireRole(req, ['ADMIN'])
   if ('error' in auth) return auth.error
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   const { id } = await req.json()
 
   const { data: jadwal } = await db
@@ -641,7 +641,7 @@ export async function PATCH(req: NextRequest) {
   const auth = requireRole(req, ['ADMIN'])
   if ('error' in auth) return auth.error
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
 
   const { data: jadwalSelesai } = await db
     .from('jadwal')

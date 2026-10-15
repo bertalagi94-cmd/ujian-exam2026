@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 import { cacheDelPrefix } from '@/lib/cache'
 
@@ -12,12 +12,16 @@ export async function POST(req: NextRequest) {
     const file = formData.get('file') as File | null
     if (!file) return NextResponse.json({ error: 'File tidak ditemukan' }, { status: 400 })
 
-    const db = createAdminClient()
+    const db = tenantDb(yayasanIdDari(auth.user))
     const bytes = await file.arrayBuffer()
     const buffer = Buffer.from(bytes)
 
     const ext = file.name.split('.').pop() || 'png'
-    const fileName = `logo_sekolah.${ext}`
+    // Multi-yayasan: folder per yayasan agar logo tidak saling menimpa
+    // (yayasan awal tetap tanpa folder, alamat lama tidak berubah).
+    const yid = yayasanIdDari(auth.user)
+    const folder = yid === 'YYS_AWAL' ? '' : `${yid}/`
+    const fileName = `${folder}logo_sekolah.${ext}`
 
     // Upload ke Supabase Storage bucket "assets"
     const { error: uploadError } = await db.storage
@@ -37,7 +41,7 @@ export async function POST(req: NextRequest) {
     // Simpan URL ke tabel pengaturan
     await db.from('pengaturan').upsert(
       { key: 'logoUrl', value: publicUrl, deskripsi: 'URL Logo Sekolah' },
-      { onConflict: 'key' }
+      { onConflict: 'yayasan_id,key' }
     )
 
     cacheDelPrefix('pengaturan:')
@@ -56,18 +60,20 @@ export async function DELETE(req: NextRequest) {
   if ('error' in auth) return auth.error
 
   try {
-    const db = createAdminClient()
+    const db = tenantDb(yayasanIdDari(auth.user))
 
     // Hapus file dari storage (coba semua ekstensi umum)
     const exts = ['png', 'jpg', 'jpeg', 'svg', 'webp']
+    const yidHapus = yayasanIdDari(auth.user)
+    const folderHapus = yidHapus === 'YYS_AWAL' ? '' : `${yidHapus}/`
     for (const ext of exts) {
-      await db.storage.from('assets').remove([`logo_sekolah.${ext}`])
+      await db.storage.from('assets').remove([`${folderHapus}logo_sekolah.${ext}`])
     }
 
     // Kosongkan logoUrl di pengaturan
     await db.from('pengaturan').upsert(
       { key: 'logoUrl', value: '', deskripsi: 'URL Logo Sekolah' },
-      { onConflict: 'key' }
+      { onConflict: 'yayasan_id,key' }
     )
 
     cacheDelPrefix('pengaturan:')

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 import { petakanEssayAktifPerSesi } from '@/app/api/guru/kirim-nilai/route'
 import { getKepsekScope } from '@/lib/kepsek-scope'
@@ -9,7 +9,7 @@ export async function GET(req: NextRequest) {
   if ('error' in auth) return auth.error
   const { user } = auth
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   const { searchParams } = new URL(req.url)
   const mapelId = searchParams.get('mapel_id')
   // Nama mapel bisa diampu oleh lebih dari satu guru (mapel_id berbeda, nama sama —
@@ -124,7 +124,7 @@ export async function PATCH(req: NextRequest) {
   const auth = requireRole(req, ['ADMIN'])
   if ('error' in auth) return auth.error
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   let body: { action?: string; nis?: string; sesi_id?: string; catatan?: string }
   try {
     body = await req.json()

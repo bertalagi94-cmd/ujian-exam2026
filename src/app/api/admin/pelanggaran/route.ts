@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 import { generateId } from '@/lib/utils'
 import { ambilMaksReset, hitungKodeReset } from '@/lib/reset-berurutan'
@@ -10,7 +10,7 @@ export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['ADMIN'])
   if ('error' in auth) return auth.error
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   const { searchParams } = new URL(req.url)
   const page = parseInt(searchParams.get('page') ?? '1')
   const perPage = parseInt(searchParams.get('per_page') ?? '20')
@@ -135,9 +135,20 @@ export async function PATCH(req: NextRequest) {
   const auth = requireRole(req, ['ADMIN'])
   if ('error' in auth) return auth.error
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   const body = await req.json()
   const { action, id, nis, sesiId, status: newStatus, catatan } = body
+
+  // Multi-yayasan: log_reset, siswa_ujian dan RPC tidak ter-scope otomatis, jadi
+  // nis dan sesiId dari body dipastikan milik yayasan ini sebelum aksi apa pun.
+  if (nis) {
+    const { data: siswaAda } = await db.from('siswa').select('nis').eq('nis', nis).maybeSingle()
+    if (!siswaAda) return NextResponse.json({ error: 'Siswa tidak ditemukan' }, { status: 404 })
+  }
+  if (sesiId) {
+    const { data: sesiAda } = await db.from('sesi_ujian').select('id').eq('id', sesiId).maybeSingle()
+    if (!sesiAda) return NextResponse.json({ error: 'Sesi ujian tidak ditemukan' }, { status: 404 })
+  }
 
   // --- Update status pelanggaran ---
   if (action === 'update_status') {
@@ -175,7 +186,7 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: 'Siswa sudah menyelesaikan ujian.' }, { status: 409 })
     }
 
-    const maks = await ambilMaksReset(db)
+    const maks = await ambilMaksReset(db, yayasanIdDari(auth.user))
     const nomor = (su.reset_terpakai ?? 0) + 1
     if (nomor > maks) {
       return NextResponse.json({ error: `Semua kode reset (R1–R${maks}) sudah terpakai. Pelanggaran berikutnya menutup ujian siswa ini.` }, { status: 409 })

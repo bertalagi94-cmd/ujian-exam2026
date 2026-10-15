@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 import { generateId } from '@/lib/utils'
 
@@ -11,7 +11,7 @@ function parseKelasList(kelasList: string | null | undefined): string[] {
 // Mencegah, misalnya, Guru A dan Guru B berebut mengampu KIMIA di kelas 12 yang sama
 // (yang akan membuat jadwal/soal salah pilih baris mapel karena nama mapel kembar).
 async function findKelasConflict(
-  db: ReturnType<typeof createAdminClient>,
+  db: ReturnType<typeof tenantDb>,
   namaNormalized: string,
   guruId: string | null | undefined,
   kelasList: string[],
@@ -46,7 +46,7 @@ export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['ADMIN', 'GURU', 'KEPSEK', 'SISWA'])
   if ('error' in auth) return auth.error
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   const { searchParams } = new URL(req.url)
   const guruId = searchParams.get('guru_id')
 
@@ -77,7 +77,7 @@ export async function POST(req: NextRequest) {
   const auth = requireRole(req, ['ADMIN'])
   if ('error' in auth) return auth.error
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   const body = await req.json()
 
   const namaNormalized = String(body.nama).toUpperCase()
@@ -123,7 +123,7 @@ export async function PUT(req: NextRequest) {
   const auth = requireRole(req, ['ADMIN'])
   if ('error' in auth) return auth.error
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   const { id, ...update } = await req.json()
   if (!id) return NextResponse.json({ error: 'ID mapel diperlukan' }, { status: 400 })
 
@@ -162,7 +162,7 @@ export async function DELETE(req: NextRequest) {
   const auth = requireRole(req, ['ADMIN'])
   if ('error' in auth) return auth.error
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   const { id } = await req.json()
   if (!id) return NextResponse.json({ error: 'ID mapel diperlukan' }, { status: 400 })
 

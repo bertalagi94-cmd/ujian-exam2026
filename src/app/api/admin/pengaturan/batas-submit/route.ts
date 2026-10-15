@@ -1,6 +1,6 @@
 // app/api/admin/pengaturan/batas-submit/route.ts
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 import { cacheDelPrefix } from '@/lib/cache'
 import { revalidatePath } from 'next/cache'
@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
   const auth = requireRole(req, ['ADMIN'])
   if ('error' in auth) return auth.error
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   const body = await req.json()
   const { aktif, menit } = body
 
@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
 
   const { error: upsertError } = await db
     .from('pengaturan')
-    .upsert(records, { onConflict: 'key' })
+    .upsert(records, { onConflict: 'yayasan_id,key' })
 
   if (upsertError) {
     return NextResponse.json({ error: upsertError.message }, { status: 500 })

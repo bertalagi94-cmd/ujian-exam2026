@@ -29,18 +29,11 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // Multi-yayasan: tabel `pelanggaran` tidak punya kolom yayasan_id, jadi
-  // pastikan sesi yang diminta milik yayasan ini (berlaku untuk ADMIN juga).
-  // Tanpa sesiId (hanya ADMIN), batasi ke sesi-sesi milik yayasan ini.
-  let sesiIdsYayasan: string[] | null = null
+  // Multi-yayasan: tabel `pelanggaran` ter-scope otomatis (kolom yayasan_id,
+  // migrasi 42). Sesi yang diminta tetap dipastikan milik yayasan ini.
   if (sesiId) {
     const { data: sesiAda } = await db.from('sesi_ujian').select('id').eq('id', sesiId).maybeSingle()
     if (!sesiAda) return NextResponse.json({ error: 'Sesi ujian tidak ditemukan' }, { status: 404 })
-  } else {
-    const { data: daftarSesi } = await db
-      .from('sesi_ujian').select('id').order('created_at', { ascending: false }).limit(1000)
-    sesiIdsYayasan = (daftarSesi ?? []).map((s: { id: string }) => s.id)
-    if (!sesiIdsYayasan.length) return NextResponse.json({ data: [] })
   }
 
   let query = db
@@ -50,7 +43,6 @@ export async function GET(req: NextRequest) {
     .limit(50)
 
   if (sesiId) query = query.eq('sesi_id', sesiId)
-  else if (sesiIdsYayasan) query = query.in('sesi_id', sesiIdsYayasan)
   if (sejak) query = query.gt('created_at', sejak)
 
   const { data: pelanggaran, error } = await query

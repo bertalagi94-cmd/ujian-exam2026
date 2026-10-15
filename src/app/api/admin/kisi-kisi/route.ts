@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 
 // GET /api/admin/kisi-kisi — lihat semua kisi-kisi
 export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['ADMIN'])
   if ('error' in auth) return auth.error
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
 
   const { data: kisiList, error } = await db
     .from('kisi_kisi')
@@ -44,7 +44,7 @@ export async function GET(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   const auth = requireRole(req, ['ADMIN'])
   if ('error' in auth) return auth.error
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   const { searchParams } = new URL(req.url)
   const id = searchParams.get('id')
 

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 import { revalidatePath } from 'next/cache'
 import { cacheDelPrefix } from '@/lib/cache'
@@ -8,7 +8,7 @@ export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['ADMIN'])
   if ('error' in auth) return auth.error
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   const { data, error } = await db.from('pengaturan').select('*').order('key')
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ data: data ?? [] })
@@ -18,7 +18,7 @@ export async function PUT(req: NextRequest) {
   const auth = requireRole(req, ['ADMIN'])
   if ('error' in auth) return auth.error
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   const { settings } = await req.json()
 
   if (!Array.isArray(settings)) {
@@ -34,7 +34,7 @@ export async function PUT(req: NextRequest) {
 
   const { error } = await db
     .from('pengaturan')
-    .upsert(records, { onConflict: 'key' })
+    .upsert(records, { onConflict: 'yayasan_id,key' })
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 })

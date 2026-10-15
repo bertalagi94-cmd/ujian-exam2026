@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
+import { tolakJikaMultiYayasan } from '@/lib/tenant'
 import { cacheDel, cacheDelPrefix } from '@/lib/cache'
 import {
   DELETE_ORDER,
@@ -182,6 +183,8 @@ async function clearTable(
 
 export async function POST(req: NextRequest) {
   const auth = requireRole(req, ['ADMIN'])
+  const tolak = tolakJikaMultiYayasan()
+  if (tolak) return tolak
   if ('error' in auth) return auth.error
 
   let body: { categories: ResetCategory[]; force?: boolean }

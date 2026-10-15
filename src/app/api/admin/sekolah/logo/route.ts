@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 import { cacheDelPrefix } from '@/lib/cache'
 
@@ -17,11 +17,15 @@ export async function POST(req: NextRequest) {
   const file = formData.get('file') as File | null
   if (!file) return NextResponse.json({ error: 'File tidak ditemukan' }, { status: 400 })
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   const ext = file.name.split('.').pop() ?? 'png'
+  // Multi-yayasan: file logo diberi folder per yayasan supaya tidak saling
+  // menimpa. Yayasan awal tetap tanpa folder (alamat logo lama tidak berubah).
+  const yid = yayasanIdDari(auth.user)
+  const folder = yid === 'YYS_AWAL' ? '' : `${yid}/`
   const fileName = type === 'aplikasi'
-    ? `logo-aplikasi.${ext}`
-    : `logo-${sekolahId}.${ext}`
+    ? `${folder}logo-aplikasi.${ext}`
+    : `${folder}logo-${sekolahId}.${ext}`
 
   const arrayBuffer = await file.arrayBuffer()
   // Pakai bucket "assets" — bucket inilah yang sudah dibuat (Public) di
@@ -61,7 +65,7 @@ export async function DELETE(req: NextRequest) {
   const type = searchParams.get('type') ?? 'sekolah'
   const sekolahId = searchParams.get('id')
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
 
   if (type === 'aplikasi') {
     await db.from('pengaturan').update({ value: '' }).eq('key', 'logoAplikasi')

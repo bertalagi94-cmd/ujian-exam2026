@@ -40,11 +40,31 @@ export const TABEL_PER_YAYASAN: ReadonlySet<string> = new Set([
   'sekolah', 'users', 'siswa', 'kelas', 'mapel', 'kelas_mapel', 'jadwal',
   'sesi_ujian', 'nilai', 'paket_soal', 'soal', 'paket_essay', 'soal_essay',
   'kisi_kisi', 'pengaturan', 'log_aktivitas',
+  // Ditambahkan di migrasi 42 (diisi otomatis dari sesi_ujian oleh trigger).
+  'pelanggaran',
 ])
 
 /** Saklar keamanan: pendaftaran yayasan baru hanya boleh jalan kalau 'true'. */
 export function multiYayasanAktif(): boolean {
   return process.env.MULTI_YAYASAN_ENABLED === 'true'
+}
+
+/**
+ * Operasi yang bekerja pada SELURUH database (backup, reset, restore) belum
+ * punya versi per yayasan. Selama saklar multi-yayasan menyala, operasi itu
+ * ditolak untuk semua orang supaya admin satu yayasan tidak bisa menghapus
+ * atau menimpa data yayasan lain. Pakai fitur backup bawaan Supabase.
+ * Mengembalikan Response penolakan, atau null kalau boleh lanjut.
+ */
+export function tolakJikaMultiYayasan(): Response | null {
+  if (!multiYayasanAktif()) return null
+  return new Response(
+    JSON.stringify({
+      error:
+        'Fitur ini dinonaktifkan selama mode multi-yayasan menyala karena bekerja pada seluruh database. Gunakan backup bawaan Supabase.',
+    }),
+    { status: 403, headers: { 'Content-Type': 'application/json' } }
+  )
 }
 
 /**
@@ -124,6 +144,18 @@ export function tenantDb(yayasanId: string): AnyClient {
       }
     },
   }) as AnyClient
+}
+
+/**
+ * Pastikan SEMUA id (dari body request) memang milik yayasan ini di `tabel`.
+ * Dipakai sebelum menautkan data ke id yang dikirim klien (mis. sekolah_ids).
+ */
+export async function idsMilikYayasan(db: AnyClient, tabel: string, ids: string[]): Promise<boolean> {
+  const unik = [...new Set(ids.map(String))]
+  if (unik.length === 0) return true
+  const { data, error } = await db.from(tabel).select('id').in('id', unik)
+  if (error) return false
+  return (data?.length ?? 0) === unik.length
 }
 
 // ── Pencarian yayasan ───────────────────────────────────────────────────────

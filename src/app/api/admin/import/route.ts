@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import bcrypt from 'bcryptjs'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 
 interface ImportRow {
@@ -70,7 +70,7 @@ export async function GET(req: NextRequest) {
   }
 
   pendingJobs.delete(jobId)
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
 
   // BCRYPT cost 6: ~15ms per hash (vs cost 10: ~100ms) — masih aman untuk import
   const BCRYPT_COST = 6

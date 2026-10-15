@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
+import { tolakJikaMultiYayasan } from '@/lib/tenant'
 import { cacheDel, cacheDelPrefix } from '@/lib/cache'
 import {
   BACKUP_BUCKETS,
@@ -437,6 +438,8 @@ async function actionFinish(db: Db, body: Record<string, unknown>) {
 
 export async function POST(req: NextRequest) {
   const auth = requireRole(req, ['ADMIN'])
+  const tolak = tolakJikaMultiYayasan()
+  if (tolak) return tolak
   if ('error' in auth) return auth.error
 
   const contentType = req.headers.get('content-type') ?? ''

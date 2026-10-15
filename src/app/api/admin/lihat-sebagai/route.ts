@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole, signViewAsToken, VIEW_AS_MAX_SECONDS } from '@/lib/auth'
 import { generateId } from '@/lib/utils'
 import { invalidasiDipantau } from '@/lib/dipantau'
@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'tipe (USER/SISWA) dan id wajib diisi' }, { status: 400 })
   }
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
 
   let target:
     | { username: string; nama: string; role: 'GURU' | 'KEPSEK' | 'SISWA'; nis?: string; kelas?: string }
@@ -85,6 +85,8 @@ export async function POST(req: NextRequest) {
     impersonatorUsername: admin.username,
     impersonatorNama: admin.nama,
     viewAsSid: sid,
+    // Multi-yayasan: target selalu dari yayasan admin (query di atas ter-scope).
+    yayasanId: yayasanIdDari(auth.user),
   })
 
   return NextResponse.json({

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 import { finalisasiNilaiPaksa } from '@/lib/finalisasi-nilai'
 
@@ -40,7 +40,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   const auth = requireRole(req, ['ADMIN'])
   if ('error' in auth) return auth.error
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   const sesiId = params.id
 
   const { data: sesi, error: errSesiFetch } = await db

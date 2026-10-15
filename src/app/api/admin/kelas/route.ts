@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 import { generateId } from '@/lib/utils'
 import { hapusFotoEssayFisik } from '@/lib/backup-restore-shared'
@@ -17,8 +17,8 @@ import { cachedFetch, cacheDelPrefix } from '@/lib/cache'
 // /api/admin/dashboard) supaya tidak query ulang tiap kali halaman dibuka.
 // Cache di-invalidate otomatis begitu PUT/DELETE di bawah mengubah data
 // kelas. Logika penghitungan/penggabungan datanya sendiri TIDAK diubah.
-async function fetchKelasData(tester: boolean, semua: boolean) {
-  const db = createAdminClient()
+async function fetchKelasData(tester: boolean, semua: boolean, yayasanId: string) {
+  const db = tenantDb(yayasanId)
 
   // 1. Hitung jumlah siswa per kelas. ?all=true -> hitung dari SEMUA siswa
   // (reguler + tester), dipakai oleh halaman yang butuh daftar kelas lengkap
@@ -83,9 +83,9 @@ export async function GET(req: NextRequest) {
     // detik itu juga. Key mengikutkan tester & semua supaya ketiga variannya
     // (reguler/tester/all) tidak saling tertimpa di cache.
     const result = await cachedFetch(
-      `admin:kelas:${tester}:${semua}`,
+      `admin:kelas:${yayasanIdDari(auth.user)}:${tester}:${semua}`,
       30,
-      () => fetchKelasData(tester, semua)
+      () => fetchKelasData(tester, semua, yayasanIdDari(auth.user))
     )
     return NextResponse.json(result)
   } catch (err) {
@@ -101,7 +101,7 @@ export async function PUT(req: NextRequest) {
   const auth = requireRole(req, ['ADMIN'])
   if ('error' in auth) return auth.error
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   const body = await req.json()
   const { nama, wali_kelas, jurusan, sekolah_id } = body
 
@@ -178,7 +178,7 @@ export async function DELETE(req: NextRequest) {
   const auth = requireRole(req, ['ADMIN'])
   if ('error' in auth) return auth.error
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   const body = await req.json()
   const namaInput: string | undefined = body?.nama
   const kelasId: string | undefined = body?.kelasId
@@ -196,6 +196,14 @@ export async function DELETE(req: NextRequest) {
   }
   const nama = kelasRow?.nama ?? namaInput
   if (!nama) return NextResponse.json({ error: 'Nama kelas diperlukan' }, { status: 400 })
+
+  // Multi-yayasan: jika hanya nama yang dikirim, cari barisnya di yayasan ini
+  // supaya RPC menghapus kelas yang benar (nama kelas boleh sama antar yayasan).
+  if (!kelasRow) {
+    const { data, error } = await db.from('kelas').select('id, nama').eq('nama', nama).maybeSingle()
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    if (data) kelasRow = data
+  }
 
   // 1. Ambil semua NIS siswa di kelas ini — dipakai untuk membersihkan foto
   //    essay di Storage sebelum baris DB-nya (termasuk foto_url-nya) hilang.
@@ -241,6 +249,7 @@ export async function DELETE(req: NextRequest) {
   const { data: rpcHasil, error: rpcError } = await db.rpc('hapus_kelas_atomik', {
     p_nama: nama,
     p_kelas_id: kelasRow?.id ?? null,
+    p_yayasan_id: yayasanIdDari(auth.user),
   })
 
   if (rpcError) {

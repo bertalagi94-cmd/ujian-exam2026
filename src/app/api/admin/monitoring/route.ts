@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 import { durasiTotalSesi } from '@/lib/durasi-ujian'
 
@@ -139,7 +139,7 @@ export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['ADMIN'])
   if ('error' in auth) return auth.error
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   const now = new Date()
   const startOfDay = new Date(now); startOfDay.setHours(0, 0, 0, 0)
   const fiveMinsAgo = new Date(now.getTime() - 5 * 60 * 1000)
