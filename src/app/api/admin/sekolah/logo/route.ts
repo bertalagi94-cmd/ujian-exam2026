@@ -3,6 +3,16 @@ import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 import { cacheDelPrefix } from '@/lib/cache'
 
+// Ekstensi file ditentukan dari tipe MIME yang diizinkan, BUKAN dari nama file
+// kiriman klien. Nama file bisa berisi '/' atau '..' sehingga file bisa mendarat
+// di folder yayasan lain di bucket 'assets'.
+const EKSTENSI_GAMBAR: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/gif': 'gif',
+  'image/webp': 'webp',
+}
+
 // Upload logo per sekolah atau logo aplikasi global
 // Query param: ?type=sekolah&id=SKL_xxx  atau  ?type=aplikasi
 export async function POST(req: NextRequest) {
@@ -18,7 +28,17 @@ export async function POST(req: NextRequest) {
   if (!file) return NextResponse.json({ error: 'File tidak ditemukan' }, { status: 400 })
 
   const db = tenantDb(yayasanIdDari(auth.user))
-  const ext = file.name.split('.').pop() ?? 'png'
+  const ext = EKSTENSI_GAMBAR[file.type]
+  if (!ext) {
+    return NextResponse.json({ error: 'Format logo tidak didukung. Gunakan JPG, PNG, GIF, atau WebP.' }, { status: 400 })
+  }
+  // id sekolah dari query dipakai untuk menyusun nama file: pastikan id itu
+  // benar-benar sekolah milik yayasan ini (bukan teks bebas berisi '/').
+  if (type !== 'aplikasi') {
+    if (!sekolahId) return NextResponse.json({ error: 'id sekolah diperlukan' }, { status: 400 })
+    const { data: sekolahAda } = await db.from('sekolah').select('id').eq('id', sekolahId).maybeSingle()
+    if (!sekolahAda) return NextResponse.json({ error: 'Sekolah tidak ditemukan' }, { status: 404 })
+  }
   // Multi-yayasan: file logo diberi folder per yayasan supaya tidak saling
   // menimpa. Yayasan awal tetap tanpa folder (alamat logo lama tidak berubah).
   const yid = yayasanIdDari(auth.user)

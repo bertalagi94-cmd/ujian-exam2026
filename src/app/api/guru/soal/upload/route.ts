@@ -2,6 +2,16 @@ import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 
+// Ekstensi file ditentukan dari tipe MIME yang diizinkan, BUKAN dari nama file
+// kiriman klien. Nama file bisa berisi '/' atau '..' sehingga file bisa mendarat
+// di folder yayasan lain di bucket 'assets'.
+const EKSTENSI_GAMBAR: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/gif': 'gif',
+  'image/webp': 'webp',
+}
+
 export async function POST(req: NextRequest) {
   const auth = requireRole(req, ['GURU'])
   if ('error' in auth) return auth.error
@@ -23,7 +33,7 @@ export async function POST(req: NextRequest) {
     const db = tenantDb(yayasanIdDari(auth.user))
     const bytes = await file.arrayBuffer()
     const buffer = Buffer.from(bytes)
-    const ext = file.name.split('.').pop() || 'jpg'
+    const ext = EKSTENSI_GAMBAR[file.type] ?? 'jpg' // tipe sudah divalidasi di atas
     // Multi-yayasan: folder per yayasan (yayasan awal tanpa folder, URL lama tidak berubah).
     const yid = yayasanIdDari(auth.user)
     const folder = yid === 'YYS_AWAL' ? '' : `${yid}/`

@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import bcrypt from 'bcryptjs'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
+import { createAdminClient } from '@/lib/supabase'
 import { requireRole } from '@/lib/auth'
 
 interface ImportRow {
@@ -70,7 +71,34 @@ export async function GET(req: NextRequest) {
   }
 
   pendingJobs.delete(jobId)
-  const db = tenantDb(yayasanIdDari(auth.user))
+  const yayasanId = yayasanIdDari(auth.user)
+  const db = tenantDb(yayasanId)
+
+  // PRIMARY KEY siswa(nis) masih global. Upsert onConflict 'nis' terhadap NIS
+  // milik yayasan LAIN akan MENGAMBIL ALIH baris itu (nama, kelas, password
+  // ditimpa dan yayasan_id dipindah). Jadi NIS milik yayasan lain dikecualikan
+  // dan dilaporkan "NIS sudah terdaftar" (tanpa menyebut pemiliknya). Sama
+  // dengan penjagaan di admin/siswa/import. Hapus hanya setelah PK diganti
+  // menjadi (yayasan_id, nis).
+  const nisYayasanLain = new Set<string>()
+  {
+    const adminRaw = createAdminClient()
+    const semuaNis = [...new Set(rows.map((r: any) => String(r.nis ?? '').trim()).filter(Boolean))]
+    for (let i = 0; i < semuaNis.length; i += 200) {
+      const { data, error } = await adminRaw
+        .from('siswa')
+        .select('nis')
+        .in('nis', semuaNis.slice(i, i + 200))
+        .neq('yayasan_id', yayasanId)
+      if (error) {
+        return new Response(JSON.stringify({ error: `Gagal memeriksa NIS: ${error.message}` }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      for (const r of data ?? []) nisYayasanLain.add(String(r.nis))
+    }
+  }
 
   // BCRYPT cost 6: ~15ms per hash (vs cost 10: ~100ms) — masih aman untuk import
   const BCRYPT_COST = 6
@@ -104,6 +132,10 @@ export async function GET(req: NextRequest) {
             const nis = String(row.nis ?? '').trim()
             const nama = String(row.nama ?? '').trim().toUpperCase()
             if (!nis || !nama) return null
+            if (nisYayasanLain.has(nis)) {
+              errors.push(`NIS ${nis} (${nama}): NIS sudah terdaftar`)
+              return null
+            }
 
             const password = String(row.password ?? nis).trim() || nis
             const password_hash = await bcrypt.hash(password, BCRYPT_COST)

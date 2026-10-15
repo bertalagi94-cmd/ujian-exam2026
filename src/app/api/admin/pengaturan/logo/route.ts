@@ -3,6 +3,16 @@ import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 import { cacheDelPrefix } from '@/lib/cache'
 
+// Ekstensi file ditentukan dari tipe MIME yang diizinkan, BUKAN dari nama file
+// kiriman klien. Nama file bisa berisi '/' atau '..' sehingga file bisa mendarat
+// di folder yayasan lain di bucket 'assets'.
+const EKSTENSI_GAMBAR: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/gif': 'gif',
+  'image/webp': 'webp',
+}
+
 export async function POST(req: NextRequest) {
   const auth = requireRole(req, ['ADMIN'])
   if ('error' in auth) return auth.error
@@ -16,7 +26,10 @@ export async function POST(req: NextRequest) {
     const bytes = await file.arrayBuffer()
     const buffer = Buffer.from(bytes)
 
-    const ext = file.name.split('.').pop() || 'png'
+    const ext = EKSTENSI_GAMBAR[file.type]
+    if (!ext) {
+      return NextResponse.json({ error: 'Format logo tidak didukung. Gunakan JPG, PNG, GIF, atau WebP.' }, { status: 400 })
+    }
     // Multi-yayasan: folder per yayasan agar logo tidak saling menimpa
     // (yayasan awal tetap tanpa folder, alamat lama tidak berubah).
     const yid = yayasanIdDari(auth.user)
