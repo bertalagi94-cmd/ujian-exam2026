@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 import { verifySesiOwnershipCached } from '@/lib/sesi-ownership'
 
@@ -7,7 +7,7 @@ export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['GURU', 'ADMIN'])
   if ('error' in auth) return auth.error
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   const { searchParams } = new URL(req.url)
   const sesiId = searchParams.get('sesiId')
   // Dipakai untuk polling cepat deteksi pelanggaran (lihat halaman Mode
@@ -23,10 +23,24 @@ export async function GET(req: NextRequest) {
     if (!sesiId) {
       return NextResponse.json({ error: 'sesiId diperlukan' }, { status: 400 })
     }
-    const sah = await verifySesiOwnershipCached(db, sesiId, auth.user.username)
+    const sah = await verifySesiOwnershipCached(db, sesiId, auth.user.username, yayasanIdDari(auth.user))
     if (!sah) {
       return NextResponse.json({ error: 'Anda bukan pengawas sesi ini' }, { status: 403 })
     }
+  }
+
+  // Multi-yayasan: tabel `pelanggaran` tidak punya kolom yayasan_id, jadi
+  // pastikan sesi yang diminta milik yayasan ini (berlaku untuk ADMIN juga).
+  // Tanpa sesiId (hanya ADMIN), batasi ke sesi-sesi milik yayasan ini.
+  let sesiIdsYayasan: string[] | null = null
+  if (sesiId) {
+    const { data: sesiAda } = await db.from('sesi_ujian').select('id').eq('id', sesiId).maybeSingle()
+    if (!sesiAda) return NextResponse.json({ error: 'Sesi ujian tidak ditemukan' }, { status: 404 })
+  } else {
+    const { data: daftarSesi } = await db
+      .from('sesi_ujian').select('id').order('created_at', { ascending: false }).limit(1000)
+    sesiIdsYayasan = (daftarSesi ?? []).map((s: { id: string }) => s.id)
+    if (!sesiIdsYayasan.length) return NextResponse.json({ data: [] })
   }
 
   let query = db
@@ -36,6 +50,7 @@ export async function GET(req: NextRequest) {
     .limit(50)
 
   if (sesiId) query = query.eq('sesi_id', sesiId)
+  else if (sesiIdsYayasan) query = query.in('sesi_id', sesiIdsYayasan)
   if (sejak) query = query.gt('created_at', sejak)
 
   const { data: pelanggaran, error } = await query

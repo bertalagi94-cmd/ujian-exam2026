@@ -90,8 +90,13 @@ export function kodeResetCocok(sesiId: string, nis: string, nomor: number, kodeI
  * dijepit ke 1..3. Pelanggaran BERIKUTNYA setelah semua kode terpakai
  * menutup ujian siswa (pelanggaran ke-4 bila batas = 3).
  */
-export async function ambilMaksReset(db: DbClient): Promise<number> {
-  const val = await cachedFetch('pengaturan:batasPelanggaran', 60, async () => {
+export async function ambilMaksReset(db: DbClient, yayasanId?: string): Promise<number> {
+  // Multi-yayasan: tiap yayasan punya pengaturan sendiri, jadi kunci cache
+  // memuat yayasan. Tanpa yayasanId = perilaku lama (pemanggil belum dimigrasi).
+  const kunciCache = yayasanId
+    ? `pengaturan:batasPelanggaran:${yayasanId}`
+    : 'pengaturan:batasPelanggaran'
+  const val = await cachedFetch(kunciCache, 60, async () => {
     const { data } = await db.from('pengaturan').select('value').eq('key', 'batasPelanggaran').single()
     return data?.value ?? '3'
   })

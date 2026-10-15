@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 import { verifySesiOwnership } from '@/lib/sesi-ownership'
 import { ambilTargetSiswaSesi } from '@/lib/target-siswa-sesi'
@@ -24,7 +24,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   const auth = requireRole(req, ['GURU', 'ADMIN'])
   if ('error' in auth) return auth.error
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   const sesiId = params.id
 
   if (auth.user.role === 'GURU') {
@@ -52,7 +52,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 
   const terpakaiMap = new Map((siswaUjian ?? []).map(s => [s.nis, s.reset_terpakai ?? 0]))
   const target = await ambilTargetSiswaSesi(db, sesi, [...terpakaiMap.keys()])
-  const maksReset = await ambilMaksReset(db)
+  const maksReset = await ambilMaksReset(db, yayasanIdDari(auth.user))
 
   let data
   try {

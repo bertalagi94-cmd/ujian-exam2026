@@ -1,4 +1,5 @@
 import { createAdminClient } from '@/lib/supabase'
+import { tenantDb } from '@/lib/tenant'
 import { cacheGet, cacheSet } from '@/lib/cache'
 import { ZONA_WAKTU_INFO, ZonaWaktu, ZonaWaktuInfo, getZonaWaktuByProvinsiId } from '@/lib/wilayah'
 
@@ -20,11 +21,14 @@ export interface LokasiSekolah {
  * sekali — pemanggil WAJIB menangani kasus ini (lihat `getZonaWaktuSekolah`
  * di bawah untuk versi dengan fallback).
  */
-export async function getLokasiSekolah(): Promise<LokasiSekolah> {
-  const cached = cacheGet<LokasiSekolah>(CACHE_KEY)
+export async function getLokasiSekolah(yayasanId?: string): Promise<LokasiSekolah> {
+  // Multi-yayasan: lokasi (dan zona waktu) berbeda per yayasan. Tanpa
+  // yayasanId = perilaku lama (pemanggil belum dimigrasi ke Fase 2).
+  const cacheKey = yayasanId ? `${CACHE_KEY}:${yayasanId}` : CACHE_KEY
+  const cached = cacheGet<LokasiSekolah>(cacheKey)
   if (cached) return cached
 
-  const db = createAdminClient()
+  const db = yayasanId ? tenantDb(yayasanId) : createAdminClient()
   const { data } = await db
     .from('pengaturan')
     .select('key, value')
@@ -36,7 +40,7 @@ export async function getLokasiSekolah(): Promise<LokasiSekolah> {
   const zonaWaktu = provinsiId ? getZonaWaktuByProvinsiId(provinsiId) : null
 
   const result: LokasiSekolah = { provinsiId, kabupaten, zonaWaktu }
-  cacheSet(CACHE_KEY, result, CACHE_TTL_DETIK)
+  cacheSet(cacheKey, result, CACHE_TTL_DETIK)
   return result
 }
 
@@ -50,8 +54,8 @@ export async function getLokasiSekolah(): Promise<LokasiSekolah> {
  * pakai `getLokasiSekolah()` dan blokir aksinya, lihat
  * `pastikanLokasiSekolahLengkap()` di bawah.
  */
-export async function getZonaWaktuSekolah(): Promise<ZonaWaktuInfo> {
-  const { zonaWaktu } = await getLokasiSekolah()
+export async function getZonaWaktuSekolah(yayasanId?: string): Promise<ZonaWaktuInfo> {
+  const { zonaWaktu } = await getLokasiSekolah(yayasanId)
   return zonaWaktu ?? ZONA_WAKTU_INFO.WIB
 }
 

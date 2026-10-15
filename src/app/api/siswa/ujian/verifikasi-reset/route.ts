@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 import { ambilMaksReset, kodeResetCocok } from '@/lib/reset-berurutan'
 
@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
   }
 
   const nis = user.nis!
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
 
   // Sesi masih aktif?
   const { data: sesi } = await db.from('sesi_ujian').select('id, status').eq('id', sesiId).single()
@@ -133,7 +133,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ valid: false, retryable: true, message: 'Tidak ada kode reset aktif. Hubungi pengawas.' })
   }
 
-  const maks = await ambilMaksReset(db)
+  const maks = await ambilMaksReset(db, yayasanIdDari(auth.user))
   const nomor = terpakai + 1
   if (nomor > maks) {
     // Hanya mungkin bila batasPelanggaran diturunkan saat ujian berjalan.

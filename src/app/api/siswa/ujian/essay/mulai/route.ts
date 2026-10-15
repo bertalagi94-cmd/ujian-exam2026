@@ -1,7 +1,7 @@
 // Taruh di: src/app/api/siswa/ujian/essay/mulai/route.ts
 // POST { sesiId } — mulai timer essay (idempotent: kalau sudah MENGERJAKAN, kembalikan waktu_mulai_essay yang sudah ada, jangan reset timer)
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 import { kodeDaruratCocok } from '@/lib/essay-amplop-server'
 import { MAKS_PERCOBAAN_SERVER } from '@/lib/essay-amplop-shared'
@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
   if ('error' in auth) return auth.error
   const { user } = auth
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   // `kodeDarurat`, `waktuMulaiClient`, `percobaanSalah` HANYA diisi client kalau
   // siswa membuka essay secara OFFLINE lewat amplop terenkripsi + kode darurat
   // dari pengawas (lihat src/lib/essay-amplop-server.ts) dan sekarang melapor

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 import { verifySesiOwnershipCached } from '@/lib/sesi-ownership'
 import { ambilTargetSiswaSesi } from '@/lib/target-siswa-sesi'
@@ -40,7 +40,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   const auth = requireRole(req, ['GURU', 'ADMIN'])
   if ('error' in auth) return auth.error
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   const sesiId = params.id
 
   // FIX: sebelumnya endpoint ini hanya mengecek role (GURU/ADMIN), tidak
@@ -48,7 +48,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   // mana pun bisa melihat daftar siswa sesi ujian guru lain kalau memanggil
   // API ini langsung. ADMIN tetap tidak dibatasi.
   if (auth.user.role === 'GURU') {
-    const sah = await verifySesiOwnershipCached(db, sesiId, auth.user.username)
+    const sah = await verifySesiOwnershipCached(db, sesiId, auth.user.username, yayasanIdDari(auth.user))
     if (!sah) {
       return NextResponse.json({ error: 'Anda bukan pengawas sesi ini' }, { status: 403 })
     }

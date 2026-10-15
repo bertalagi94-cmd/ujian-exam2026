@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 import { instrumented } from '@/lib/metrik'
 import { catatAktivitas } from '@/lib/aktivitas'
@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
 
   return instrumented('sync_jawaban', async () => {
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   // FIX (audit /sync): body & isi `jawaban` datang dari client yang tidak
   // dipercaya. Sebelumnya JSON rusak, elemen null, soal_id kembar, atau revisi
   // pecahan membuat request jatuh 500 (atau seluruh batch ditolak Postgres).
@@ -409,7 +409,7 @@ export async function GET(req: NextRequest) {
   if ('error' in auth) return auth.error
   const { user } = auth
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   const { searchParams } = new URL(req.url)
   const sesiId = searchParams.get('sesiId')
   const deviceId = searchParams.get('deviceId')

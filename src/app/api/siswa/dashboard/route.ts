@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 import { petakanEssayAktifPerSesi } from '@/app/api/guru/kirim-nilai/route'
 import { hitungGrade } from '@/lib/utils'
@@ -8,7 +8,7 @@ export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['SISWA'])
   if ('error' in auth) return auth.error
   const { user } = auth
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   const nis = user.nis!
 
   const [{ data: nilaiAll }, { data: jadwal }] = await Promise.all([

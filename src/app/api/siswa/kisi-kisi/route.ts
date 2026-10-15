@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { getTokenFromRequest } from '@/lib/auth'
 
 // GET /api/siswa/kisi-kisi
@@ -10,7 +10,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(user))
 
   if (!user.kelas) return NextResponse.json({ data: [] })
 

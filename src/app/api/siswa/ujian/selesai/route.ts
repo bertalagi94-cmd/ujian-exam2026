@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 import { generateId } from '@/lib/utils'
 import { ambilDataSesiUntukPenilaian, hitungHasilPenilaian } from '@/lib/penilaian-ujian'
@@ -12,7 +12,7 @@ export async function POST(req: NextRequest) {
   if ('error' in auth) return auth.error
   const { user } = auth
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   // `waktuSelesaiClient` HANYA diisi ketika client menyelesaikan PG secara
   // offline (lihat src/lib/ujian-lokal.ts) dan baru berhasil memanggil
   // endpoint ini setelah koneksi pulih. Nilai PG TIDAK PERNAH dihitung dari
@@ -213,7 +213,10 @@ export async function POST(req: NextRequest) {
     db.from('sesi_ujian').select('status').eq('id', sesiId).single(),
     db.from('pengaturan').select('key, value').in('key', ['minSubmitAktif', 'minSubmitMenit']),
   ])
-  if (sesiStatusCheck && sesiStatusCheck.status !== 'BERJALAN') {
+  if (!sesiStatusCheck) {
+    return NextResponse.json({ error: 'Sesi tidak ditemukan' }, { status: 404 })
+  }
+  if (sesiStatusCheck.status !== 'BERJALAN') {
     return NextResponse.json(
       { error: 'Sesi ujian sudah ditutup, ujian tidak bisa diselesaikan dari sini. Jawaban yang sudah tersimpan akan dinilai secara otomatis oleh sistem.' },
       { status: 409 }

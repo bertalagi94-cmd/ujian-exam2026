@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 import { getZonaWaktuSekolah, tanggalHariIni } from '@/lib/pengaturan-waktu'
 
@@ -8,7 +8,7 @@ export async function GET(req: NextRequest) {
   if ('error' in auth) return auth.error
   const { user } = auth
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   const { data, error } = await db
     .from('jadwal')
     .select('*')
@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
   if (!data?.length) {
     // FIX: sertakan zonaWaktu juga di jalur ini, biar frontend tetap
     // konsisten memakai zona waktu sekolah walau jadwalnya kosong.
-    const zonaKosong = await getZonaWaktuSekolah()
+    const zonaKosong = await getZonaWaktuSekolah(yayasanIdDari(auth.user))
     return NextResponse.json({ data: [], zonaWaktu: { utcOffsetJam: zonaKosong.utcOffsetJam } })
   }
 
@@ -129,7 +129,7 @@ export async function GET(req: NextRequest) {
 
   // FIX: sinkronkan status — jadwal yang tanggalnya sudah lewat tapi masih AKTIF
   // di-override ke SELESAI agar konsisten dengan tampilan guru
-  const zona = await getZonaWaktuSekolah()
+  const zona = await getZonaWaktuSekolah(yayasanIdDari(auth.user))
   const today = tanggalHariIni(zona)
 
   return NextResponse.json({

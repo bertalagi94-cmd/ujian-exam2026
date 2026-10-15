@@ -1,6 +1,6 @@
 // app/api/siswa/ujian/validasi/route.ts
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 import { catatAktivitas } from '@/lib/aktivitas'
 import { instrumented } from '@/lib/metrik'
@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
   // dan komentar serupa di api/auth/login/route.ts.
   return instrumented('validasi_ujian', async () => {
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   const { kodeSesi, nis, deviceId } = await req.json()
 
   if (nis !== user.nis) return NextResponse.json({ valid: false, message: 'NIS tidak sesuai' })
@@ -246,7 +246,7 @@ export async function POST(req: NextRequest) {
   let maksReset = 0
   let gagalMenyiapkanReset = false
   try {
-    maksReset = await ambilMaksReset(db)
+    maksReset = await ambilMaksReset(db, yayasanIdDari(auth.user))
   } catch (e) {
     // Tidak bisa menentukan berapa maksReset yang seharusnya — jangan
     // diam-diam anggap 0 (yang berarti "tidak butuh reset"), karena itu

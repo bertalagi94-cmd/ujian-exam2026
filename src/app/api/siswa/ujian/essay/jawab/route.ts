@@ -2,7 +2,7 @@
 // Autosave jawaban essay MODE DIGITAL SAJA. Pola sama seperti
 // src/app/api/siswa/ujian/sync/route.ts (untuk PG).
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 import { sudahLewatBatasWaktuEssay } from '@/lib/essay-waktu'
 
@@ -12,7 +12,7 @@ export async function POST(req: NextRequest) {
   if ('error' in auth) return auth.error
   const { user } = auth
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   const { sesiId, jawaban, deviceId } = await req.json()
   if (!sesiId) return NextResponse.json({ error: 'sesiId diperlukan' }, { status: 400 })
 
@@ -176,7 +176,7 @@ export async function GET(req: NextRequest) {
   if ('error' in auth) return auth.error
   const { user } = auth
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   const { searchParams } = new URL(req.url)
   const sesiId = searchParams.get('sesiId')
   const deviceId = searchParams.get('deviceId')

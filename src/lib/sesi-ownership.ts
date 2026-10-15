@@ -37,9 +37,11 @@ type DbClient = ReturnType<typeof createAdminClient>
 export async function verifySesiOwnershipCached(
   db: DbClient,
   sesiId: string,
-  username: string
+  username: string,
+  yayasanId?: string
 ): Promise<boolean> {
-  const key = `sesi-ownership:${sesiId}:${username}`
+  // Username hanya unik per yayasan, jadi yayasan wajib ada di kunci cache.
+  const key = `sesi-ownership:${yayasanId ?? '-'}:${sesiId}:${username}`
   const cached = cacheGet<boolean>(key)
   if (cached !== null) return cached
 

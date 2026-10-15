@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 import { generateId } from '@/lib/utils'
 import { ambilMaksReset } from '@/lib/reset-berurutan'
@@ -47,8 +47,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'eventId tidak valid' }, { status: 400 })
   }
 
-  const db = createAdminClient()
-  const maksReset = await ambilMaksReset(db)
+  const db = tenantDb(yayasanIdDari(auth.user))
+
+  // Multi-yayasan: RPC di bawah TIDAK otomatis ter-scope yayasan, jadi pastikan
+  // dulu sesi ini memang milik yayasan siswa. Sesi yayasan lain dijawab sama
+  // seperti sesi yang tidak ada.
+  const { data: sesiMilikYayasan } = await db
+    .from('sesi_ujian').select('id').eq('id', sesiId).maybeSingle()
+  if (!sesiMilikYayasan) {
+    return NextResponse.json({ error: 'Sesi ujian tidak ditemukan untuk akun ini.' }, { status: 404 })
+  }
+
+  const maksReset = await ambilMaksReset(db, yayasanIdDari(auth.user))
 
   const { data, error } = await db.rpc('catat_pelanggaran_atomik', {
     p_sesi_id: sesiId,

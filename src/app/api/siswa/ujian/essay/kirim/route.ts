@@ -8,7 +8,7 @@
 //     selesai/route.ts) BARU dikirim ke response di sini, supaya frontend
 //     bisa tampilkan hasil + lepas fullscreen, sesuai desain yang disepakati.
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 import { sudahLewatBatasWaktuEssay } from '@/lib/essay-waktu'
 
@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
   const { user } = auth
   const nis = user.nis!
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   // FIX BUG (essay/kirim tidak memeriksa deviceId): sebelumnya endpoint ini
   // hanya menerima `sesiId`, padahal autosave essay (essay/jawab) dan endpoint
   // sync PG sudah sama-sama menegakkan kebijakan "satu siswa satu perangkat"

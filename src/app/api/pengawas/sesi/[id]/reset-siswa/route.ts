@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 import { verifySesiOwnership } from '@/lib/sesi-ownership'
 import { ambilMaksReset, hitungKodeReset } from '@/lib/reset-berurutan'
@@ -35,7 +35,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const auth = requireRole(req, ['GURU', 'ADMIN'])
   if ('error' in auth) return auth.error
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   const sesiId = params.id
   const { nis } = await req.json()
 
@@ -47,6 +47,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       return NextResponse.json({ error: 'Anda bukan pengawas sesi ini' }, { status: 403 })
     }
   }
+
+  // Multi-yayasan: siswa_ujian/pelanggaran tidak punya yayasan_id, jadi sesi
+  // harus dipastikan milik yayasan ini (ADMIN tidak lewat cek kepemilikan).
+  const { data: sesiAda } = await db.from('sesi_ujian').select('id').eq('id', sesiId).maybeSingle()
+  if (!sesiAda) return NextResponse.json({ error: 'Sesi ujian tidak ditemukan' }, { status: 404 })
 
   const { data: siswa } = await db.from('siswa').select('nama').eq('nis', nis).single()
   if (!siswa) return NextResponse.json({ error: 'Siswa tidak ditemukan' }, { status: 404 })
@@ -67,7 +72,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: 'Siswa belum terdaftar di sesi ini' }, { status: 404 })
   }
 
-  const maks = await ambilMaksReset(db)
+  const maks = await ambilMaksReset(db, yayasanIdDari(auth.user))
 
   // Sudah terkunci permanen (diputuskan atomik oleh catat_pelanggaran_atomik
   // pada pelanggaran ke-(N+1)) -> tidak ada kode untuk ditampilkan.
