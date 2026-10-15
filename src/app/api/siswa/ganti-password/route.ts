@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 
 // FITUR (Ganti password sendiri): sebelumnya HANYA admin yang bisa mereset
@@ -37,7 +37,7 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: 'Password baru tidak boleh sama dengan password lama' }, { status: 400 })
   }
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(user))
 
   const { data: siswa, error: fetchError } = await db
     .from('siswa')

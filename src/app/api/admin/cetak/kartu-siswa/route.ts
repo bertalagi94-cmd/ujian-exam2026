@@ -1,14 +1,14 @@
 // GET /api/admin/cetak/kartu-siswa?kelas=8
 // Mengembalikan semua siswa di kelas + data sekolah untuk kartu peserta ujian
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 
 export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['ADMIN'])
   if ('error' in auth) return auth.error
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   const { searchParams } = new URL(req.url)
   const kelas = searchParams.get('kelas')
 

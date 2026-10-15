@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import bcrypt from 'bcryptjs'
 import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 
 interface ImportRow {
@@ -47,7 +48,9 @@ function normalizeTanggalLahir(value: string | undefined | null): string | null 
 
 // Simpan data antar request (in-memory per instance — cukup untuk 1 admin)
 // Key = token sesi sederhana
-const pendingJobs = new Map<string, ImportRow[]>()
+// Multi-yayasan: job diikat ke yayasan pembuatnya supaya admin yayasan lain
+// tidak bisa memproses/menjalankan job orang lain walau menebak jobId.
+const pendingJobs = new Map<string, { rows: ImportRow[]; yayasanId: string }>()
 
 export async function POST(req: NextRequest) {
   const auth = requireRole(req, ['ADMIN'])
@@ -65,7 +68,7 @@ export async function POST(req: NextRequest) {
 
   // Simpan job, kembalikan jobId
   const jobId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
-  pendingJobs.set(jobId, rows)
+  pendingJobs.set(jobId, { rows, yayasanId: yayasanIdDari(auth.user) })
 
   // Cleanup otomatis 5 menit
   setTimeout(() => pendingJobs.delete(jobId), 5 * 60 * 1000)
@@ -87,16 +90,44 @@ export async function GET(req: NextRequest) {
     })
   }
 
-  const rows = pendingJobs.get(jobId)
-  if (!rows) {
+  const yayasanId = yayasanIdDari(auth.user)
+  const job = pendingJobs.get(jobId)
+  // Job milik yayasan lain diperlakukan sama seperti tidak ada.
+  if (!job || job.yayasanId !== yayasanId) {
     return new Response(JSON.stringify({ error: 'Job tidak ditemukan atau sudah kadaluarsa' }), {
       status: 404,
       headers: { 'Content-Type': 'application/json' },
     })
   }
+  const rows = job.rows
 
   pendingJobs.delete(jobId)
-  const db = createAdminClient()
+  const db = tenantDb(yayasanId)
+
+  // PRIMARY KEY siswa(nis) masih global (lihat Fase 2 di docs/MULTI_YAYASAN.md).
+  // Upsert onConflict 'nis' terhadap NIS milik yayasan LAIN akan MENGAMBIL
+  // ALIH baris itu. Jadi NIS yang sudah dimiliki yayasan lain dikecualikan
+  // dan dilaporkan sebagai "NIS sudah terdaftar" (tanpa membocorkan pemiliknya).
+  // Hapus pemeriksaan ini hanya setelah PK diganti jadi (yayasan_id, nis).
+  const nisYayasanLain = new Set<string>()
+  {
+    const adminRaw = createAdminClient()
+    const semuaNis = [...new Set(rows.map((r) => String(r.nis ?? '').trim()).filter(Boolean))]
+    for (let i = 0; i < semuaNis.length; i += 200) {
+      const { data, error } = await adminRaw
+        .from('siswa')
+        .select('nis')
+        .in('nis', semuaNis.slice(i, i + 200))
+        .neq('yayasan_id', yayasanId)
+      if (error) {
+        return new Response(JSON.stringify({ error: `Gagal memeriksa NIS: ${error.message}` }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      for (const r of data ?? []) nisYayasanLain.add(String(r.nis))
+    }
+  }
 
   // BCRYPT cost 6: ~15ms per hash (vs cost 10: ~100ms) — masih aman untuk import
   const BCRYPT_COST = 6
@@ -152,6 +183,10 @@ export async function GET(req: NextRequest) {
             const nis = String(row.nis ?? '').trim()
             const nama = String(row.nama ?? '').trim().toUpperCase()
             if (!nis || !nama) return null
+            if (nisYayasanLain.has(nis)) {
+              errors.push(`NIS ${nis} (${nama}): NIS sudah terdaftar`)
+              return null
+            }
 
             const password = String(row.password ?? nis).trim() || nis
             const password_hash = await bcrypt.hash(password, BCRYPT_COST)

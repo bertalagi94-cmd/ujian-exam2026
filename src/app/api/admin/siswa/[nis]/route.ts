@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 import { hapusFotoEssayFisik } from '@/lib/backup-restore-shared'
 
@@ -12,7 +12,7 @@ export async function PUT(req: NextRequest, { params }: RouteContext) {
   const auth = requireRole(req, ['ADMIN'])
   if ('error' in auth) return auth.error
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   const body = await req.json()
   const { nama, kelas, jenis_kelamin, tempat_lahir, tanggal_lahir, status, is_tester } = body
 
@@ -23,7 +23,7 @@ export async function PUT(req: NextRequest, { params }: RouteContext) {
     return NextResponse.json({ error: "is_tester harus 'YES' atau 'NO'" }, { status: 400 })
   }
 
-  const { error } = await db
+  const { data, error } = await db
     .from('siswa')
     .update({
       nama: nama ? String(nama).toUpperCase() : undefined,
@@ -35,8 +35,12 @@ export async function PUT(req: NextRequest, { params }: RouteContext) {
       is_tester: is_tester || undefined,
     })
     .eq('nis', params.nis)
+    .select('nis')
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (!data || data.length === 0) {
+    return NextResponse.json({ error: 'Siswa tidak ditemukan' }, { status: 404 })
+  }
   return NextResponse.json({ message: 'Data berhasil diperbarui' })
 }
 
@@ -44,8 +48,19 @@ export async function DELETE(req: NextRequest, { params }: RouteContext) {
   const auth = requireRole(req, ['ADMIN'])
   if ('error' in auth) return auth.error
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   const { nis } = params
+
+  // Multi-yayasan: jawaban_essay_foto dan RPC hapus_siswa_atomik TIDAK
+  // ter-scope otomatis, jadi pastikan dulu siswa ini milik yayasan pemanggil
+  // (query siswa ber-scope). Kalau bukan -> 404, tidak ada yang disentuh.
+  const { data: siswaAda, error: siswaErr } = await db
+    .from('siswa')
+    .select('nis')
+    .eq('nis', nis)
+    .maybeSingle()
+  if (siswaErr) return NextResponse.json({ error: siswaErr.message }, { status: 500 })
+  if (!siswaAda) return NextResponse.json({ error: 'Siswa tidak ditemukan' }, { status: 404 })
 
   // FIX (audit lanjutan — Batch 3, "Delete siswa"): versi lama hanya
   // menghapus pelanggaran, nilai, jawaban, siswa_ujian lewat beberapa DELETE
