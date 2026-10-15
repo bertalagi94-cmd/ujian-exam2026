@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 
 // GET /api/guru/kisi-kisi/mapel-ampu
@@ -11,7 +11,7 @@ export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['GURU'])
   if ('error' in auth) return auth.error
   const { user } = auth
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
 
   // 1. Ambil semua mapel yang diampu guru ini
   const { data: mapelList, error } = await db

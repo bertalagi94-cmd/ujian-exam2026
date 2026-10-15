@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 import { kirimPasanganPaket, cekPasanganPaket } from '@/lib/gabungKirim'
 import { cekSesiMapelKelasSudahMulai, pesanBankSoalTerkunci } from '@/lib/sesi-kelas'
@@ -15,7 +15,7 @@ export async function GET(
   const auth = requireRole(req, ['GURU'])
   if ('error' in auth) return auth.error
   const { user } = auth
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
 
   if (params.action !== 'kirim') {
     return NextResponse.json({ error: 'Action tidak valid' }, { status: 400 })
@@ -48,7 +48,7 @@ export async function POST(
   const auth = requireRole(req, ['GURU'])
   if ('error' in auth) return auth.error
   const { user } = auth
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   const paketId = params.id
   const action = params.action
 

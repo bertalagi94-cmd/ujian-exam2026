@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 
 // GET /api/guru/kirim-nilai
@@ -10,7 +10,7 @@ export async function GET(req: NextRequest) {
   if ('error' in auth) return auth.error
   const { user } = auth
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
 
   // Ambil mapel yang diajar guru ini
   const { data: guruMapel } = await db
@@ -190,7 +190,7 @@ export async function PATCH(req: NextRequest) {
   if ('error' in auth) return auth.error
   const { user } = auth
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   const body = await req.json()
   const { aksi } = body
 

@@ -11,7 +11,7 @@
 // sejak login sampai selesai PG) tidak akan bisa membuka essay dengan kode ini
 // — pengawas perlu menanganinya secara manual (kode tidak akan berfungsi).
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 import { verifySesiOwnership } from '@/lib/sesi-ownership'
 import { hitungKodeDarurat } from '@/lib/essay-amplop-server'
@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
   if ('error' in auth) return auth.error
   const { user } = auth
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   const sesiId = new URL(req.url).searchParams.get('sesiId')
   if (!sesiId) return NextResponse.json({ error: 'sesiId diperlukan' }, { status: 400 })
 

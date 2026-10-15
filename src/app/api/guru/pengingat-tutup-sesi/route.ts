@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 import { muatPengingatSesi } from '@/lib/sesi-belum-ditutup'
 
@@ -19,8 +19,9 @@ export async function GET(req: NextRequest) {
   if ('error' in auth) return auth.error
 
   try {
-    const data = await muatPengingatSesi(createAdminClient(), {
+    const data = await muatPengingatSesi(tenantDb(yayasanIdDari(auth.user)), {
       hanyaPengawas: auth.user.username,
+      yayasanId: yayasanIdDari(auth.user),
     })
     return NextResponse.json({ data })
   } catch (e) {

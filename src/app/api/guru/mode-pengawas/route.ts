@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 import { generateId } from '@/lib/utils'
 import { getZonaWaktuSekolah, tanggalHariIni } from '@/lib/pengaturan-waktu'
@@ -22,10 +22,10 @@ export async function GET(req: NextRequest) {
   if ('error' in auth) return auth.error
   const { user } = auth
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
 
   // ── 1. Ambil semua jadwal milik guru ini ──────────────────────────────────
-  const zona = await getZonaWaktuSekolah()
+  const zona = await getZonaWaktuSekolah(yayasanIdDari(auth.user))
   const today = tanggalHariIni(zona)
   const todayStart = `${today}T00:00:00`
   const todayEnd   = `${today}T23:59:59`
@@ -257,7 +257,7 @@ export async function POST(req: NextRequest) {
   if ('error' in auth) return auth.error
   const { user } = auth
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   const { jadwalId } = await req.json()
 
   // Verify jadwal belongs to this guru as pengawas

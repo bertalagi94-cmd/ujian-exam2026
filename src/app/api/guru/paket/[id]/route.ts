@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 import { cekSesiMapelKelasSudahMulai, pesanBankSoalTerkunci } from '@/lib/sesi-kelas'
 
@@ -16,7 +16,7 @@ export async function DELETE(
   if ('error' in auth) return auth.error
 
   const { user } = auth
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   const paketId = params.id
 
   const { data: paket, error: fetchError } = await db
@@ -88,7 +88,7 @@ export async function PUT(
   if ('error' in auth) return auth.error
 
   const { user } = auth
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   const paketId = params.id
   const body = await req.json()
 

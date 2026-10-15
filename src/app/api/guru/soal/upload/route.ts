@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 
 export async function POST(req: NextRequest) {
@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Ukuran file maksimal 2MB' }, { status: 400 })
     }
 
-    const db = createAdminClient()
+    const db = tenantDb(yayasanIdDari(auth.user))
     const bytes = await file.arrayBuffer()
     const buffer = Buffer.from(bytes)
     const ext = file.name.split('.').pop() || 'jpg'

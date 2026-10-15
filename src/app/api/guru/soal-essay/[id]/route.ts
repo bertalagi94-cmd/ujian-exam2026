@@ -3,7 +3,7 @@
 // persis pola yang sama dengan guru/soal/[id]/route.ts (PG) — bukan lagi
 // berdasarkan status sesi_ujian per jadwal.
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 import { stripHtmlTags } from '@/lib/utils'
 import { cekSesiMapelKelasSudahMulai, pesanBankSoalTerkunci } from '@/lib/sesi-kelas'
@@ -15,7 +15,7 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
   if ('error' in auth) return auth.error
   const { user } = auth
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   const body = await req.json()
 
   const { data: existing } = await db
@@ -73,7 +73,7 @@ export async function DELETE(req: NextRequest, { params }: Ctx) {
   if ('error' in auth) return auth.error
   const { user } = auth
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
 
   const { data: existing } = await db
     .from('soal_essay')

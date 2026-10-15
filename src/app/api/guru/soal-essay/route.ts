@@ -4,7 +4,7 @@
 // Sekarang soal essay melekat ke paket_essay (bank per mapel+kelas), bukan
 // ke jadwal_id lagi — lihat 08_paket_essay.sql.
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 import { generateId, stripHtmlTags } from '@/lib/utils'
 import { cekSesiMapelKelasSudahMulai, pesanBankSoalTerkunci } from '@/lib/sesi-kelas'
@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
   if ('error' in auth) return auth.error
   const { user } = auth
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   const { searchParams } = new URL(req.url)
   const paketId = searchParams.get('paket_id') ?? ''
 
@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
   if ('error' in auth) return auth.error
   const { user } = auth
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   const body = await req.json()
 
   if (!body.paket_id) {

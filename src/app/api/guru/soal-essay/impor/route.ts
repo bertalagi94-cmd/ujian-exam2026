@@ -14,7 +14,7 @@
 // idempotency_key yang sama dijawab sukses tanpa menyisipkan lagi (kunci per
 // baris `${key}:${i}` memakai UNIQUE INDEX dari migrasi 13).
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 import { generateId, stripHtmlTags } from '@/lib/utils'
 import { cekSesiMapelKelasSudahMulai, pesanBankSoalTerkunci } from '@/lib/sesi-kelas'
@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
   const auth = requireRole(req, ['GURU'])
   if ('error' in auth) return auth.error
   const { user } = auth
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
 
   let body: Record<string, unknown>
   try {

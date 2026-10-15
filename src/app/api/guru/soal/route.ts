@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 import { generateId, stripHtmlTags } from '@/lib/utils'
 import { cekSesiMapelKelasSudahMulai, pesanBankSoalTerkunci } from '@/lib/sesi-kelas'
@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
   if ('error' in auth) return auth.error
   const { user } = auth
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   const { searchParams } = new URL(req.url)
   const page = parseInt(searchParams.get('page') ?? '1')
   const perPage = parseInt(searchParams.get('per_page') ?? '15')
@@ -54,7 +54,7 @@ export async function POST(req: NextRequest) {
   if ('error' in auth) return auth.error
   const { user } = auth
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   const body = await req.json()
 
   // FIX BUG (IDOR — dua celah sekaligus): sebelumnya endpoint ini langsung

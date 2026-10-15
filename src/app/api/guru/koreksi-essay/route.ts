@@ -1,6 +1,6 @@
 // Taruh di: src/app/api/guru/koreksi-essay/route.ts
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 
 // GET ?sesiId=... — daftar siswa yang SUDAH_KIRIM essay di sesi ini,
@@ -10,7 +10,7 @@ export async function GET(req: NextRequest) {
   if ('error' in auth) return auth.error
   const { user } = auth
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   const { searchParams } = new URL(req.url)
   const sesiId = searchParams.get('sesiId')
   if (!sesiId) return NextResponse.json({ error: 'sesiId diperlukan' }, { status: 400 })
@@ -304,7 +304,7 @@ export async function PUT(req: NextRequest) {
   if ('error' in auth) return auth.error
   const { user } = auth
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   const { sesiId, nis, skorPerSoal, tidakMengerjakan } = await req.json()
   if (!sesiId || !nis) return NextResponse.json({ error: 'sesiId dan nis diperlukan' }, { status: 400 })
 
@@ -535,7 +535,7 @@ export async function PATCH(req: NextRequest) {
   if ('error' in auth) return auth.error
   const { user } = auth
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   const { sesiId, bobotPg, bobotEssay } = await req.json()
   if (!sesiId) return NextResponse.json({ error: 'sesiId diperlukan' }, { status: 400 })
 

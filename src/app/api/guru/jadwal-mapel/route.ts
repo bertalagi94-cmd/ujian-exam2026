@@ -6,7 +6,7 @@
 // menu "Jadwal Mapel Saya" menjawab pertanyaan "mapel saya diujikan kapan,
 // di kelas mana, dan siapa yang mengawasi?".
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 import { getZonaWaktuSekolah, tanggalHariIni } from '@/lib/pengaturan-waktu'
 
@@ -15,8 +15,8 @@ export async function GET(req: NextRequest) {
   if ('error' in auth) return auth.error
   const { user } = auth
 
-  const db = createAdminClient()
-  const zona = await getZonaWaktuSekolah()
+  const db = tenantDb(yayasanIdDari(auth.user))
+  const zona = await getZonaWaktuSekolah(yayasanIdDari(auth.user))
   const hariIni = tanggalHariIni(zona)
 
   const { data: mapelSaya, error: mapelError } = await db

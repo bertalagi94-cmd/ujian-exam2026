@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 import { getZonaWaktuSekolah, tanggalHariIni } from '@/lib/pengaturan-waktu'
 
@@ -8,7 +8,7 @@ export async function GET(req: NextRequest) {
   if ('error' in auth) return auth.error
   const { user } = auth
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
 
   // Ambil semua jadwal yang pengawasnya adalah guru ini
   const { data: jadwalSendiri, error } = await db
@@ -46,7 +46,7 @@ export async function GET(req: NextRequest) {
   const jadwalList = [...(jadwalSendiri ?? []), ...jadwalSusulanSaya]
     .sort((a, b) => (a.tanggal < b.tanggal ? -1 : a.tanggal > b.tanggal ? 1 : (a.sesi ?? 0) - (b.sesi ?? 0)))
 
-  const zona = await getZonaWaktuSekolah()
+  const zona = await getZonaWaktuSekolah(yayasanIdDari(auth.user))
 
   if (!jadwalList?.length) return NextResponse.json({ data: [], hasJadwal: false, zonaWaktu: zona })
 

@@ -3,7 +3,7 @@
 // Tidak bergantung pada sesi_ujian yang sudah ada.
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 import { generateId } from '@/lib/utils'
 import { cekSesiBentrokKelas, pesanBentrokKelas } from '@/lib/sesi-kelas'
@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
   const auth = requireRole(req, ['GURU', 'ADMIN'])
   if ('error' in auth) return auth.error
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   const { jadwalId, konfirmasi } = await req.json()
   const isKonfirmasi = konfirmasi === true
 

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 import { generateId } from '@/lib/utils'
 import { getGuruSekolahScope } from '@/lib/kepsek-scope'
@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['GURU'])
   if ('error' in auth) return auth.error
   const { user } = auth
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
 
   const scope = await getGuruSekolahScope(user.username)
   if (scope.noScope) {
@@ -89,7 +89,7 @@ export async function POST(req: NextRequest) {
   const auth = requireRole(req, ['GURU'])
   if ('error' in auth) return auth.error
   const { user } = auth
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   const body = await req.json()
   const { mapel_id, kelas_id, konten, status } = body
 
@@ -141,7 +141,7 @@ export async function PUT(req: NextRequest) {
   const auth = requireRole(req, ['GURU'])
   if ('error' in auth) return auth.error
   const { user } = auth
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   const body = await req.json()
   const { id, konten, status } = body
 
@@ -178,7 +178,7 @@ export async function DELETE(req: NextRequest) {
   const auth = requireRole(req, ['GURU'])
   if ('error' in auth) return auth.error
   const { user } = auth
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   const { searchParams } = new URL(req.url)
   const id = searchParams.get('id')
 

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 import { verifySesiOwnership } from '@/lib/sesi-ownership'
 import { finalisasiNilaiPaksa } from '@/lib/finalisasi-nilai'
@@ -8,7 +8,7 @@ export async function POST(req: NextRequest) {
   const auth = requireRole(req, ['GURU'])
   if ('error' in auth) return auth.error
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   const { sesiId } = await req.json()
 
   // FIX: sebelumnya endpoint ini hanya mengecek role GURU, tidak mengecek

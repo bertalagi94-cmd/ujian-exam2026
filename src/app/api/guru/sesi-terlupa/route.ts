@@ -43,7 +43,7 @@
 // sendiri, berbeda dari jadwal aslinya (lihat admin/susulan/route.ts).
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 import { durasiTotalSesi } from '@/lib/durasi-ujian'
 
@@ -52,7 +52,7 @@ export async function GET(req: NextRequest) {
   if ('error' in auth) return auth.error
   const { user } = auth
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
 
   // ── 1. Jadwal yang pengawas aslinya adalah guru ini ──────────────────────
   const { data: jadwalSendiri } = await db

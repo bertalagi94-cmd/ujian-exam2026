@@ -12,7 +12,7 @@
 // yang sesi_ujian-nya sudah mengaktifkan essay, TANPA syarat siapa
 // pengawasnya.
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 
 export async function GET(req: NextRequest) {
@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
   if ('error' in auth) return auth.error
   const { user } = auth
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
 
   const { data: mapelSaya } = await db
     .from('mapel')

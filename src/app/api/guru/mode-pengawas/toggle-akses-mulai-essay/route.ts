@@ -5,7 +5,7 @@
 // selesai PG setelahnya otomatis ikut boleh mulai essay — lihat catatan di
 // 11_akses_mulai_essay.sql.
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 import { verifySesiOwnership } from '@/lib/sesi-ownership'
 
@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
   if ('error' in auth) return auth.error
   const { user } = auth
 
-  const db = createAdminClient()
+  const db = tenantDb(yayasanIdDari(auth.user))
   const { sesiId, buka } = await req.json()
   if (!sesiId) return NextResponse.json({ error: 'sesiId diperlukan' }, { status: 400 })
   if (typeof buka !== 'boolean') return NextResponse.json({ error: 'buka (boolean) diperlukan' }, { status: 400 })
