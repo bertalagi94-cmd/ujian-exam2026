@@ -27,7 +27,8 @@ export const dynamic = 'force-dynamic'
 export const fetchCache = 'force-no-store'
 
 export async function GET(req: NextRequest) {
-  const auth = requireRole(req, ['GURU', 'KEPSEK', 'ADMIN'])
+  const auth = requireRole(req, ['GURU', 'KEPSEK', 'ADMIN'], { izinkanWajibGanti: true })
+  // Layar Pantau sengaja tidak memaksa ganti password bawaan (permintaan pemilik aplikasi).
   if ('error' in auth) return auth.error
   const { user } = auth
 
