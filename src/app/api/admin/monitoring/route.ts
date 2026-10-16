@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
+import { getZonaWaktuSekolah, awalHariIniInstant } from '@/lib/pengaturan-waktu'
 import { durasiTotalSesi } from '@/lib/durasi-ujian'
 
 // ── Status "Server" NYATA ────────────────────────────────────────────────
@@ -141,7 +142,8 @@ export async function GET(req: NextRequest) {
 
   const db = tenantDb(yayasanIdDari(auth.user))
   const now = new Date()
-  const startOfDay = new Date(now); startOfDay.setHours(0, 0, 0, 0)
+  // Awal hari mengikuti zona waktu sekolah (bukan UTC/zona server)
+  const startOfDay = awalHariIniInstant(await getZonaWaktuSekolah(yayasanIdDari(auth.user)), now)
   const fiveMinsAgo = new Date(now.getTime() - 5 * 60 * 1000)
   const windowServerAwal = new Date(now.getTime() - WINDOW_MENIT * 60 * 1000)
   const historiAwal = new Date(now.getTime() - JENDELA_HISTORI_MENIT * 60 * 1000)

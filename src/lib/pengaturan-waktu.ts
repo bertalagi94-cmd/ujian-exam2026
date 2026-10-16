@@ -95,6 +95,10 @@ export function tanggalHariIni(zona: ZonaWaktuInfo, now: Date = new Date()): str
  * instant (Date) yang valid — bukan diparse sebagai UTC atau timezone
  * proses Node.js (yang bisa berbeda-beda tergantung server/region deploy).
  */
+export function awalHariIniInstant(zona: ZonaWaktuInfo, now: Date = new Date()): Date {
+  return parseJadwalKeInstant(tanggalHariIni(zona, now), '00:00', zona)
+}
+
 export function parseJadwalKeInstant(tanggal: string, jam: string, zona: ZonaWaktuInfo): Date {
   const tgl = tanggal.slice(0, 10)
   const jamFull = jam.length === 5 ? `${jam}:00` : jam

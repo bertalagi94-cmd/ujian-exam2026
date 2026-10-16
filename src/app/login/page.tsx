@@ -584,7 +584,7 @@ export default function LoginPage() {
       localStorage.setItem('token', data.token)
       localStorage.setItem('user', JSON.stringify({ username: data.username, nama: data.nama, role: data.role, nis: data.nis, kelas: data.kelas }))
       const roleRoutes: Record<string, string> = { ADMIN: '/admin', GURU: '/guru', KEPSEK: '/kepsek', SISWA: '/siswa' }
-      router.push(roleRoutes[data.role] ?? '/login')
+      router.push(data.wajibGantiPassword ? '/ganti-password' : (roleRoutes[data.role] ?? '/login'))
     } catch (err: unknown) {
       // FIX (pesan teknis "Failed to fetch" saat offline): fetch() browser
       // melempar TypeError polos dengan message "Failed to fetch" kalau

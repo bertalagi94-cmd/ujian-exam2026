@@ -201,37 +201,17 @@ export async function POST(req: NextRequest) {
     // Satu cache hit menggantikan 2–3 round-trip ke DB
     const pengaturan = await getPengaturan(yayasanTarget!)
 
-    if (pengaturan['maintenanceAktif'] === 'true') {
-      // Dibatasi ke yayasan tujuan login: tester/admin yayasan lain tidak
-      // boleh menembus maintenance yayasan ini (dan sebaliknya).
-      const db = tenantDb(yayasanTarget!)
-      const usernameTrim = username.trim()
-
-      // Diizinkan login saat maintenance: role ADMIN, ATAU akun (guru/kepsek
-      // di tabel users, maupun siswa di tabel siswa) yang ditandai
-      // is_tester = 'YES'. Sebelumnya hanya role ADMIN yang dicek di sini,
-      // padahal teks di halaman admin/pengaturan sudah menjanjikan bahwa
-      // akun IS_TESTER juga bisa login — jadi ini menyamakan kode dengan
-      // janji tersebut.
-      const [{ data: adminCheck }, { data: testerUserCheck }, { data: testerSiswaCheck }] = await Promise.all([
-        db.from('users').select('role').eq('username', usernameTrim).eq('role', 'ADMIN').maybeSingle(),
-        db.from('users').select('username').eq('username', usernameTrim).eq('is_tester', 'YES').maybeSingle(),
-        db.from('siswa').select('nis').eq('nis', usernameTrim).eq('is_tester', 'YES').maybeSingle(),
-      ])
-
-      if (!adminCheck && !testerUserCheck && !testerSiswaCheck) {
-        return NextResponse.json({
-          error: buildPesanMaintenance(pengaturan),
-        }, { status: 503 })
-      }
-    }
+    // Maintenance: pengecekan dilakukan SETELAH password terverifikasi (lihat di
+    // bawah). Dulu username non-admin langsung dibalas 503 sebelum password
+    // dicek, sehingga perbedaan respons membocorkan username ADMIN/tester.
+    const sedangMaintenance = pengaturan['maintenanceAktif'] === 'true'
 
     const supabase = createAdminClient()
 
     // Query users dan siswa BERSAMAAN
     const [{ data: user }, { data: siswa }] = await Promise.all([
-      supabase.from('users').select('username, password_hash, nama, role, yayasan_id').eq('username', username.trim()).eq('status', 'AKTIF').single(),
-      supabase.from('siswa').select('nis, password_hash, nama, kelas, yayasan_id').eq('nis', username.trim()).eq('status', 'AKTIF').single(),
+      supabase.from('users').select('username, password_hash, nama, role, yayasan_id, is_tester').eq('username', username.trim()).eq('status', 'AKTIF').single(),
+      supabase.from('siswa').select('nis, password_hash, nama, kelas, yayasan_id, is_tester').eq('nis', username.trim()).eq('status', 'AKTIF').single(),
     ])
 
     // Akun milik yayasan lain diperlakukan sama seperti "tidak ditemukan".
@@ -242,16 +222,31 @@ export async function POST(req: NextRequest) {
       const match = await bcrypt.compare(String(password), user.password_hash || DUMMY_HASH)
       if (!match) { catatGagalIp(ip); return NextResponse.json({ error: GENERIC_LOGIN_ERROR }, { status: 401 }) }
 
-      const token = signToken({ username: user.username, nama: user.nama, role: user.role, yayasanId: yayasanTarget! })
+      // Diizinkan login saat maintenance: ADMIN atau akun tester (is_tester = 'YES').
+      if (sedangMaintenance && user.role !== 'ADMIN' && user.is_tester !== 'YES') {
+        return NextResponse.json({ error: buildPesanMaintenance(pengaturan) }, { status: 503 })
+      }
+
+      // Password bawaan (password == username, hasil reset admin / akun baru):
+      // token diberi klaim gantiPassword sehingga semua endpoint menolak sampai diganti.
+      const wajibGantiPassword = String(password) === user.username
+      const token = signToken({
+        username: user.username, nama: user.nama, role: user.role, yayasanId: yayasanTarget!,
+        ...(wajibGantiPassword ? { gantiPassword: true } : {}),
+      })
       supabase.from('users').update({ last_login: new Date().toISOString() }).eq('username', user.username)
         .then(({ error }) => { if (error) console.error('Gagal update last_login (user):', error) })
       catatLoginAktivitas(tenantDb(yayasanTarget!), user.username, `Login sebagai ${user.role}`)
-      return NextResponse.json({ token, username: user.username, nama: user.nama, role: user.role })
+      return NextResponse.json({ token, username: user.username, nama: user.nama, role: user.role, wajibGantiPassword })
     }
 
     if (siswa && siswaOk) {
       const match = await bcrypt.compare(String(password), siswa.password_hash || DUMMY_HASH)
       if (!match) { catatGagalIp(ip); return NextResponse.json({ error: GENERIC_LOGIN_ERROR }, { status: 401 }) }
+
+      if (sedangMaintenance && siswa.is_tester !== 'YES') {
+        return NextResponse.json({ error: buildPesanMaintenance(pengaturan) }, { status: 503 })
+      }
 
       const token = signToken({ username: siswa.nis, nama: siswa.nama, role: 'SISWA', nis: siswa.nis, kelas: siswa.kelas, yayasanId: yayasanTarget! })
       supabase.from('siswa').update({ last_login: new Date().toISOString() }).eq('nis', siswa.nis)

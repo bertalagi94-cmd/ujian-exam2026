@@ -52,6 +52,10 @@ export interface JWTPayload {
   // ID sesi Lihat-sebagai (khusus target SISWA) — dipakai menandai siswa
   // "sedang dipantau" (lihat src/lib/dipantau.ts).
   viewAsSid?: string
+  // true = akun staf masih memakai password bawaan (password == username).
+  // requireRole() menolak semua endpoint (403 WAJIB_GANTI_PASSWORD) sampai
+  // password diganti lewat /api/akun/ganti-password (yang menerbitkan token baru).
+  gantiPassword?: boolean
   iat?: number
   exp?: number
 }
@@ -99,7 +103,8 @@ export function getTokenFromRequest(req: NextRequest): JWTPayload | null {
 
 export function requireRole(
   req: NextRequest,
-  allowedRoles: JWTPayload['role'][]
+  allowedRoles: JWTPayload['role'][],
+  opts?: { izinkanWajibGanti?: boolean }
 ): { user: JWTPayload } | { error: Response } {
   const user = getTokenFromRequest(req)
   if (!user) {
@@ -116,6 +121,19 @@ export function requireRole(
         status: 403,
         headers: { 'Content-Type': 'application/json' },
       }),
+    }
+  }
+  // ── Wajib ganti password bawaan (khusus akun staf) ────────────────────────
+  // Hanya endpoint ganti password yang boleh lolos (opts.izinkanWajibGanti).
+  if (user.gantiPassword && !opts?.izinkanWajibGanti) {
+    return {
+      error: new Response(
+        JSON.stringify({
+          error: 'Anda harus mengganti password bawaan terlebih dahulu sebelum melanjutkan.',
+          kode: 'WAJIB_GANTI_PASSWORD',
+        }),
+        { status: 403, headers: { 'Content-Type': 'application/json' } }
+      ),
     }
   }
   // ── Pengikat identitas siswa (lihat src/lib/identitas-tab.ts) ─────────────

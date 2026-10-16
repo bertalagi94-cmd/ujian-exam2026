@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
+import { getZonaWaktuSekolah, tanggalHariIni } from '@/lib/pengaturan-waktu'
 import { getKepsekScope } from '@/lib/kepsek-scope'
 import { petakanEssayAktifPerSesi } from '@/app/api/guru/kirim-nilai/route'
 
@@ -34,7 +35,7 @@ export async function GET(req: NextRequest) {
 
   // Rentang "hari ini" berdasarkan tanggal lokal (kolom `tanggal` adalah DATE)
   const now = new Date()
-  const todayStr = now.toISOString().slice(0, 10)
+  const todayStr = tanggalHariIni(await getZonaWaktuSekolah(yayasanId), now)
 
   // ── Hitung Total Guru sesuai scope sekolah/jenjang Kepsek ──────────────────
   // BUG SEBELUMNYA: totalGuru dihitung dari SEMUA users role=GURU tanpa

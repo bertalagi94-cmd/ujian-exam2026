@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
+import { getZonaWaktuSekolah, awalHariIniInstant } from '@/lib/pengaturan-waktu'
 
 // Batas wajar per daftar — cukup untuk sekolah dengan ratusan siswa,
 // tapi tetap mencegah satu request menyedot ribuan baris kalau data
@@ -16,7 +17,8 @@ export async function GET(req: NextRequest) {
   const jenis = searchParams.get('jenis') ?? 'login'
 
   const now = new Date()
-  const startOfDay = new Date(now); startOfDay.setHours(0, 0, 0, 0)
+  // Awal hari mengikuti zona waktu sekolah (bukan UTC/zona server)
+  const startOfDay = awalHariIniInstant(await getZonaWaktuSekolah(yayasanIdDari(auth.user)), now)
 
   if (jenis === 'login') {
     // Siapa saja yang login HARI INI — digabung dari tabel siswa & users

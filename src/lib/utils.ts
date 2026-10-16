@@ -263,6 +263,10 @@ export function apiRequest<T = unknown>(
           }
           throw new Error('Sesi berakhir, silakan login kembali')
         }
+        if (res.status === 403 && data.kode === 'WAJIB_GANTI_PASSWORD' && typeof window !== 'undefined'
+            && window.location.pathname !== '/ganti-password') {
+          window.location.href = '/ganti-password'
+        }
         const err = new Error((data.error as string) || `Request gagal (${res.status})`) as Error & { data: Record<string, unknown>; status: number }
         err.data = data
         err.status = res.status

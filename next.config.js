@@ -34,6 +34,9 @@ const nextConfig = {
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           { key: 'X-Frame-Options', value: 'DENY' },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+          // CSP bagian aman saja (tidak membatasi script/style karena Next.js butuh inline):
+          // melarang <object>/<embed>, <base> palsu, form ke domain lain, dan framing.
+          { key: 'Content-Security-Policy', value: "object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" },
         ],
       },
     ]

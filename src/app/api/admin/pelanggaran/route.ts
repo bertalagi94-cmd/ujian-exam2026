@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
+import { getZonaWaktuSekolah, parseJadwalKeInstant } from '@/lib/pengaturan-waktu'
 import { generateId } from '@/lib/utils'
 import { ambilMaksReset, hitungKodeReset } from '@/lib/reset-berurutan'
 
@@ -52,9 +53,11 @@ export async function GET(req: NextRequest) {
   if (status) query = query.eq('status', status)
   if (jenis) query = query.eq('jenis', jenis)
   if (sesiId) query = query.eq('sesi_id', sesiId)
-  if (tanggal) {
-    const start = new Date(tanggal); start.setHours(0, 0, 0, 0)
-    const end = new Date(tanggal); end.setHours(23, 59, 59, 999)
+  if (tanggal && /^\d{4}-\d{2}-\d{2}/.test(tanggal)) {
+    // Batas hari mengikuti zona waktu sekolah (bukan UTC server).
+    const zona = await getZonaWaktuSekolah(yayasanIdDari(auth.user))
+    const start = parseJadwalKeInstant(tanggal, '00:00', zona)
+    const end = new Date(start.getTime() + 24 * 60 * 60 * 1000 - 1)
     query = query.gte('created_at', start.toISOString()).lte('created_at', end.toISOString())
   }
 

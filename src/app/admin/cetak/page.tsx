@@ -19,6 +19,13 @@ function fmtTglPendek(d: string) {
   return `${dt.getDate()} ${months[dt.getMonth()]} ${dt.getFullYear()}`
 }
 
+// Escape HTML: data siswa/sekolah disuntik ke innerHTML.
+function esc(v: unknown): string {
+  return String(v ?? '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;')
+}
+
 interface Siswa { nis: string; nama: string }
 interface SekolahCetak {
   namaSekolah?: string; npsn?: string; alamat?: string
@@ -83,7 +90,7 @@ function CetakContent() {
         return `<div class="page" style="display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;">
           <div style="font-size:14pt;font-weight:bold;color:#b91c1c;">⚠️ Sekolah Belum Dikonfigurasi</div>
           <div style="font-size:11pt;color:#333;text-align:center;">
-            Kelas <strong>${j.kelas}</strong> belum diatur sekolahnya.<br>
+            Kelas <strong>${esc(j.kelas)}</strong> belum diatur sekolahnya.<br>
             Buka menu <strong>Data Kelas → Edit</strong> dan pilih sekolah untuk kelas ini,<br>
             kemudian cetak ulang dokumen ini.
           </div>
@@ -94,23 +101,23 @@ function CetakContent() {
         return `
         <div class="page">
           <div class="kop">
-            ${s.logoUrl ? `<img src="${s.logoUrl}" class="logo" alt="logo">` : '<div class="logo-placeholder"></div>'}
+            ${s.logoUrl ? `<img src="${esc(s.logoUrl)}" class="logo" alt="logo">` : '<div class="logo-placeholder"></div>'}
             <div class="kop-text">
-              <div class="kop-nama">${s.namaSekolah ?? 'NAMA SEKOLAH'}</div>
-              <div class="kop-sub">NPSN: ${s.npsn ?? '-'}</div>
-              <div class="kop-sub">${s.alamat ?? ''}</div>
+              <div class="kop-nama">${esc(s.namaSekolah ?? 'NAMA SEKOLAH')}</div>
+              <div class="kop-sub">NPSN: ${esc(s.npsn ?? '-')}</div>
+              <div class="kop-sub">${esc(s.alamat ?? '')}</div>
             </div>
           </div>
           <div class="divider-ganda"></div>
           <div class="judul-doc">BERITA ACARA PELAKSANAAN UJIAN</div>
           <div class="intro">Pada hari ini, <strong>${fmtTanggal(j.tanggal)}</strong> telah dilaksanakan Ujian dengan ketentuan sebagai berikut:</div>
           <table class="info-table">
-            <tr><td>Mata Pelajaran</td><td>:</td><td><strong>${j.nama_mapel}</strong></td></tr>
-            <tr><td>Kelas</td><td>:</td><td>${j.kelas}</td></tr>
-            <tr><td>Pukul</td><td>:</td><td>${j.jam_mulai} s.d. ${j.jam_selesai} (${j.durasi} menit)</td></tr>
+            <tr><td>Mata Pelajaran</td><td>:</td><td><strong>${esc(j.nama_mapel)}</strong></td></tr>
+            <tr><td>Kelas</td><td>:</td><td>${esc(j.kelas)}</td></tr>
+            <tr><td>Pukul</td><td>:</td><td>${esc(j.jam_mulai)} s.d. ${esc(j.jam_selesai)} (${j.durasi} menit)</td></tr>
             <tr><td>Sesi ke-</td><td>:</td><td>${j.sesi}</td></tr>
             <tr><td>Jumlah Soal</td><td>:</td><td>${infoJumlahSoal(j)}</td></tr>
-            <tr><td>Nama Pengawas</td><td>:</td><td>${j.nama_pengawas || '-'}</td></tr>
+            <tr><td>Nama Pengawas</td><td>:</td><td>${esc(j.nama_pengawas || '-')}</td></tr>
             <tr><td>Jumlah Peserta Terdaftar</td><td>:</td><td>${j.siswa.length} siswa</td></tr>
             <tr><td>Jumlah Hadir</td><td>:</td><td>______ siswa</td></tr>
             <tr><td>Jumlah Tidak Hadir</td><td>:</td><td>______ siswa (sakit: ___, izin: ___, alpha: ___)</td></tr>
@@ -121,13 +128,13 @@ function CetakContent() {
             <div class="ttd-col">
               <div>Pengawas Ujian,</div>
               <div class="ttd-space"></div>
-              <div class="ttd-nama">${j.nama_pengawas || '_________________'}</div>
+              <div class="ttd-nama">${esc(j.nama_pengawas || '_________________')}</div>
             </div>
             <div class="ttd-col" style="text-align:right;">
-              <div>${s.kota ?? ''}, ${fmtTglPendek(j.tanggal)},</div>
-              <div>Kepala ${s.namaSekolah ?? 'Sekolah'},</div>
+              <div>${esc(s.kota ?? '')}, ${fmtTglPendek(j.tanggal)},</div>
+              <div>Kepala ${esc(s.namaSekolah ?? 'Sekolah')},</div>
               <div class="ttd-space"></div>
-              <div class="ttd-nama">${s.namaKepsek ?? '_________________'}</div>
+              <div class="ttd-nama">${esc(s.namaKepsek ?? '_________________')}</div>
             </div>
           </div>
         </div>`
@@ -137,19 +144,19 @@ function CetakContent() {
       const rows = j.siswa.map((siswa, i) => `
         <tr>
           <td class="tc">${i + 1}</td>
-          <td>${siswa.nis}</td>
-          <td>${siswa.nama}</td>
+          <td>${esc(siswa.nis)}</td>
+          <td>${esc(siswa.nama)}</td>
           <td class="ttd-cell"></td>
         </tr>`).join('')
 
       return `
       <div class="page">
         <div class="kop">
-          ${s.logoUrl ? `<img src="${s.logoUrl}" class="logo" alt="logo">` : '<div class="logo-placeholder"></div>'}
+          ${s.logoUrl ? `<img src="${esc(s.logoUrl)}" class="logo" alt="logo">` : '<div class="logo-placeholder"></div>'}
           <div class="kop-text">
-            <div class="kop-nama">${s.namaSekolah ?? 'NAMA SEKOLAH'}</div>
-            <div class="kop-sub">NPSN: ${s.npsn ?? '-'}</div>
-            <div class="kop-sub">${s.alamat ?? ''}</div>
+            <div class="kop-nama">${esc(s.namaSekolah ?? 'NAMA SEKOLAH')}</div>
+            <div class="kop-sub">NPSN: ${esc(s.npsn ?? '-')}</div>
+            <div class="kop-sub">${esc(s.alamat ?? '')}</div>
           </div>
         </div>
         <div class="divider-ganda"></div>
@@ -157,8 +164,8 @@ function CetakContent() {
         <table class="meta-table">
           <tr>
             <td>Mata Pelajaran</td><td>:</td>
-            <td><strong>${j.nama_mapel}</strong></td>
-            <td>Kelas</td><td>:</td><td>${j.kelas}</td>
+            <td><strong>${esc(j.nama_mapel)}</strong></td>
+            <td>Kelas</td><td>:</td><td>${esc(j.kelas)}</td>
           </tr>
           <tr>
             <td>Hari / Tanggal</td><td>:</td>
@@ -167,12 +174,12 @@ function CetakContent() {
           </tr>
           <tr>
             <td>Pukul</td><td>:</td>
-            <td>${j.jam_mulai} - ${j.jam_selesai}</td>
-            <td>Pengawas</td><td>:</td><td>${j.nama_pengawas || '-'}</td>
+            <td>${esc(j.jam_mulai)} - ${esc(j.jam_selesai)}</td>
+            <td>Pengawas</td><td>:</td><td>${esc(j.nama_pengawas || '-')}</td>
           </tr>
           <tr>
             <td>Tahun Ajaran</td><td>:</td>
-            <td>${s.tahunAjaran ?? '-'}</td>
+            <td>${esc(s.tahunAjaran ?? '-')}</td>
             <td>Durasi</td><td>:</td><td>${j.durasi} menit</td>
           </tr>
           <tr>
@@ -191,14 +198,14 @@ function CetakContent() {
           <div class="ttd-col">
             <div>Pengawas Ujian,</div>
             <div class="ttd-space"></div>
-            <div class="ttd-nama">${j.nama_pengawas || '_________________'}</div>
+            <div class="ttd-nama">${esc(j.nama_pengawas || '_________________')}</div>
           </div>
           <div class="ttd-col" style="text-align:right;">
-            <div>${s.kota ?? ''}, ${fmtTglPendek(j.tanggal)}</div>
+            <div>${esc(s.kota ?? '')}, ${fmtTglPendek(j.tanggal)}</div>
             <div>Mengetahui,</div>
-            <div>Kepala ${s.namaSekolah ?? 'Sekolah'}</div>
+            <div>Kepala ${esc(s.namaSekolah ?? 'Sekolah')}</div>
             <div class="ttd-space"></div>
-            <div class="ttd-nama">${s.namaKepsek ?? '_________________'}</div>
+            <div class="ttd-nama">${esc(s.namaKepsek ?? '_________________')}</div>
           </div>
         </div>
       </div>`
