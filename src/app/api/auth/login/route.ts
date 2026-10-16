@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
 import { createAdminClient } from '@/lib/supabase'
-import { signToken } from '@/lib/auth'
+import { signToken, WAJIB_GANTI_PASSWORD_AKTIF } from '@/lib/auth'
 import { cachedFetch, cacheGet, cacheSet } from '@/lib/cache'
 import { generateId } from '@/lib/utils'
 import { instrumented } from '@/lib/metrik'
@@ -229,7 +229,7 @@ export async function POST(req: NextRequest) {
 
       // Password bawaan (password == username, hasil reset admin / akun baru):
       // token diberi klaim gantiPassword sehingga semua endpoint menolak sampai diganti.
-      const wajibGantiPassword = String(password) === user.username
+      const wajibGantiPassword = WAJIB_GANTI_PASSWORD_AKTIF && String(password) === user.username
       const token = signToken({
         username: user.username, nama: user.nama, role: user.role, yayasanId: yayasanTarget!,
         ...(wajibGantiPassword ? { gantiPassword: true } : {}),

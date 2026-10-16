@@ -31,6 +31,12 @@ function getValidatedSecret(): string {
 
 const SECRET: string = getValidatedSecret()
 
+// Saklar: paksa akun staf mengganti password bawaan (password == username)?
+// NONAKTIF atas permintaan pemilik aplikasi — password saat ini dibiarkan.
+// Ubah ke true untuk mengaktifkan lagi; fitur reset password & halaman
+// ganti password tetap berfungsi normal.
+export const WAJIB_GANTI_PASSWORD_AKTIF = false
+
 export interface JWTPayload {
   username: string
   nama: string
@@ -125,7 +131,7 @@ export function requireRole(
   }
   // ── Wajib ganti password bawaan (khusus akun staf) ────────────────────────
   // Hanya endpoint ganti password yang boleh lolos (opts.izinkanWajibGanti).
-  if (user.gantiPassword && !opts?.izinkanWajibGanti) {
+  if (WAJIB_GANTI_PASSWORD_AKTIF && user.gantiPassword && !opts?.izinkanWajibGanti) {
     return {
       error: new Response(
         JSON.stringify({
