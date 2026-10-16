@@ -28,7 +28,11 @@ function excelDateToISO(XLSX: typeof XLSXType, value: unknown): string | undefin
   // Sel sudah berupa objek Date (SheetJS kadang sudah otomatis parse ini)
   if (value instanceof Date) {
     if (isNaN(value.getTime())) return undefined
-    return value.toISOString().slice(0, 10)
+    // Pakai komponen LOKAL (bukan toISOString yang memakai UTC) supaya tidak bergeser sehari.
+    const y = String(value.getFullYear()).padStart(4, '0')
+    const m = String(value.getMonth() + 1).padStart(2, '0')
+    const d = String(value.getDate()).padStart(2, '0')
+    return `${y}-${m}-${d}`
   }
 
   // Serial number Excel (hari sejak 1899-12-30, termasuk koreksi bug leap-year 1900)
@@ -311,7 +315,10 @@ export default function AdminSiswaPage() {
     reader.onload = (ev) => {
       try {
         const data = new Uint8Array(ev.target?.result as ArrayBuffer)
-        const wb = XLSX.read(data, { type: 'array', cellDates: true })
+        // TANPA cellDates: dengan cellDates:true + toISOString() tanggal bergeser -1 hari
+        // di zona waktu di depan UTC (WITA/WIB/WIT). Sel tanggal dibaca sebagai serial
+        // number dan dikonversi lewat XLSX.SSF.parse_date_code (lihat excelDateToISO).
+        const wb = XLSX.read(data, { type: 'array' })
         const ws = wb.Sheets[wb.SheetNames[0]]
         const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws)
 

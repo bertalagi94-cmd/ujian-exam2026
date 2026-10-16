@@ -17,12 +17,21 @@ export const maxDuration = 60
 export async function GET(req: NextRequest) {
   // Keamanan: Vercel otomatis mengirim header "Authorization: Bearer <CRON_SECRET>"
   // untuk request yang dipicu oleh Cron Job, selama env var CRON_SECRET di-set.
-  // Saat testing manual, bisa juga lewat ?secret=xxx di URL.
+  // Testing manual: kirim header "Authorization: Bearer <CRON_SECRET>"
+  // (mis. curl -H "Authorization: Bearer xxx"). Opsi ?secret= di URL sengaja
+  // dihapus karena URL tercatat di log server/proxy.
   const authHeader = req.headers.get('authorization')
-  const secretParam = req.nextUrl.searchParams.get('secret')
   const expected = process.env.CRON_SECRET
 
-  if (expected && authHeader !== `Bearer ${expected}` && secretParam !== expected) {
+  // FAIL CLOSED: kalau CRON_SECRET belum di-set, endpoint ditolak (dulu
+  // pengecekan dilewati sehingga siapa pun bisa memicu pengiriman WhatsApp).
+  if (!expected) {
+    return NextResponse.json(
+      { error: 'CRON_SECRET belum di-set di environment variables' },
+      { status: 500 }
+    )
+  }
+  if (authHeader !== `Bearer ${expected}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 

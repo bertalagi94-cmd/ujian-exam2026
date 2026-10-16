@@ -61,6 +61,36 @@ function cekRateLimit(ip: string, username: string): { allowed: boolean; sisaDet
   return { allowed: true }
 }
 
+// ── Batas LOGIN GAGAL per IP (tanpa username) ──────────────────────────────
+// cekRateLimit di atas memakai kunci IP+username, sehingga penyerang yang
+// mencoba SATU password per akun (mis. password = NIS ke semua NIS) tidak
+// pernah kena batas. Penghitung ini menghitung hanya login GAGAL per IP.
+// Angkanya sengaja longgar karena satu sekolah bisa berbagi satu IP publik
+// (ratusan siswa login bersamaan, sebagian salah ketik password).
+const MAX_GAGAL_PER_IP = 120
+const kunciGagalIp = (ip: string) => `login-gagal-ip:${ip}`
+
+function ipTerblokir(ip: string): { blocked: boolean; sisaDetik?: number } {
+  const d = cacheGet<{ count: number; firstAt: number }>(kunciGagalIp(ip))
+  if (!d || d.count < MAX_GAGAL_PER_IP) return { blocked: false }
+  return { blocked: true, sisaDetik: Math.max(Math.ceil((d.firstAt + WINDOW_DETIK * 1000 - Date.now()) / 1000), 1) }
+}
+
+function catatGagalIp(ip: string): void {
+  const key = kunciGagalIp(ip)
+  const d = cacheGet<{ count: number; firstAt: number }>(key)
+  if (!d) {
+    cacheSet(key, { count: 1, firstAt: Date.now() }, WINDOW_DETIK)
+    return
+  }
+  const sisa = Math.max(Math.ceil((d.firstAt + WINDOW_DETIK * 1000 - Date.now()) / 1000), 1)
+  cacheSet(key, { count: d.count + 1, firstAt: d.firstAt }, sisa)
+}
+
+// Hash palsu untuk menyamakan waktu respons: tanpa ini bcrypt.compare hanya
+// berjalan kalau akun ada, jadi waktu respons membocorkan username/NIS valid.
+const DUMMY_HASH = bcrypt.hashSync('tidak-dipakai-sebagai-password', 10)
+
 // Format nilai <input type="datetime-local"> ("YYYY-MM-DDTHH:mm") menjadi
 // teks berbahasa Indonesia, mis. "12 September 2026, 08.00". Sengaja di-parse
 // langsung dari string (bukan lewat `new Date(...)`) supaya angka jam/menit
@@ -122,8 +152,11 @@ export async function POST(req: NextRequest) {
   // error 500 atau exception (mis. Supabase down) yang dicatat 'error'.
   return instrumented('login', async () => {
   try {
-    const { username, password, kodeSekolah } = await req.json()
-    if (!username || !password) {
+    const body = await req.json().catch(() => null)
+    const username = typeof body?.username === 'number' ? String(body.username) : body?.username
+    const password = typeof body?.password === 'number' ? String(body.password) : body?.password
+    const kodeSekolah = body?.kodeSekolah
+    if (typeof username !== 'string' || typeof password !== 'string' || !username.trim() || !password) {
       return NextResponse.json({ error: 'Username dan password wajib diisi' }, { status: 400 })
     }
 
@@ -134,6 +167,15 @@ export async function POST(req: NextRequest) {
       const sisaMenit = Math.ceil((rl.sisaDetik ?? 0) / 60)
       return NextResponse.json(
         { error: `Terlalu banyak percobaan login. Coba lagi dalam ${sisaMenit} menit.` },
+        { status: 429 }
+      )
+    }
+
+    const blokirIp = ipTerblokir(ip)
+    if (blokirIp.blocked) {
+      const sisaMenit = Math.ceil((blokirIp.sisaDetik ?? 0) / 60)
+      return NextResponse.json(
+        { error: `Terlalu banyak percobaan login gagal dari jaringan ini. Coba lagi dalam ${sisaMenit} menit.` },
         { status: 429 }
       )
     }
@@ -197,8 +239,8 @@ export async function POST(req: NextRequest) {
     const siswaOk = siswa && (siswa.yayasan_id ?? YAYASAN_AWAL_ID) === yayasanTarget
 
     if (user && userOk) {
-      const match = await bcrypt.compare(String(password), user.password_hash)
-      if (!match) return NextResponse.json({ error: GENERIC_LOGIN_ERROR }, { status: 401 })
+      const match = await bcrypt.compare(String(password), user.password_hash || DUMMY_HASH)
+      if (!match) { catatGagalIp(ip); return NextResponse.json({ error: GENERIC_LOGIN_ERROR }, { status: 401 }) }
 
       const token = signToken({ username: user.username, nama: user.nama, role: user.role, yayasanId: yayasanTarget! })
       supabase.from('users').update({ last_login: new Date().toISOString() }).eq('username', user.username)
@@ -208,8 +250,8 @@ export async function POST(req: NextRequest) {
     }
 
     if (siswa && siswaOk) {
-      const match = await bcrypt.compare(String(password), siswa.password_hash)
-      if (!match) return NextResponse.json({ error: GENERIC_LOGIN_ERROR }, { status: 401 })
+      const match = await bcrypt.compare(String(password), siswa.password_hash || DUMMY_HASH)
+      if (!match) { catatGagalIp(ip); return NextResponse.json({ error: GENERIC_LOGIN_ERROR }, { status: 401 }) }
 
       const token = signToken({ username: siswa.nis, nama: siswa.nama, role: 'SISWA', nis: siswa.nis, kelas: siswa.kelas, yayasanId: yayasanTarget! })
       supabase.from('siswa').update({ last_login: new Date().toISOString() }).eq('nis', siswa.nis)
@@ -218,6 +260,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ token, username: siswa.nis, nama: siswa.nama, role: 'SISWA', nis: siswa.nis, kelas: siswa.kelas })
     }
 
+    // Akun tidak ada / milik yayasan lain: tetap jalankan bcrypt supaya waktu
+    // respons sama dengan password salah pada akun yang ada.
+    await bcrypt.compare(String(password), DUMMY_HASH)
+    catatGagalIp(ip)
     return NextResponse.json({ error: GENERIC_LOGIN_ERROR }, { status: 401 })
   } catch (err) {
     console.error('Login error:', err)

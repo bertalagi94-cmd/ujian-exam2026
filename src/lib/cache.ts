@@ -21,8 +21,32 @@ export function cacheGet<T>(key: string): T | null {
   return entry.value
 }
 
+// Sapu berkala: entri kedaluwarsa dulu hanya dihapus saat key yang sama dibaca
+// lagi, jadi key unik (mis. kunci rate limit berisi username dari input
+// pengguna) menumpuk selamanya di server yang hidup lama.
+const MAKS_ENTRI = 20_000
+const JEDA_SAPU_MS = 60_000
+let sapuTerakhir = 0
+
+function sapu(now: number): void {
+  if (now - sapuTerakhir < JEDA_SAPU_MS && store.size <= MAKS_ENTRI) return
+  sapuTerakhir = now
+  store.forEach((entry, key) => {
+    if (now > entry.expiresAt) store.delete(key)
+  })
+  if (store.size > MAKS_ENTRI) {
+    let lebih = store.size - MAKS_ENTRI
+    for (const key of Array.from(store.keys())) {
+      if (lebih-- <= 0) break
+      store.delete(key)
+    }
+  }
+}
+
 export function cacheSet<T>(key: string, value: T, ttlSeconds: number): void {
-  store.set(key, { value, expiresAt: Date.now() + ttlSeconds * 1000 })
+  const now = Date.now()
+  sapu(now)
+  store.set(key, { value, expiresAt: now + ttlSeconds * 1000 })
 }
 
 export function cacheDel(key: string): void {

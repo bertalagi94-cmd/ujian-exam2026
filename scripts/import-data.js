@@ -30,6 +30,17 @@ function readSheet(wb, sheetName) {
   return XLSX.utils.sheet_to_json(ws, { defval: null, raw: false })
 }
 
+// Kunci harus satu huruf A-E huruf BESAR (penilaian memakai === ketat).
+// Dulu kunci kosong diam-diam jadi 'A' dan 'b' kecil tidak dinormalisasi.
+function normalisasiKunci(raw, id) {
+  const k = safeStr(raw).trim().toUpperCase()
+  if (!/^[A-E]$/.test(k)) {
+    console.warn(`PERINGATAN: soal ${id} punya kunci tidak valid (${JSON.stringify(raw)}); dipakai 'A' sementara - PERIKSA MANUAL.`)
+    return 'A'
+  }
+  return k
+}
+
 function safeStr(val) {
   if (val === null || val === undefined) return null
   return String(val).trim() || null
@@ -223,7 +234,7 @@ async function importSoal(wb) {
     opsi_c: safeStr(r.OpsiC),
     opsi_d: safeStr(r.OpsiD),
     opsi_e: safeStr(r.OpsiE),
-    kunci: safeStr(r.Kunci) || 'A',
+    kunci: normalisasiKunci(r.Kunci, r.ID),
     pembahasan: safeStr(r.Pembahasan),
     tingkat: safeStr(r.Tingkat) || 'Sedang',
     jumlah_opsi: safeInt(r.JumlahOpsi, 4),

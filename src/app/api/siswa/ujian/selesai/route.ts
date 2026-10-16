@@ -20,7 +20,12 @@ export async function POST(req: NextRequest) {
   // (lihat hitungHasilPenilaian di bawah) -- klaim ini murni untuk jejak
   // audit ("kapan siswa MENGAKU selesai") dan tidak bisa dipakai untuk
   // memalsukan nilai.
-  const { sesiId, nis, waktuSelesaiClient, deviceId } = await req.json()
+  const body = await req.json().catch(() => null) as
+    { sesiId?: any; nis?: any; waktuSelesaiClient?: any; deviceId?: any } | null
+  if (!body || typeof body !== 'object' || typeof body.sesiId !== 'string') {
+    return NextResponse.json({ error: 'Body request tidak valid' }, { status: 400 })
+  }
+  const { sesiId, nis, waktuSelesaiClient, deviceId } = body
 
   if (nis !== user.nis) return NextResponse.json({ error: 'NIS tidak sesuai' }, { status: 403 })
 

@@ -11,6 +11,13 @@ function fmtTanggal(d: string) {
   return `${dt.getDate()} ${months[dt.getMonth()]} ${dt.getFullYear()}`
 }
 
+// Escape HTML: nama/NIS dll. berasal dari data impor dan disuntik ke innerHTML.
+function esc(v: unknown): string {
+  return String(v ?? '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;')
+}
+
 interface Siswa {
   nis: string; nama: string; kelas: string
   jenis_kelamin?: string; tempat_lahir?: string; tanggal_lahir?: string
@@ -59,7 +66,7 @@ function KartuSiswaContent() {
       const initials = getInitials(siswa.nama)
       const [bg1, bg2] = avatarColor(initials)
       // Password default = NIS siswa
-      const passwordDefault = siswa.nis
+      const passwordDefault = esc(siswa.nis)
 
       return `
       <div class="kartu">
@@ -67,11 +74,11 @@ function KartuSiswaContent() {
         <div class="kartu-header">
           <div class="header-left">
             ${s.logoUrl
-              ? `<img src="${s.logoUrl}" class="kartu-logo" alt="logo">`
+              ? `<img src="${esc(s.logoUrl)}" class="kartu-logo" alt="logo">`
               : `<div class="kartu-logo-ph"></div>`}
             <div class="header-title">
               <div class="kartu-judul">KARTU PESERTA UJIAN</div>
-              <div class="kartu-subjudul">${s.namaSekolah ?? 'NAMA SEKOLAH'} | T.A. ${s.tahunAjaran ?? '-'}</div>
+              <div class="kartu-subjudul">${esc(s.namaSekolah ?? 'NAMA SEKOLAH')} | T.A. ${esc(s.tahunAjaran ?? '-')}</div>
             </div>
           </div>
           <div class="kartu-nomor">${idx + 1}</div>
@@ -81,15 +88,15 @@ function KartuSiswaContent() {
         <div class="kartu-body">
           <!-- Avatar -->
           <div class="avatar" style="background: linear-gradient(135deg, ${bg1}, ${bg2})">
-            <span class="avatar-initials">${initials}</span>
+            <span class="avatar-initials">${esc(initials)}</span>
           </div>
           <!-- Info -->
           <div class="kartu-info">
-            <div class="siswa-nama">${siswa.nama}</div>
+            <div class="siswa-nama">${esc(siswa.nama)}</div>
             <table class="detail-table">
-              <tr><td>NIS</td><td>:</td><td><strong>${siswa.nis}</strong></td></tr>
-              <tr><td>Jenis Kelamin</td><td>:</td><td>${siswa.jenis_kelamin ?? '-'}</td></tr>
-              <tr><td>Tempat Lahir</td><td>:</td><td>${siswa.tempat_lahir ?? '-'}</td></tr>
+              <tr><td>NIS</td><td>:</td><td><strong>${esc(siswa.nis)}</strong></td></tr>
+              <tr><td>Jenis Kelamin</td><td>:</td><td>${esc(siswa.jenis_kelamin ?? '-')}</td></tr>
+              <tr><td>Tempat Lahir</td><td>:</td><td>${esc(siswa.tempat_lahir ?? '-')}</td></tr>
               <tr><td>Tanggal Lahir</td><td>:</td><td>${siswa.tanggal_lahir ? fmtTanggal(siswa.tanggal_lahir) : '-'}</td></tr>
             </table>
           </div>
@@ -98,7 +105,7 @@ function KartuSiswaContent() {
         <div class="login-box">
           <div class="login-label">🔐 Login Ujian</div>
           <div class="login-row">
-            <div><span class="login-key">Username</span><span class="login-val">${siswa.nis}</span></div>
+            <div><span class="login-key">Username</span><span class="login-val">${esc(siswa.nis)}</span></div>
             <div><span class="login-key">Password</span><span class="login-val">${passwordDefault}</span></div>
           </div>
         </div>

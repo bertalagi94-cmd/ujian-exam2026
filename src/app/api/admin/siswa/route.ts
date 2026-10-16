@@ -25,8 +25,11 @@ export async function GET(req: NextRequest) {
   // Default -> tampilkan siswa reguler seperti sebelumnya.
   query = tester ? query.eq('is_tester', 'YES') : query.neq('is_tester', 'YES')
 
-  if (search) {
-    query = query.or(`nama.ilike.%${search}%,nis.ilike.%${search}%`)
+  // Bersihkan karakter spesial PostgREST (, ( ) % *) supaya nama seperti
+  // "Budi, S.Pd" tidak merusak sintaks .or() (sama seperti admin/pelanggaran).
+  const safeSearch = search.replace(/[,()%*]/g, ' ').trim()
+  if (safeSearch) {
+    query = query.or(`nama.ilike.%${safeSearch}%,nis.ilike.%${safeSearch}%`)
   }
   if (kelas) {
     query = query.eq('kelas', kelas)
@@ -38,7 +41,14 @@ export async function GET(req: NextRequest) {
   const { data, count, error } = await query
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  return NextResponse.json({ data: data ?? [], total: count ?? 0 })
+  // Jangan kirim hash password ke browser (select('*') membawanya).
+  const aman = (data ?? []).map((row: Record<string, unknown>) => {
+    const { password_hash: _ph, ...sisanya } = row
+    void _ph
+    return sisanya
+  })
+
+  return NextResponse.json({ data: aman, total: count ?? 0 })
 }
 
 export async function POST(req: NextRequest) {

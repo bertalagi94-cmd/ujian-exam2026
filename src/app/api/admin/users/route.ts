@@ -74,6 +74,9 @@ export async function POST(req: NextRequest) {
   if (!username || !nama || !role || !password) {
     return NextResponse.json({ error: 'Username, nama, role, dan password wajib diisi' }, { status: 400 })
   }
+  if (String(password).length < 6) {
+    return NextResponse.json({ error: 'Password minimal 6 karakter' }, { status: 400 })
+  }
 
   // Role akun yang sah hanya 4 ini ("Pengawas" bukan role akun — lihat
   // catatan di src/lib/auth.ts). Divalidasi di server juga, bukan cuma
