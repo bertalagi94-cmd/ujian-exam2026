@@ -34,7 +34,7 @@ export default function WitaClock() {
         background: 'rgba(255,255,255,0.85)',
         backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
         border: '1.5px solid rgba(56,189,248,0.35)', borderRadius: '16px',
-        padding: '10px 18px 10px 14px',
+        padding: '6px 16px 6px 12px',
         boxShadow: '0 4px 24px rgba(56,189,248,0.18), 0 0 0 1px rgba(255,255,255,0.5), inset 0 1px 0 rgba(255,255,255,0.6)',
       }}
     >

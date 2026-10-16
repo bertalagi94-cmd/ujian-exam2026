@@ -833,3 +833,10 @@
     filter: none !important;
   }
 }
+
+
+/* Beranda login (laptop): kecilkan otomatis kartu login di layar yang pendek
+   supaya seluruh isi muat tanpa scroll. */
+@media (min-width: 1024px) and (max-height: 760px) { .login-fit { zoom: 0.9; } }
+@media (min-width: 1024px) and (max-height: 680px) { .login-fit { zoom: 0.8; } }
+@media (min-width: 1024px) and (max-height: 600px) { .login-fit { zoom: 0.7; } }

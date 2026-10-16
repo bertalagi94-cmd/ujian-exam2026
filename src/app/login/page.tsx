@@ -712,7 +712,7 @@ export default function LoginPage() {
           padding-atas (lg:pt-32) supaya maskot & kartu login tidak tertutup. ── */}
       <div
         className="absolute z-20 hidden lg:flex items-center gap-3"
-        style={{ top: '1rem', right: '1.25rem' }}
+        style={{ top: '0.5rem', right: '1.25rem' }}
       >
         <WitaClock />
         <button
@@ -724,7 +724,7 @@ export default function LoginPage() {
             background: 'rgba(255,255,255,0.85)',
             backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
             border: '1.5px solid rgba(56,189,248,0.35)', borderRadius: '12px',
-            padding: '8px 14px',
+            padding: '6px 12px',
             boxShadow: '0 4px 24px rgba(56,189,248,0.18), 0 0 0 1px rgba(255,255,255,0.5), inset 0 1px 0 rgba(255,255,255,0.6)',
             color: '#0c4a6e',
             fontSize: '12px',
@@ -799,8 +799,8 @@ export default function LoginPage() {
       </div>
 
       {/* ── RIGHT — login area ── */}
-      <div className="flex-1 flex items-center justify-center p-6 lg:pt-32 lg:pb-8 relative z-10">
-        <div className="w-full max-w-sm relative">
+      <div className="flex-1 flex items-center justify-center p-6 lg:pt-24 lg:pb-4 relative z-10">
+        <div className="w-full max-w-sm relative login-fit">
 
           {/* ── MOBILE ── */}
           <div className="lg:hidden">
@@ -1064,10 +1064,10 @@ export default function LoginPage() {
               onMouseLeave={handleMascotLeave}
             >
               {/* Welcome card preview (closed state) — glass */}
-              <div className="login-glass-card rounded-3xl w-full p-7 text-center">
+              <div className="login-glass-card rounded-3xl w-full p-5 text-center">
                 {/* Maskot emoji */}
-                <div className="absolute -top-14 left-1/2 -translate-x-1/2" style={{ zIndex: 3 }}>
-                  <svg width="64" height="64" viewBox="0 0 64 64" className={mascotMood === 'idle' ? 'mascot-bounce' : ''}>
+                <div className="absolute -top-10 left-1/2 -translate-x-1/2" style={{ zIndex: 3 }}>
+                  <svg width="48" height="48" viewBox="0 0 64 64" className={mascotMood === 'idle' ? 'mascot-bounce' : ''}>
                     <circle cx="32" cy="32" r="26" fill="#fde68a" stroke="#f59e0b" strokeWidth="2" />
                     {mascotMood === 'sad' ? (
                       <>
@@ -1092,7 +1092,7 @@ export default function LoginPage() {
                   </svg>
                 </div>
 
-                <div className="mt-6 mb-5">
+                <div className="mt-3 mb-3">
                   <h2 className="text-2xl font-bold text-slate-900">Selamat Datang &#128075;</h2>
                   <p className="text-slate-500 text-sm mt-1">Silakan login untuk melanjutkan</p>
                 </div>
@@ -1100,7 +1100,7 @@ export default function LoginPage() {
                 <button
                   type="button"
                   onClick={openDrape}
-                  className="btn-login-drape w-full flex items-center justify-center gap-3 px-8 py-4 rounded-2xl text-white font-bold text-base tracking-wide select-none cursor-pointer"
+                  className="btn-login-drape w-full flex items-center justify-center gap-3 px-8 py-3 rounded-2xl text-white font-bold text-base tracking-wide select-none cursor-pointer"
                   style={{ boxShadow: '0 4px 32px rgba(37,99,235,0.35), 0 0 60px rgba(20,184,166,0.2), 0 2px 8px rgba(15,23,42,0.12)', letterSpacing: '0.04em' }}
                 >
                   <Lock className="w-5 h-5 opacity-90" />
@@ -1109,19 +1109,19 @@ export default function LoginPage() {
                 </button>
 
                 {/* Divider */}
-                <div className="flex items-center gap-3 my-4">
+                <div className="flex items-center gap-3 my-2.5">
                   <div className="flex-1 h-px bg-slate-200" />
                   <span className="text-slate-400 text-xs">atau</span>
                   <div className="flex-1 h-px bg-slate-200" />
                 </div>
 
                 {/* Menu Layar Pantau — hanya laptop (disembunyikan di Android/HP) */}
-                <LayarPantauMenu className="mb-4" />
+                <LayarPantauMenu className="mb-3" compact />
 
                 {/* Grid 4 fitur */}
-                <div className="grid grid-cols-4 gap-2 mb-5">
+                <div className="grid grid-cols-4 gap-2 mb-3">
                   {FITUR.map(f => (
-                    <div key={f.label} className="flex flex-col items-center gap-1.5 p-3 rounded-xl"
+                    <div key={f.label} className="flex flex-col items-center gap-1 p-2 rounded-xl"
                       style={{ background: f.bg, border: `1px solid ${f.color}30` }}>
                       <span style={{ color: f.color }}>{f.icon}</span>
                       <span className="text-[10px] text-center leading-tight font-medium" style={{ color: f.color }}>{f.label}</span>
@@ -1133,7 +1133,7 @@ export default function LoginPage() {
                 <button
                   type="button"
                   onClick={e => { e.stopPropagation(); setShowAktivitas(true) }}
-                  className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl mb-4 text-xs font-semibold transition-all"
+                  className="w-full flex items-center justify-center gap-2 py-2 rounded-xl mb-3 text-xs font-semibold transition-all"
                   style={{
                     background: 'linear-gradient(135deg, rgba(14,165,233,0.12) 0%, rgba(20,184,166,0.12) 100%)',
                     border: '1px solid rgba(14,165,233,0.3)',
@@ -1145,7 +1145,7 @@ export default function LoginPage() {
                 </button>
 
                 {/* Footer sekolah dalam card */}
-                <div className="border-t border-slate-100 pt-4">
+                <div className="border-t border-slate-100 pt-2.5">
                   <p className="font-bold text-slate-700 text-sm">{displayName}</p>
                   {siteInfo.kota && <p className="text-slate-400 text-xs mt-0.5">{siteInfo.kota}</p>}
                 </div>
@@ -1303,7 +1303,7 @@ export default function LoginPage() {
               berdampingan (digeser bareng -50% lewat .login-marquee-track,
               lihat globals.css) supaya loop-nya mulus tanpa jeda. ── */}
           <div
-            className="hidden lg:block mt-4 overflow-hidden select-none"
+            className="hidden lg:block mt-2 overflow-hidden select-none"
             style={{
               maskImage: 'linear-gradient(90deg, transparent, black 10%, black 90%, transparent)',
               WebkitMaskImage: 'linear-gradient(90deg, transparent, black 10%, black 90%, transparent)',
