@@ -27,7 +27,7 @@
 // mendukung EventSource sama sekali (jarang, tapi mungkin).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronDown, Clock, Lock, LogOut, Radio, ShieldAlert, Trophy, User } from 'lucide-react'
+import { ArrowLeft, ChevronDown, Clock, Lock, LogOut, Radio, ShieldAlert, Trophy, User } from 'lucide-react'
 import { FullscreenButton } from '@/components/shared/FullscreenButton'
 import { LiveLeaderboardBoard } from '@/components/leaderboard/LiveLeaderboardBoard'
 import type { LiveLeaderboardSesi } from '@/lib/leaderboard-live'
@@ -269,6 +269,14 @@ function LoginGate({ onLogin }: { onLogin: (s: Session) => void }) {
             {loading ? 'Memeriksa…' : 'Buka Layar Pantau'}
           </button>
         </form>
+
+        <a
+          href="/login"
+          className="mt-4 flex items-center justify-center gap-2 w-full rounded-xl border border-white/15 bg-white/5 hover:bg-white/10 px-4 py-2.5 text-sm font-semibold text-slate-200 hover:text-white transition"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          Kembali ke Beranda
+        </a>
 
         <p className="text-center text-slate-500 text-xs mt-5">
           Halaman ini akan menampilkan nama &amp; skor siswa secara langsung.
