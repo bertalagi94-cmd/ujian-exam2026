@@ -3,9 +3,10 @@ import bcrypt from 'bcryptjs'
 import { tenantDb, yayasanIdDari, idsMilikYayasan } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 
-interface Ctx { params: { username: string } }
+interface Ctx { params: Promise<{ username: string }> }
 
-export async function PUT(req: NextRequest, { params }: Ctx) {
+export async function PUT(req: NextRequest, props: Ctx) {
+  const params = await props.params;
   const auth = requireRole(req, ['ADMIN'])
   if ('error' in auth) return auth.error
 
@@ -78,7 +79,8 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
   return NextResponse.json({ message: 'Data berhasil diperbarui' })
 }
 
-export async function DELETE(req: NextRequest, { params }: Ctx) {
+export async function DELETE(req: NextRequest, props: Ctx) {
+  const params = await props.params;
   const auth = requireRole(req, ['ADMIN'])
   if ('error' in auth) return auth.error
 

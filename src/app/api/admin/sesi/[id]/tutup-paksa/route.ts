@@ -3,7 +3,7 @@ import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 import { finalisasiNilaiPaksa } from '@/lib/finalisasi-nilai'
 
-interface Ctx { params: { id: string } }
+interface Ctx { params: Promise<{ id: string }> }
 
 // POST /api/admin/sesi/[id]/tutup-paksa
 //
@@ -36,7 +36,8 @@ interface Ctx { params: { id: string } }
 // transactional penuh (di luar scope perubahan minimal ini, perlu SQL
 // function/RPC untuk itu), tapi setidaknya admin tidak lagi dibohongi oleh
 // pesan sukses palsu.
-export async function POST(req: NextRequest, { params }: Ctx) {
+export async function POST(req: NextRequest, props: Ctx) {
+  const params = await props.params;
   const auth = requireRole(req, ['ADMIN'])
   if ('error' in auth) return auth.error
 

@@ -36,7 +36,8 @@ import { ambilTargetSiswaSesi } from '@/lib/target-siswa-sesi'
 // pada jadwal yang sama, ditandai `dari_sesi_lain: true`, murni untuk
 // tampilan — TIDAK mengubah target/izin login (siswa_diizinkan tetap
 // dipakai apa adanya untuk otorisasi login, tidak disentuh sama sekali).
-export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const auth = requireRole(req, ['GURU', 'ADMIN'])
   if ('error' in auth) return auth.error
 

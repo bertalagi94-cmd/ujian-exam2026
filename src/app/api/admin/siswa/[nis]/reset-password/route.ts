@@ -3,7 +3,8 @@ import bcrypt from 'bcryptjs'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 
-export async function POST(req: NextRequest, { params }: { params: { nis: string } }) {
+export async function POST(req: NextRequest, props: { params: Promise<{ nis: string }> }) {
+  const params = await props.params;
   const auth = requireRole(req, ['ADMIN'])
   if ('error' in auth) return auth.error
 

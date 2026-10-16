@@ -8,10 +8,8 @@ import { cekSesiMapelKelasSudahMulai, pesanBankSoalTerkunci } from '@/lib/sesi-k
 // handler-nya belum pernah ada di sini (hanya ada di paket-essay). Ditambah
 // sekarang, meniru pola yang sama persis dengan
 // guru/paket-essay/[id]/route.ts, termasuk pengecekan sesi ujian di bawah.
-export async function DELETE(
-  req: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function DELETE(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const auth = requireRole(req, ['GURU'])
   if ('error' in auth) return auth.error
 
@@ -80,10 +78,8 @@ export async function DELETE(
 //   - Kapan pun, kalau sesi ujian mapel+kelas ini sudah pernah dibuka
 //     (BERJALAN/SELESAI), mode tidak bisa diubah sama sekali — sama seperti
 //     proteksi lain di bank soal (lihat sesi-kelas.ts).
-export async function PUT(
-  req: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function PUT(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const auth = requireRole(req, ['GURU'])
   if ('error' in auth) return auth.error
 

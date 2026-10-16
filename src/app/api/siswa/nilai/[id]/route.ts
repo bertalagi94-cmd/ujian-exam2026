@@ -11,7 +11,8 @@ import { hitungGrade } from '@/lib/utils'
 // sesi sudah SELESAI (ditutup pengawas) — lihat blok `if (sesiSelesai ...)`
 // di bawah. Selama sesi masih BERJALAN, `rincian` = null sehingga siswa yang
 // sudah submit duluan tidak bisa membocorkan opsi yang benar ke temannya.
-export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const auth = requireRole(req, ['SISWA'])
   if ('error' in auth) return auth.error
   const { user } = auth

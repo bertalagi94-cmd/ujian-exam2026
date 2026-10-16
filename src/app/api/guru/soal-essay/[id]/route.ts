@@ -8,9 +8,10 @@ import { requireRole } from '@/lib/auth'
 import { stripHtmlTags } from '@/lib/utils'
 import { cekSesiMapelKelasSudahMulai, pesanBankSoalTerkunci } from '@/lib/sesi-kelas'
 
-interface Ctx { params: { id: string } }
+interface Ctx { params: Promise<{ id: string }> }
 
-export async function PUT(req: NextRequest, { params }: Ctx) {
+export async function PUT(req: NextRequest, props: Ctx) {
+  const params = await props.params;
   const auth = requireRole(req, ['GURU'])
   if ('error' in auth) return auth.error
   const { user } = auth
@@ -68,7 +69,8 @@ export async function PUT(req: NextRequest, { params }: Ctx) {
   return NextResponse.json({ message: 'Soal essay berhasil diperbarui' })
 }
 
-export async function DELETE(req: NextRequest, { params }: Ctx) {
+export async function DELETE(req: NextRequest, props: Ctx) {
+  const params = await props.params;
   const auth = requireRole(req, ['GURU'])
   if ('error' in auth) return auth.error
   const { user } = auth

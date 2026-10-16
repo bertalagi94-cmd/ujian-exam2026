@@ -31,7 +31,8 @@ import { tuntaskanSiswaTerkunci } from '@/lib/kunci-siswa'
 // itu sudah terjadi atomik di RPC catat_pelanggaran_atomik saat pelanggaran
 // ke-(N+1) dilaporkan (lihat /api/siswa/ujian/pelanggaran). Di sini kita
 // hanya membaca status siswa_ujian yang sudah menjadi sumber kebenaran itu.
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const auth = requireRole(req, ['GURU', 'ADMIN'])
   if ('error' in auth) return auth.error
 

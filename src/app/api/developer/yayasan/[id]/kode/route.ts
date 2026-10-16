@@ -6,7 +6,8 @@ import {
 
 // Buat Kode Registrasi sekali pakai. Kode asli HANYA tampil di respons ini
 // (database hanya menyimpan hash-nya) — developer harus langsung menyalinnya.
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const auth = requireDeveloper(req)
   if ('error' in auth) return auth.error
 

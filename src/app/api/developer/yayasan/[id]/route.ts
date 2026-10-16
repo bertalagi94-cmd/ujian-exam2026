@@ -4,7 +4,8 @@ import { requireDeveloper, YAYASAN_AWAL_ID } from '@/lib/tenant'
 import { cacheDelPrefix } from '@/lib/cache'
 
 // Aktif/nonaktifkan yayasan. Yayasan awal tidak boleh dinonaktifkan.
-export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const auth = requireDeveloper(req)
   if ('error' in auth) return auth.error
 

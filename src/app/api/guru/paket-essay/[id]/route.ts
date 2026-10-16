@@ -4,10 +4,8 @@ import { requireRole } from '@/lib/auth'
 import { cekSesiMapelKelasSudahMulai, pesanBankSoalTerkunci } from '@/lib/sesi-kelas'
 import { bacaBatasDurasiEssay } from '@/lib/durasi-ujian'
 
-export async function DELETE(
-  req: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function DELETE(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const auth = requireRole(req, ['GURU'])
   if ('error' in auth) return auth.error
 
@@ -77,10 +75,8 @@ export async function DELETE(
 //     membatalkan persetujuan dulu (BATAL_SETUJUI, status kembali DRAFT).
 //   - Kapan pun, kalau sesi ujian mapel+kelas ini sudah pernah dibuka
 //     (BERJALAN/SELESAI), tidak ada yang bisa diubah (lihat sesi-kelas.ts).
-export async function PUT(
-  req: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function PUT(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const auth = requireRole(req, ['GURU'])
   if ('error' in auth) return auth.error
 

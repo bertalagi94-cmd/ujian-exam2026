@@ -20,7 +20,8 @@ import { ambilMaksReset, hitungSemuaKodeReset } from '@/lib/reset-berurutan'
 // Urutan R1 -> R2 -> R3 dan sekali-pakai tidak bergantung pada pengawas
 // menampilkan kode "dalam urutan yang benar": server menolak kode di luar
 // giliran (lihat verifikasi-reset). Menampilkan R3 lebih awal tidak berguna.
-export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const auth = requireRole(req, ['GURU', 'ADMIN'])
   if ('error' in auth) return auth.error
 

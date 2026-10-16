@@ -5,10 +5,11 @@ import { requireRole } from '@/lib/auth'
 import { hapusFotoEssayFisik } from '@/lib/backup-restore-shared'
 
 interface RouteContext {
-  params: { nis: string }
+  params: Promise<{ nis: string }>
 }
 
-export async function PUT(req: NextRequest, { params }: RouteContext) {
+export async function PUT(req: NextRequest, props: RouteContext) {
+  const params = await props.params;
   const auth = requireRole(req, ['ADMIN'])
   if ('error' in auth) return auth.error
 
@@ -44,7 +45,8 @@ export async function PUT(req: NextRequest, { params }: RouteContext) {
   return NextResponse.json({ message: 'Data berhasil diperbarui' })
 }
 
-export async function DELETE(req: NextRequest, { params }: RouteContext) {
+export async function DELETE(req: NextRequest, props: RouteContext) {
+  const params = await props.params;
   const auth = requireRole(req, ['ADMIN'])
   if ('error' in auth) return auth.error
 

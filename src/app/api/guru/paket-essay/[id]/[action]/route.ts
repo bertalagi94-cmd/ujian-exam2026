@@ -10,8 +10,9 @@ import { cekSesiMapelKelasSudahMulai, pesanBankSoalTerkunci } from '@/lib/sesi-k
 // konfirmasi "kirim sekaligus atau Essay saja?" hanya kalau memang relevan.
 export async function GET(
   req: NextRequest,
-  { params }: { params: { id: string; action: string } }
+  props: { params: Promise<{ id: string; action: string }> }
 ) {
+  const params = await props.params;
   const auth = requireRole(req, ['GURU'])
   if ('error' in auth) return auth.error
   const { user } = auth
@@ -43,8 +44,9 @@ export async function GET(
 
 export async function POST(
   req: NextRequest,
-  { params }: { params: { id: string; action: string } }
+  props: { params: Promise<{ id: string; action: string }> }
 ) {
+  const params = await props.params;
   const auth = requireRole(req, ['GURU'])
   if ('error' in auth) return auth.error
   const { user } = auth
