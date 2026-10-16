@@ -9,11 +9,9 @@ import { useEffect, useState } from 'react'
 const DAYS = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu']
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Ags', 'Sep', 'Okt', 'Nov', 'Des']
 
-interface WitaClockProps {
-  isFs: boolean
-}
-
-export default function WitaClock({ isFs }: WitaClockProps) {
+// Posisi (absolute) kini diatur oleh toolbar induk di login/page.tsx supaya
+// jam dan tombol Layar Penuh tidak saling tumpang tindih / menimpa kartu login.
+export default function WitaClock() {
   const [witaTime, setWitaTime] = useState<{ day: string; date: string; time: string }>({ day: '', date: '', time: '' })
 
   useEffect(() => {
@@ -31,9 +29,8 @@ export default function WitaClock({ isFs }: WitaClockProps) {
 
   return (
     <div
-      className="absolute top-4 z-20 hidden lg:flex items-center gap-3 select-none"
+      className="hidden lg:flex items-center gap-3 select-none whitespace-nowrap"
       style={{
-        right: isFs ? '11rem' : '12.5rem',
         background: 'rgba(255,255,255,0.85)',
         backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
         border: '1.5px solid rgba(56,189,248,0.35)', borderRadius: '16px',

@@ -42,6 +42,8 @@ export const TABEL_PER_YAYASAN: ReadonlySet<string> = new Set([
   'kisi_kisi', 'pengaturan', 'log_aktivitas',
   // Ditambahkan di migrasi 42 (diisi otomatis dari sesi_ujian oleh trigger).
   'pelanggaran',
+  // Ditambahkan di migrasi 44 (izin akses Layar Pantau untuk guru).
+  'izin_layar_pantau',
 ])
 
 /** Saklar keamanan: pendaftaran yayasan baru hanya boleh jalan kalau 'true'. */

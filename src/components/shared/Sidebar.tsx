@@ -7,7 +7,7 @@ import {
   LayoutDashboard, Users, BookOpen, Calendar, ClipboardList,
   BarChart3, Settings, LogOut, Menu, X, ChevronRight, ChevronLeft,
   GraduationCap, School, User, FileText, Eye, ShieldAlert,
-  FileBarChart, CheckSquare, Send, CalendarDays, TrendingUp
+  FileBarChart, CheckSquare, Send, CalendarDays, TrendingUp, Radio
 } from 'lucide-react'
 import { cn, apiRequest, fetchPublik } from '@/lib/utils'
 import { AuthUser } from '@/types'
@@ -478,6 +478,7 @@ export function AdminSidebar() {
       badge: counts.validasiSoal || undefined,
     },
     { label: 'Pelanggaran', href: '/admin/pelanggaran', icon: ShieldAlert, section: 'Hasil & Pemantauan' },
+    { label: 'Izin Layar Pantau', href: '/admin/layar-pantau', icon: Radio, badge: counts.izinLayarPantau || undefined },
     { label: 'Rekap Nilai', href: '/admin/nilai', icon: BarChart3 },
     // Ikon dibedakan dari "Rekap Nilai" (sebelumnya sama-sama BarChart3).
     { label: 'Analisis Ujian', href: '/admin/analisis-ujian', icon: TrendingUp },

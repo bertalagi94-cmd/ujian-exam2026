@@ -3,6 +3,7 @@ import { RealtimeChannel, SupabaseClient } from '@supabase/supabase-js'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { verifyToken, JWTPayload } from '@/lib/auth'
 import { getKepsekScope } from '@/lib/kepsek-scope'
+import { ambilInfoIzin, izinDiperlukan, tolakJikaBelumDiizinkan } from '@/lib/izin-layar-pantau'
 import { computeLiveLeaderboardUntukSesi, LiveLeaderboardSesi } from '@/lib/leaderboard-live'
 
 export const runtime = 'nodejs'
@@ -68,6 +69,10 @@ export async function GET(req: NextRequest) {
   }
   const db = tenantDb(yayasanId)
 
+  // Guru wajib sudah disetujui admin (lihat src/lib/izin-layar-pantau.ts).
+  const ditolak = await tolakJikaBelumDiizinkan(db, user)
+  if (ditolak) return ditolak
+
   let closed = false
   let debounceTimer: ReturnType<typeof setTimeout> | null = null
   let safetyTimer: ReturnType<typeof setInterval> | null = null
@@ -102,6 +107,16 @@ export async function GET(req: NextRequest) {
       const pushBoards = async () => {
         const myGen = ++gen
         try {
+          // Izin bisa dicabut admin saat layar sedang tampil: cek ulang tiap
+          // pembaruan, lalu tutup stream + beri tahu klien supaya papan hilang.
+          if (izinDiperlukan(user!)) {
+            const izin = await ambilInfoIzin(db, user!)
+            if (izin.status !== 'DISETUJUI') {
+              send('izin', { status: izin.status })
+              cleanupAndClose()
+              return
+            }
+          }
           const { boards, scopeWarning } = await ambilBoardsUntukViewer(db, user!, yayasanId)
           if (myGen !== gen) return // sudah ada panggilan lebih baru, buang hasil basi ini
           const signature = JSON.stringify({ boards, scopeWarning })

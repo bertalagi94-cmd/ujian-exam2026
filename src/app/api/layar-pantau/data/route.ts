@@ -3,6 +3,7 @@ import { SupabaseClient } from '@supabase/supabase-js'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole, JWTPayload } from '@/lib/auth'
 import { getKepsekScope } from '@/lib/kepsek-scope'
+import { tolakJikaBelumDiizinkan } from '@/lib/izin-layar-pantau'
 import { computeLiveLeaderboardUntukSesi, LiveLeaderboardSesi } from '@/lib/leaderboard-live'
 
 // GET /api/layar-pantau/data
@@ -33,6 +34,10 @@ export async function GET(req: NextRequest) {
   const yayasanId = yayasanIdDari(user)
   const db = tenantDb(yayasanId)
   const now = new Date()
+
+  // Guru wajib sudah disetujui admin (lihat src/lib/izin-layar-pantau.ts).
+  const ditolak = await tolakJikaBelumDiizinkan(db, user)
+  if (ditolak) return ditolak
 
   try {
     const { boards, scopeWarning } = await ambilBoardsUntukViewer(db, user, yayasanId)

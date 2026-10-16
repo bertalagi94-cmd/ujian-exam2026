@@ -11,6 +11,7 @@ import {
   Maximize, Minimize,
 } from 'lucide-react'
 import WitaClock from '@/components/login/WitaClock'
+import LayarPantauMenu from '@/components/login/LayarPantauMenu'
 import WelcomeSplash from '@/components/login/WelcomeSplash'
 
 // PERF: modal Panduan/QA/Aktivitas berisi cukup banyak JSX + data (FAQ,
@@ -706,34 +707,37 @@ export default function LoginPage() {
 
       <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" style={{ pointerEvents: 'none', zIndex: 0 }} />
 
-      {/* ── Tombol Fullscreen — sudut kanan atas ── */}
-      <button
-        type="button"
-        onClick={toggleFullscreen}
-        title={isFs ? 'Keluar dari layar penuh' : 'Tampilkan layar penuh'}
-        className="absolute z-20 hidden lg:flex items-center gap-2 select-none transition-all"
-        style={{
-          top: '1rem',
-          right: '1.25rem',
-          background: 'rgba(255,255,255,0.85)',
-          backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
-          border: '1.5px solid rgba(56,189,248,0.35)', borderRadius: '12px',
-          padding: '8px 14px',
-          boxShadow: '0 4px 24px rgba(56,189,248,0.18), 0 0 0 1px rgba(255,255,255,0.5), inset 0 1px 0 rgba(255,255,255,0.6)',
-          color: '#0c4a6e',
-          fontSize: '12px',
-          fontWeight: 600,
-          letterSpacing: '0.02em',
-        }}
+      {/* ── Toolbar kanan atas: jam WITA + tombol Layar Penuh dalam SATU baris
+          (flex), jadi tidak lagi saling menimpa. Kolom login di bawah diberi
+          padding-atas (lg:pt-32) supaya maskot & kartu login tidak tertutup. ── */}
+      <div
+        className="absolute z-20 hidden lg:flex items-center gap-3"
+        style={{ top: '1rem', right: '1.25rem' }}
       >
-        {isFs
-          ? <><Minimize className="w-3.5 h-3.5" style={{ color: '#0284c7' }} /><span>Keluar Fullscreen</span></>
-          : <><Maximize className="w-3.5 h-3.5" style={{ color: '#0284c7' }} /><span>Layar Penuh</span></>
-        }
-      </button>
-
-      {/* ── Jam WITA — komponen terpisah agar tick 1 detik tidak me-render ulang seluruh halaman ── */}
-      <WitaClock isFs={isFs} />
+        <WitaClock />
+        <button
+          type="button"
+          onClick={toggleFullscreen}
+          title={isFs ? 'Keluar dari layar penuh' : 'Tampilkan layar penuh'}
+          className="flex items-center gap-2 select-none transition-all whitespace-nowrap"
+          style={{
+            background: 'rgba(255,255,255,0.85)',
+            backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
+            border: '1.5px solid rgba(56,189,248,0.35)', borderRadius: '12px',
+            padding: '8px 14px',
+            boxShadow: '0 4px 24px rgba(56,189,248,0.18), 0 0 0 1px rgba(255,255,255,0.5), inset 0 1px 0 rgba(255,255,255,0.6)',
+            color: '#0c4a6e',
+            fontSize: '12px',
+            fontWeight: 600,
+            letterSpacing: '0.02em',
+          }}
+        >
+          {isFs
+            ? <><Minimize className="w-3.5 h-3.5" style={{ color: '#0284c7' }} /><span>Keluar Fullscreen</span></>
+            : <><Maximize className="w-3.5 h-3.5" style={{ color: '#0284c7' }} /><span>Layar Penuh</span></>
+          }
+        </button>
+      </div>
 
       {/* ── LEFT — branding ── */}
       {/* Foto siswa sekarang jadi background penuh 1 layar (lihat blok
@@ -795,7 +799,7 @@ export default function LoginPage() {
       </div>
 
       {/* ── RIGHT — login area ── */}
-      <div className="flex-1 flex items-center justify-center p-6 relative z-10">
+      <div className="flex-1 flex items-center justify-center p-6 lg:pt-32 lg:pb-8 relative z-10">
         <div className="w-full max-w-sm relative">
 
           {/* ── MOBILE ── */}
@@ -1111,6 +1115,9 @@ export default function LoginPage() {
                   <div className="flex-1 h-px bg-slate-200" />
                 </div>
 
+                {/* Menu Layar Pantau — hanya laptop (disembunyikan di Android/HP) */}
+                <LayarPantauMenu className="mb-4" />
+
                 {/* Grid 4 fitur */}
                 <div className="grid grid-cols-4 gap-2 mb-5">
                   {FITUR.map(f => (
@@ -1266,6 +1273,8 @@ export default function LoginPage() {
                         <HelpCircle className="w-3.5 h-3.5" /> Q&amp;A
                       </button>
                     </div>
+                    {/* Menu Layar Pantau — hanya laptop (disembunyikan di Android/HP) */}
+                    <LayarPantauMenu />
                     {/* Tombol Lihat Aktivitas — desktop */}
                     <button
                       type="button"

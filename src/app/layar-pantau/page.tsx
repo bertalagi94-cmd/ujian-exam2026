@@ -9,6 +9,9 @@
 // menampilkan leaderboard live layar penuh, lengkap dengan nama siapa yang
 // sedang memantau.
 //
+// GURU harus disetujui admin dulu sebelum papan tampil (GerbangIzin di bawah +
+// pengecekan di /api/layar-pantau/data & /stream). KEPSEK dan ADMIN langsung masuk.
+//
 // SISWA ditolak di sini (baik oleh pengecekan role di bawah maupun oleh
 // requireRole di endpoint data/stream) — halaman ini menampilkan nama +
 // skor siswa LAIN, jadi tidak boleh diakses pakai akun siswa.
@@ -24,7 +27,7 @@
 // mendukung EventSource sama sekali (jarang, tapi mungkin).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronDown, Lock, LogOut, Radio, Trophy, User } from 'lucide-react'
+import { ChevronDown, Clock, Lock, LogOut, Radio, ShieldAlert, Trophy, User } from 'lucide-react'
 import { FullscreenButton } from '@/components/shared/FullscreenButton'
 import { LiveLeaderboardBoard } from '@/components/leaderboard/LiveLeaderboardBoard'
 import type { LiveLeaderboardSesi } from '@/lib/leaderboard-live'
@@ -79,7 +82,112 @@ export default function LayarPantauPage() {
 
   if (!hydrated) return <div className="min-h-screen bg-slate-950" />
   if (!session) return <LoginGate onLogin={handleLogin} />
+  if (session.role === 'GURU') return <GerbangIzin session={session} onLogout={handleLogout} />
   return <PapanLive session={session} onLogout={handleLogout} />
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Gerbang izin khusus GURU: papan baru terbuka setelah admin menyetujui.
+// Polling 4 detik selama belum disetujui (ringan: satu query kecil), berhenti
+// begitu disetujui — setelah itu pencabutan izin dikabarkan oleh PapanLive.
+// ─────────────────────────────────────────────────────────────────────────
+interface InfoIzin { status: string; diputuskanOleh?: string | null }
+
+function GerbangIzin({ session, onLogout }: { session: Session; onLogout: () => void }) {
+  const [info, setInfo] = useState<InfoIzin | null>(null)
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const cek = useCallback(async () => {
+    try {
+      const res = await fetch('/api/layar-pantau/izin', {
+        headers: { Authorization: `Bearer ${session.token}` },
+        cache: 'no-store',
+      })
+      if (res.status === 401) { onLogout(); return }
+      const json = await res.json()
+      if (res.ok) { setInfo(json); setError('') } else setError(json.error || 'Gagal memeriksa izin.')
+    } catch {
+      setError('Tidak bisa terhubung ke server. Mencoba lagi…')
+    }
+  }, [session.token, onLogout])
+
+  const disetujui = info?.status === 'DISETUJUI' || info?.status === 'TIDAK_PERLU'
+  // Identitas stabil — kalau berubah tiap render, PapanLive akan menyambung ulang stream.
+  const izinHilang = useCallback(() => { setInfo(null); cek() }, [cek])
+
+  useEffect(() => {
+    cek()
+    if (disetujui) return
+    const id = setInterval(cek, 4000)
+    return () => clearInterval(id)
+  }, [cek, disetujui])
+
+  async function minta() {
+    setBusy(true)
+    setError('')
+    try {
+      const res = await fetch('/api/layar-pantau/izin', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.token}` },
+      })
+      const json = await res.json()
+      if (!res.ok) setError(json.error || 'Gagal mengajukan izin.')
+      await cek()
+    } catch {
+      setError('Tidak bisa terhubung ke server.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (disetujui) {
+    return <PapanLive session={session} onLogout={onLogout} onIzinHilang={izinHilang} />
+  }
+
+  const status = info?.status
+  const menunggu = status === 'MENUNGGU'
+  const pesan: Record<string, string> = {
+    BELUM_ADA: 'Akses Layar Pantau untuk akun Guru harus disetujui Admin terlebih dahulu.',
+    DITOLAK: `Permintaan Anda ditolak${info?.diputuskanOleh ? ` oleh ${info.diputuskanOleh}` : ''}. Anda dapat mengajukan lagi.`,
+    DICABUT: 'Izin Anda telah dicabut Admin. Anda dapat mengajukan izin lagi.',
+    KEDALUWARSA: 'Masa berlaku izin Anda sudah habis. Ajukan izin lagi untuk membuka Layar Pantau.',
+  }
+
+  return (
+    <div className="relative min-h-screen bg-slate-950 flex items-center justify-center p-4 overflow-hidden">
+      <BackgroundGlow />
+      <div className="relative z-10 w-full max-w-md text-center">
+        <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-brand-400/30 to-accent-400/20 border border-brand-400/30 flex items-center justify-center mx-auto mb-4">
+          {menunggu ? <Clock className="w-8 h-8 text-amber-300 animate-pulse" /> : <ShieldAlert className="w-8 h-8 text-brand-300" />}
+        </div>
+        <h1 className="text-2xl font-bold text-white">{menunggu ? 'Menunggu Persetujuan Admin' : 'Perlu Persetujuan Admin'}</h1>
+        <p className="text-slate-400 text-sm mt-2">Halo, {session.nama}.</p>
+
+        <div className="mt-6 bg-white/[0.06] border border-white/10 rounded-2xl p-6 space-y-4 backdrop-blur-xl shadow-2xl shadow-black/40">
+          {info === null && !error && <p className="text-slate-300 text-sm">Memeriksa izin…</p>}
+          {menunggu && (
+            <p className="text-slate-200 text-sm">
+              Permintaan sudah dikirim ke Admin. Halaman ini akan terbuka otomatis begitu disetujui — tidak perlu di-refresh.
+            </p>
+          )}
+          {status && !menunggu && <p className="text-slate-200 text-sm">{pesan[status] ?? pesan.BELUM_ADA}</p>}
+          {error && (
+            <p className="text-sm text-danger-400 bg-danger-950/40 border border-danger-800/50 rounded-lg px-3 py-2">{error}</p>
+          )}
+          {status && !menunggu && (
+            <button onClick={minta} disabled={busy} className="btn-primary w-full justify-center bg-gradient-to-r from-brand-500 to-accent-500 hover:from-brand-400 hover:to-accent-400">
+              <Radio className="w-4 h-4" />
+              {busy ? 'Mengirim…' : 'Minta Izin ke Admin'}
+            </button>
+          )}
+          <button onClick={onLogout} className="w-full text-sm text-slate-400 hover:text-white transition">
+            Keluar
+          </button>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -437,7 +545,7 @@ function PemilihKelas({
 // ─────────────────────────────────────────────────────────────────────────
 // Papan live utama, dengan rotasi antar kelas
 // ─────────────────────────────────────────────────────────────────────────
-function PapanLive({ session, onLogout }: { session: Session; onLogout: () => void }) {
+function PapanLive({ session, onLogout, onIzinHilang }: { session: Session; onLogout: () => void; onIzinHilang?: () => void }) {
   const [data, setData] = useState<DataResponse | null>(null)
   const [fetchError, setFetchError] = useState('')
   const [connStatus, setConnStatus] = useState<ConnStatus>('connecting')
@@ -516,6 +624,11 @@ function PapanLive({ session, onLogout }: { session: Session; onLogout: () => vo
         const res = await fetch('/api/layar-pantau/data', {
           headers: { Authorization: `Bearer ${session.token}` },
         })
+        if (res.status === 403) {
+          // Izin Layar Pantau (khusus guru) dicabut/habis → kembali ke gerbang izin.
+          const j = await res.clone().json().catch(() => null)
+          if (j?.kode === 'IZIN_PANTAU_BELUM_ADA' && onIzinHilang) { onIzinHilang(); return }
+        }
         if (res.status === 401 || res.status === 403) { onLogout(); return }
         const json: DataResponse = await res.json()
         if (!cancelled) terapkanDataBaru(json)
@@ -557,7 +670,14 @@ function PapanLive({ session, onLogout }: { session: Session; onLogout: () => vo
       } catch {}
     })
 
+    es.addEventListener('izin', () => {
+      if (!cancelled) onIzinHilang?.()
+    })
+
     es.addEventListener('error', () => {
+      // Server menolak sambungan (mis. 403 karena izin dicabut) → EventSource
+      // berstatus CLOSED dan tidak akan mencoba lagi; periksa lewat /data.
+      if (!cancelled && es && es.readyState === 2) ambilSekali()
       // Native EventSource 'error' — bisa berarti koneksi putus SAMA SEKALI
       // (token expired/401 → tidak akan reconnect sendiri) atau cuma
       // hambatan sementara (browser akan otomatis mencoba lagi). Kita
@@ -576,7 +696,7 @@ function PapanLive({ session, onLogout }: { session: Session; onLogout: () => vo
       es?.close()
       if (fallbackId) clearInterval(fallbackId)
     }
-  }, [session.token, onLogout, terapkanDataBaru])
+  }, [session.token, onLogout, onIzinHilang, terapkanDataBaru])
 
   // ── Jam dinding (WITA) ──────────────────────────────────────────────────
   useEffect(() => {

@@ -31,15 +31,18 @@ export async function GET(req: NextRequest) {
     // sekali), padahal ada pekerjaan yang perlu ditinjau admin. Sekarang
     // dijumlahkan dari kedua tabel, sama seperti gabungan kedua tab (PG +
     // Essay) di halaman /admin/soal.
-    const [{ count: pgCount }, { count: essayCount }] = await Promise.all([
+    const [{ count: pgCount }, { count: essayCount }, { count: izinCount }] = await Promise.all([
       db.from('paket_soal').select('*', { count: 'exact', head: true }).eq('status', 'MENUNGGU'),
       db.from('paket_essay').select('*', { count: 'exact', head: true }).eq('status', 'MENUNGGU'),
+      // Permintaan izin Layar Pantau dari guru (migrasi 44).
+      db.from('izin_layar_pantau').select('*', { count: 'exact', head: true }).eq('status', 'MENUNGGU'),
     ])
 
     return NextResponse.json({
       validasiSoal: (pgCount ?? 0) + (essayCount ?? 0),
       validasiSoalPg: pgCount ?? 0,
       validasiSoalEssay: essayCount ?? 0,
+      izinLayarPantau: izinCount ?? 0,
     })
   }
 
