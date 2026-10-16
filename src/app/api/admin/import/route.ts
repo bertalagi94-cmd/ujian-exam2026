@@ -22,7 +22,9 @@ interface ImportRow {
 
 // Simpan data antar request (in-memory per instance — cukup untuk 1 admin)
 // Key = token sesi sederhana
-const pendingJobs = new Map<string, ImportRow[]>()
+// Multi-yayasan: job diikat ke yayasan pembuatnya supaya admin yayasan lain
+// tidak bisa menjalankan job itu lewat jobId.
+const pendingJobs = new Map<string, { rows: ImportRow[]; yayasanId: string }>()
 
 export async function POST(req: NextRequest) {
   const auth = requireRole(req, ['ADMIN'])
@@ -40,7 +42,7 @@ export async function POST(req: NextRequest) {
 
   // Simpan job, kembalikan jobId
   const jobId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
-  pendingJobs.set(jobId, rows)
+  pendingJobs.set(jobId, { rows, yayasanId: yayasanIdDari(auth.user) })
 
   // Cleanup otomatis 5 menit
   setTimeout(() => pendingJobs.delete(jobId), 5 * 60 * 1000)
@@ -62,8 +64,8 @@ export async function GET(req: NextRequest) {
     })
   }
 
-  const rows = pendingJobs.get(jobId)
-  if (!rows) {
+  const job = pendingJobs.get(jobId)
+  if (!job || job.yayasanId !== yayasanIdDari(auth.user)) {
     return new Response(JSON.stringify({ error: 'Job tidak ditemukan atau sudah kadaluarsa' }), {
       status: 404,
       headers: { 'Content-Type': 'application/json' },
@@ -71,6 +73,7 @@ export async function GET(req: NextRequest) {
   }
 
   pendingJobs.delete(jobId)
+  const rows = job.rows
   const yayasanId = yayasanIdDari(auth.user)
   const db = tenantDb(yayasanId)
 
