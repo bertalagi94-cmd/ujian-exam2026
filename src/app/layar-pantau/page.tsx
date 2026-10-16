@@ -28,6 +28,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, ChevronDown, Clock, Lock, LogOut, Radio, ShieldAlert, Trophy, User } from 'lucide-react'
+import { fetchPublik } from '@/lib/utils'
 import { FullscreenButton } from '@/components/shared/FullscreenButton'
 import { LiveLeaderboardBoard } from '@/components/leaderboard/LiveLeaderboardBoard'
 import type { LiveLeaderboardSesi } from '@/lib/leaderboard-live'
@@ -191,6 +192,61 @@ function GerbangIzin({ session, onLogout }: { session: Session; onLogout: () => 
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// Info "berapa kelas sedang ujian" di form login (publik, sebelum login) —
+// supaya guru tidak buang waktu login kalau memang belum ada ujian berjalan.
+// Diperbarui tiap 15 detik selama tab terlihat.
+// ─────────────────────────────────────────────────────────────────────────
+function InfoKelasUjian() {
+  const [jumlah, setJumlah] = useState<number | null | undefined>(undefined) // undefined = memuat
+
+  useEffect(() => {
+    let batal = false
+    const muat = async () => {
+      if (document.hidden) return
+      try {
+        const res = await fetchPublik('/api/public/layar-pantau-status', { sertakanToken: false })
+        const json = await res.json()
+        if (!batal) setJumlah(typeof json.jumlahKelas === 'number' ? json.jumlahKelas : null)
+      } catch {
+        if (!batal) setJumlah(null)
+      }
+    }
+    muat()
+    const id = setInterval(muat, 15000)
+    return () => { batal = true; clearInterval(id) }
+  }, [])
+
+  if (jumlah === undefined) {
+    return <div className="mb-4 h-14 rounded-2xl bg-white/[0.04] border border-white/10 animate-pulse" />
+  }
+  if (jumlah === null) return null // status tidak bisa diambil — jangan tampilkan info yang menyesatkan
+
+  const ada = jumlah > 0
+  return (
+    <div
+      className={`mb-4 flex items-start gap-3 rounded-2xl border px-4 py-3 text-left ${
+        ada ? 'bg-emerald-500/10 border-emerald-400/30' : 'bg-amber-500/10 border-amber-400/30'
+      }`}
+    >
+      <span className="relative flex h-3 w-3 mt-1.5 shrink-0">
+        {ada && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />}
+        <span className={`relative inline-flex h-3 w-3 rounded-full ${ada ? 'bg-emerald-400' : 'bg-amber-400'}`} />
+      </span>
+      <div className="min-w-0">
+        <p className={`text-sm font-bold ${ada ? 'text-emerald-200' : 'text-amber-200'}`}>
+          {ada ? `${jumlah} kelas sedang ujian sekarang` : 'Tidak ada kelas yang sedang ujian'}
+        </p>
+        <p className="text-xs text-slate-300 mt-0.5">
+          {ada
+            ? 'Silakan login untuk membuka Layar Pantau.'
+            : 'Layar Pantau baru menampilkan papan nilai saat ada ujian berjalan. Silakan login nanti setelah ujian dimulai.'}
+        </p>
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // Layar login khusus mode kios
 // ─────────────────────────────────────────────────────────────────────────
 function LoginGate({ onLogin }: { onLogin: (s: Session) => void }) {
@@ -237,6 +293,8 @@ function LoginGate({ onLogin }: { onLogin: (s: Session) => void }) {
           <h1 className="text-2xl font-bold text-white">Layar Pantau Ujian</h1>
           <p className="text-slate-400 text-sm mt-1">Masuk dengan akun Guru, Kepsek, atau Admin</p>
         </div>
+
+        <InfoKelasUjian />
 
         <form onSubmit={submit} className="bg-white/[0.06] border border-white/10 rounded-2xl p-6 space-y-4 backdrop-blur-xl shadow-2xl shadow-black/40">
           <div>
