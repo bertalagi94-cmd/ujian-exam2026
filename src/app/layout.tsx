@@ -4,6 +4,8 @@ import { tenantDb, multiYayasanAktif, YAYASAN_AWAL_ID } from '@/lib/tenant'
 import { cachedFetch } from '@/lib/cache'
 import { ServiceWorkerRegister } from '@/components/shared/ServiceWorkerRegister'
 import { StatusModeOffline } from '@/components/shared/StatusModeOffline'
+import LampIntro from '@/components/login/LampIntro'
+import { LAMP_GATE_SCRIPT } from '@/components/login/lamp-intro-gate'
 
 // FIX (judul tab tidak generik): sebelumnya title/description di-hardcode ke
 // nama satu sekolah ("MTS Alkhairaat Tatakalai"), padahal aplikasi ini dipakai
@@ -55,8 +57,15 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="id">
+    // suppressHydrationWarning: script gate lampu di bawah memasang atribut
+    // data-lamp pada <html> sebelum React hidrasi.
+    <html lang="id" suppressHydrationWarning>
       <body>
+        {/* Lamp intro (sekali sehari, hanya di "/" dan "/login"). Script ini jalan
+            sebelum halaman digambar supaya layar gelap langsung menutup login
+            tanpa kilatan; lihat src/components/login/lamp-intro-gate.ts. */}
+        <script dangerouslySetInnerHTML={{ __html: LAMP_GATE_SCRIPT }} />
+        <LampIntro />
         <ServiceWorkerRegister />
         {/* Penanda "Mode Offline" / "Online" di atas semua halaman (fixed, tidak menggeser layout). */}
         <StatusModeOffline />
