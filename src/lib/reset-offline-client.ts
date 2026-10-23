@@ -23,6 +23,7 @@
 // melompati entri yang gagal.
 
 import { apiRequest } from '@/lib/utils'
+import { getDeviceId } from '@/lib/device-id'
 import { jalankanBerurutan, EVENT_PICU_ANTREAN } from '@/lib/antrean-kunci'
 import {
   resetMaterialPut,
@@ -342,7 +343,7 @@ async function kirimSatuResetTanpaKunci(entri: ResetTertunda): Promise<boolean> 
       '/api/siswa/ujian/verifikasi-reset',
       {
         method: 'POST',
-        body: JSON.stringify({ sesiId: current.sesiId, kodeReset: current.kode, nomor: current.nomor }),
+        body: JSON.stringify({ sesiId: current.sesiId, kodeReset: current.kode, nomor: current.nomor, deviceId: getDeviceId() }),
       }
     )
 

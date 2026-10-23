@@ -2,13 +2,18 @@ import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 import { ambilMaksReset, kodeResetCocok } from '@/lib/reset-berurutan'
+import { cekDeviceSiswa, PESAN_DEVICE_LAIN } from '@/lib/device-guard'
 
 // Batas percobaan kode salah sebelum dikunci sementara, dan lama lockout-nya.
 const MAX_PERCOBAAN = 5
 const LOCKOUT_MENIT = 5
 
 // POST /api/siswa/ujian/verifikasi-reset
-// Body: { sesiId: string, kodeReset: string }
+// Body: { sesiId: string, kodeReset: string, nomor?: number, deviceId?: string }
+//
+// PERANGKAT: deviceId dibandingkan dengan siswa_ujian.device_id (lihat
+// src/lib/device-guard.ts). Perangkat lain tidak boleh mengubah status sesi
+// hanya dengan memakai akun yang sama.
 //
 // Siswa memasukkan kode 7 karakter dari pengawas untuk melanjutkan ujian.
 //
@@ -30,7 +35,7 @@ export async function POST(req: NextRequest) {
   if ('error' in auth) return auth.error
   const { user } = auth
 
-  let body: { sesiId?: unknown; kodeReset?: unknown; nomor?: unknown }
+  let body: { sesiId?: unknown; kodeReset?: unknown; nomor?: unknown; deviceId?: unknown }
   try {
     body = await req.json()
   } catch {
@@ -56,7 +61,7 @@ export async function POST(req: NextRequest) {
 
   const { data: siswaUjian, error: siswaErr } = await db
     .from('siswa_ujian')
-    .select('status, waktu_mulai_awal, waktu_mulai, reset_terpakai, reset_terkunci_sampai')
+    .select('status, waktu_mulai_awal, waktu_mulai, reset_terpakai, reset_terkunci_sampai, device_id')
     .eq('sesi_id', sesiId)
     .eq('nis', nis)
     .maybeSingle()
@@ -70,6 +75,13 @@ export async function POST(req: NextRequest) {
 
   if (!siswaUjian) {
     return NextResponse.json({ valid: false, message: 'Anda belum terdaftar di sesi ujian ini.' })
+  }
+
+  // Satu siswa satu perangkat — diperiksa SEBELUM apa pun yang membuka atau
+  // mengubah status. `permanen: true` supaya antrean reset offline berhenti
+  // mengulang (kondisi ini tidak pulih dengan sendirinya).
+  if (cekDeviceSiswa(siswaUjian.device_id, body.deviceId, 'verifikasi-reset') !== 'OK') {
+    return NextResponse.json({ valid: false, permanen: true, message: PESAN_DEVICE_LAIN })
   }
 
   const waktuMulai = siswaUjian.waktu_mulai_awal ?? siswaUjian.waktu_mulai ?? new Date().toISOString()

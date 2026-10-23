@@ -53,17 +53,31 @@ function backupKeyOutbox(sesiId: string, nis: string): string {
   return `ujian_backup_${sesiId}_${nis}`
 }
 
-function bacaBackupJawabanLokal(sesiId: string, nis: string): BackupJawabanOutbox {
+/**
+ * Baca cadangan jawaban lokal.
+ *
+ * FIX (audit): fungsi ini DULU mengembalikan objek kosong baik ketika cadangan
+ * memang kosong MAUPUN ketika pembacaan/parsing gagal. Akibatnya
+ * pastikanJawabanTersinkron() menganggap "tidak ada yang perlu dikirim" dan
+ * finalisasi PG berjalan tanpa memverifikasi jawaban yang belum tersinkron.
+ * Sekarang kedua kondisi dibedakan:
+ *   - objek kosong  = cadangan memang tidak ada / sudah dibersihkan (aman)
+ *   - `null`        = cadangan ADA tetapi gagal dibaca / rusak (TIDAK aman)
+ */
+function bacaBackupJawabanLokal(sesiId: string, nis: string): BackupJawabanOutbox | null {
   try {
     const raw = localStorage.getItem(backupKeyOutbox(sesiId, nis))
     if (!raw) return { v: {}, t: {}, r: {} }
     const parsed = JSON.parse(raw)
-    if (parsed && typeof parsed === 'object' && 'v' in parsed) {
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
+    if ('v' in parsed) {
+      if (parsed.v !== null && parsed.v !== undefined && (typeof parsed.v !== 'object' || Array.isArray(parsed.v))) return null
       return { v: parsed.v ?? {}, t: parsed.t ?? {}, r: parsed.r ?? {} }
     }
-    return { v: parsed ?? {}, t: {}, r: {} }
+    // Format lama: peta datar {soal_id: jawaban}.
+    return { v: parsed, t: {}, r: {} }
   } catch {
-    return { v: {}, t: {}, r: {} }
+    return null
   }
 }
 
@@ -74,13 +88,16 @@ function bacaBackupJawabanLokal(sesiId: string, nis: string): BackupJawabanOutbo
  * server (`totalSynced` mencakup seluruh jawaban lokal yang ada).
  * Kalau tidak ada backup jawaban tersimpan sama sekali (mis. sudah
  * dibersihkan karena sebelumnya sudah tersinkron penuh), dianggap sinkron.
+ * Kalau backup ADA tetapi gagal dibaca (rusak / storage error), TIDAK dianggap
+ * sinkron: `backupRusak: true` dikembalikan supaya finalisasi dihentikan.
  */
 async function pastikanJawabanTersinkron(
   sesiId: string,
   nis: string,
   deviceId: string
-): Promise<{ sinkron: boolean; permanentReject?: boolean }> {
+): Promise<{ sinkron: boolean; permanentReject?: boolean; backupRusak?: boolean }> {
   const backup = bacaBackupJawabanLokal(sesiId, nis)
+  if (backup === null) return { sinkron: false, backupRusak: true }
   const entries = Object.entries(backup.v)
   if (entries.length === 0) return { sinkron: true }
 
@@ -472,12 +489,24 @@ export async function cobaKirimPaketTertunda(
       // WAJIB (BUG P0 #2): LOAD LOCAL ANSWERS → SYNC ALL ANSWERS → SERVER ACK
       // dulu, baru boleh FINALIZE. Tidak boleh lagi langsung /selesai.
       current = await simpanPaketTertunda({ ...current, status: 'MENYINKRONKAN' })
-      const { sinkron, permanentReject } = await pastikanJawabanTersinkron(
+      const { sinkron, permanentReject, backupRusak } = await pastikanJawabanTersinkron(
         current.sesiId,
         current.nis,
         current.deviceId
       )
       if (!sinkron) {
+        if (backupRusak) {
+          // FIX (audit): cadangan jawaban lokal gagal dibaca. JANGAN lanjut ke
+          // /selesai (nilai akan dihitung dari jawaban yang mungkin belum
+          // lengkap di server). Tandai GAGAL supaya terlihat oleh siswa/guru
+          // dan ditangani pengawas, bukan menunggu jaringan selamanya.
+          await simpanPaketTertunda({
+            ...current,
+            status: 'GAGAL',
+            pesanTerakhir: 'Cadangan jawaban di perangkat tidak dapat dibaca, jadi pengiriman dihentikan agar tidak ada jawaban yang terlewat. Hubungi pengawas.',
+          })
+          return 'GAGAL'
+        }
         if (permanentReject) {
           await simpanPaketTertunda({
             ...current,

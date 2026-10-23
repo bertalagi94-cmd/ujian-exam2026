@@ -46,6 +46,7 @@ import type { ResetAmplop } from '@/lib/reset-amplop-shared'
 import { berlanggananStatusJaringan, ambilStatusJaringan } from '@/lib/status-jaringan'
 import { GambarSoalOffline } from '@/components/ui/GambarSoalOffline'
 import ScoreReveal from '@/components/siswa/ScoreReveal'
+import { getDeviceId } from '@/lib/device-id'
 
 type Phase = 'CEK_JADWAL' | 'PERSIAPAN' | 'KODE' | 'UJIAN' | 'ESSAY_INFO' | 'ESSAY_KERJAKAN' | 'SELESAI' | 'RESET_KODE'
 
@@ -284,19 +285,8 @@ function clearBackup(sesiId: string, nis: string) {
 // jawabanRevisiRef untuk penjelasan masalahnya).
 
 // ── Device ID — identitas unik per browser/device ────────────────────────
-// Dibuat sekali, disimpan di localStorage, dipakai konsisten sepanjang sesi.
-// Digunakan server untuk mendeteksi login ganda dari device berbeda.
-function getDeviceId(): string {
-  try {
-    const stored = localStorage.getItem('ujian_device_id')
-    if (stored) return stored
-    const id = `dev_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`
-    localStorage.setItem('ujian_device_id', id)
-    return id
-  } catch {
-    return `dev_fallback_${Math.random().toString(36).slice(2, 9)}`
-  }
-}
+// Implementasi dipindah ke src/lib/device-id.ts (kunci localStorage identik)
+// supaya outbox pelanggaran/reset juga bisa memakainya.
 
 export default function SiswaUjianPage() {
   const [phase, setPhase] = useState<Phase>('CEK_JADWAL')
@@ -1975,7 +1965,7 @@ export default function SiswaUjianPage() {
       // berikutnya yang mungkin memberi waktu berbeda.
       const res = await apiRequest<{ valid: boolean; message?: string; waktu_mulai?: string; terkunci_permanen?: boolean; jumlah_pelanggaran?: number }>('/api/siswa/ujian/verifikasi-reset', {
         method: 'POST',
-        body: JSON.stringify({ sesiId: pendingResetSesiId, kodeReset: kodeReset.trim().toUpperCase() }),
+        body: JSON.stringify({ sesiId: pendingResetSesiId, kodeReset: kodeReset.trim().toUpperCase(), deviceId: getDeviceId() }),
       })
 
       // FIX BUG (siswa terjebak di layar RESET_KODE tanpa jalan keluar):
@@ -2767,7 +2757,7 @@ export default function SiswaUjianPage() {
     try {
       const res = await apiRequest<{ valid: boolean; waktu_mulai?: string; message?: string; terkunci_permanen?: boolean; jumlah_pelanggaran?: number; reset_terpakai?: number }>('/api/siswa/ujian/verifikasi-reset', {
         method: 'POST',
-        body: JSON.stringify({ sesiId: currentSesi.sesiId, kodeReset: kodeReset.trim().toUpperCase() }),
+        body: JSON.stringify({ sesiId: currentSesi.sesiId, kodeReset: kodeReset.trim().toUpperCase(), deviceId: getDeviceId() }),
       })
 
       // FIX BUG (siswa terjebak di balik overlay pelanggaran tanpa jalan

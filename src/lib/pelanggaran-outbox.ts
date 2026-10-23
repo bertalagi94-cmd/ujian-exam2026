@@ -42,6 +42,7 @@
 // transisi itu sendiri.
 
 import { apiRequest } from '@/lib/utils'
+import { getDeviceId } from '@/lib/device-id'
 import { jalankanBerurutan, EVENT_PICU_ANTREAN } from '@/lib/antrean-kunci'
 import { ambilSemuaResetTertunda } from '@/lib/reset-offline-client'
 import {
@@ -185,6 +186,9 @@ async function kirimPelanggaranTanpaKunci(entri: PelanggaranTertunda): Promise<H
         jenis: current.jenis,
         detail: current.detail,
         eventId: current.eventId,
+        // Perangkat diambil SAAT KIRIM (bukan disimpan di entri) supaya entri lama
+        // yang sudah antre di IndexedDB juga ikut membawa identitas perangkat.
+        deviceId: getDeviceId(),
       }),
     })
     await hapus(current.sesiId, current.nis, current.eventId)

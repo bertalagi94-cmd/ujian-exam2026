@@ -4,9 +4,14 @@ import { requireRole } from '@/lib/auth'
 import { generateId } from '@/lib/utils'
 import { ambilMaksReset } from '@/lib/reset-berurutan'
 import { tuntaskanSiswaTerkunci } from '@/lib/kunci-siswa'
+import { cekDeviceSiswa, PESAN_DEVICE_LAIN } from '@/lib/device-guard'
 
 // POST /api/siswa/ujian/pelanggaran
-// Body: { sesiId, jenis, detail, eventId? }
+// Body: { sesiId, jenis, detail, eventId?, deviceId? }
+//
+// PERANGKAT: deviceId dibandingkan dengan siswa_ujian.device_id (lihat
+// src/lib/device-guard.ts) supaya perangkat lain yang memakai akun yang sama
+// tidak bisa mengirim laporan pelanggaran palsu.
 //
 // Mencatat SATU kejadian pelanggaran. Seluruh keputusan (level, status RESET,
 // atau TERKUNCI pada pelanggaran ke-(N+1)) diambil ATOMIK di dalam RPC
@@ -32,14 +37,14 @@ export async function POST(req: NextRequest) {
   if ('error' in auth) return auth.error
   const { user } = auth
 
-  let body: { sesiId?: unknown; jenis?: unknown; detail?: unknown; eventId?: unknown }
+  let body: { sesiId?: unknown; jenis?: unknown; detail?: unknown; eventId?: unknown; deviceId?: unknown }
   try {
     body = await req.json()
   } catch {
     return NextResponse.json({ error: 'Body tidak valid' }, { status: 400 })
   }
 
-  const { sesiId, jenis, detail, eventId } = body
+  const { sesiId, jenis, detail, eventId, deviceId } = body
   if (typeof sesiId !== 'string' || !sesiId || typeof jenis !== 'string' || !jenis) {
     return NextResponse.json({ error: 'sesiId dan jenis diperlukan' }, { status: 400 })
   }
@@ -56,6 +61,18 @@ export async function POST(req: NextRequest) {
     .from('sesi_ujian').select('id').eq('id', sesiId).maybeSingle()
   if (!sesiMilikYayasan) {
     return NextResponse.json({ error: 'Sesi ujian tidak ditemukan untuk akun ini.' }, { status: 404 })
+  }
+
+  // Satu siswa satu perangkat. Baris siswa_ujian yang belum ada dibiarkan lewat
+  // ke RPC (yang menjawab SISWA_TIDAK_TERDAFTAR). Error baca = fail-closed (503).
+  const { data: siswaUjian, error: siswaErr } = await db
+    .from('siswa_ujian').select('device_id').eq('sesi_id', sesiId).eq('nis', user.nis!).maybeSingle()
+  if (siswaErr) {
+    console.error('[pelanggaran] gagal membaca siswa_ujian:', siswaErr.message)
+    return NextResponse.json({ error: 'Pelanggaran belum dapat dicatat di server. Coba lagi.' }, { status: 503 })
+  }
+  if (cekDeviceSiswa(siswaUjian?.device_id, deviceId, 'pelanggaran') !== 'OK') {
+    return NextResponse.json({ error: PESAN_DEVICE_LAIN }, { status: 409 })
   }
 
   const maksReset = await ambilMaksReset(db, yayasanIdDari(auth.user))

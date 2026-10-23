@@ -19,6 +19,9 @@ Dokumen lain: `SETUP.md` (bangun ulang dari nol), `supabase/*.sql` (migrasi).
 
 ## CURRENT ARCHITECTURE
 
+- **Multi-yayasan:** sebagian besar route API memakai `tenantDb(yayasanId)`
+  (`src/lib/tenant.ts`, lihat `docs/MULTI_YAYASAN.md`) yang membatasi query ke
+  satu yayasan. Backup/restore/reset ditolak selama `MULTI_YAYASAN_ENABLED=true`.
 - **Semua akses database dari server memakai `service_role`**
   (`createAdminClient` di `src/lib/supabase.ts`). Autentikasi memakai JWT
   buatan sendiri (`jsonwebtoken`, `src/lib/auth.ts`, login di
@@ -91,8 +94,15 @@ Aturan migrasi:
 
 - Jika IndexedDB **dan** fallback localStorage sama-sama gagal, kegagalan
   ditelan diam-diam (`ujian-outbox.ts`). Siswa harus diperingatkan.
-- Validasi cache gambar hanya `res.ok` + `blob.size > 0`; belum memeriksa
-  `Content-Type: image/*` (HTML error dengan HTTP 200 lolos).
+- ~~Validasi cache gambar hanya `res.ok` + `blob.size > 0`~~ — SUDAH
+  diperbaiki: `gambar-offline.ts` kini menolak respons yang bukan `image/*`
+  dan berkas kosong.
+- ~~Kegagalan membaca cadangan jawaban lokal dianggap "tidak ada jawaban"~~ —
+  SUDAH diperbaiki: `bacaBackupJawabanLokal()` (`ujian-outbox.ts`) kini
+  mengembalikan `null` bila cadangan ADA tetapi gagal dibaca/rusak, dan
+  `cobaKirimPaketTertunda()` menghentikan finalisasi (status `GAGAL`, pesan
+  "hubungi pengawas") alih-alih lanjut ke `/selesai`. Cadangan yang memang
+  kosong tetap dianggap sinkron.
 - ~~Data pengawas (kode ujian, kode reset) tidak disimpan lokal~~ — SUDAH
   diperbaiki: kode reset R1–R3 diambil sekali saat online lewat
   `GET /api/pengawas/sesi/[id]/kode-reset` dan dipakai offline dari situ.
@@ -108,16 +118,19 @@ Aturan migrasi:
   pinning) dijembatani lewat `src/lib/exam-lock.ts` →
   `android/.../ExamLockPlugin.java` (folder `android/` tidak ada di repo ini;
   pastikan tersedia di tempat build APK).
-- Pelanggaran dikirim ke `/api/siswa/ujian/pelanggaran`; server
-  men-dedup dalam jendela 5 detik dan menaikkan level.
+- Pelanggaran dikirim ke `/api/siswa/ujian/pelanggaran` lewat antrean
+  (`src/lib/pelanggaran-outbox.ts`, IndexedDB). Dedup memakai `eventId`
+  idempoten yang dibuat client untuk tiap kejadian fisik, ditambah latch
+  "menunggu reset" selama status siswa `RESET` (bukan lagi jendela 5 detik).
+  Keputusan level/RESET/TERKUNCI diambil atomik di `catat_pelanggaran_atomik`.
 - `pelanggaranActiveRef` di `page.tsx` berfungsi sebagai gerbang
   "menunggu reset"; ia direset **hanya** setelah kode reset benar.
 
-**Belum ada (target desain — lihat prinsip di bawah):**
-
-- Antrean event pelanggaran offline (saat ini kegagalan kirim hanya
-  `console.warn` → pelanggaran offline hilang).
-- Dedup event berbasis timestamp/ID idempotent di client.
+**Catatan (diperbarui):** antrean event pelanggaran offline dan dedup berbasis
+`eventId` sudah ada (lihat di atas). Server masih menerima `eventId`
+kosong (`null`) demi kompatibilitas client lama; setelah semua perangkat
+memakai versi baru, `eventId` sebaiknya diwajibkan di
+`/api/siswa/ujian/pelanggaran`.
 
 **Prinsip yang HARUS dipertahankan:**
 
@@ -178,23 +191,30 @@ hasil pengujian eksplisit di repo ini.
   (`syncJawabanEssay()`) sebelum memanggil `essay/kirim`, dan membedakan
   kegagalan jaringan (tidak memblokir siswa, jawaban diantrekan ke outbox
   permanen) dari penolakan sah server 409/403 (memblokir dengan pesan jelas).
-- **Celah yang masih diketahui:** `essay/jawab` masih memakai `updated_at`
-  (timestamp) untuk autosave, belum migrasi ke `revisi` seperti jawaban PG —
-  jadi konflik multi-device untuk essay masih diselesaikan pakai jam, bukan
-  penghitung monoton; finalisasi essay (`essay/kirim`) belum lewat RPC atomik
-  (masih 2+ query terpisah dengan penyempitan celah race manual, lihat
-  komentar di `essay/kirim/route.ts`); `essay/kirim` sengaja melewati cek
-  device kalau `device_id` di database masih null (data lama sebelum
-  device-lock ada) — bukan lubang baru, tapi tetap berarti device-lock tidak
-  berlaku penuh untuk baris `siswa_ujian` semacam itu.
+- **Sudah diperbaiki (README lama tertinggal):** `essay/jawab` kini memakai
+  nomor `revisi` monoton lewat RPC `sync_jawaban_essay_revisi`
+  (`supabase/35_revisi_essay_dan_jeda_offline_nyata.sql`), dan finalisasi
+  essay (`essay/kirim`) memakai RPC atomik `finalisasi_essay_atomik`
+  (`supabase/32_finalisasi_essay_atomik.sql`).
+- **Celah yang masih diketahui:** `essay/kirim` sengaja melewati cek device
+  kalau `device_id` di database masih null (data lama sebelum device-lock
+  ada) — bukan lubang baru, tapi tetap berarti device-lock tidak berlaku
+  penuh untuk baris `siswa_ujian` semacam itu.
 
 ## DEVICE LOCK
 
 - `siswa_ujian.device_id` mengikat siswa ke satu perangkat. Diperiksa di
-  route `sync`, `cek-sesi`, `selesai`, dan endpoint essay
-  (`mulai`/`jawab`/`kirim`).
-- **Belum** diperiksa di: `pelanggaran`, `verifikasi-reset`, dan di dalam
-  `finalisasi_pg_atomik()` (RPC belum menerima `device_id`).
+  route `sync`, `cek-sesi`, `selesai`, endpoint essay
+  (`mulai`/`jawab`/`kirim`), serta `pelanggaran` dan `verifikasi-reset`
+  (lewat `src/lib/device-guard.ts`). `finalisasi_pg_atomik()` mengecek
+  `device_id` di dalam transaksi sejak migrasi 33.
+- `deviceId` dikirim client dari `src/lib/device-id.ts` (satu sumber untuk
+  halaman ujian dan outbox). **Rilis bertahap:** secara default, request
+  `pelanggaran`/`verifikasi-reset` TANPA `deviceId` (APK/client lama)
+  masih diloloskan dengan peringatan di log; `deviceId` yang berbeda selalu
+  ditolak. Setelah semua perangkat memakai versi baru, set env
+  `DEVICE_LOCK_STRICT=true` di Vercel agar request tanpa `deviceId` juga
+  ditolak.
 - Takeover setelah heartbeat stale harus diperlakukan sebagai *device lease*;
   device lama harus ditolak setelah takeover.
 - Identitas tab: `src/lib/identitas-tab.ts`. Outbox satu siswa tidak boleh
@@ -291,8 +311,12 @@ where n.nspname='public' and c.relkind='r'
     or has_table_privilege('authenticated',c.oid,'select,insert,update,delete,truncate'));
 ```
 
-Env vars: lihat `SETUP.md` bagian 4. Header keamanan (CSP, HSTS,
-Permissions-Policy) **belum** dikonfigurasi di `next.config.js`.
+Env vars: lihat `SETUP.md` bagian 4 (opsional: `DEVICE_LOCK_STRICT`, lihat
+bagian DEVICE LOCK). Header keamanan di `next.config.js`: nosniff,
+X-Frame-Options, Referrer-Policy, HSTS (`max-age=31536000`, tanpa
+`includeSubDomains`), Permissions-Policy, dan CSP **parsial**
+(`object-src`, `base-uri`, `form-action`, `frame-ancestors`; script/style
+belum dibatasi karena Next.js butuh inline).
 
 ---
 
