@@ -4,7 +4,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
-import { sudahLewatBatasWaktuEssay } from '@/lib/essay-waktu'
+import { essayTerlambatDitolak } from '@/lib/essay-waktu'
 
 // POST { sesiId, jawaban: [{ soal_essay_id, jawaban_teks }] }
 export async function POST(req: NextRequest) {
@@ -13,7 +13,19 @@ export async function POST(req: NextRequest) {
   const { user } = auth
 
   const db = tenantDb(yayasanIdDari(auth.user))
-  const { sesiId, jawaban, deviceId } = await req.json()
+  let body: { sesiId?: string; jawaban?: unknown; deviceId?: string }
+  try {
+    body = await req.json()
+  } catch {
+    return NextResponse.json({ error: 'Body tidak valid' }, { status: 400 })
+  }
+  const { sesiId, jawaban, deviceId } = body as { sesiId?: string; jawaban?: any; deviceId?: string }
+  if (Array.isArray(jawaban) && jawaban.length > 100) {
+    return NextResponse.json({ error: 'Terlalu banyak jawaban dalam satu permintaan' }, { status: 400 })
+  }
+  if (Array.isArray(jawaban) && jawaban.some((j: { jawaban_teks?: unknown }) => typeof j?.jawaban_teks === 'string' && j.jawaban_teks.length > 20000)) {
+    return NextResponse.json({ error: 'Jawaban terlalu panjang (maks 20.000 karakter per soal)' }, { status: 400 })
+  }
   if (!sesiId) return NextResponse.json({ error: 'sesiId diperlukan' }, { status: 400 })
 
   // FIX BUG P0: sertakan paket_essay_id — sama seperti essay/soal/route.ts &
@@ -32,7 +44,7 @@ export async function POST(req: NextRequest) {
 
   const { data: siswaUjian } = await db
     .from('siswa_ujian')
-    .select('status, status_essay, waktu_mulai_essay, device_id')
+    .select('status, status_essay, waktu_mulai_essay, device_id, last_heartbeat')
     .eq('sesi_id', sesiId)
     .eq('nis', user.nis!)
     .single()
@@ -70,7 +82,7 @@ export async function POST(req: NextRequest) {
   // FIX BUG (tidak ada validasi waktu server-side untuk essay): lihat
   // src/lib/essay-waktu.ts. Tanpa ini, siswa yang mem-bypass countdown di
   // client bisa terus autosave jawaban tanpa batas waktu.
-  if (sudahLewatBatasWaktuEssay(siswaUjian.waktu_mulai_essay, sesi.info_json?.essay_durasi_menit)) {
+  if (essayTerlambatDitolak(siswaUjian.waktu_mulai_essay, sesi.info_json?.essay_durasi_menit, siswaUjian.last_heartbeat)) {
     return NextResponse.json({ error: 'Waktu pengerjaan essay Anda sudah habis.' }, { status: 409 })
   }
 

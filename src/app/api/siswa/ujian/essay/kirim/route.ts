@@ -10,7 +10,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
-import { sudahLewatBatasWaktuEssay } from '@/lib/essay-waktu'
+import { essayTerlambatDitolak } from '@/lib/essay-waktu'
 
 export async function POST(req: NextRequest) {
   const auth = requireRole(req, ['SISWA'])
@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
 
   const { data: siswaUjian } = await db
     .from('siswa_ujian')
-    .select('status, status_essay, waktu_mulai_essay, device_id')
+    .select('status, status_essay, waktu_mulai_essay, device_id, last_heartbeat')
     .eq('sesi_id', sesiId)
     .eq('nis', nis)
     .single()
@@ -156,7 +156,7 @@ export async function POST(req: NextRequest) {
   // saat sisaWaktuEssay mencapai 0.
   if (
     sesi.info_json?.essay_mode_jawaban === 'DIGITAL' &&
-    sudahLewatBatasWaktuEssay(siswaUjian.waktu_mulai_essay, sesi.info_json?.essay_durasi_menit)
+    essayTerlambatDitolak(siswaUjian.waktu_mulai_essay, sesi.info_json?.essay_durasi_menit, siswaUjian.last_heartbeat)
   ) {
     return NextResponse.json(
       { error: 'Waktu pengerjaan essay Anda sudah habis. Jawaban yang sudah tersimpan akan dinilai oleh guru.' },

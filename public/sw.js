@@ -89,7 +89,20 @@ async function namaCacheAktif() {
 
 self.addEventListener('install', (event) => {
   event.waitUntil((async () => {
-    const manifest = await ambilManifest()
+    // FIX: saat INSTALL manifest WAJIB diambil dari jaringan. Fallback ke salinan
+    // META_CACHE (build lama) membuat SW baru memasang precache build lama dan
+    // siswa terjebak di build lama sampai deploy berikutnya. Kalau gagal, install
+    // gagal -> browser mencoba lagi nanti. Fallback hanya untuk handler `fetch`.
+    const res = await fetch(MANIFEST_URL, { cache: 'no-store' })
+    if (!res.ok) throw new Error('[sw] manifest tidak bisa diambil saat install')
+    const manifest = await res.json()
+    try {
+      const metaCache = await caches.open(META_CACHE)
+      await metaCache.put(MANIFEST_URL, new Response(JSON.stringify(manifest)))
+    } catch {
+      console.warn('[sw] Gagal menyimpan salinan manifest ke META_CACHE.')
+    }
+    manifestPromise = Promise.resolve(manifest)
     const cache = await caches.open(`${CACHE_PREFIX}-${manifest.buildId}`)
 
     // Precache satu-per-satu (BUKAN cache.addAll) supaya satu aset yang

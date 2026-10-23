@@ -291,17 +291,40 @@ export async function PATCH(req: NextRequest) {
   if (action === 'reset_semua') {
     if (!nis || !sesiId) return NextResponse.json({ error: 'nis dan sesiId diperlukan' }, { status: 400 })
 
-    await Promise.all([
-      db.from('pelanggaran').delete().eq('sesi_id', sesiId).eq('nis', nis),
-      // Penghitung reset WAJIB ikut dikembalikan ke 0. Kalau tidak, siswa yang
-      // sudah memakai R3 tidak punya kode lagi (butuh "R4" yang tidak ada) dan
-      // langsung terkunci di pelanggaran berikutnya.
-      db.from('siswa_ujian')
-        .update({ status: 'AKTIF', reset_terpakai: 0, reset_gagal: 0, reset_terkunci_sampai: null })
-        .eq('sesi_id', sesiId)
-        .eq('nis', nis),
-      db.from('log_reset').delete().eq('nis', nis).eq('digunakan', false),
-    ])
+    // FIX: siswa TERKUNCI punya baris nilai placeholder 0 (dibuat saat dikunci).
+    // Tanpa menghapusnya, /validasi menolak siswa ("sudah menyelesaikan ujian")
+    // dan /selesai tetap mengembalikan nilai 0. Hapus HANYA placeholder: nilai 0,
+    // belum dirilis, belum dikirim ke wali kelas.
+    const { data: suSebelum } = await db
+      .from('siswa_ujian').select('status').eq('sesi_id', sesiId).eq('nis', nis).maybeSingle()
+    const wasTerkunci = suSebelum?.status === 'TERKUNCI'
+
+    const updateSiswa: Record<string, unknown> = {
+      status: 'AKTIF', reset_terpakai: 0, reset_gagal: 0, reset_terkunci_sampai: null,
+    }
+    let placeholderDihapus = false
+    if (wasTerkunci) {
+      const { data: nilaiRow } = await db
+        .from('nilai').select('id, nilai, dirilis, dikirim_ke_wali')
+        .eq('sesi_id', sesiId).eq('nis', nis).maybeSingle()
+      if (nilaiRow && Number(nilaiRow.nilai) === 0 && !nilaiRow.dirilis && !nilaiRow.dikirim_ke_wali) {
+        const { error: delNilaiErr } = await db.from('nilai').delete().eq('id', nilaiRow.id)
+        if (delNilaiErr) return NextResponse.json({ error: delNilaiErr.message }, { status: 500 })
+        placeholderDihapus = true
+      }
+      updateSiswa.waktu_selesai = null
+    }
+
+    // Urutan: status siswa dulu; kalau gagal, riwayat pelanggaran JANGAN dihapus.
+    const { error: errSu } = await db.from('siswa_ujian').update(updateSiswa)
+      .eq('sesi_id', sesiId).eq('nis', nis)
+    if (errSu) return NextResponse.json({ error: errSu.message }, { status: 500 })
+
+    const { error: errPel } = await db.from('pelanggaran').delete().eq('sesi_id', sesiId).eq('nis', nis)
+    if (errPel) return NextResponse.json({ error: errPel.message }, { status: 500 })
+
+    // Dibatasi ke sesi ini (sebelumnya menghapus log semua sesi untuk NIS ini).
+    await db.from('log_reset').delete().eq('nis', nis).eq('sesi_id', sesiId).eq('digunakan', false)
 
     await db.from('log_reset').insert({
       nis,
@@ -311,7 +334,12 @@ export async function PATCH(req: NextRequest) {
       digunakan: true,
     })
 
-    return NextResponse.json({ success: true, message: 'Semua pelanggaran siswa di sesi ini dihapus dan akses dikembalikan.' })
+    return NextResponse.json({
+      success: true,
+      message: placeholderDihapus
+        ? 'Semua pelanggaran dihapus, kunci dibuka, dan nilai 0 akibat penguncian dihapus. Siswa bisa masuk kembali ke ujian.'
+        : 'Semua pelanggaran siswa di sesi ini dihapus dan akses dikembalikan.',
+    })
   }
 
   return NextResponse.json({ error: 'Action tidak dikenali' }, { status: 400 })
