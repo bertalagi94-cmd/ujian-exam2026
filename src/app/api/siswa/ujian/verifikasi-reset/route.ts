@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 import { ambilMaksReset, kodeResetCocok } from '@/lib/reset-berurutan'
-import { cekDeviceSiswa, PESAN_DEVICE_LAIN } from '@/lib/device-guard'
+import { cekDeviceSiswa, pesanDevice } from '@/lib/device-guard'
 
 // Batas percobaan kode salah sebelum dikunci sementara, dan lama lockout-nya.
 const MAX_PERCOBAAN = 5
@@ -80,8 +80,9 @@ export async function POST(req: NextRequest) {
   // Satu siswa satu perangkat — diperiksa SEBELUM apa pun yang membuka atau
   // mengubah status. `permanen: true` supaya antrean reset offline berhenti
   // mengulang (kondisi ini tidak pulih dengan sendirinya).
-  if (cekDeviceSiswa(siswaUjian.device_id, body.deviceId, 'verifikasi-reset') !== 'OK') {
-    return NextResponse.json({ valid: false, permanen: true, message: PESAN_DEVICE_LAIN })
+  const cekDevice = cekDeviceSiswa(siswaUjian.device_id, body.deviceId, 'verifikasi-reset')
+  if (cekDevice !== 'OK') {
+    return NextResponse.json({ valid: false, permanen: true, message: pesanDevice(cekDevice) })
   }
 
   const waktuMulai = siswaUjian.waktu_mulai_awal ?? siswaUjian.waktu_mulai ?? new Date().toISOString()

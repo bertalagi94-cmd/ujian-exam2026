@@ -37,3 +37,12 @@ export function cekDeviceSiswa(
 
 export const PESAN_DEVICE_LAIN =
   'Sesi ujian Anda sedang aktif di perangkat lain. Permintaan dari perangkat ini ditolak.'
+
+// Dipakai saat DEVICE_LOCK_STRICT=true dan request tidak membawa deviceId
+// (client/APK lama) — jangan menyalahkan "perangkat lain", masalahnya versi aplikasi.
+export const PESAN_APLIKASI_LAMA =
+  'Versi aplikasi di perangkat ini sudah usang. Perbarui aplikasi lalu coba lagi.'
+
+export function pesanDevice(hasil: HasilCekDevice): string {
+  return hasil === 'TIDAK_DIKIRIM' ? PESAN_APLIKASI_LAMA : PESAN_DEVICE_LAIN
+}

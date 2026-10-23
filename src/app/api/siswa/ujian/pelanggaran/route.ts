@@ -4,7 +4,7 @@ import { requireRole } from '@/lib/auth'
 import { generateId } from '@/lib/utils'
 import { ambilMaksReset } from '@/lib/reset-berurutan'
 import { tuntaskanSiswaTerkunci } from '@/lib/kunci-siswa'
-import { cekDeviceSiswa, PESAN_DEVICE_LAIN } from '@/lib/device-guard'
+import { cekDeviceSiswa, pesanDevice } from '@/lib/device-guard'
 
 // POST /api/siswa/ujian/pelanggaran
 // Body: { sesiId, jenis, detail, eventId?, deviceId? }
@@ -71,8 +71,9 @@ export async function POST(req: NextRequest) {
     console.error('[pelanggaran] gagal membaca siswa_ujian:', siswaErr.message)
     return NextResponse.json({ error: 'Pelanggaran belum dapat dicatat di server. Coba lagi.' }, { status: 503 })
   }
-  if (cekDeviceSiswa(siswaUjian?.device_id, deviceId, 'pelanggaran') !== 'OK') {
-    return NextResponse.json({ error: PESAN_DEVICE_LAIN }, { status: 409 })
+  const cekDevice = cekDeviceSiswa(siswaUjian?.device_id, deviceId, 'pelanggaran')
+  if (cekDevice !== 'OK') {
+    return NextResponse.json({ error: pesanDevice(cekDevice) }, { status: 409 })
   }
 
   const maksReset = await ambilMaksReset(db, yayasanIdDari(auth.user))

@@ -22,6 +22,8 @@ Dokumen lain: `SETUP.md` (bangun ulang dari nol), `supabase/*.sql` (migrasi).
 - **Multi-yayasan:** sebagian besar route API memakai `tenantDb(yayasanId)`
   (`src/lib/tenant.ts`, lihat `docs/MULTI_YAYASAN.md`) yang membatasi query ke
   satu yayasan. Backup/restore/reset ditolak selama `MULTI_YAYASAN_ENABLED=true`.
+  Per `docs/MULTI_YAYASAN.md`, mode ini belum boleh dinyalakan sebelum uji dua
+  yayasan lulus (NIS siswa masih unik secara global, Fase 2).
 - **Semua akses database dari server memakai `service_role`**
   (`createAdminClient` di `src/lib/supabase.ts`). Autentikasi memakai JWT
   buatan sendiri (`jsonwebtoken`, `src/lib/auth.ts`, login di
