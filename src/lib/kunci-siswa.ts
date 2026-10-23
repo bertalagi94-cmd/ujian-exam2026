@@ -103,6 +103,25 @@ export async function tuntaskanSiswaTerkunci(db: DbClient, sesiId: string, nis: 
           : 'Ujian dihentikan otomatis karena pelanggaran melebihi batas reset yang diizinkan. Nilai akhir ditetapkan 0 sesuai aturan.',
       })
     }
+  } else {
+    // KEBIJAKAN "terkunci = gugur total": kalau siswa sudah punya nilai (mis.
+    // PG selesai lalu terkunci saat fase essay), nilainya ikut dinolkan —
+    // termasuk nilai essay/total. benar/total asli tetap disimpan untuk audit.
+    // Nilai yang SUDAH dikirim ke wali kelas tidak diubah di sini.
+    await db
+      .from('nilai')
+      .update({
+        nilai: 0,
+        grade: 'E',
+        lulus: false,
+        nilai_essay: 0,
+        nilai_total: 0,
+        catatan_guru: 'Ujian dihentikan karena pelanggaran melebihi batas reset yang diizinkan. Nilai akhir ditetapkan 0 sesuai aturan (terkunci = gugur). Jawaban asli tetap disimpan untuk keperluan audit.',
+      })
+      .eq('sesi_id', sesiId)
+      .eq('nis', nis)
+      .eq('dikirim_ke_wali', false)
+      .or('nilai.neq.0,nilai_total.is.null,nilai_total.neq.0')
   }
 
   // Catat waktu selesai tanpa menyentuh status TERKUNCI.

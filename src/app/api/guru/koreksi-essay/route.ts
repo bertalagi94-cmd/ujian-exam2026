@@ -335,6 +335,15 @@ export async function PUT(req: NextRequest) {
   const bobotPg = sesi.info_json?.essay_bobot_pg_persen ?? jadwal?.essay_bobot_pg_persen ?? 50
   const bobotEssay = sesi.info_json?.essay_bobot_essay_persen ?? jadwal?.essay_bobot_essay_persen ?? 50
 
+  // KEBIJAKAN: siswa TERKUNCI karena pelanggaran = gugur total, nilai tetap 0.
+  const { data: suKunci } = await db
+    .from('siswa_ujian').select('status').eq('sesi_id', sesiId).eq('nis', nis).maybeSingle()
+  if (suKunci?.status === 'TERKUNCI') {
+    return NextResponse.json({
+      error: 'Siswa ini dikunci karena pelanggaran (gugur total). Nilai ditetapkan 0 dan tidak bisa diubah lewat koreksi essay.',
+    }, { status: 409 })
+  }
+
   const { data: nilaiRow } = await db
     .from('nilai')
     .select('id, nilai, kkm, dirilis, dikirim_ke_wali')
