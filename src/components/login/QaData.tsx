@@ -25,7 +25,7 @@ export const QA_ITEMS: QaSection[] = [
     items: [
       {
         q: 'Apa itu SmartExam?',
-        a: 'SmartExam adalah sistem ujian berbasis komputer (CBT) yang dirancang khusus untuk sekolah — bisa dikerjakan lewat HP maupun laptop/komputer. Memungkinkan guru membuat soal, menjadwalkan ujian, dan siswa mengerjakan ujian secara online dengan pengawasan real-time.',
+        a: 'SmartExam adalah sistem ujian berbasis komputer (CBT) yang dirancang untuk berbagai sekolah dan jenjang — bisa dikerjakan lewat HP maupun laptop/komputer. Memungkinkan guru membuat soal, menjadwalkan ujian, dan siswa mengerjakan ujian secara online dengan pengawasan real-time.',
       },
       {
         q: 'Browser apa yang direkomendasikan?',
@@ -53,7 +53,7 @@ export const QA_ITEMS: QaSection[] = [
       },
       {
         q: 'Status ujian saya "RESET" / saya diminta kode, apa yang harus dilakukan?',
-        a: 'Setiap pelanggaran (berpindah tab, keluar layar, dll) langsung menghentikan ujian sementara sampai Anda meminta kode 7 karakter ke pengawas ruangan. Kalau jumlah pelanggaran sudah melebihi batas yang ditentukan sekolah, pengawas bisa memilih mengunci akun secara permanen untuk sesi itu — hubungi pengawas atau admin jika ini terjadi.',
+        a: 'Setiap pelanggaran (berpindah tab, keluar layar, dll) langsung menghentikan ujian sementara sampai Anda meminta kode 7 karakter ke pengawas ruangan. Kalau jumlah pelanggaran sudah melebihi batas yang ditentukan admin, pengawas bisa memilih mengunci akun secara permanen untuk sesi itu — hubungi pengawas atau admin jika ini terjadi.',
       },
     ],
   },
@@ -73,7 +73,7 @@ export const QA_ITEMS: QaSection[] = [
       },
       {
         q: 'Apa yang dimaksud dengan pelanggaran?',
-        a: 'Sistem mendeteksi jika siswa berpindah tab, meminimalkan jendela browser, atau mencoba membuka aplikasi lain. Setiap deteksi langsung menghentikan ujian Anda sementara (status RESET) — bukan menunggu sampai batas terlampaui. Untuk lanjut, Anda perlu kode 7 karakter dari pengawas. Batas jumlah pelanggaran yang ditentukan sekolah dipakai pengawas untuk memutuskan apakah akun perlu dikunci permanen.',
+        a: 'Sistem mendeteksi jika siswa berpindah tab, meminimalkan jendela browser, atau mencoba membuka aplikasi lain. Setiap deteksi langsung menghentikan ujian Anda sementara (status RESET) — bukan menunggu sampai batas terlampaui. Untuk lanjut, Anda perlu kode 7 karakter dari pengawas. Batas jumlah pelanggaran yang ditentukan admin dipakai pengawas untuk memutuskan apakah akun perlu dikunci permanen.',
       },
       {
         q: 'Internet saya putus saat ujian, bagaimana?',
@@ -157,10 +157,10 @@ export const QA_ITEMS: QaSection[] = [
       },
       {
         q: 'Data sekolah hilang setelah reset',
-        a: 'Jika reset "Semua Data" dilakukan, semua pengaturan termasuk nama sekolah dan logo akan terhapus. Isi kembali di halaman Informasi Sekolah (dibuka lewat kartu di atas tab Pengaturan). Selalu lakukan backup di tab Backup & Restore sebelum melakukan reset apapun.',
+        a: 'Jika reset "Semua Data" dilakukan, semua pengaturan termasuk data dan logo setiap sekolah akan terhapus. Isi kembali di halaman Informasi Sekolah (dibuka lewat kartu di atas tab Pengaturan). Selalu lakukan backup di tab Backup & Restore sebelum melakukan reset apapun.',
       },
       {
-        q: 'Internet sekolah mati total saat ujian berlangsung, bagaimana pengawas harus bertindak?',
+        q: 'Internet mati total saat ujian berlangsung, bagaimana pengawas harus bertindak?',
         a: 'Untuk soal pilihan ganda, tidak perlu tindakan khusus — jawaban siswa tersimpan di perangkat masing-masing dan terkirim otomatis begitu internet kembali. Untuk soal essay, buka menu Jadwal Mengawas Saya, pilih tab Mode Pengawas, lalu tekan "Tampilkan Kode Darurat", dan bacakan/tuliskan kode tersebut di papan tulis (jangan lewat grup chat/internet) agar siswa bisa membuka soal essay secara offline. Begitu koneksi pulih, sistem otomatis menyinkronkan data essay siswa yang tadi offline.',
       },
     ],
@@ -173,7 +173,7 @@ export const QA_ITEMS: QaSection[] = [
     items: [
       {
         q: 'Berapa banyak siswa yang bisa menggunakan sistem bersamaan?',
-        a: 'Bergantung pada paket Supabase yang digunakan. Paket gratis mendukung hingga ratusan koneksi bersamaan. Untuk sekolah besar, pertimbangkan upgrade ke paket berbayar untuk performa optimal.',
+        a: 'Bergantung pada paket Supabase yang digunakan. Paket gratis mendukung hingga ratusan koneksi bersamaan. Untuk jumlah siswa yang besar, pertimbangkan upgrade ke paket berbayar untuk performa optimal.',
       },
       {
         q: 'Bagaimana cara import data siswa massal?',
