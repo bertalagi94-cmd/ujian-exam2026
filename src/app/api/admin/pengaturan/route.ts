@@ -4,6 +4,10 @@ import { requireRole } from '@/lib/auth'
 import { revalidatePath } from 'next/cache'
 import { cacheDelPrefix } from '@/lib/cache'
 
+// Kunci yang BUKAN milik sekolah: diatur developer (lihat src/lib/pengaturan-global.ts).
+// Dibuang dari penulisan supaya admin sekolah tidak bisa mengubahnya lewat endpoint ini.
+const KUNCI_HANYA_DEVELOPER = new Set(['logoAplikasi'])
+
 export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['ADMIN'])
   if ('error' in auth) return auth.error
@@ -28,9 +32,13 @@ export async function PUT(req: NextRequest) {
   // Sebelumnya: loop N × (select + insert/update) = N*2 query serial.
   // Sekarang: 1 upsert batch untuk semua settings sekaligus.
   const now = new Date().toISOString()
-  const records = (settings as { key: string; value: string }[]).map(({ key, value }) => ({
-    key, value, updated_at: now,
-  }))
+  const records = (settings as { key: string; value: string }[])
+    .filter(({ key }) => !KUNCI_HANYA_DEVELOPER.has(String(key)))
+    .map(({ key, value }) => ({ key, value, updated_at: now }))
+
+  if (records.length === 0) {
+    return NextResponse.json({ message: 'Pengaturan berhasil disimpan' })
+  }
 
   const { error } = await db
     .from('pengaturan')

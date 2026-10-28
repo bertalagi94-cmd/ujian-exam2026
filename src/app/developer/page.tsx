@@ -22,6 +22,8 @@ export default function DeveloperPage() {
   const [info, setInfo] = useState('')
   const [error, setError] = useState('')
   const [ready, setReady] = useState(false)
+  const [logoAplikasi, setLogoAplikasi] = useState('')
+  const [uploadingLogo, setUploadingLogo] = useState(false)
 
   const api = useCallback(async (url: string, init?: RequestInit) => {
     const token = localStorage.getItem('dev_token')
@@ -43,6 +45,7 @@ export default function DeveloperPage() {
     try {
       setDaftar((await api('/api/developer/yayasan')).data)
       setPengajuan((await api('/api/developer/pengajuan')).data)
+      setLogoAplikasi((await api('/api/developer/logo-aplikasi')).url ?? '')
     }
     catch (e) { setError((e as Error).message) }
   }, [api])
@@ -77,6 +80,42 @@ export default function DeveloperPage() {
     catch (err) { setError((err as Error).message) }
   }
 
+  async function unggahLogo(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    setError(''); setInfo('')
+    if (!file.type.startsWith('image/')) { setError('File harus berupa gambar'); return }
+    if (file.size > 2 * 1024 * 1024) { setError('Ukuran logo maksimal 2MB'); return }
+    setUploadingLogo(true)
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      // Tanpa Content-Type manual: browser mengisi boundary multipart sendiri.
+      const res = await fetch('/api/developer/logo-aplikasi', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${localStorage.getItem('dev_token')}` },
+        body: form,
+      })
+      const json = await res.json().catch(() => ({}))
+      if (res.status === 401) { keluar(); return }
+      if (!res.ok) throw new Error(json.error || 'Upload gagal')
+      setLogoAplikasi(json.url)
+      setInfo('Logo aplikasi diperbarui untuk semua sekolah.')
+    } catch (err) { setError((err as Error).message) }
+    finally { setUploadingLogo(false) }
+  }
+
+  async function hapusLogo() {
+    if (!window.confirm('Hapus logo aplikasi? Halaman login & sidebar semua sekolah akan memakai logo sekolah masing-masing.')) return
+    setError(''); setInfo('')
+    try {
+      await api('/api/developer/logo-aplikasi', { method: 'DELETE' })
+      setLogoAplikasi('')
+      setInfo('Logo aplikasi dihapus.')
+    } catch (err) { setError((err as Error).message) }
+  }
+
   if (!ready) return null
 
   return (
@@ -89,6 +128,32 @@ export default function DeveloperPage() {
         {error && <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-600 text-sm">{error}</div>}
 
         {info && <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm">{info}</div>}
+
+        <div className="bg-white rounded-2xl shadow">
+          <div className="p-4 border-b font-semibold text-slate-800">
+            Logo aplikasi <span className="ml-2 font-normal text-xs text-slate-400">— tampil di halaman login &amp; sidebar semua sekolah (bukan di dokumen cetak)</span>
+          </div>
+          <div className="p-4 flex items-start gap-4 flex-wrap">
+            {logoAplikasi ? (
+              <div className="w-24 h-24 rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-center overflow-hidden">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={logoAplikasi} alt="Logo aplikasi" className="max-w-full max-h-full object-contain p-1" />
+              </div>
+            ) : (
+              <div className="w-24 h-24 rounded-xl border-2 border-dashed border-slate-200 bg-slate-50 flex items-center justify-center text-xs text-slate-400">
+                Belum ada
+              </div>
+            )}
+            <div className="flex flex-col gap-2 text-sm">
+              <label className={`${input} cursor-pointer text-center ${uploadingLogo ? 'opacity-60 pointer-events-none' : 'hover:bg-slate-50'}`}>
+                {uploadingLogo ? 'Mengupload...' : 'Upload logo'}
+                <input type="file" accept="image/jpeg,image/png,image/gif,image/webp" className="sr-only" onChange={unggahLogo} disabled={uploadingLogo} />
+              </label>
+              {logoAplikasi && <button className="text-red-600 text-left" onClick={hapusLogo}>Hapus logo</button>}
+              <p className="text-xs text-slate-400">Format: JPG, PNG, GIF, WebP. Maks 2MB. Hanya akun developer yang bisa mengubahnya.</p>
+            </div>
+          </div>
+        </div>
 
         <div className="bg-white rounded-2xl shadow overflow-x-auto">
           <div className="p-4 border-b font-semibold text-slate-800">

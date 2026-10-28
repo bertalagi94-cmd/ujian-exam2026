@@ -25,10 +25,6 @@ export default function AdminSekolahPage() {
   const [saving, setSaving] = useState(false)
   const [uploadingLogo, setUploadingLogo] = useState(false)
   const [logoPreview, setLogoPreview] = useState<string>('')
-  // Logo aplikasi global
-  const [logoAplikasi, setLogoAplikasi] = useState<string>('')
-  const [logoAplikasiPreview, setLogoAplikasiPreview] = useState<string>('')
-  const [uploadingLogoAplikasi, setUploadingLogoAplikasi] = useState(false)
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
   const logoInputRef = useRef<HTMLInputElement>(null)
 
@@ -37,16 +33,12 @@ export default function AdminSekolahPage() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [sekolahRes, usersRes, pengaturanRes] = await Promise.all([
+      const [sekolahRes, usersRes] = await Promise.all([
         apiRequest<{ data: Sekolah[] }>('/api/admin/sekolah'),
         apiRequest<{ data: User[] }>('/api/admin/users?all=true'),
-        apiRequest<{ data: { key: string; value: string }[] }>('/api/admin/pengaturan'),
       ])
       setList(sekolahRes.data)
       setKepsekList(usersRes.data.filter(u => u.role === 'KEPSEK'))
-      const logoVal = pengaturanRes.data.find(p => p.key === 'logoAplikasi')?.value ?? ''
-      setLogoAplikasi(logoVal)
-      setLogoAplikasiPreview(logoVal)
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'Gagal memuat data', 'error')
     } finally {
@@ -153,54 +145,6 @@ export default function AdminSekolahPage() {
     }
   }
 
-  async function handleLogoAplikasiUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    if (!file.type.startsWith('image/')) { showToast('File harus berupa gambar', 'error'); return }
-    if (file.size > 2 * 1024 * 1024) { showToast('Maks 2MB', 'error'); return }
-    setUploadingLogoAplikasi(true)
-    try {
-      const reader = new FileReader()
-      reader.onload = ev => setLogoAplikasiPreview(ev.target?.result as string)
-      reader.readAsDataURL(file)
-      const formData = new FormData()
-      formData.append('file', file)
-      const token = localStorage.getItem('token')
-      const res = await fetch('/api/admin/sekolah/logo?type=aplikasi', {
-        method: 'POST',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        body: formData,
-      })
-      const json = await res.json()
-      if (!res.ok) throw new Error(json.error || 'Upload gagal')
-      setLogoAplikasi(json.url)
-      showToast('Logo aplikasi berhasil diupload')
-      window.dispatchEvent(new Event('pengaturan-changed'))
-    } catch (err) {
-      showToast(err instanceof Error ? err.message : 'Upload gagal', 'error')
-      setLogoAplikasiPreview(logoAplikasi)
-    } finally {
-      setUploadingLogoAplikasi(false)
-      e.target.value = ''
-    }
-  }
-
-  async function handleHapusLogoAplikasi() {
-    try {
-      const token = localStorage.getItem('token')
-      await fetch('/api/admin/sekolah/logo?type=aplikasi', {
-        method: 'DELETE',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      })
-      setLogoAplikasi('')
-      setLogoAplikasiPreview('')
-      showToast('Logo aplikasi berhasil dihapus')
-      window.dispatchEvent(new Event('pengaturan-changed'))
-    } catch {
-      showToast('Gagal menghapus logo', 'error')
-    }
-  }
-
   return (
     <div className="space-y-6 animate-fade-in">
       {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
@@ -219,40 +163,6 @@ export default function AdminSekolahPage() {
         <button onClick={openAdd} className="btn-primary btn-sm">
           <Plus className="w-4 h-4" /> Tambah Sekolah
         </button>
-      </div>
-
-      {/* Logo Aplikasi Global */}
-      <div className="card space-y-4">
-        <div className="flex items-center gap-2 pb-3 border-b border-slate-100">
-          <Image className="w-4 h-4 text-brand-600" />
-          <h2 className="font-semibold text-slate-900">Logo Aplikasi</h2>
-          <span className="text-xs text-slate-400">— tampil di halaman Login &amp; Dashboard (bukan di dokumen cetak)</span>
-        </div>
-        <div className="flex items-start gap-4 flex-wrap">
-          {logoAplikasiPreview ? (
-            <div className="w-24 h-24 rounded-xl border border-slate-200 overflow-hidden bg-slate-50 flex items-center justify-center">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={logoAplikasiPreview} alt="Logo aplikasi" className="max-w-full max-h-full object-contain p-1" />
-            </div>
-          ) : (
-            <div className="w-24 h-24 rounded-xl border-2 border-dashed border-slate-200 bg-slate-50 flex flex-col items-center justify-center gap-1">
-              <Image className="w-6 h-6 text-slate-300" />
-              <span className="text-xs text-slate-400">Belum ada</span>
-            </div>
-          )}
-          <div className="flex flex-col gap-2">
-            <label className="btn-secondary btn-sm cursor-pointer">
-              {uploadingLogoAplikasi ? <><Spinner size="sm" /> Mengupload...</> : <><Upload className="w-4 h-4" /> Upload Logo</>}
-              <input type="file" accept="image/*" className="sr-only" onChange={handleLogoAplikasiUpload} disabled={uploadingLogoAplikasi} />
-            </label>
-            {logoAplikasiPreview && (
-              <button onClick={handleHapusLogoAplikasi} className="btn-ghost btn-sm text-danger-600 hover:bg-danger-50">
-                <Trash2 className="w-4 h-4" /> Hapus Logo
-              </button>
-            )}
-            <p className="text-xs text-slate-400">Format: JPG, PNG, SVG. Maks 2MB.</p>
-          </div>
-        </div>
       </div>
 
       {/* Daftar Sekolah */}

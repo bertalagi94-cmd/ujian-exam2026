@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdPublik } from '@/lib/tenant'
 import { cachedFetch } from '@/lib/cache'
+import { ambilLogoAplikasi } from '@/lib/pengaturan-global'
 
 export const dynamic = 'force-dynamic'
 
@@ -29,7 +30,11 @@ export async function GET(req: NextRequest) {
       return map
     })
 
-    return NextResponse.json({ data: result }, {
+    // Logo aplikasi bersifat GLOBAL (diatur developer), bukan per sekolah: selalu
+    // menimpa nilai 'logoAplikasi' lama di pengaturan sekolah, apa pun isinya.
+    const logoAplikasi = await ambilLogoAplikasi()
+
+    return NextResponse.json({ data: { ...result, logoAplikasi } }, {
       headers: {
         // Respons berdasarkan token: JANGAN masuk cache bersama (CDN), kalau
         // tidak yayasan A bisa menerima jawaban yayasan B pada URL yang sama.

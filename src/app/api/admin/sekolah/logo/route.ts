@@ -13,14 +13,19 @@ const EKSTENSI_GAMBAR: Record<string, string> = {
   'image/webp': 'webp',
 }
 
-// Upload logo per sekolah atau logo aplikasi global
-// Query param: ?type=sekolah&id=SKL_xxx  atau  ?type=aplikasi
+// Upload logo PER SEKOLAH. Query param: ?id=SKL_xxx
+// Logo aplikasi (global) TIDAK diatur di sini: hanya developer yang bisa
+// mengubahnya, lewat /api/developer/logo-aplikasi.
+const TOLAK_LOGO_APLIKASI = 'Logo aplikasi hanya dapat diubah oleh developer.'
+
 export async function POST(req: NextRequest) {
   const auth = requireRole(req, ['ADMIN'])
   if ('error' in auth) return auth.error
 
   const { searchParams } = new URL(req.url)
-  const type = searchParams.get('type') ?? 'sekolah'
+  if ((searchParams.get('type') ?? 'sekolah') !== 'sekolah') {
+    return NextResponse.json({ error: TOLAK_LOGO_APLIKASI }, { status: 403 })
+  }
   const sekolahId = searchParams.get('id')
 
   const formData = await req.formData()
@@ -34,18 +39,14 @@ export async function POST(req: NextRequest) {
   }
   // id sekolah dari query dipakai untuk menyusun nama file: pastikan id itu
   // benar-benar sekolah milik yayasan ini (bukan teks bebas berisi '/').
-  if (type !== 'aplikasi') {
-    if (!sekolahId) return NextResponse.json({ error: 'id sekolah diperlukan' }, { status: 400 })
-    const { data: sekolahAda } = await db.from('sekolah').select('id').eq('id', sekolahId).maybeSingle()
-    if (!sekolahAda) return NextResponse.json({ error: 'Sekolah tidak ditemukan' }, { status: 404 })
-  }
+  if (!sekolahId) return NextResponse.json({ error: 'id sekolah diperlukan' }, { status: 400 })
+  const { data: sekolahAda } = await db.from('sekolah').select('id').eq('id', sekolahId).maybeSingle()
+  if (!sekolahAda) return NextResponse.json({ error: 'Sekolah tidak ditemukan' }, { status: 404 })
   // Multi-yayasan: file logo diberi folder per yayasan supaya tidak saling
   // menimpa. Yayasan awal tetap tanpa folder (alamat logo lama tidak berubah).
   const yid = yayasanIdDari(auth.user)
   const folder = yid === 'YYS_AWAL' ? '' : `${yid}/`
-  const fileName = type === 'aplikasi'
-    ? `${folder}logo-aplikasi.${ext}`
-    : `${folder}logo-${sekolahId}.${ext}`
+  const fileName = `${folder}logo-${sekolahId}.${ext}`
 
   const arrayBuffer = await file.arrayBuffer()
   // Pakai bucket "assets" — bucket inilah yang sudah dibuat (Public) di
@@ -64,11 +65,7 @@ export async function POST(req: NextRequest) {
   // menampilkan file lama dari cache karena URL-nya persis sama setiap kali.
   const url = `${urlData.publicUrl}?v=${Date.now()}`
 
-  if (type === 'aplikasi') {
-    await db.from('pengaturan').upsert({ key: 'logoAplikasi', value: url })
-  } else if (sekolahId) {
-    await db.from('sekolah').update({ logo_url: url }).eq('id', sekolahId)
-  }
+  await db.from('sekolah').update({ logo_url: url }).eq('id', sekolahId)
 
   // Hapus cache in-memory endpoint publik supaya perubahan langsung terlihat,
   // tidak perlu menunggu TTL 60 detik.
@@ -82,14 +79,14 @@ export async function DELETE(req: NextRequest) {
   if ('error' in auth) return auth.error
 
   const { searchParams } = new URL(req.url)
-  const type = searchParams.get('type') ?? 'sekolah'
+  if ((searchParams.get('type') ?? 'sekolah') !== 'sekolah') {
+    return NextResponse.json({ error: TOLAK_LOGO_APLIKASI }, { status: 403 })
+  }
   const sekolahId = searchParams.get('id')
 
   const db = tenantDb(yayasanIdDari(auth.user))
 
-  if (type === 'aplikasi') {
-    await db.from('pengaturan').update({ value: '' }).eq('key', 'logoAplikasi')
-  } else if (sekolahId) {
+  if (sekolahId) {
     await db.from('sekolah').update({ logo_url: '' }).eq('id', sekolahId)
   }
 
