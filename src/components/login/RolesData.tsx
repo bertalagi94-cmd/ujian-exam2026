@@ -36,7 +36,7 @@ export const ROLES: RoleData[] = [
     text: 'text-violet-700',
     icon: <Shield className="w-5 h-5" />,
     badge: 'bg-violet-100 text-violet-700',
-    desc: 'Pengelola sistem secara keseluruhan. Memiliki akses penuh ke semua fitur.',
+    desc: 'Pengelola sistem untuk seluruh sekolah/jenjang dalam akun Anda. Memiliki akses penuh ke semua fitur.',
     steps: [
       {
         title: 'Login & Dashboard',
@@ -46,12 +46,12 @@ export const ROLES: RoleData[] = [
       {
         title: 'Informasi Sekolah',
         icon: <Settings className="w-4 h-4" />,
-        detail: 'Isi nama sekolah, NPSN, nama kepala sekolah, alamat, dan upload logo di halaman Informasi Sekolah (dibuka lewat kartu di atas tab Pengaturan). Sistem mendukung lebih dari satu sekolah.',
+        detail: 'Di halaman Informasi Sekolah (dibuka lewat kartu di atas tab Pengaturan), tambahkan setiap sekolah/jenjang yang dikelola, lalu isi nama sekolah, NPSN, nama kepala sekolah, alamat, dan logo masing-masing. Satu akun dapat mengelola lebih dari satu sekolah.',
       },
       {
         title: 'Kelola Kelas & Mata Pelajaran',
         icon: <BookMarked className="w-4 h-4" />,
-        detail: 'Buat kelas (contoh: VII-A, VIII-B) dan mata pelajaran terlebih dahulu sebelum menambahkan data lainnya. Ini menjadi fondasi data siswa dan jadwal ujian.',
+        detail: 'Buat kelas sesuai penamaan di sekolah Anda (contoh: VII-A, X TKJ 1, XI IPA 2) dan mata pelajaran terlebih dahulu sebelum menambahkan data lainnya. Ini menjadi fondasi data siswa dan jadwal ujian.',
       },
       {
         title: 'Kelola Siswa & Data Pengguna',
