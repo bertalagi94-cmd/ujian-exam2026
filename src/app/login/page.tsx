@@ -816,7 +816,7 @@ export default function LoginPage() {
               <div className="fixed inset-0 z-10 flex flex-col justify-between p-5"
                 style={{
                   paddingTop: 'calc(env(safe-area-inset-top, 0px) + 1.1rem)',
-                  paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 3.75rem)',
+                  paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 1.5rem)',
                 }}
               >
                 {/* ── Kanvas coret-coret tinta emas — hiburan ringan buat
@@ -994,13 +994,6 @@ export default function LoginPage() {
                   ) : (<><Lock className="w-4 h-4 opacity-90" /><span>Login Disini</span><span style={{ fontSize: '16px' }}>▾</span></>)}
                 </button>
               </form>
-
-              {pendaftaranDibuka && (
-                <button type="button" onClick={() => router.push('/aktivasi')}
-                  className="w-full text-center text-sm text-sky-700 hover:underline mt-3">
-                  Sekolah baru? Ajukan aktivasi di sini
-                </button>
-              )}
 
               {/* Divider */}
               <div className="flex items-center gap-3 my-4">
@@ -1255,12 +1248,6 @@ export default function LoginPage() {
 
                   <div className="mt-3 pt-3 border-t border-slate-100 space-y-2">
                     <p className="text-xs text-slate-400 text-center">Lupa password? Hubungi administrator sekolah.</p>
-                    {pendaftaranDibuka && (
-                      <button type="button" onClick={() => { router.push('/aktivasi') }}
-                        className="w-full text-center text-xs text-sky-700 hover:underline">
-                        Sekolah baru? Ajukan aktivasi di sini
-                      </button>
-                    )}
                     <div className="flex gap-2">
                       <button type="button" onClick={() => { setShowGuide(true); resetIdleTimer() }}
                         className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-xl border border-slate-200 text-slate-500 hover:text-slate-800 hover:border-slate-300 text-xs font-medium transition-all">
@@ -1328,21 +1315,35 @@ export default function LoginPage() {
         </div>
       </div>
 
-      {/* Tombol Login Developer — sederhana, senada tema beranda: HP = tengah bawah,
-          laptop/komputer (lg+) = pojok kanan bawah. */}
-      <button
-        type="button"
-        onClick={() => router.push('/developer/login')}
-        aria-label="Login Developer"
-        className="fixed z-30 left-1/2 -translate-x-1/2 bottom-3 lg:left-auto lg:translate-x-0 lg:right-5 lg:bottom-5 flex items-center gap-1.5 text-xs font-semibold text-slate-700 bg-white/70 hover:bg-white backdrop-blur-md border border-white/80 rounded-full px-3.5 py-1.5 shadow-md shadow-slate-900/10 hover:text-sky-700 active:scale-95 transition-all duration-200"
-        style={{ marginBottom: 'env(safe-area-inset-bottom, 0px)' }}
-      >
-        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <polyline points="4 17 10 11 4 5" />
-          <line x1="12" y1="19" x2="20" y2="19" />
-        </svg>
-        <span>Login Developer</span>
-      </button>
+      {/* Menu pojok kanan bawah: Ajukan Aktivasi + Login Developer, sejajar.
+          Hanya tampil di laptop/komputer (lg+); disembunyikan di HP. */}
+      <div className="hidden lg:flex fixed z-30 right-5 bottom-5 items-center gap-2">
+        {pendaftaranDibuka && (
+          <button
+            type="button"
+            onClick={() => router.push('/aktivasi')}
+            aria-label="Aktivasi Sekolah Baru"
+            className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 bg-white/70 hover:bg-white backdrop-blur-md border border-white/80 rounded-full px-3.5 py-1.5 shadow-md shadow-slate-900/10 hover:text-sky-700 active:scale-95 transition-all duration-200"
+          >
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M3 21h18" /><path d="M5 21V8l7-5 7 5v13" /><path d="M10 21v-6h4v6" />
+            </svg>
+            <span>Aktivasi Sekolah</span>
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={() => router.push('/developer/login')}
+          aria-label="Login Developer"
+          className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 bg-white/70 hover:bg-white backdrop-blur-md border border-white/80 rounded-full px-3.5 py-1.5 shadow-md shadow-slate-900/10 hover:text-sky-700 active:scale-95 transition-all duration-200"
+        >
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <polyline points="4 17 10 11 4 5" />
+            <line x1="12" y1="19" x2="20" y2="19" />
+          </svg>
+          <span>Login Developer</span>
+        </button>
+      </div>
 
       {showGuide && (
         <GuideModal year={year} onClose={() => setShowGuide(false)} onOpenQA={() => { setShowGuide(false); setShowQA(true) }} />
