@@ -64,11 +64,11 @@ function DevCredit() {
       <div
         className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full"
         style={{
-          background: 'rgba(14,165,233,0.08)',
-          border: '1px solid rgba(14,165,233,0.25)',
+          background: 'rgba(255,255,255,0.8)',
+          border: '1px solid rgba(14,165,233,0.35)',
         }}
       >
-        <span className="text-[11px] font-medium text-slate-500">Developed By</span>
+        <span className="text-[11px] font-medium text-slate-700">Developed By</span>
         <span className="text-[11px] font-bold" style={{ color: '#0369a1' }}>
           @Tasrif A. Abbas
         </span>
@@ -1157,7 +1157,7 @@ export default function LoginPage() {
                 >
                   {/* Bar tutup */}
                   <div className="mb-1 flex items-center gap-2 justify-end">
-                    <span className="text-[10px] text-slate-400">Auto-tutup dalam 10 detik tanpa aktivitas</span>
+                    <span className="text-[10px] font-medium text-slate-600">Auto-tutup dalam 10 detik tanpa aktivitas</span>
                     <button type="button" onClick={closeDrape}
                       className="w-5 h-5 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors">
                       <X className="w-3 h-3" />
@@ -1222,15 +1222,15 @@ export default function LoginPage() {
                     </button>
                   </form>
 
-                  <div className="mt-3 pt-3 border-t border-slate-100 space-y-2">
-                    <p className="text-xs text-slate-400 text-center">Lupa password? Hubungi administrator sekolah.</p>
+                  <div className="mt-3 pt-3 border-t border-slate-300/70 space-y-2">
+                    <p className="text-xs font-medium text-slate-700 text-center">Lupa password? Hubungi administrator sekolah.</p>
                     <div className="flex gap-2">
                       <button type="button" onClick={() => { setShowGuide(true); resetIdleTimer() }}
-                        className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-xl border border-slate-200 text-slate-500 hover:text-slate-800 hover:border-slate-300 text-xs font-medium transition-all">
+                        className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-xl bg-white/85 border border-slate-300 text-slate-700 hover:text-slate-900 hover:bg-white hover:border-slate-400 shadow-sm text-xs font-semibold transition-all">
                         <BookMarked className="w-3.5 h-3.5" /> Panduan
                       </button>
                       <button type="button" onClick={() => { setShowQA(true); resetIdleTimer() }}
-                        className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-xl border border-slate-200 text-slate-500 hover:text-slate-800 hover:border-slate-300 text-xs font-medium transition-all">
+                        className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-xl bg-white/85 border border-slate-300 text-slate-700 hover:text-slate-900 hover:bg-white hover:border-slate-400 shadow-sm text-xs font-semibold transition-all">
                         <HelpCircle className="w-3.5 h-3.5" /> Q&amp;A
                       </button>
                     </div>
