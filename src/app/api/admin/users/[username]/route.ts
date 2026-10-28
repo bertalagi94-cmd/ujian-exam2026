@@ -31,8 +31,16 @@ export async function PUT(req: NextRequest, props: Ctx) {
 
   // Multi-yayasan: akun harus milik yayasan ini (guru_sekolah tidak ter-scope
   // otomatis), dan sekolah yang ditautkan juga harus milik yayasan ini.
-  const { data: userAda } = await db.from('users').select('username').eq('username', params.username).maybeSingle()
+  const { data: userAda } = await db.from('users').select('username, role').eq('username', params.username).maybeSingle()
   if (!userAda) return NextResponse.json({ error: 'Pengguna tidak ditemukan' }, { status: 404 })
+
+  // Role akun ADMIN terkunci: tidak boleh diubah lewat edit (diperiksa di
+  // server, bukan cuma disembunyikan di form, supaya tidak bisa dilewati
+  // lewat panggilan API langsung). Ini juga mencegah admin terakhir
+  // diturunkan perannya sehingga sistem kehilangan admin.
+  if (userAda.role === 'ADMIN' && role !== undefined && role !== 'ADMIN') {
+    return NextResponse.json({ error: 'Role akun ADMIN tidak dapat diubah' }, { status: 403 })
+  }
   const idSekolahDikirim = [
     ...(role === 'KEPSEK' && sekolah_id ? [String(sekolah_id)] : []),
     ...(role === 'GURU' && Array.isArray(sekolah_ids) ? sekolah_ids.map((x: string) => String(x)) : []),
