@@ -7,21 +7,20 @@ import dynamic from 'next/dynamic'
 import {
   Eye, EyeOff, BookOpen, Lock, User, AlertCircle, X,
   Shield, BarChart2, BookMarked, CheckCircle, Monitor,
-  Activity, Radio, HelpCircle,
+  Radio, HelpCircle,
   Maximize, Minimize,
 } from 'lucide-react'
 import WitaClock from '@/components/login/WitaClock'
 import LayarPantauMenu from '@/components/login/LayarPantauMenu'
 import WelcomeSplash from '@/components/login/WelcomeSplash'
 
-// PERF: modal Panduan/QA/Aktivitas berisi cukup banyak JSX + data (FAQ,
+// PERF: modal Panduan/QA berisi cukup banyak JSX + data (FAQ,
 // langkah panduan per role) yang hanya dibutuhkan KALAU tombolnya diklik.
 // Dengan next/dynamic({ ssr: false }), kode ini dipisah ke chunk JS
 // terpisah dan baru di-download saat modal pertama kali dibuka — tidak
 // lagi ikut initial bundle halaman /login.
 const GuideModal = dynamic(() => import('@/components/login/GuideModal'), { ssr: false })
 const QAModal = dynamic(() => import('@/components/login/QAModal'), { ssr: false })
-const AktivitasModal = dynamic(() => import('@/components/login/AktivitasModal'), { ssr: false })
 
 interface SiteInfo {
   namaSekolah: string
@@ -154,7 +153,6 @@ export default function LoginPage() {
   // Modal state
   const [showGuide, setShowGuide] = useState(false)
   const [showQA, setShowQA] = useState(false)
-  const [showAktivitas, setShowAktivitas] = useState(false)
   const [mobileLoginOpen, setMobileLoginOpen] = useState(false)
   // Jaga-jaga tambahan: Next.js kadang memakai ulang instance halaman
   // /login yang sudah pernah dikunjungi (mis. sebelum login) alih-alih
@@ -176,7 +174,7 @@ export default function LoginPage() {
   // ── Coret-coret tinta emas (khusus HP, layar beranda login) ───────────────
   // Kanvas hiburan ringan di atas foto beranda login mobile: siswa bisa
   // mencoret layar dengan jari, garisnya berkilau emas lalu memudar sendiri
-  // dalam 5 detik. Ditaruh DI BAWAH panel Login/Panduan/Q&A/Aktivitas secara
+  // dalam 5 detik. Ditaruh DI BAWAH panel Login/Panduan/Q&A secara
   // stacking (lihat z-index di JSX) supaya tombol-tombol itu tetap bisa
   // ditekan normal, coretan hanya "menempel" di area foto/latar.
   const doodleCanvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -316,7 +314,7 @@ export default function LoginPage() {
   function handleDoodleEnd() { doodleDrawingRef.current = false }
 
   // ── Panel login pojok kanan-bawah (HP) — bisa digeser bebas ───────────────
-  // Panel kecil (tombol Login + Panduan/Q&A/Aktivitas) di tampilan mobile
+  // Panel kecil (tombol Login + Panduan/Q&A) di tampilan mobile
   // "tertutup" bisa di-drag ke mana saja di layar oleh siswa. Posisi
   // disimpan sebagai offset transform di atas posisi aslinya (pojok kanan
   // bawah), jadi tidak mengubah layout flex yang sudah ada. Gerakan kecil
@@ -564,10 +562,10 @@ export default function LoginPage() {
   }, [])
 
   useEffect(() => {
-    if (showGuide || showQA || showAktivitas) { document.body.style.overflow = 'hidden' }
+    if (showGuide || showQA) { document.body.style.overflow = 'hidden' }
     else { document.body.style.overflow = '' }
     return () => { document.body.style.overflow = '' }
-  }, [showGuide, showQA, showAktivitas])
+  }, [showGuide, showQA])
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault()
@@ -808,7 +806,7 @@ export default function LoginPage() {
             {!mobileLoginOpen ? (
               /* ── State tertutup — layout full-bleed ala "kampus modern":
                   tagline di kiri-atas, brand (logo+nama) di kanan-atas,
-                  panel Login + 3 pil (Panduan/Q&A/Aktivitas) menempel di
+                  panel Login + 2 pil (Panduan/Q&A) menempel di
                   kanan-bawah di atas foto siswa. `fixed inset-0` supaya
                   elemen menempel ke tepi layar HP, lepas dari centering
                   container di atasnya (foto siswa full-screen tetap
@@ -822,7 +820,7 @@ export default function LoginPage() {
                 {/* ── Kanvas coret-coret tinta emas — hiburan ringan buat
                     siswa selagi menunggu/iseng di beranda login HP. Full
                     layar (absolute inset-0), z-index PALING BAWAH di
-                    kontainer ini supaya tombol Login/Panduan/Q&A/Aktivitas
+                    kontainer ini supaya tombol Login/Panduan/Q&A
                     di atasnya (diberi relative + z-10) tetap bisa disentuh
                     normal. Coretan otomatis pudar sendiri ±5 detik. ── */}
                 <canvas
@@ -873,7 +871,7 @@ export default function LoginPage() {
                   </div>
                 </div>
 
-                {/* Panel bawah-kanan: Login + 3 pil — bisa digeser bebas
+                {/* Panel bawah-kanan: Login + 2 pil — bisa digeser bebas
                     (drag) oleh siswa, lihat handlePanelPointer* di atas.
                     Ikon titik-titik kecil di pojok jadi penanda visual
                     bahwa panel ini bisa digenggam & dipindah. */}
@@ -919,10 +917,6 @@ export default function LoginPage() {
                     <button type="button" onClick={() => setShowQA(true)}
                       className="flex-1 flex flex-col items-center justify-center gap-1 py-2.5 rounded-xl text-slate-600 hover:text-slate-900 bg-white/90 border border-white/60 text-[10px] font-medium transition-all">
                       <HelpCircle className="w-4 h-4" /> Q&amp;A
-                    </button>
-                    <button type="button" onClick={() => { setShowAktivitas(true) }}
-                      className="flex-1 flex flex-col items-center justify-center gap-1 py-2.5 rounded-xl text-sky-700 hover:text-sky-900 bg-sky-50/95 border border-sky-200 text-[10px] font-medium transition-all">
-                      <Activity className="w-4 h-4" /> Aktivitas
                     </button>
                   </div>
                 </div>
@@ -1020,7 +1014,7 @@ export default function LoginPage() {
               </div>
             </div>
 
-            {/* Panduan / Q&A / Lihat Aktivitas — 3 pil senada, warna Aktivitas dibedakan */}
+            {/* Panduan / Q&A — 2 pil senada */}
             <div className="flex gap-2 mt-4">
               <button type="button" onClick={() => setShowGuide(true)}
                 className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-slate-500 hover:text-slate-800 bg-white/70 border border-slate-200 hover:border-slate-300 text-xs font-medium transition-all">
@@ -1029,10 +1023,6 @@ export default function LoginPage() {
               <button type="button" onClick={() => setShowQA(true)}
                 className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-slate-500 hover:text-slate-800 bg-white/70 border border-slate-200 hover:border-slate-300 text-xs font-medium transition-all">
                 <HelpCircle className="w-3.5 h-3.5" /> Q&amp;A
-              </button>
-              <button type="button" onClick={() => { setShowAktivitas(true) }}
-                className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-sky-600 hover:text-sky-800 bg-sky-50/80 border border-sky-200 hover:border-sky-300 text-xs font-medium transition-all">
-                <Activity className="w-3.5 h-3.5" /> Aktivitas
               </button>
             </div>
             <DevCredit />
@@ -1122,20 +1112,6 @@ export default function LoginPage() {
                   ))}
                 </div>
 
-                {/* Tombol Lihat Aktivitas — closed state desktop */}
-                <button
-                  type="button"
-                  onClick={e => { e.stopPropagation(); setShowAktivitas(true) }}
-                  className="w-full flex items-center justify-center gap-2 py-2 rounded-xl mb-3 text-xs font-semibold transition-all"
-                  style={{
-                    background: 'linear-gradient(135deg, rgba(14,165,233,0.12) 0%, rgba(20,184,166,0.12) 100%)',
-                    border: '1px solid rgba(14,165,233,0.3)',
-                    color: '#0284c7',
-                  }}
-                >
-                  <Activity className="w-3.5 h-3.5" />
-                  Lihat Aktivitas
-                </button>
 
                 {/* Footer sekolah dalam card */}
                 <div className="border-t border-slate-100 pt-2.5">
@@ -1257,11 +1233,6 @@ export default function LoginPage() {
                         className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-xl border border-slate-200 text-slate-500 hover:text-slate-800 hover:border-slate-300 text-xs font-medium transition-all">
                         <HelpCircle className="w-3.5 h-3.5" /> Q&amp;A
                       </button>
-                      <button type="button" onClick={() => { setShowAktivitas(true); resetIdleTimer() }}
-                        className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-xl text-xs font-semibold transition-all"
-                        style={{ background: 'rgba(14,165,233,0.12)', border: '1px solid rgba(14,165,233,0.3)', color: '#0284c7' }}>
-                        <Activity className="w-3.5 h-3.5" /> Aktivitas
-                      </button>
                     </div>
                     {/* Menu Layar Pantau — hanya laptop (disembunyikan di Android/HP) */}
                     <LayarPantauMenu compact />
@@ -1353,9 +1324,6 @@ export default function LoginPage() {
         <QAModal year={year} onClose={() => setShowQA(false)} onOpenGuide={() => { setShowQA(false); setShowGuide(true) }} />
       )}
 
-      {showAktivitas && (
-        <AktivitasModal onClose={() => setShowAktivitas(false)} />
-      )}
     </div>
   )
 }
