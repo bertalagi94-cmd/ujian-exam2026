@@ -25,6 +25,7 @@
 // yang bisa dihitung instan; essay dinilai manual belakangan oleh guru.
 
 import { SupabaseClient } from '@supabase/supabase-js'
+import { ambilSemuaBaris } from '@/lib/ambil-semua'
 
 export interface LiveLeaderboardRow {
   nis: string
@@ -134,10 +135,18 @@ export async function computeLiveLeaderboardUntukSesi(
   const nisList = peserta.map(p => p.nis)
   const [{ data: siswaRows }, { data: jawabanRows }, { data: nilaiRows }] = await Promise.all([
     db.from('siswa').select('nis, nama').in('nis', nisList),
-    db.from('jawaban')
-      .select('nis, soal_id, jawaban')
-      .eq('sesi_id', sesi.id)
-      .in('nis', nisList),
+    // FIX batas 1000 baris: kelas 36 siswa x 30 soal = 1080 jawaban, bisa
+    // terpotong diam-diam dan membuat nilai sementara lebih rendah. Diambil
+    // per halaman dengan urutan stabil (nis, soal_id).
+    ambilSemuaBaris<{ nis: string; soal_id: string; jawaban: string }>((dari, sampai) =>
+      db.from('jawaban')
+        .select('nis, soal_id, jawaban')
+        .eq('sesi_id', sesi.id)
+        .in('nis', nisList)
+        .order('nis', { ascending: true })
+        .order('soal_id', { ascending: true })
+        .range(dari, sampai)
+    ),
     // Layar Pantau HANYA memantau PG — baris `nilai` dibuat oleh
     // /api/siswa/ujian/selesai TEPAT saat siswa submit PG, TIDAK PEDULI
     // sesi ini punya fase essay aktif atau tidak (lihat komentar di sana:

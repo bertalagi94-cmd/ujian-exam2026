@@ -361,27 +361,24 @@ export default function AdminSiswaPage() {
     const token = typeof window !== 'undefined' ? localStorage.getItem('token') ?? '' : ''
 
     try {
-      // Step 1: POST data → dapat jobId
-      const postRes = await fetch('/api/admin/siswa/import', {
+      // Satu request: POST data, respons langsung berupa stream progres (SSE).
+      const abortCtrl = new AbortController()
+      importAbortRef.current = abortCtrl
+
+      const sseRes = await fetch('/api/admin/siswa/import', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({ data: importData }),
-      })
-      if (!postRes.ok) throw new Error('Gagal mengirim data ke server')
-      const { jobId } = await postRes.json() as { jobId: string }
-
-      // Step 2: GET SSE stream
-      const abortCtrl = new AbortController()
-      importAbortRef.current = abortCtrl
-
-      const sseRes = await fetch(`/api/admin/siswa/import?jobId=${jobId}`, {
-        headers: { 'Authorization': `Bearer ${token}` },
         signal: abortCtrl.signal,
       })
-      if (!sseRes.ok || !sseRes.body) throw new Error('Gagal membuka stream')
+      if (!sseRes.ok || !sseRes.body) {
+        let pesan = 'Gagal mengirim data ke server'
+        try { pesan = (await sseRes.json() as { error?: string }).error ?? pesan } catch { /* abaikan */ }
+        throw new Error(pesan)
+      }
 
       const reader = sseRes.body.getReader()
       const decoder = new TextDecoder()

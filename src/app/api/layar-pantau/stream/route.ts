@@ -105,6 +105,7 @@ export async function GET(req: NextRequest) {
       // untuk benar-benar mengosongkan layar, lihat terapkanDataBaru di page.tsx).
       let lastSignature = ''
       const pushBoards = async () => {
+        if (closed) return
         const myGen = ++gen
         try {
           // Izin bisa dicabut admin saat layar sedang tampil: cek ulang tiap
@@ -118,7 +119,7 @@ export async function GET(req: NextRequest) {
             }
           }
           const { boards, scopeWarning } = await ambilBoardsUntukViewer(db, user!, yayasanId)
-          if (myGen !== gen) return // sudah ada panggilan lebih baru, buang hasil basi ini
+          if (closed || myGen !== gen) return // sudah ditutup / ada panggilan lebih baru, buang hasil basi ini
           const signature = JSON.stringify({ boards, scopeWarning })
           if (boards.length > 0 && signature === lastSignature) return
           lastSignature = signature
@@ -149,8 +150,17 @@ export async function GET(req: NextRequest) {
         try { controller.close() } catch {}
       }
 
+      // Pasang listener abort lebih dulu supaya klien yang putus saat muatan
+      // pertama diproses tetap membersihkan semuanya.
+      if (req.signal.aborted) { cleanupAndClose(); return }
+      req.signal.addEventListener('abort', cleanupAndClose)
+
       // Muatan pertama, langsung begitu klien tersambung.
       await pushBoards()
+      // FIX kebocoran: pembaruan pertama bisa menutup stream (izin guru belum
+      // disetujui/dicabut, atau klien putus). Jangan buat channel Realtime dan
+      // timer baru yang tidak akan pernah dibersihkan.
+      if (closed) return
 
       // ── Langganan Realtime ────────────────────────────────────────────
       channel = db
@@ -173,8 +183,6 @@ export async function GET(req: NextRequest) {
         send('status', { realtime: 'menyambung ulang' })
         cleanupAndClose()
       }, MAX_STREAM_MS)
-
-      req.signal.addEventListener('abort', cleanupAndClose)
     },
     cancel() {
       closed = true

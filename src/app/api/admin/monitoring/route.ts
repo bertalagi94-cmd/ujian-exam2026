@@ -3,6 +3,7 @@ import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 import { getZonaWaktuSekolah, awalHariIniInstant } from '@/lib/pengaturan-waktu'
 import { durasiTotalSesi } from '@/lib/durasi-ujian'
+import { ambilSemuaBaris } from '@/lib/ambil-semua'
 
 // ── Status "Server" NYATA ────────────────────────────────────────────────
 // FIX ARSITEKTUR (pemisahan "Status Server" vs "Beban Ujian"): sebelumnya
@@ -236,7 +237,10 @@ export async function GET(req: NextRequest) {
       .select('id', { count: 'exact', head: true })
       .gte('created_at', startOfDay.toISOString()),
     db.from('mapel').select('id, nama'),
-    db.from('siswa').select('nis, nama'),
+    // FIX batas 1000 baris: tanpa paginasi, siswa ke-1001 dst tampil sebagai NIS.
+    ambilSemuaBaris<{ nis: string; nama: string }>((dari, sampai) =>
+      db.from('siswa').select('nis, nama').order('nis', { ascending: true }).range(dari, sampai)
+    ),
     siswaAktifQuery,
     db.from('nilai')
       .select('id', { count: 'exact', head: true })

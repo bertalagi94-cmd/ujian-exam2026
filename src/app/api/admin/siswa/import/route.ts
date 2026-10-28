@@ -42,22 +42,30 @@ function normalizeTanggalLahir(value: string | undefined | null): string | null 
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// GET → Server-Sent Events (SSE) streaming progress
-// Dipanggil setelah POST menyimpan data ke memori sementara via query param
+// POST → langsung mengembalikan stream progres (Server-Sent Events)
+//
+// FIX: sebelumnya alur 2 langkah (POST simpan job di Map memori → GET ambil job).
+// Di Vercel kedua request bisa mendarat di instance berbeda, sehingga job
+// "tidak ditemukan" secara acak. Sekarang data dikirim dan diproses dalam
+// SATU request yang sama, jadi tidak ada state yang harus dibagi antar instance.
 // ──────────────────────────────────────────────────────────────────────────────
 
-// Simpan data antar request (in-memory per instance — cukup untuk 1 admin)
-// Key = token sesi sederhana
-// Multi-yayasan: job diikat ke yayasan pembuatnya supaya admin yayasan lain
-// tidak bisa memproses/menjalankan job orang lain walau menebak jobId.
-const pendingJobs = new Map<string, { rows: ImportRow[]; yayasanId: string }>()
+export const maxDuration = 60
 
 export async function POST(req: NextRequest) {
   const auth = requireRole(req, ['ADMIN'])
   if ('error' in auth) return auth.error
 
-  const body = await req.json()
-  const rows: ImportRow[] = body.data
+  let body: { data?: ImportRow[] }
+  try {
+    body = await req.json()
+  } catch {
+    return new Response(JSON.stringify({ error: 'Body tidak valid' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }
+  const rows: ImportRow[] = body.data as ImportRow[]
 
   if (!Array.isArray(rows) || rows.length === 0) {
     return new Response(JSON.stringify({ error: 'Data kosong' }), {
@@ -66,42 +74,7 @@ export async function POST(req: NextRequest) {
     })
   }
 
-  // Simpan job, kembalikan jobId
-  const jobId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
-  pendingJobs.set(jobId, { rows, yayasanId: yayasanIdDari(auth.user) })
-
-  // Cleanup otomatis 5 menit
-  setTimeout(() => pendingJobs.delete(jobId), 5 * 60 * 1000)
-
-  return new Response(JSON.stringify({ jobId, total: rows.length }), {
-    headers: { 'Content-Type': 'application/json' },
-  })
-}
-
-export async function GET(req: NextRequest) {
-  const auth = requireRole(req, ['ADMIN'])
-  if ('error' in auth) return auth.error
-
-  const jobId = req.nextUrl.searchParams.get('jobId')
-  if (!jobId) {
-    return new Response(JSON.stringify({ error: 'jobId diperlukan' }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json' },
-    })
-  }
-
   const yayasanId = yayasanIdDari(auth.user)
-  const job = pendingJobs.get(jobId)
-  // Job milik yayasan lain diperlakukan sama seperti tidak ada.
-  if (!job || job.yayasanId !== yayasanId) {
-    return new Response(JSON.stringify({ error: 'Job tidak ditemukan atau sudah kadaluarsa' }), {
-      status: 404,
-      headers: { 'Content-Type': 'application/json' },
-    })
-  }
-  const rows = job.rows
-
-  pendingJobs.delete(jobId)
   const db = tenantDb(yayasanId)
 
   // PRIMARY KEY siswa(nis) masih global (lihat Fase 2 di docs/MULTI_YAYASAN.md).
