@@ -184,7 +184,6 @@ export default function LoginDeveloperPage() {
           <span className="w-2.5 h-2.5 rounded-full bg-red-500/80" />
           <span className="w-2.5 h-2.5 rounded-full bg-yellow-400/80" />
           <span className="w-2.5 h-2.5 rounded-full bg-emerald-400/80" />
-          <span className="ml-2 text-[11px] text-emerald-300/70 font-mono truncate">root@dev-console:~# auth --developer</span>
         </div>
 
         <div className="p-6 sm:p-7 space-y-5">
@@ -249,6 +248,11 @@ export default function LoginDeveloperPage() {
             className="w-full text-center font-mono text-[11px] text-emerald-300/50 hover:text-emerald-200 tracking-wider">
             ← kembali ke login sekolah
           </button>
+        </div>
+
+        {/* Kredit pembuat — di bagian paling bawah kartu */}
+        <div className="px-4 py-3 border-t border-emerald-400/20 text-center font-mono text-[11px] tracking-wider text-emerald-300/70">
+          Developed by : <span className="text-emerald-200 font-bold">Tasrif A. Abbas</span>
         </div>
       </div>
     </main>
