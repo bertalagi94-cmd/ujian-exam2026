@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
-import { requireDeveloper, YAYASAN_AWAL_ID } from '@/lib/tenant'
+import { YAYASAN_AWAL_ID } from '@/lib/tenant'
+import { requireDeveloper } from '@/lib/developer-auth'
 import { cacheDelPrefix } from '@/lib/cache'
 
 // Aktif/nonaktifkan yayasan. Yayasan awal tidak boleh dinonaktifkan.

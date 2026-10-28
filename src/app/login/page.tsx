@@ -1002,6 +1002,11 @@ export default function LoginPage() {
                 </button>
               )}
 
+              <button type="button" onClick={() => router.push('/developer/login')}
+                className="w-full text-center text-xs text-slate-400 hover:text-slate-600 hover:underline mt-2">
+                Masuk Developer
+              </button>
+
               {/* Divider */}
               <div className="flex items-center gap-3 my-4">
                 <div className="flex-1 h-px bg-slate-200" />
@@ -1261,6 +1266,10 @@ export default function LoginPage() {
                         Sekolah baru? Ajukan aktivasi di sini
                       </button>
                     )}
+                    <button type="button" onClick={() => { router.push('/developer/login') }}
+                      className="w-full text-center text-xs text-slate-400 hover:text-slate-600 hover:underline">
+                      Masuk Developer
+                    </button>
                     <div className="flex gap-2">
                       <button type="button" onClick={() => { setShowGuide(true); resetIdleTimer() }}
                         className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-xl border border-slate-200 text-slate-500 hover:text-slate-800 hover:border-slate-300 text-xs font-medium transition-all">

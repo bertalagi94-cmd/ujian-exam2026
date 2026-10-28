@@ -11,19 +11,19 @@
  *      query ke satu yayasan, sehingga route tidak perlu mengingat
  *      `.eq('yayasan_id', ...)` di setiap query (mudah lupa = data bocor).
  *   2. yayasanIdDari(user)  — ambil yayasan dari token login.
- *   3. requireDeveloper()   — penjaga untuk Panel Developer.
- *   4. helper kode registrasi dan pencarian yayasan.
+ *   3. helper pencarian yayasan.
+ *   (Penjaga Panel Developer ada di src/lib/developer-auth.ts — akun developer
+ *   terpisah dari akun sekolah.)
  *
  * PENTING — status migrasi route (Fase 1 vs Fase 2):
  *   Wrapper ini sudah tersedia, tetapi route API lama belum memakainya
  *   (masih createAdminClient() polos). Selama itu, pendaftaran yayasan baru
  *   dikunci lewat env MULTI_YAYASAN_ENABLED (default mati).
  */
-import { createHash, randomBytes } from 'crypto'
 import { NextRequest } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createAdminClient } from '@/lib/supabase'
-import { requireRole, getTokenFromRequest, type JWTPayload } from '@/lib/auth'
+import { getTokenFromRequest, type JWTPayload } from '@/lib/auth'
 import { cachedFetch, cacheGet, cacheSet } from '@/lib/cache'
 
 /** Yayasan yang menampung seluruh data lama (dibuat oleh migrasi 39). */
@@ -248,58 +248,3 @@ export async function cariYayasanById(id: string): Promise<Yayasan | null> {
     return (data as Yayasan | null) ?? null
   })
 }
-
-// ── Penjaga Panel Developer ─────────────────────────────────────────────────
-
-/**
- * Hanya akun ADMIN yayasan awal yang usernamenya tercantum di env
- * DEVELOPER_USERNAMES (dipisah koma) yang boleh memakai Panel Developer.
- * Env kosong/tidak diset = tidak ada yang punya akses (fail-closed).
- * Token "Lihat sebagai" tidak pernah diterima.
- */
-export function requireDeveloper(
-  req: NextRequest
-): { user: JWTPayload } | { error: Response } {
-  const auth = requireRole(req, ['ADMIN'])
-  if ('error' in auth) return auth
-  const { user } = auth
-
-  const daftar = (process.env.DEVELOPER_USERNAMES ?? '')
-    .split(',').map(s => s.trim()).filter(Boolean)
-
-  const diizinkan =
-    !user.viewAs &&
-    daftar.includes(user.username) &&
-    (user.yayasanId ?? YAYASAN_AWAL_ID) === YAYASAN_AWAL_ID
-
-  if (!diizinkan) {
-    return {
-      error: new Response(JSON.stringify({ error: 'Forbidden' }), {
-        status: 403, headers: { 'Content-Type': 'application/json' },
-      }),
-    }
-  }
-  return { user }
-}
-
-// ── Kode registrasi ─────────────────────────────────────────────────────────
-
-// Tanpa 0/O/1/I/L supaya mudah dibaca dan diketik ulang.
-const ALFABET_KODE = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'
-
-/** Buat kode acak 12 karakter, tampil sebagai XXXX-XXXX-XXXX. */
-export function buatKodeRegistrasi(): string {
-  const bytes = randomBytes(12)
-  let hasil = ''
-  for (let i = 0; i < 12; i++) hasil += ALFABET_KODE[bytes[i] % ALFABET_KODE.length]
-  return `${hasil.slice(0, 4)}-${hasil.slice(4, 8)}-${hasil.slice(8, 12)}`
-}
-
-/** Bersihkan input pengguna (huruf besar, buang strip/spasi) lalu hash SHA-256. */
-export function hashKodeRegistrasi(kode: string): string {
-  const bersih = String(kode ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '')
-  return createHash('sha256').update(bersih).digest('hex')
-}
-
-/** Kode registrasi berlaku 14 hari sejak dibuat. */
-export const MASA_BERLAKU_KODE_HARI = 14

@@ -17,7 +17,7 @@ Persetujuan DITOLAK server selama `MULTI_YAYASAN_ENABLED` mati (tanpa saklar, ba
 
 ## Setup (sekali)
 1. Jalankan `supabase/39_multi_yayasan.sql` di SQL Editor (setelah migrasi 23). Semua data lama otomatis jadi yayasan `YYS_AWAL` (kode `UTAMA`; boleh diganti lewat SQL: `update yayasan set kode='AGRABIL' where id='YYS_AWAL'`).
-2. Env Vercel: `DEVELOPER_USERNAMES=admin` (username admin yayasan awal yang jadi developer, pisahkan koma). Kosong = tidak ada yang bisa masuk `/developer`.
+2. Akun developer (terpisah dari akun sekolah): jalankan `supabase/47_developer_akun.sql`, lalu `node scripts/buat-developer.js <username>` dan tempel SQL yang dicetak ke SQL Editor. Login lewat tombol **Masuk Developer** di halaman login (`/developer/login`). Env `DEVELOPER_USERNAMES` tidak dipakai lagi.
 3. Deploy, lalu **login ulang** (token lama belum memuat yayasan; tetap diterima selama saklar mati).
 
 ## STATUS: kode Fase 2 selesai, UJI DUA YAYASAN belum
@@ -48,7 +48,7 @@ Jalankan migrasi dulu, baru deploy kode. Jangan menjalankan SQL atau deploy saat
 - Cron `reminder-soal` hanya memproses `YYS_AWAL` (nomor WA tujuan hanya satu).
 - `siswa/dipantau` dan `metrik_sistem` global (peta berdasarkan NIS unik; metrik kesehatan server).
 - Stream Layar Pantau mendengarkan perubahan semua yayasan, tetapi hanya sebagai pemicu: data selalu diambil ulang lewat query ber-scope.
-- Panel Developer memakai client global (lintas yayasan) dan hanya untuk `DEVELOPER_USERNAMES` pada yayasan awal.
+- Panel Developer memakai client global (lintas yayasan) tetapi HANYA membaca metadata (nama, status, jumlah siswa). Akun developer ada di tabel `developer_akun` dan tokennya ditandatangani dengan kunci turunan (`src/lib/developer-auth.ts`), sehingga token developer ditolak di semua rute sekolah dan token sekolah ditolak di rute developer.
 
 ### Yang tersisa
 1. **Uji dua yayasan** (wajib): daftarkan yayasan B, buat kelas bernama sama, lalu dari akun B coba baca/ubah/hapus id milik A (sesi, nis, paket, kelas, jadwal, username). Semua harus 404/403. Hapus kelas di B, pastikan data kelas sama di A utuh. Impor NIS milik A dari B. Simulasi ujian penuh di B. `backup/reset/restore` = 403. Token lama ditolak.

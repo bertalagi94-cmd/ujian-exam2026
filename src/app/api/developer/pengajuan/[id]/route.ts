@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
-import { requireDeveloper, multiYayasanAktif } from '@/lib/tenant'
+import { multiYayasanAktif } from '@/lib/tenant'
+import { requireDeveloper } from '@/lib/developer-auth'
 import { cacheDelPrefix } from '@/lib/cache'
 import { kirimWa } from '@/lib/wa'
 

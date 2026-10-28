@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
-import { requireDeveloper } from '@/lib/tenant'
+import { requireDeveloper } from '@/lib/developer-auth'
 
 export const dynamic = 'force-dynamic'
 
