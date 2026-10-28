@@ -422,6 +422,11 @@ export default function SiswaUjianPage() {
   // 'error' = sudah dicoba berulang kali (dengan backoff) tapi tetap gagal
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error'>('idle')
   const [syncErrorMsg, setSyncErrorMsg] = useState('')
+  // Jumlah jawaban yang DITOLAK server karena dikirim setelah batas waktu
+  // (lihat `ditolakTerlambat` di /api/siswa/ujian/sync). Hanya untuk
+  // peringatan visual ke siswa — tidak memengaruhi verifikasi submit
+  // (totalSynced / ACK) sama sekali.
+  const [jumlahDitolakTerlambat, setJumlahDitolakTerlambat] = useState(0)
   // Modal pemblokir saat siswa klik "Selesai" tapi verifikasi jumlah jawaban
   // tersimpan di server TIDAK cocok dengan jumlah yang dijawab di lokal.
   // Ujian TIDAK akan dinilai sampai ini terverifikasi cocok (atau siswa retry manual berhasil).
@@ -1476,6 +1481,7 @@ export default function SiswaUjianPage() {
         const res = await apiRequest<{
           message: string
           totalSynced: number
+          ditolakTerlambat?: number
           acked?: { soal_id: string; jawaban: string; revisi: number; accepted: boolean }[]
         }>('/api/siswa/ujian/sync', {
           method: 'POST',
@@ -1503,6 +1509,11 @@ export default function SiswaUjianPage() {
         })
         setSyncStatus('synced')
         setSyncErrorMsg('')
+        // Server menghitung ulang dari SEMUA jawaban yang dikirim tiap sync,
+        // jadi nilai ini otomatis kembali 0 kalau tidak ada lagi yang ditolak.
+        setJumlahDitolakTerlambat(
+          typeof res.ditolakTerlambat === 'number' && res.ditolakTerlambat > 0 ? res.ditolakTerlambat : 0
+        )
 
         // FIX BUG P1 (konsistensi lintas-device): kalau server menolak
         // revisi kita (accepted=false) karena device LAIN sudah menulis
@@ -5017,6 +5028,14 @@ export default function SiswaUjianPage() {
             {syncStatus === 'synced' && '✓ Tersimpan di server'}
             {syncStatus === 'idle' && 'Belum ada jawaban yang disimpan'}
           </div>
+          {jumlahDitolakTerlambat > 0 && (
+            <div
+              role="alert"
+              className="relative z-[1] text-[11px] mt-1 font-semibold text-amber-200"
+            >
+              ⚠ {jumlahDitolakTerlambat} jawaban ditolak server karena dikirim melewati batas waktu dan tidak akan dinilai.
+            </div>
+          )}
         </div>
 
         {/* FIX BUG P0 #8 (audit): dulu kegagalan tulis backup jawaban lokal
