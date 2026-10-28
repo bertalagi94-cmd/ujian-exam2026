@@ -14,6 +14,19 @@ const BOOT_LINES = [
   '> menunggu kredensial developer_',
 ]
 
+// Pesan ejekan saat username/password salah. Dipilih acak (tidak berulang berturut-turut).
+const PESAN_TAWA = [
+  'Salah lagi! Yakin kamu developernya, bukan cuma lewat doang?',
+  'Kredensial ditolak. Ini konsol developer, bukan tempat coba-coba keberuntungan.',
+  'Coba cek Caps Lock-nya. Atau mungkin kucingmu tadi sempat menginjak keyboard? 🐈',
+  'Hacker beneran nggak bakal salah ketik sampai segini. Pelan-pelan saja, ya.',
+  'Password-nya nggak hilang kok, cuma kamu yang lupa. Tarik napas, coba lagi. 😂',
+  'Sistem ini ketawa dulu, baru menolakmu dengan sopan.',
+  'Username atau password meleset. Jangan asal tebak, nanti dikira maling. 🕵️',
+  'Akses ditolak! Mau tebak sampai pagi pun, pintunya tetap terkunci. 🔒',
+]
+const DURASI_TAWA_MS = 7000
+
 const GLYPHS = 'アイウエオカキクケコサシスセソタチツテトナニヌネノ0123456789ABCDEF<>/\\{}[]=+*#$%&'
 
 export default function LoginDeveloperPage() {
@@ -27,6 +40,26 @@ export default function LoginDeveloperPage() {
   const [berhasil, setBerhasil] = useState(false)
   const [baris, setBaris] = useState(0)
   const [getar, setGetar] = useState(false)
+  const [tawa, setTawa] = useState<{ pesan: string; id: number } | null>(null)
+  const tawaTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const tawaTerakhir = useRef(-1)
+  const tawaId = useRef(0)
+
+  // Popup tawa: muncul saat login gagal, memudar pelan, hilang sendiri dalam 7 detik.
+  function tampilkanTawa() {
+    let i = Math.floor(Math.random() * PESAN_TAWA.length)
+    if (i === tawaTerakhir.current) i = (i + 1) % PESAN_TAWA.length
+    tawaTerakhir.current = i
+    tawaId.current += 1
+    if (tawaTimer.current) clearTimeout(tawaTimer.current)
+    setTawa({ pesan: PESAN_TAWA[i], id: tawaId.current })
+    tawaTimer.current = setTimeout(() => setTawa(null), DURASI_TAWA_MS)
+  }
+  function tutupTawa() {
+    if (tawaTimer.current) clearTimeout(tawaTimer.current)
+    setTawa(null)
+  }
+  useEffect(() => () => { if (tawaTimer.current) clearTimeout(tawaTimer.current) }, [])
 
   useEffect(() => {
     try { if (localStorage.getItem('dev_token')) router.replace('/developer') } catch { /* abaikan */ }
@@ -143,7 +176,7 @@ export default function LoginDeveloperPage() {
 
   async function masuk(e: React.FormEvent) {
     e.preventDefault()
-    setError(''); setLoading(true)
+    setError(''); tutupTawa(); setLoading(true)
     try {
       const res = await fetch('/api/developer/login', {
         method: 'POST',
@@ -152,7 +185,10 @@ export default function LoginDeveloperPage() {
       })
       const json = await res.json().catch(() => ({}))
       if (!res.ok) {
-        setError(json.error || 'Gagal masuk')
+        // 401 = username/password salah -> popup tawa. Error lain (mis. terlalu
+        // banyak percobaan) tetap tampil sebagai pesan biasa supaya jelas.
+        if (res.status === 401) tampilkanTawa()
+        else setError(json.error || 'Gagal masuk')
         setGetar(true); setTimeout(() => setGetar(false), 500)
         return
       }
@@ -255,6 +291,24 @@ export default function LoginDeveloperPage() {
           Developed by : <span className="text-emerald-200 font-bold">Tasrif A. Abbas</span>
         </div>
       </div>
+
+      {tawa && (
+        <div className="dv-tawa-lapis" aria-hidden={false}>
+          <div key={tawa.id} role="alert" aria-live="assertive" className="dv-tawa"
+            style={{ ['--dur' as string]: `${DURASI_TAWA_MS}ms` }}>
+            <button type="button" onClick={tutupTawa} className="dv-tawa-x" aria-label="Tutup">×</button>
+            <div className="dv-tawa-emoji" aria-hidden="true">🤣</div>
+            <div className="dv-tawa-ha" aria-hidden="true">
+              {'HAHAHAHA'.split('').map((c, i) => (
+                <span key={i} style={{ animationDelay: `${i * 0.08}s` }}>{c}</span>
+              ))}
+            </div>
+            <div className="dv-tawa-judul font-mono">ACCESS DENIED</div>
+            <p className="dv-tawa-pesan">{tawa.pesan}</p>
+            <div className="dv-tawa-bar"><span /></div>
+          </div>
+        </div>
+      )}
     </main>
   )
 }
@@ -315,7 +369,31 @@ const CSS = `
   background: linear-gradient(100deg, transparent, rgba(255,255,255,0.55), transparent); animation: dv-kilau 3.2s ease-in-out infinite; }
 @keyframes dv-kilau { 60%, 100% { left: 130%; } }
 
+/* Popup tertawa saat login salah: tampil, bergoyang, lalu memudar pelan sampai hilang (7 detik). */
+.dv-tawa-lapis { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 16px; pointer-events: none; }
+.dv-tawa { position: relative; pointer-events: auto; width: 100%; max-width: 380px; text-align: center; padding: 22px 22px 18px;
+  background: rgba(14, 2, 6, 0.92); border: 1px solid rgba(255, 70, 110, 0.7); border-radius: 14px;
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.7), 0 0 36px rgba(255,46,122,0.45), 0 0 110px rgba(255,46,122,0.22), inset 0 0 34px rgba(255,46,122,0.08);
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  animation: dv-tawa-masuk 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) both, dv-tawa-pudar var(--dur, 7s) ease-in forwards; }
+@keyframes dv-tawa-masuk { from { opacity: 0; transform: translateY(24px) scale(0.8) rotate(-3deg); } to { opacity: 1; transform: none; } }
+@keyframes dv-tawa-pudar { 0%, 45% { opacity: 1; filter: none; } 100% { opacity: 0; filter: blur(5px); transform: translateY(-14px) scale(0.96); } }
+.dv-tawa-emoji { font-size: 54px; line-height: 1; display: inline-block; animation: dv-tawa-goyang 0.5s ease-in-out infinite alternate; transform-origin: 50% 80%; }
+@keyframes dv-tawa-goyang { from { transform: rotate(-14deg) scale(1); } to { transform: rotate(14deg) scale(1.12); } }
+.dv-tawa-ha { margin-top: 6px; display: flex; justify-content: center; gap: 1px; font-family: ui-monospace, monospace; font-weight: 800; font-size: 26px; letter-spacing: 0.08em; color: #ff5c8a; text-shadow: 0 0 14px rgba(255,46,122,0.8); }
+.dv-tawa-ha span { display: inline-block; animation: dv-tawa-lompat 0.7s ease-in-out infinite; }
+@keyframes dv-tawa-lompat { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-7px); } }
+.dv-tawa-judul { margin-top: 4px; font-size: 11px; font-weight: 700; letter-spacing: 0.35em; color: #ffb3c6; }
+.dv-tawa-pesan { margin: 10px 0 0; font-size: 14px; line-height: 1.5; color: #ffe3ea; }
+.dv-tawa-bar { margin-top: 14px; height: 3px; border-radius: 3px; background: rgba(255,255,255,0.1); overflow: hidden; }
+.dv-tawa-bar > span { display: block; height: 100%; width: 100%; background: linear-gradient(90deg, #ff2e7a, #ffb36b); transform-origin: left; animation: dv-tawa-hitung var(--dur, 7s) linear forwards; }
+@keyframes dv-tawa-hitung { to { transform: scaleX(0); } }
+.dv-tawa-x { position: absolute; top: 6px; right: 10px; color: rgba(255,200,215,0.6); font-size: 22px; line-height: 1; }
+.dv-tawa-x:hover { color: #fff; }
+
 @media (prefers-reduced-motion: reduce) {
+  .dv-tawa-emoji, .dv-tawa-ha span { animation: none !important; }
+  .dv-tawa { animation: dv-tawa-pudar var(--dur, 7s) ease-in forwards !important; }
   .dv-card, .dv-ikon, .dv-judul, .dv-scan::after, .dv-kursor::after, .dv-tombol::after { animation: none !important; }
 }
 `
