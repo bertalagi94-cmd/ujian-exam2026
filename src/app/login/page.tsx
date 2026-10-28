@@ -1328,16 +1328,16 @@ export default function LoginPage() {
         </div>
       </div>
 
-      {/* Tombol Login Developer — kecil, tetap di layar: HP = tengah bawah,
+      {/* Tombol Login Developer — sederhana, senada tema beranda: HP = tengah bawah,
           laptop/komputer (lg+) = pojok kanan bawah. */}
       <button
         type="button"
         onClick={() => router.push('/developer/login')}
         aria-label="Login Developer"
-        className="group fixed z-30 left-1/2 -translate-x-1/2 bottom-3 lg:left-auto lg:translate-x-0 lg:right-5 lg:bottom-5 flex items-center gap-1.5 bg-black text-emerald-400 font-bold text-xs border-2 border-emerald-400 rounded-lg px-3.5 py-2 shadow-[0_0_10px_rgba(52,255,160,0.45)] hover:bg-emerald-400 hover:text-black hover:shadow-[0_0_18px_rgba(52,255,160,0.7)] active:scale-95 transition-all duration-200"
+        className="fixed z-30 left-1/2 -translate-x-1/2 bottom-3 lg:left-auto lg:translate-x-0 lg:right-5 lg:bottom-5 flex items-center gap-1.5 text-xs font-semibold text-slate-700 bg-white/70 hover:bg-white backdrop-blur-md border border-white/80 rounded-full px-3.5 py-1.5 shadow-md shadow-slate-900/10 hover:text-sky-700 active:scale-95 transition-all duration-200"
         style={{ marginBottom: 'env(safe-area-inset-bottom, 0px)' }}
       >
-        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <polyline points="4 17 10 11 4 5" />
           <line x1="12" y1="19" x2="20" y2="19" />
         </svg>
