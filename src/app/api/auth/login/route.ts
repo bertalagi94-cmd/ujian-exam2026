@@ -5,7 +5,7 @@ import { signToken, WAJIB_GANTI_PASSWORD_AKTIF } from '@/lib/auth'
 import { cachedFetch, cacheGet, cacheSet } from '@/lib/cache'
 import { generateId } from '@/lib/utils'
 import { instrumented } from '@/lib/metrik'
-import { cariYayasanByKode, multiYayasanAktif, normalisasiKodeSekolah, tenantDb, YAYASAN_AWAL_ID } from '@/lib/tenant'
+import { cariYayasanById, tenantDb, YAYASAN_AWAL_ID } from '@/lib/tenant'
 
 // FIX BUG: catat setiap login sukses ke `log_aktivitas` (aksi='LOGIN').
 // Sebelumnya endpoint ini hanya meng-update kolom `last_login` di tabel
@@ -143,6 +143,29 @@ async function getPengaturan(yayasanId: string): Promise<Record<string, string>>
   })
 }
 
+// Akun tidak ditemukan: mungkin ini pemohon aktivasi sekolah baru yang masih
+// menunggu persetujuan (atau ditolak). Pesan HANYA diberikan kalau password-nya
+// cocok dengan yang didaftarkan, jadi tidak membocorkan username ke orang lain.
+// Gagal apa pun (mis. tabel belum dimigrasi) -> null, login tetap normal.
+async function pesanPengajuan(
+  db: ReturnType<typeof createAdminClient>,
+  username: string,
+  password: string
+): Promise<string | null> {
+  try {
+    const { data } = await db.from('pengajuan_sekolah')
+      .select('status, alasan_tolak, password_hash')
+      .eq('username', username).in('status', ['MENUNGGU', 'DITOLAK'])
+      .order('created_at', { ascending: false }).limit(1).maybeSingle()
+    const cocok = await bcrypt.compare(password, data?.password_hash || DUMMY_HASH)
+    if (!data || !cocok) return null
+    if (data.status === 'MENUNGGU') return 'Pengajuan aktivasi sekolah Anda masih menunggu persetujuan. Silakan coba lagi nanti.'
+    return `Pengajuan aktivasi sekolah Anda ditolak.${data.alasan_tolak ? ` Alasan: ${data.alasan_tolak}` : ''}`
+  } catch {
+    return null
+  }
+}
+
 export async function POST(req: NextRequest) {
   // FIX (status "Server" panel Monitoring sekarang NYATA, bukan cuma skor
   // kesibukan ujian): seluruh body handler dibungkus instrumented('login', ...)
@@ -155,7 +178,6 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => null)
     const username = typeof body?.username === 'number' ? String(body.username) : body?.username
     const password = typeof body?.password === 'number' ? String(body.password) : body?.password
-    const kodeSekolah = body?.kodeSekolah
     if (typeof username !== 'string' || typeof password !== 'string' || !username.trim() || !password) {
       return NextResponse.json({ error: 'Username dan password wajib diisi' }, { status: 400 })
     }
@@ -180,32 +202,10 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // ── Kode Sekolah (multi-yayasan) ──────────────────────────────────────
-    // Kode diisi  -> yayasan dicari dari kode; akun harus milik yayasan itu.
-    // Kode kosong -> hanya boleh selama multi-yayasan MATI (login lama tetap
-    //                jalan untuk yayasan awal). Kalau sudah menyala, wajib.
-    const kodeInput = normalisasiKodeSekolah(kodeSekolah)
-    let yayasanTarget: string | null = null
-    if (kodeInput) {
-      const yys = await cariYayasanByKode(kodeInput)
-      if (!yys || yys.status !== 'AKTIF') {
-        return NextResponse.json({ error: GENERIC_LOGIN_ERROR }, { status: 401 })
-      }
-      yayasanTarget = yys.id
-    } else if (multiYayasanAktif()) {
-      return NextResponse.json({ error: 'Kode Sekolah wajib diisi' }, { status: 400 })
-    } else {
-      yayasanTarget = YAYASAN_AWAL_ID
-    }
-
-    // Satu cache hit menggantikan 2–3 round-trip ke DB
-    const pengaturan = await getPengaturan(yayasanTarget!)
-
-    // Maintenance: pengecekan dilakukan SETELAH password terverifikasi (lihat di
-    // bawah). Dulu username non-admin langsung dibalas 503 sebelum password
-    // dicek, sehingga perbedaan respons membocorkan username ADMIN/tester.
-    const sedangMaintenance = pengaturan['maintenanceAktif'] === 'true'
-
+    // ── Yayasan ditentukan dari AKUN, bukan dari input pengguna ───────────
+    // Setiap baris users/siswa sudah punya yayasan_id, jadi pengguna tidak
+    // perlu mengetik Kode Sekolah. username/NIS unik global, sehingga satu
+    // akun hanya milik satu yayasan.
     const supabase = createAdminClient()
 
     // Query users dan siswa BERSAMAAN
@@ -214,13 +214,36 @@ export async function POST(req: NextRequest) {
       supabase.from('siswa').select('nis, password_hash, nama, kelas, yayasan_id, is_tester').eq('nis', username.trim()).eq('status', 'AKTIF').single(),
     ])
 
-    // Akun milik yayasan lain diperlakukan sama seperti "tidak ditemukan".
-    const userOk = user && (user.yayasan_id ?? YAYASAN_AWAL_ID) === yayasanTarget
-    const siswaOk = siswa && (siswa.yayasan_id ?? YAYASAN_AWAL_ID) === yayasanTarget
+    const yayasanAkun: string | null = user
+      ? (user.yayasan_id ?? YAYASAN_AWAL_ID)
+      : siswa ? (siswa.yayasan_id ?? YAYASAN_AWAL_ID) : null
 
-    if (user && userOk) {
+    if (!yayasanAkun) {
+      // Akun tidak ada. Cek dulu apakah ini pemohon aktivasi sekolah baru.
+      // (bcrypt tetap dijalankan di semua jalur supaya waktu respons sama.)
+      const pesan = await pesanPengajuan(supabase, username.trim(), String(password))
+      if (pesan) return NextResponse.json({ error: pesan }, { status: 403 })
+      catatGagalIp(ip)
+      return NextResponse.json({ error: GENERIC_LOGIN_ERROR }, { status: 401 })
+    }
+    const yayasanTarget: string = yayasanAkun
+
+    const yys = await cariYayasanById(yayasanTarget)
+    const yayasanAktif = yys?.status === 'AKTIF'
+    const PESAN_NONAKTIF = 'Sekolah ini sedang dinonaktifkan. Hubungi administrator aplikasi.'
+
+    // Satu cache hit menggantikan 2–3 round-trip ke DB
+    const pengaturan = await getPengaturan(yayasanTarget)
+
+    // Maintenance: pengecekan dilakukan SETELAH password terverifikasi (lihat di
+    // bawah). Dulu username non-admin langsung dibalas 503 sebelum password
+    // dicek, sehingga perbedaan respons membocorkan username ADMIN/tester.
+    const sedangMaintenance = pengaturan['maintenanceAktif'] === 'true'
+
+    if (user) {
       const match = await bcrypt.compare(String(password), user.password_hash || DUMMY_HASH)
       if (!match) { catatGagalIp(ip); return NextResponse.json({ error: GENERIC_LOGIN_ERROR }, { status: 401 }) }
+      if (!yayasanAktif) return NextResponse.json({ error: PESAN_NONAKTIF }, { status: 403 })
 
       // Diizinkan login saat maintenance: ADMIN atau akun tester (is_tester = 'YES').
       if (sedangMaintenance && user.role !== 'ADMIN' && user.is_tester !== 'YES') {
@@ -231,28 +254,29 @@ export async function POST(req: NextRequest) {
       // token diberi klaim gantiPassword sehingga semua endpoint menolak sampai diganti.
       const wajibGantiPassword = WAJIB_GANTI_PASSWORD_AKTIF && String(password) === user.username
       const token = signToken({
-        username: user.username, nama: user.nama, role: user.role, yayasanId: yayasanTarget!,
+        username: user.username, nama: user.nama, role: user.role, yayasanId: yayasanTarget,
         ...(wajibGantiPassword ? { gantiPassword: true } : {}),
       })
       supabase.from('users').update({ last_login: new Date().toISOString() }).eq('username', user.username)
         .then(({ error }) => { if (error) console.error('Gagal update last_login (user):', error) })
-      catatLoginAktivitas(tenantDb(yayasanTarget!), user.username, `Login sebagai ${user.role}`)
-      return NextResponse.json({ token, username: user.username, nama: user.nama, role: user.role, wajibGantiPassword })
+      catatLoginAktivitas(tenantDb(yayasanTarget), user.username, `Login sebagai ${user.role}`)
+      return NextResponse.json({ token, username: user.username, nama: user.nama, role: user.role, wajibGantiPassword, kodeSekolah: yys?.kode })
     }
 
-    if (siswa && siswaOk) {
+    if (siswa) {
       const match = await bcrypt.compare(String(password), siswa.password_hash || DUMMY_HASH)
       if (!match) { catatGagalIp(ip); return NextResponse.json({ error: GENERIC_LOGIN_ERROR }, { status: 401 }) }
+      if (!yayasanAktif) return NextResponse.json({ error: PESAN_NONAKTIF }, { status: 403 })
 
       if (sedangMaintenance && siswa.is_tester !== 'YES') {
         return NextResponse.json({ error: buildPesanMaintenance(pengaturan) }, { status: 503 })
       }
 
-      const token = signToken({ username: siswa.nis, nama: siswa.nama, role: 'SISWA', nis: siswa.nis, kelas: siswa.kelas, yayasanId: yayasanTarget! })
+      const token = signToken({ username: siswa.nis, nama: siswa.nama, role: 'SISWA', nis: siswa.nis, kelas: siswa.kelas, yayasanId: yayasanTarget })
       supabase.from('siswa').update({ last_login: new Date().toISOString() }).eq('nis', siswa.nis)
         .then(({ error }) => { if (error) console.error('Gagal update last_login (siswa):', error) })
-      catatLoginAktivitas(tenantDb(yayasanTarget!), siswa.nis, `Login sebagai SISWA (${siswa.nama})`)
-      return NextResponse.json({ token, username: siswa.nis, nama: siswa.nama, role: 'SISWA', nis: siswa.nis, kelas: siswa.kelas })
+      catatLoginAktivitas(tenantDb(yayasanTarget), siswa.nis, `Login sebagai SISWA (${siswa.nama})`)
+      return NextResponse.json({ token, username: siswa.nis, nama: siswa.nama, role: 'SISWA', nis: siswa.nis, kelas: siswa.kelas, kodeSekolah: yys?.kode })
     }
 
     // Akun tidak ada / milik yayasan lain: tetap jalankan bcrypt supaya waktu

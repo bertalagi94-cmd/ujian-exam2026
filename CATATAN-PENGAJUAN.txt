@@ -1,0 +1,12 @@
+PENGAJUAN AKTIVASI SEKOLAH + LOGIN TANPA KODE SEKOLAH
+Dasar: commit d606ba6 (main). Struktur folder SAMA dengan repo: ekstrak di root repo, timpa.
+
+URUTAN:
+1. Jalankan supabase/46_pengajuan_sekolah.sql di SQL Editor Supabase (sebelum deploy).
+2. Timpa berkas, commit, deploy.
+3. Tombol aktivasi baru tampil setelah MULTI_YAYASAN_ENABLED=true (ikuti docs/MULTI_YAYASAN.md:
+   uji dua yayasan dulu, sebaiknya di lingkungan uji terpisah).
+
+BERKAS (10): 3 diubah lama (login route, login page, developer page) + docs,
+             6 baru (aktivasi page, 3 API pengajuan, API status yayasan [id], migrasi 46).
+Tidak ada berkas yang dihapus.

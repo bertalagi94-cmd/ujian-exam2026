@@ -5,11 +5,15 @@
 - **Sekolah** (tabel lama) = **jenjang** di dalam yayasan (SMP, SMA, dst).
 - **Kode Registrasi** = kode sekali pakai (berlaku 14 hari) dari developer ke sekolah baru. Database hanya menyimpan hash-nya.
 
-## Alur
-1. Developer buka `/developer` → **Daftarkan** (Kode Sekolah + nama) → **Buat kode**.
-2. Developer kirim Kode Registrasi + tautan `/registrasi` ke sekolah.
-3. Sekolah mengisi admin + jenjang di `/registrasi` → yayasan menjadi AKTIF.
-4. Semua pengguna sekolah itu login dengan Kode Sekolah + username/NIS + password.
+## Alur (pengajuan + persetujuan developer)
+1. Sekolah baru membuka halaman login -> **Sekolah baru? Ajukan aktivasi** (`/aktivasi`), mengisi nama sekolah, NPSN (8 digit), username, password, dan (opsional) no. WhatsApp. Tombol hanya tampil bila `MULTI_YAYASAN_ENABLED=true`.
+2. Pengajuan masuk tabel `pengajuan_sekolah` (status `MENUNGGU`, password disimpan sebagai hash bcrypt). Developer dapat WhatsApp bila `ADMIN_WA_NUMBER` + `FONNTE_TOKEN` terisi.
+3. Developer membuka `/developer` -> **Pengajuan sekolah baru** -> **Setujui** atau **Tolak** (alasan wajib). Verifikasi NPSN dilakukan manual oleh developer.
+4. Saat disetujui, `setujui_pengajuan_atomik()` (migrasi 46) membuat dalam satu transaksi: yayasan `AKTIF` (Kode Sekolah internal `S<NPSN>`), akun ADMIN dari username+password pengajuan, 1 baris `sekolah`, dan pengaturan `namaSekolah`.
+5. Semua pengguna login hanya dengan **username/NIS + password**. Yayasan ditentukan dari akun (`users.yayasan_id` / `siswa.yayasan_id`), bukan dari input. Kode Sekolah tidak lagi diketik; server mengirimnya balik saat login dan disimpan di perangkat hanya agar nama/logo sekolah tampil di halaman login berikutnya.
+6. Sebelum disetujui, mencoba login dengan username+password pengajuan menampilkan status ("menunggu" / "ditolak: alasan"). Sekolah yang dinonaktifkan dari panel developer mendapat pesan khusus setelah password terverifikasi.
+
+Persetujuan DITOLAK server selama `MULTI_YAYASAN_ENABLED` mati (tanpa saklar, backup/reset/restore masih terbuka untuk admin yayasan baru).
 
 ## Setup (sekali)
 1. Jalankan `supabase/39_multi_yayasan.sql` di SQL Editor (setelah migrasi 23). Semua data lama otomatis jadi yayasan `YYS_AWAL` (kode `UTAMA`; boleh diganti lewat SQL: `update yayasan set kode='AGRABIL' where id='YYS_AWAL'`).
@@ -27,6 +31,7 @@
 | 41 | trigger `paket_soal` (dari mapel); nama kelas unik per yayasan |
 | 42 | `get_dashboard_stats(p_yayasan_id)`, `hapus_kelas_atomik(..., p_yayasan_id)`, `pelanggaran.yayasan_id` + trigger |
 | 43 | kunci `pengaturan` menjadi `(yayasan_id, key)`. Jalankan SETELAH kode yang memakai `onConflict 'yayasan_id,key'` ter-deploy |
+| 46 | tabel `pengajuan_sekolah` + fungsi `setujui_pengajuan_atomik()` (alur pengajuan). Menggantikan Kode Registrasi (tabel `registrasi_kode` dan fungsi `registrasi_yayasan_atomik()` dari 39 sudah tidak dipakai) |
 
 Jalankan migrasi dulu, baru deploy kode. Jangan menjalankan SQL atau deploy saat ada ujian.
 
