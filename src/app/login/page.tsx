@@ -816,7 +816,7 @@ export default function LoginPage() {
               <div className="fixed inset-0 z-10 flex flex-col justify-between p-5"
                 style={{
                   paddingTop: 'calc(env(safe-area-inset-top, 0px) + 1.1rem)',
-                  paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 4.75rem)',
+                  paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 3.75rem)',
                 }}
               >
                 {/* ── Kanvas coret-coret tinta emas — hiburan ringan buat
@@ -1328,21 +1328,20 @@ export default function LoginPage() {
         </div>
       </div>
 
-      {/* Tombol Masuk Developer — satu elemen tetap: HP = bilah penuh di paling bawah,
-          laptop/komputer (lg+) = tombol di pojok kanan bawah. */}
+      {/* Tombol Login Developer — kecil, tetap di layar: HP = tengah bawah,
+          laptop/komputer (lg+) = pojok kanan bawah. */}
       <button
         type="button"
         onClick={() => router.push('/developer/login')}
-        aria-label="Masuk Developer"
-        className="group fixed z-30 inset-x-0 bottom-0 lg:inset-x-auto lg:right-6 lg:bottom-6 flex items-center justify-center gap-2.5 bg-black text-emerald-400 font-extrabold uppercase tracking-[0.2em] text-[13px] border-t-[3px] border-emerald-400 lg:border-[3px] lg:rounded-xl px-6 pt-3.5 lg:py-3.5 shadow-[0_0_22px_rgba(52,255,160,0.55)] hover:bg-emerald-400 hover:text-black hover:shadow-[0_0_38px_rgba(52,255,160,0.9)] active:scale-[0.98] transition-all duration-200"
-        style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 0.875rem)' }}
+        aria-label="Login Developer"
+        className="group fixed z-30 left-1/2 -translate-x-1/2 bottom-3 lg:left-auto lg:translate-x-0 lg:right-5 lg:bottom-5 flex items-center gap-1.5 bg-black text-emerald-400 font-bold text-xs border-2 border-emerald-400 rounded-lg px-3.5 py-2 shadow-[0_0_10px_rgba(52,255,160,0.45)] hover:bg-emerald-400 hover:text-black hover:shadow-[0_0_18px_rgba(52,255,160,0.7)] active:scale-95 transition-all duration-200"
+        style={{ marginBottom: 'env(safe-area-inset-bottom, 0px)' }}
       >
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <polyline points="4 17 10 11 4 5" />
           <line x1="12" y1="19" x2="20" y2="19" />
         </svg>
-        <span>Masuk Developer</span>
-        <span aria-hidden="true" className="inline-block w-2 h-4 bg-current animate-pulse" />
+        <span>Login Developer</span>
       </button>
 
       {showGuide && (
