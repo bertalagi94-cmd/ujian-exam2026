@@ -16,12 +16,12 @@ const BOOT_LINES = [
 
 // Pesan ejekan saat username/password salah. Dipilih acak (tidak berulang berturut-turut).
 const PESAN_TAWA = [
-  'Salah lagi! Yakin kamu developernya, bukan cuma lewat doang?',
-  'Kredensial ditolak. Ini konsol developer, bukan tempat coba-coba keberuntungan.',
-  'Coba cek Caps Lock-nya. Atau mungkin kucingmu tadi sempat menginjak keyboard? 🐈',
-  'Hacker beneran nggak bakal salah ketik sampai segini. Pelan-pelan saja, ya.',
-  'Password-nya nggak hilang kok, cuma kamu yang lupa. Tarik napas, coba lagi. 😂',
-  'Sistem ini ketawa dulu, baru menolakmu dengan sopan.',
+  'Salah lagi! Coba Tanggal lahir Presiden Kita 😄',
+  'Kredensial ditolak. Ini konsol developer, bukan tempat login guru.',
+  'Gagal. Kalau anda developer, pasti anda tahu passwordnya',
+  'Salah ya? sabar 😒.',
+  'Lagi-lagi salah. Coba ngopi dulu 😂',
+  'Terang bulan terang di kali, sudah salah berapa kali?.',
   'Username atau password meleset. Jangan asal tebak, nanti dikira maling. 🕵️',
   'Akses ditolak! Mau tebak sampai pagi pun, pintunya tetap terkunci. 🔒',
 ]
