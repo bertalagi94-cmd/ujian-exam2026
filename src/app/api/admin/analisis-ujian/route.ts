@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 import { getKepsekScope } from '@/lib/kepsek-scope'
+import { ambilSemuaBaris } from '@/lib/ambil-semua'
 
 export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['ADMIN', 'KEPSEK'])
@@ -130,10 +131,16 @@ export async function GET(req: NextRequest) {
   }
 
   // Ambil semua jawaban di sesi ini
-  const { data: jawabanAll, error: jawabanErr } = await db
-    .from('jawaban')
-    .select('soal_id, nis, jawaban')
-    .eq('sesi_id', sesiAll.id)
+  // FIX batas 1000 baris: jawaban satu sesi bisa lebih dari 1000 (mis. 36 siswa x 30 soal).
+  const { data: jawabanAll, error: jawabanErr } = await ambilSemuaBaris<{ soal_id: string; nis: string; jawaban: string }>((dari, sampai) =>
+    db
+      .from('jawaban')
+      .select('soal_id, nis, jawaban')
+      .eq('sesi_id', sesiAll.id)
+      .order('nis', { ascending: true })
+      .order('soal_id', { ascending: true })
+      .range(dari, sampai)
+  )
 
   if (jawabanErr) return NextResponse.json({ error: jawabanErr.message }, { status: 500 })
 
