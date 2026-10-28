@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
 
   const namaSekolah = String(b.nama_sekolah ?? '').trim().replace(/\s+/g, ' ')
   const npsn = String(b.npsn ?? '').trim()
-  const username = String(b.username ?? '').trim()
+  const username = String(b.username ?? '').trim().toLowerCase() // berisi email admin
   const password = String(b.password ?? '')
   const noHp = String(b.no_hp ?? '').replace(/[^\d+]/g, '').slice(0, 20)
 
@@ -56,14 +56,15 @@ export async function POST(req: NextRequest) {
   if (!/^\d{8}$/.test(npsn)) {
     return NextResponse.json({ error: 'NPSN harus 8 digit angka' }, { status: 400 })
   }
-  if (!/^[A-Za-z0-9._-]{4,30}$/.test(username)) {
-    return NextResponse.json({ error: 'Username 4–30 karakter (huruf, angka, titik, strip, garis bawah)' }, { status: 400 })
+  // Email dipakai hanya sebagai nama login (tidak ada email yang dikirim).
+  if (username.length > 100 || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(username)) {
+    return NextResponse.json({ error: 'Email tidak valid. Contoh: namaanda@gmail.com' }, { status: 400 })
   }
   if (password.length < 8 || password.length > 72) {
     return NextResponse.json({ error: 'Password 8–72 karakter' }, { status: 400 })
   }
   if (password.toLowerCase() === username.toLowerCase()) {
-    return NextResponse.json({ error: 'Password tidak boleh sama dengan username' }, { status: 400 })
+    return NextResponse.json({ error: 'Password tidak boleh sama dengan email' }, { status: 400 })
   }
 
   const db = createAdminClient()
@@ -74,7 +75,7 @@ export async function POST(req: NextRequest) {
     db.from('siswa').select('nis').eq('nis', username).maybeSingle(),
     db.from('sekolah').select('id').eq('npsn', npsn).limit(1),
   ])
-  if (u || s) return NextResponse.json({ error: 'Username sudah dipakai, pilih username lain' }, { status: 409 })
+  if (u || s) return NextResponse.json({ error: 'Email ini sudah dipakai, gunakan email lain' }, { status: 409 })
   if (sk && sk.length > 0) return NextResponse.json({ error: 'NPSN ini sudah terdaftar di aplikasi' }, { status: 409 })
 
   const { error } = await db.from('pengajuan_sekolah').insert({
@@ -88,7 +89,7 @@ export async function POST(req: NextRequest) {
   if (error) {
     // 23505 = indeks unik: username/NPSN sudah punya pengajuan yang menunggu.
     if ((error as any).code === '23505') {
-      return NextResponse.json({ error: 'Pengajuan dengan username atau NPSN ini sudah ada dan sedang menunggu persetujuan' }, { status: 409 })
+      return NextResponse.json({ error: 'Pengajuan dengan email atau NPSN ini sudah ada dan sedang menunggu persetujuan' }, { status: 409 })
     }
     console.error('pengajuan_sekolah insert gagal:', error)
     return NextResponse.json({ error: 'Pengajuan gagal, coba lagi' }, { status: 500 })
@@ -99,7 +100,7 @@ export async function POST(req: NextRequest) {
   if (nomor) {
     try {
       await Promise.race([
-        kirimWa(nomor, `Pengajuan aktivasi sekolah baru:\n${namaSekolah}\nNPSN ${npsn}\nUsername ${username}\nBuka /developer untuk menyetujui atau menolak.`),
+        kirimWa(nomor, `Pengajuan aktivasi sekolah baru:\n${namaSekolah}\nNPSN ${npsn}\nEmail ${username}\nBuka /developer untuk menyetujui atau menolak.`),
         new Promise(r => setTimeout(r, 4000)),
       ])
     } catch { /* abaikan */ }

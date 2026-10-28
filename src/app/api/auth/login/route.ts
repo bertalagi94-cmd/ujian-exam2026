@@ -208,9 +208,14 @@ export async function POST(req: NextRequest) {
     // akun hanya milik satu yayasan.
     const supabase = createAdminClient()
 
+    // Username berupa email (akun admin sekolah baru) disimpan huruf kecil, jadi
+    // dicocokkan huruf kecil agar "Admin@Gmail.com" tetap bisa masuk. Username
+    // biasa (tanpa @) dan NIS tetap persis seperti diketik.
+    const kunciAkun = username.trim().includes('@') ? username.trim().toLowerCase() : username.trim()
+
     // Query users dan siswa BERSAMAAN
     const [{ data: user }, { data: siswa }] = await Promise.all([
-      supabase.from('users').select('username, password_hash, nama, role, yayasan_id, is_tester').eq('username', username.trim()).eq('status', 'AKTIF').single(),
+      supabase.from('users').select('username, password_hash, nama, role, yayasan_id, is_tester').eq('username', kunciAkun).eq('status', 'AKTIF').single(),
       supabase.from('siswa').select('nis, password_hash, nama, kelas, yayasan_id, is_tester').eq('nis', username.trim()).eq('status', 'AKTIF').single(),
     ])
 
@@ -221,7 +226,7 @@ export async function POST(req: NextRequest) {
     if (!yayasanAkun) {
       // Akun tidak ada. Cek dulu apakah ini pemohon aktivasi sekolah baru.
       // (bcrypt tetap dijalankan di semua jalur supaya waktu respons sama.)
-      const pesan = await pesanPengajuan(supabase, username.trim(), String(password))
+      const pesan = await pesanPengajuan(supabase, kunciAkun, String(password))
       if (pesan) return NextResponse.json({ error: pesan }, { status: 403 })
       catatGagalIp(ip)
       return NextResponse.json({ error: GENERIC_LOGIN_ERROR }, { status: 401 })

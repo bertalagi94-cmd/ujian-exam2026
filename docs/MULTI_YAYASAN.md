@@ -6,7 +6,7 @@
 - **Kode Registrasi** = kode sekali pakai (berlaku 14 hari) dari developer ke sekolah baru. Database hanya menyimpan hash-nya.
 
 ## Alur (pengajuan + persetujuan developer)
-1. Sekolah baru membuka halaman login -> **Sekolah baru? Ajukan aktivasi** (`/aktivasi`), mengisi nama sekolah, NPSN (8 digit), username, password, dan (opsional) no. WhatsApp. Tombol hanya tampil bila `MULTI_YAYASAN_ENABLED=true`.
+1. Sekolah baru membuka halaman login -> **Sekolah baru? Ajukan aktivasi** (`/aktivasi`), mengisi nama sekolah, NPSN (8 digit), email admin (hanya dipakai sebagai nama login, tidak ada email yang dikirim), password, dan (opsional) no. WhatsApp. Tombol hanya tampil bila `MULTI_YAYASAN_ENABLED=true`.
 2. Pengajuan masuk tabel `pengajuan_sekolah` (status `MENUNGGU`, password disimpan sebagai hash bcrypt). Developer dapat WhatsApp bila `ADMIN_WA_NUMBER` + `FONNTE_TOKEN` terisi.
 3. Developer membuka `/developer` -> **Pengajuan sekolah baru** -> **Setujui** atau **Tolak** (alasan wajib). Verifikasi NPSN dilakukan manual oleh developer.
 4. Saat disetujui, `setujui_pengajuan_atomik()` (migrasi 46) membuat dalam satu transaksi: yayasan `AKTIF` (Kode Sekolah internal `S<NPSN>`), akun ADMIN dari username+password pengajuan, 1 baris `sekolah`, dan pengaturan `namaSekolah`.

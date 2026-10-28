@@ -63,10 +63,10 @@ export default function DeveloperPage() {
     if (aksi === 'TOLAK') {
       alasan = (window.prompt(`Alasan menolak ${p.nama_sekolah}:`) ?? '').trim()
       if (!alasan) return
-    } else if (!window.confirm(`Setujui ${p.nama_sekolah} (NPSN ${p.npsn})? Username ${p.username} akan menjadi admin sekolah.`)) return
+    } else if (!window.confirm(`Setujui ${p.nama_sekolah} (NPSN ${p.npsn})? Email ${p.username} akan menjadi admin sekolah.`)) return
     try {
       const j = await api(`/api/developer/pengajuan/${p.id}`, { method: 'PATCH', body: JSON.stringify({ aksi, alasan }) })
-      setInfo(aksi === 'SETUJUI' ? `${p.nama_sekolah} disetujui. Admin bisa login dengan username ${p.username}.` : `${p.nama_sekolah} ditolak.`)
+      setInfo(aksi === 'SETUJUI' ? `${p.nama_sekolah} disetujui. Admin bisa login dengan email ${p.username}.` : `${p.nama_sekolah} ditolak.`)
       void j; muat()
     } catch (err) { setError((err as Error).message) }
   }
@@ -96,7 +96,7 @@ export default function DeveloperPage() {
           </div>
           <table className="w-full text-sm">
             <thead className="text-left text-slate-500 border-b">
-              <tr><th className="p-3">Sekolah</th><th className="p-3">NPSN</th><th className="p-3">Username</th><th className="p-3">WhatsApp</th><th className="p-3">Diajukan</th><th className="p-3" /></tr>
+              <tr><th className="p-3">Sekolah</th><th className="p-3">NPSN</th><th className="p-3">Email</th><th className="p-3">WhatsApp</th><th className="p-3">Diajukan</th><th className="p-3" /></tr>
             </thead>
             <tbody>
               {pengajuan.menunggu.map(p => (

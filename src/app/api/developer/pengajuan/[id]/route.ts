@@ -10,7 +10,7 @@ export const dynamic = 'force-dynamic'
 const PESAN: Record<string, [string, number]> = {
   TIDAK_DITEMUKAN: ['Pengajuan tidak ditemukan', 404],
   SUDAH_DIPUTUSKAN: ['Pengajuan ini sudah diputuskan sebelumnya', 409],
-  USERNAME_DIPAKAI: ['Username pengajuan ini sudah dipakai akun lain. Tolak pengajuan dan minta sekolah mengajukan ulang dengan username berbeda', 409],
+  USERNAME_DIPAKAI: ['Email pengajuan ini sudah dipakai akun lain. Tolak pengajuan dan minta sekolah mengajukan ulang dengan email berbeda', 409],
   KODE_BENTROK: ['Gagal membuat kode sekolah, coba lagi', 500],
 }
 
@@ -53,7 +53,7 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
       return NextResponse.json({ error: pesan }, { status })
     }
     cacheDelPrefix('yayasan:')
-    await beritahu(p.no_hp, `Pengajuan aktivasi ${p.nama_sekolah} DISETUJUI. Silakan login di ${req.nextUrl.origin}/login memakai username dan password yang Anda daftarkan.`)
+    await beritahu(p.no_hp, `Pengajuan aktivasi ${p.nama_sekolah} DISETUJUI. Silakan login di ${req.nextUrl.origin}/login memakai email dan password yang Anda daftarkan.`)
     return NextResponse.json({ data: { kode_sekolah: data.kode_sekolah }, message: 'Pengajuan disetujui' })
   }
 
