@@ -5,13 +5,13 @@ import { useRouter } from 'next/navigation'
 import {
   Activity, AlertTriangle, Building2, Check, CheckCircle2, ChevronDown, Clock, Copy, ImagePlus,
   Inbox, Loader2, LogOut, MessageCircle, Power, RefreshCw, Search, ShieldCheck, Sparkles,
-  Trash2, UploadCloud, Users, X, XCircle,
+  Trash2, UploadCloud, Users, Wrench, X, XCircle,
 } from 'lucide-react'
 
 // ── Tipe data (tidak berubah dari versi sebelumnya) ──────────────────────────
 interface Yayasan {
   id: string; kode: string; nama: string; status: 'MENUNGGU' | 'AKTIF' | 'NONAKTIF'
-  jumlah_siswa?: number; created_at?: string
+  jumlah_siswa?: number; created_at?: string; maintenance_aktif?: boolean
 }
 interface Pengajuan {
   id: string; nama_sekolah: string; npsn: string; username: string; no_hp: string | null
@@ -170,6 +170,8 @@ export default function DeveloperPage() {
   const [bukaRiwayat, setBukaRiwayat] = useState(false)
   const [seret, setSeret] = useState(false)
   const [jam, setJam] = useState('')
+  // Mode maintenance per sekolah (diatur dari sini, bukan lagi dari akun Super Admin).
+  const [mt, setMt] = useState<{ y: Yayasan; aktif: boolean; pesan: string; mulai: string; selesai: string; memuat: boolean } | null>(null)
   const toastId = useRef(0)
 
   const toast = useCallback((tipe: 'ok' | 'err', pesan: string) => {
@@ -284,6 +286,29 @@ export default function DeveloperPage() {
         onOk: kirim,
       })
     } else { kirim() }
+  }
+
+  async function bukaMaintenance(y: Yayasan) {
+    setMt({ y, aktif: false, pesan: '', mulai: '', selesai: '', memuat: true })
+    try {
+      const r = await api(`/api/developer/yayasan/${y.id}/maintenance`)
+      setMt({ y, aktif: !!r.aktif, pesan: r.pesan ?? '', mulai: r.mulai ?? '', selesai: r.selesai ?? '', memuat: false })
+    } catch (e) { toast('err', (e as Error).message); setMt(null) }
+  }
+
+  async function simpanMaintenance() {
+    if (!mt) return
+    setProses(true)
+    try {
+      const r = await api(`/api/developer/yayasan/${mt.y.id}/maintenance`, {
+        method: 'PUT',
+        body: JSON.stringify({ aktif: mt.aktif, pesan: mt.pesan, mulai: mt.mulai, selesai: mt.selesai }),
+      })
+      toast('ok', `${mt.y.nama}: ${r.message}`)
+      setMt(null)
+      muat()
+    } catch (e) { toast('err', (e as Error).message) }
+    finally { setProses(false) }
   }
 
   async function unggahFile(file: File | undefined) {
@@ -610,6 +635,11 @@ export default function DeveloperPage() {
                           <h3 className="font-bold text-white leading-snug">{y.nama}</h3>
                           <div className="mt-1.5 flex flex-wrap items-center gap-2">
                             <Badge status={y.status} />
+                            {y.maintenance_aktif && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-400/15 ring-1 ring-amber-400/40 text-amber-300 text-[11px] font-semibold">
+                                <Wrench className="w-3 h-3" />Maintenance
+                              </span>
+                            )}
                             <SalinKode kode={y.kode} />
                           </div>
                         </div>
@@ -625,6 +655,7 @@ export default function DeveloperPage() {
                       </div>
                       <div className="flex items-center justify-between pt-3 border-t border-white/10">
                         <span className="text-[11px] text-slate-500">Terdaftar {tgl(y.created_at)}</span>
+                        <button onClick={() => bukaMaintenance(y)} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-400/10 hover:bg-amber-400/20 ring-1 ring-amber-400/30 text-amber-300 text-xs font-semibold transition"><Wrench className="w-3.5 h-3.5" />Maintenance</button>
                         {y.id === 'YYS_AWAL'
                           ? <span className="inline-flex items-center gap-1 text-[11px] text-cyan-300/80"><ShieldCheck className="w-3.5 h-3.5" />Yayasan utama</span>
                           : y.status === 'NONAKTIF'
@@ -695,6 +726,65 @@ export default function DeveloperPage() {
       </div>
 
       {/* Dialog konfirmasi */}
+      {mt && (
+        <div className="fixed inset-0 z-50 grid place-items-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => !proses && setMt(null)}>
+          <div className="dv-kaca rounded-2xl p-6 w-full max-w-lg space-y-4 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-bold text-white flex items-center gap-2"><Wrench className="w-4 h-4 text-amber-300" />Mode Maintenance</h3>
+                <p className="text-sm text-slate-400 mt-0.5">{mt.y.nama}</p>
+              </div>
+              <button onClick={() => setMt(null)} disabled={proses} className="text-slate-400 hover:text-white"><X className="w-5 h-5" /></button>
+            </div>
+
+            {mt.memuat ? (
+              <div className="h-40 rounded-xl dv-skel" />
+            ) : (
+              <>
+                <div className="flex items-center justify-between gap-4 p-3 rounded-xl bg-white/5 ring-1 ring-white/10">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-100">{mt.aktif ? 'Maintenance AKTIF' : 'Maintenance nonaktif'}</p>
+                    <p className="text-xs text-slate-400">Saat aktif, semua pengguna sekolah ini selain Admin dan akun tester tidak bisa login.</p>
+                  </div>
+                  <button role="switch" aria-checked={mt.aktif} onClick={() => setMt({ ...mt, aktif: !mt.aktif })}
+                    className={`relative w-12 h-7 rounded-full shrink-0 transition-colors ${mt.aktif ? 'bg-amber-400' : 'bg-slate-600'}`}>
+                    <span className={`absolute top-0.5 left-0.5 w-6 h-6 bg-white rounded-full transition-transform ${mt.aktif ? 'translate-x-5' : ''}`} />
+                  </button>
+                </div>
+
+                <label className="block">
+                  <span className="text-xs text-slate-400">Pesan untuk pengguna</span>
+                  <textarea rows={3} maxLength={500} value={mt.pesan} onChange={e => setMt({ ...mt, pesan: e.target.value })}
+                    placeholder="Contoh: Sistem sedang dalam pemeliharaan. Mohon coba kembali pukul 08.00 WIT."
+                    className="mt-1 w-full rounded-xl bg-white/5 ring-1 ring-white/10 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:ring-amber-400/50" />
+                </label>
+
+                <div className="grid sm:grid-cols-2 gap-3">
+                  <label className="block">
+                    <span className="text-xs text-slate-400">Mulai (opsional)</span>
+                    <input type="datetime-local" value={mt.mulai} onChange={e => setMt({ ...mt, mulai: e.target.value })}
+                      className="mt-1 w-full rounded-xl bg-white/5 ring-1 ring-white/10 px-3 py-2 text-sm text-slate-100 outline-none focus:ring-amber-400/50" />
+                  </label>
+                  <label className="block">
+                    <span className="text-xs text-slate-400">Selesai (opsional)</span>
+                    <input type="datetime-local" value={mt.selesai} onChange={e => setMt({ ...mt, selesai: e.target.value })}
+                      className="mt-1 w-full rounded-xl bg-white/5 ring-1 ring-white/10 px-3 py-2 text-sm text-slate-100 outline-none focus:ring-amber-400/50" />
+                  </label>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-1">
+                  <button onClick={() => setMt(null)} disabled={proses} className="px-4 py-2 rounded-xl bg-white/10 text-sm text-slate-200">Batal</button>
+                  <button onClick={simpanMaintenance} disabled={proses}
+                    className="px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-900 text-sm font-semibold inline-flex items-center gap-2 disabled:opacity-60">
+                    {proses && <Loader2 className="w-4 h-4 animate-spin" />}Simpan
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       {dialog && (
         <div className="fixed inset-0 z-50 grid place-items-center p-4 bg-black/70 backdrop-blur-sm dv-fade-in" onMouseDown={e => { if (e.target === e.currentTarget && !proses) setDialog(null) }}>
           <div role="dialog" aria-modal="true" className="dv-kaca-solid w-full max-w-md rounded-2xl p-6 dv-pop">

@@ -3,10 +3,13 @@ import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 import { revalidatePath } from 'next/cache'
 import { cacheDelPrefix } from '@/lib/cache'
+import { KUNCI_MAINTENANCE } from '@/lib/maintenance'
 
 // Kunci yang BUKAN milik sekolah: diatur developer (lihat src/lib/pengaturan-global.ts).
 // Dibuang dari penulisan supaya admin sekolah tidak bisa mengubahnya lewat endpoint ini.
-const KUNCI_HANYA_DEVELOPER = new Set(['logoAplikasi'])
+// Kunci maintenance juga dikunci: mode maintenance kini hanya bisa diatur dari
+// Panel Developer (/api/developer/yayasan/[id]/maintenance).
+const KUNCI_HANYA_DEVELOPER = new Set(['logoAplikasi', ...KUNCI_MAINTENANCE])
 
 export async function GET(req: NextRequest) {
   const auth = requireRole(req, ['ADMIN'])

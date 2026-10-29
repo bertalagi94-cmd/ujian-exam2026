@@ -16,11 +16,15 @@ export async function GET(req: NextRequest) {
     .select('id, kode, nama, status, created_at, aktif_at').order('created_at')
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
+  // Status maintenance per sekolah (satu query untuk semua yayasan).
+  const { data: mt } = await db.from('pengaturan').select('yayasan_id, value').eq('key', 'maintenanceAktif')
+  const maintenanceAktif = new Set((mt ?? []).filter((r: any) => r.value === 'true').map((r: any) => r.yayasan_id))
+
   // Hanya hitungan (head: true), tidak ada baris siswa yang dibaca.
   const data = await Promise.all((yayasan ?? []).map(async (y: any) => {
     const { count } = await db.from('siswa')
       .select('nis', { count: 'exact', head: true }).eq('yayasan_id', y.id)
-    return { ...y, jumlah_siswa: count ?? 0 }
+    return { ...y, jumlah_siswa: count ?? 0, maintenance_aktif: maintenanceAktif.has(y.id) }
   }))
   return NextResponse.json({ data })
 }

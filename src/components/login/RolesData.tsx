@@ -64,9 +64,9 @@ export const ROLES: RoleData[] = [
         detail: 'Buat jadwal ujian dan tentukan paket soal yang digunakan. Validasi paket soal yang diajukan guru di menu Validasi Soal sebelum bisa dipakai. Pantau daftar pelanggaran siswa di menu Pelanggaran, dan lihat rekap nilai di menu Rekap Nilai / Analisis Ujian / Laporan Lengkap.',
       },
       {
-        title: 'Pengaturan Ujian, Maintenance & Backup',
+        title: 'Pengaturan Ujian & Backup',
         icon: <BarChart2 className="w-4 h-4" />,
-        detail: 'Tab Pengaturan Ujian mengatur batas pelanggaran dan jumlah opsi jawaban. Tab Maintenance mengaktifkan mode perbaikan. Lakukan backup rutin di tab Backup & Restore sebelum tahun ajaran baru atau sebelum reset. Reset data per kategori dilakukan di tab Reset Data.',
+        detail: 'Tab Pengaturan Ujian mengatur batas pelanggaran dan jumlah opsi jawaban. Lakukan backup rutin di tab Backup & Restore sebelum tahun ajaran baru atau sebelum reset. Reset data per kategori dilakukan di tab Reset Data.',
       },
       {
         title: 'Lihat Sebagai & Cetak Kartu Siswa',

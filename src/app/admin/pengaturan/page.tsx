@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import {
-  Save, Settings, School, Shield, WrenchIcon,
+  Save, Settings, School, Shield,
   ToggleLeft, ToggleRight, Upload, Trash2, Image, AlertTriangle,
   Download, FolderOpen, RotateCcw, DatabaseZap, CheckSquare, Square, Clock, ChevronRight,
 } from 'lucide-react'
@@ -52,21 +52,16 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   minSubmitAktif: 'false',
   minSubmitMenit: '45',
   logoUrl: '',
-  maintenanceAktif: 'false',
-  maintenancePesan: '',
-  maintenanceMulai: '',
-  maintenanceSelesai: '',
   // FIX (fitur essay): batas durasi essay yang boleh diatur guru per jadwal
   // (dipakai untuk validasi di /api/guru/jadwal/[id]/essay-setting).
   batas_durasi_essay_min_menit: '10',
   batas_durasi_essay_max_menit: '180',
 }
 
-type Tab = 'ujian' | 'maintenance' | 'backup' | 'reset'
+type Tab = 'ujian' | 'backup' | 'reset'
 
 const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: 'ujian', label: 'Pengaturan Ujian', icon: <Settings className="w-4 h-4" /> },
-  { id: 'maintenance', label: 'Maintenance', icon: <WrenchIcon className="w-4 h-4" /> },
   { id: 'backup', label: 'Backup & Restore', icon: <DatabaseZap className="w-4 h-4" /> },
   { id: 'reset', label: 'Reset Data', icon: <RotateCcw className="w-4 h-4" /> },
 ]
@@ -492,7 +487,6 @@ export default function AdminPengaturanPage() {
     d === 'high' ? 'bg-orange-100 text-orange-700' :
     'bg-slate-100 text-slate-600'
 
-  const isMaintenance = values.maintenanceAktif === 'true'
   const isMinSubmitAktif = values.minSubmitAktif === 'true'
   const isKunciJumlahOpsi = values.kunciJumlahOpsi === 'true'
 
@@ -578,17 +572,12 @@ export default function AdminPengaturanPage() {
               activeTab === tab.id
                 ? tab.id === 'reset'
                   ? 'bg-white text-red-600 shadow-sm'
-                  : tab.id === 'maintenance' && isMaintenance
-                  ? 'bg-white text-amber-600 shadow-sm'
                   : 'bg-white text-brand-600 shadow-sm'
                 : 'text-slate-500 hover:text-slate-700'
             }`}
           >
             {tab.icon}
             <span>{tab.label}</span>
-            {tab.id === 'maintenance' && isMaintenance && (
-              <span className="w-2 h-2 rounded-full bg-amber-500 flex-shrink-0" />
-            )}
             {tab.id === 'reset' && (
               <span className="w-2 h-2 rounded-full bg-red-400 flex-shrink-0" />
             )}
@@ -828,7 +817,6 @@ export default function AdminPengaturanPage() {
               {[
                 { label: 'Batas Pelanggaran', value: values.batasPelanggaran + 'x', desc: 'Sebelum siswa dikunci' },
                 { label: 'Jumlah Opsi Default', value: values.jumlahOpsi + ' opsi', desc: 'Untuk soal baru' },
-                { label: 'Maintenance', value: isMaintenance ? 'Aktif' : 'Nonaktif', desc: 'Status saat ini', highlight: isMaintenance },
                 { label: 'Min. Waktu Submit', value: isMinSubmitAktif ? values.minSubmitMenit + ' menit' : 'Nonaktif', desc: isMinSubmitAktif ? 'Siswa wajib tunggu' : 'Tidak dibatasi', highlight: isMinSubmitAktif },
               ].map(item => (
                 <div key={item.label} className={`p-3 rounded-lg border ${item.highlight ? 'bg-amber-50 border-amber-200' : 'bg-slate-50 border-slate-100'}`}>
@@ -838,81 +826,6 @@ export default function AdminPengaturanPage() {
                 </div>
               ))}
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Tab: Maintenance Mode ── */}
-      {activeTab === 'maintenance' && (
-        <div className={`card space-y-5 ${isMaintenance ? 'border-2 border-amber-400' : ''}`}>
-          <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-            <div className="flex items-center gap-2">
-              <WrenchIcon className={`w-4 h-4 ${isMaintenance ? 'text-amber-500' : 'text-slate-400'}`} />
-              <h2 className="font-semibold text-slate-900">Maintenance Mode</h2>
-              {isMaintenance && (
-                <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-700">AKTIF</span>
-              )}
-            </div>
-            <button
-              type="button"
-              onClick={() => set('maintenanceAktif', isMaintenance ? 'false' : 'true')}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                isMaintenance
-                  ? 'bg-amber-100 text-amber-700 hover:bg-amber-200'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
-            >
-              {isMaintenance ? <><ToggleRight className="w-4 h-4" /> Nonaktifkan</> : <><ToggleLeft className="w-4 h-4" /> Aktifkan</>}
-            </button>
-          </div>
-
-          {!isMaintenance && (
-            <p className="text-sm text-slate-400 pb-1">
-              Aktifkan maintenance mode untuk mengisi pesan, jadwal, dan menyimpan konfigurasi.
-            </p>
-          )}
-
-          {isMaintenance && (
-            <>
-              <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
-                <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-                <span>Maintenance mode aktif. Semua pengguna kecuali Admin dan akun IS_TESTER tidak bisa login.</span>
-              </div>
-              <div className="space-y-4">
-                <div>
-                  <label className="label">Pesan Maintenance</label>
-                  <textarea
-                    className="input min-h-[80px] resize-none"
-                    placeholder="Contoh: Sistem sedang dalam pemeliharaan. Mohon coba kembali pukul 08.00 WIT."
-                    value={values.maintenancePesan}
-                    onChange={e => set('maintenancePesan', e.target.value)}
-                    rows={3}
-                  />
-                  <p className="text-xs text-slate-400 mt-1">Pesan ini ditampilkan kepada pengguna saat maintenance aktif.</p>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="label">Jadwal Mulai</label>
-                    <input type="datetime-local" className="input" value={values.maintenanceMulai} onChange={e => set('maintenanceMulai', e.target.value)} />
-                  </div>
-                  <div>
-                    <label className="label">Jadwal Selesai</label>
-                    <input type="datetime-local" className="input" value={values.maintenanceSelesai} onChange={e => set('maintenanceSelesai', e.target.value)} />
-                  </div>
-                </div>
-              </div>
-            </>
-          )}
-
-          <div className="pt-2 flex justify-end">
-            <button
-              type="button"
-              onClick={() => saveSection(['maintenanceAktif','maintenancePesan','maintenanceMulai','maintenanceSelesai'], 'Maintenance Mode')}
-              className={`btn-sm font-medium ${isMaintenance ? 'btn-danger' : 'btn-primary'}`}
-              disabled={savingSection === 'Maintenance Mode'}
-            >
-              {savingSection === 'Maintenance Mode' ? <Spinner size="sm" /> : <><Save className="w-4 h-4" /> Simpan</>}
-            </button>
           </div>
         </div>
       )}
