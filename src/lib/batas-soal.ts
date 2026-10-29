@@ -80,14 +80,17 @@ export function validasiBatasMinSoal(
 
     const dipakai = new Set<string>()
     for (const k of mentah) {
-      const min = Number((k as KelompokBatas)?.min)
-      if (!Number.isInteger(min) || min < 1 || min > MIN_SOAL_MAKS) {
-        return { ok: false, error: `Batas minimal ${label} harus bilangan bulat 1 sampai ${MIN_SOAL_MAKS}` }
-      }
       const mapel = Array.isArray((k as KelompokBatas)?.mapel)
         ? [...new Set((k as KelompokBatas).mapel.filter(m => typeof m === 'string' && m.trim()).map(m => m.trim()))]
         : []
-      if (mapel.length === 0) continue // kelompok tanpa mapel dibuang
+      // Kelompok tanpa mapel dibuang SEBELUM angkanya divalidasi, supaya
+      // kelompok kosong yang baru ditambah (angka belum diisi) tidak
+      // membuat penyimpanan gagal.
+      if (mapel.length === 0) continue
+      const min = Number((k as KelompokBatas)?.min)
+      if (!Number.isInteger(min) || min < 1 || min > MIN_SOAL_MAKS) {
+        return { ok: false, error: `Batas minimal ${label} harus bilangan bulat 1 sampai ${MIN_SOAL_MAKS} (isi angka untuk kelompok yang mapelnya sudah dicentang)` }
+      }
       for (const m of mapel) {
         const n = normNamaMapel(m)
         if (dipakai.has(n)) {

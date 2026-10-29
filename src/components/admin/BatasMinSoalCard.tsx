@@ -30,7 +30,12 @@ export default function BatasMinSoalCard({ onToast: onToastProp }: Props) {
     try {
       const res = await apiRequest<{ data: BatasMinSoal; mapel: string[] }>('/api/admin/pengaturan/batas-soal')
       setSemuaMapel(res.mapel)
-      setSt({ aktif: res.data.aktif, pg: keUI(res.data.pg), essay: keUI(res.data.essay) })
+      // Buang mapel yang sudah tidak ada (dihapus/diganti nama) dari kelompok,
+      // kalau tidak ia tersimpan tanpa terlihat dan tidak bisa di-uncheck.
+      const ada = new Set(res.mapel.map(norm))
+      const bersih = (arr: KelompokBatas[]) =>
+        keUI(arr.map(k => ({ ...k, mapel: k.mapel.filter(m => ada.has(norm(m))) })))
+      setSt({ aktif: res.data.aktif, pg: bersih(res.data.pg), essay: bersih(res.data.essay) })
     } catch (e) {
       onToast(e instanceof Error ? e.message : 'Gagal memuat batas minimal soal', 'error')
     } finally {
