@@ -36,7 +36,7 @@ export const ROLES: RoleData[] = [
     text: 'text-violet-700',
     icon: <Shield className="w-5 h-5" />,
     badge: 'bg-violet-100 text-violet-700',
-    desc: 'Pengelola sistem untuk seluruh sekolah/jenjang dalam akun Anda. Memiliki akses penuh ke semua fitur.',
+    desc: 'Pengelola sistem (Super Admin) untuk seluruh sekolah/jenjang dalam akun Anda. Memiliki akses penuh ke semua fitur.',
     steps: [
       {
         title: 'Login & Dashboard',
@@ -61,12 +61,27 @@ export const ROLES: RoleData[] = [
       {
         title: 'Jadwal, Validasi Soal & Pelanggaran',
         icon: <ClipboardList className="w-4 h-4" />,
-        detail: 'Buat jadwal ujian dan tentukan paket soal yang digunakan. Validasi paket soal yang diajukan guru di menu Validasi Soal sebelum bisa dipakai. Pantau daftar pelanggaran siswa di menu Pelanggaran, dan lihat rekap nilai di menu Rekap Nilai / Analisis Ujian / Laporan Lengkap.',
+        detail: 'Buat jadwal ujian dan tentukan paket soal yang digunakan; durasi essay diputuskan Admin di jadwal (guru hanya mengusulkan). Validasi paket soal yang diajukan guru di menu Validasi Soal sebelum bisa dipakai. Pantau daftar pelanggaran siswa di menu Pelanggaran, dan lihat rekap nilai di menu Rekap Nilai / Analisis Ujian / Laporan Lengkap.',
       },
       {
         title: 'Pengaturan Ujian & Backup',
         icon: <BarChart2 className="w-4 h-4" />,
-        detail: 'Tab Pengaturan Ujian mengatur batas pelanggaran dan jumlah opsi jawaban. Lakukan backup rutin di tab Backup & Restore sebelum tahun ajaran baru atau sebelum reset. Reset data per kategori dilakukan di tab Reset Data.',
+        detail: 'Tab Pengaturan Ujian mengatur batas pelanggaran, jumlah opsi jawaban (bisa dikunci supaya guru tidak mengubahnya), waktu minimal submit, batas durasi essay, dan batas minimal jumlah soal per mapel. Waktu minimal submit tidak bisa diubah saat ada sesi yang sedang berjalan. Lakukan backup rutin di tab Backup & Restore sebelum tahun ajaran baru atau sebelum reset. Reset data per kategori dilakukan di tab Reset Data.',
+      },
+      {
+        title: 'Batas Minimal Jumlah Soal (opsional)',
+        icon: <ClipboardList className="w-4 h-4" />,
+        detail: 'Di Pengaturan ▸ Pengaturan Ujian, kartu \"Batas Minimal Jumlah Soal\" (bawaan mati) memastikan paket soal cukup banyak sebelum guru mengirimnya. Aktifkan saklarnya, lalu untuk PG dan Essay buat kelompok batas (mis. 30 soal dan 35 soal) dan centang mata pelajaran yang masuk tiap kelompok. Mapel yang tidak dicentang tetap minimal 1 soal. Pengecekan terjadi saat guru menekan Kirim, jadi paket yang sudah dikirim atau disetujui tidak terpengaruh.',
+      },
+      {
+        title: 'Admin Kelas (opsional)',
+        icon: <UserCheck className="w-4 h-4" />,
+        detail: 'Di menu Admin Kelas, aktifkan fitur ini (bawaan mati) lalu tunjuk seorang guru untuk memvalidasi paket soal pada kelas tertentu (satu kelas satu Admin Kelas). Kelas tanpa Admin Kelas tetap divalidasi Admin di menu Validasi Soal. Mematikan fitur tidak menghapus penugasan.',
+      },
+      {
+        title: 'Izin Layar Pantau & Ujian Susulan',
+        icon: <Radio className="w-4 h-4" />,
+        detail: 'Guru yang ingin membuka Layar Pantau (papan nilai live untuk layar besar, khusus laptop/komputer) harus mendapat izin Anda di menu Izin Layar Pantau — bisa disetujui, ditolak, atau dicabut, dan berlaku 10 jam. Untuk siswa yang terhalang (mis. listrik mati), buka ujian susulan dari menu Jadwal Ujian dan pilih guru pengawasnya; sistem menolak bila jadwal itu sudah punya sesi yang sedang berjalan.',
       },
       {
         title: 'Lihat Sebagai & Cetak Kartu Siswa',
@@ -109,7 +124,12 @@ export const ROLES: RoleData[] = [
       {
         title: 'Data Kelas, Guru & Mapel, Kisi-kisi',
         icon: <BookMarked className="w-4 h-4" />,
-        detail: 'Lihat daftar kelas, daftar guru beserta mata pelajaran yang diampu, dan kisi-kisi soal yang sudah dibuat guru untuk setiap mata pelajaran.',
+        detail: 'Lihat daftar kelas, daftar guru beserta mata pelajaran yang diampu, dan kisi-kisi soal yang sudah dibuat guru untuk setiap mata pelajaran. Anda hanya melihat data sekolah Anda sendiri; bila kosong, minta Admin mengaitkan akun Anda dengan sekolah.',
+      },
+      {
+        title: 'Layar Pantau',
+        icon: <Radio className="w-4 h-4" />,
+        detail: 'Tombol Layar Pantau di beranda login (hanya tampil di laptop/komputer) menampilkan papan nilai ujian secara live untuk layar besar. Kepala Sekolah tidak perlu izin Admin; cukup login. Papan baru menampilkan data saat ada ujian yang berjalan.',
       },
     ],
   },
@@ -132,7 +152,7 @@ export const ROLES: RoleData[] = [
       {
         title: 'Buat Soal',
         icon: <ClipboardList className="w-4 h-4" />,
-        detail: 'Menu "Buat Soal" menggantikan Bank Soal + Paket Soal yang terpisah — sekarang jadi satu tempat. Buat soal pilihan ganda dan soal essay langsung di dalam paket, tentukan jumlah soal, urutan tampil, dan waktu pengerjaan, lalu kirim, tarik, atau duplikasi paket dari halaman yang sama. Paket perlu divalidasi admin sebelum bisa dipakai. Setelah paket terkirim/disetujui, soal di dalamnya terkunci dan tidak bisa ditambah, diedit, atau dihapus.',
+        detail: 'Menu "Buat Soal" menggantikan Bank Soal + Paket Soal yang terpisah — sekarang jadi satu tempat. Buat soal pilihan ganda dan soal essay langsung di dalam paket, tentukan jumlah soal, urutan tampil, dan waktu pengerjaan, lalu kirim, tarik, atau duplikasi paket dari halaman yang sama. Paket perlu divalidasi admin sebelum bisa dipakai. Setelah paket terkirim/disetujui, soal di dalamnya terkunci dan tidak bisa ditambah, diedit, atau dihapus. Bila Admin mengaktifkan batas minimal jumlah soal, paket yang jumlah soalnya kurang tidak bisa dikirim (pesan menyebut batas dan jumlah saat ini). Saat Anda mengirim paket PG atau Essay, sistem menanyakan apakah paket pasangannya (mapel & kelas sama) ikut dikirim; pasangan yang masih kurang dari batas tidak ikut terkirim. Paket yang ditolak bisa diperbaiki lalu dikirim ulang.',
       },
       {
         title: 'Impor Soal dari Word',
@@ -169,6 +189,16 @@ export const ROLES: RoleData[] = [
         icon: <Users className="w-4 h-4" />,
         detail: 'Muncul di sidebar hanya untuk guru yang ditugaskan sebagai wali kelas. Digunakan untuk memantau dan menerima kiriman nilai siswa di kelas yang diampu.',
       },
+      {
+        title: 'Admin Kelas (jika ditunjuk)',
+        icon: <UserCheck className="w-4 h-4" />,
+        detail: 'Muncul di sidebar hanya untuk guru yang ditunjuk Admin dan hanya bila fitur Admin Kelas diaktifkan. Anda memvalidasi paket soal (setuju/tolak) untuk kelas yang menjadi tanggung jawab Anda; kelas lain tetap divalidasi Admin.',
+      },
+      {
+        title: 'Layar Pantau (perlu izin Admin)',
+        icon: <Radio className="w-4 h-4" />,
+        detail: 'Papan nilai ujian live untuk layar besar/TV, dibuka lewat tombol Layar Pantau di beranda login (hanya di laptop/komputer). Akun Guru harus mendapat persetujuan Admin terlebih dulu; izin berlaku 10 jam, setelah itu ajukan lagi.',
+      },
     ],
   },
   {
@@ -195,7 +225,7 @@ export const ROLES: RoleData[] = [
       {
         title: 'Mengerjakan Ujian',
         icon: <ClipboardList className="w-4 h-4" />,
-        detail: 'Klik "Mulai Ujian" saat jadwal aktif. Ujian otomatis berjalan dalam mode layar penuh (fullscreen) — jangan keluar dari mode ini, menutup tab, atau berpindah aplikasi karena bisa tercatat sebagai pelanggaran. Kerjakan soal pilihan ganda dalam waktu yang tersedia; jawaban tersimpan otomatis di server. Ujian hanya boleh dibuka di satu perangkat pada satu waktu — kalau Anda login ujian yang sama di perangkat/browser lain, sesi di perangkat pertama akan otomatis terputus.',
+        detail: 'Klik "Mulai Ujian" saat jadwal aktif. Ujian otomatis berjalan dalam mode layar penuh (fullscreen) — jangan keluar dari mode ini, menutup tab, atau berpindah aplikasi karena langsung tercatat sebagai pelanggaran dan ujian dihentikan sementara — minta kode 7 karakter ke pengawas untuk melanjutkan. Kerjakan soal pilihan ganda dalam waktu yang tersedia; jawaban tersimpan otomatis di server. Ujian hanya boleh dibuka di satu perangkat pada satu waktu — kalau Anda login ujian yang sama di perangkat/browser lain, sesi di perangkat pertama akan otomatis terputus.',
       },
       {
         title: 'Jika Internet Terputus (Mode Offline)',
