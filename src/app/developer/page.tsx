@@ -30,6 +30,21 @@ interface MonitorData {
   total: { sesiBerjalan: number; siswaAktif: number; login24Jam: number }
   sekolah: Array<{ id: string; nama: string; status: string; sesiBerjalan: number; siswaAktif: number; maintenance: boolean }>
 }
+interface PenyimpananData {
+  storage: { pakaiByte: number; kuotaByte: number; sisaByte: number; persen: number; jumlahFile: number }
+  database: { pakaiByte: number; kuotaByte: number; sisaByte: number; persen: number }
+  perSekolah: Array<{ id: string; nama: string; jumlahFile: number; ukuranByte: number }>
+  perBucket: Array<{ bucket: string; jumlahFile: number; ukuranByte: number }>
+  timestamp: string
+}
+function fmtUkuran(b: number): string {
+  if (b < 1024) return `${b} B`
+  const u = ['KB', 'MB', 'GB', 'TB']
+  let n = b / 1024, i = 0
+  while (n >= 1024 && i < u.length - 1) { n /= 1024; i++ }
+  return `${n.toLocaleString('id-ID', { maximumFractionDigits: n >= 100 ? 0 : 1 })} ${u[i]}`
+}
+const warnaBar = (p: number) => (p >= 90 ? 'bg-rose-400' : p >= 70 ? 'bg-amber-400' : 'bg-emerald-400')
 const WARNA_STATUS: Record<string, string> = {
   AMAN: 'text-emerald-300 bg-emerald-400/10 ring-emerald-400/30',
   NORMAL: 'text-sky-300 bg-sky-400/10 ring-sky-400/30',
@@ -192,6 +207,8 @@ export default function DeveloperPage() {
   // Monitor server GLOBAL (semua sekolah). Dimuat & disegarkan otomatis hanya saat tab dibuka.
   const [mon, setMon] = useState<MonitorData | null>(null)
   const [monGagal, setMonGagal] = useState('')
+  const [stor, setStor] = useState<PenyimpananData | null>(null)
+  const [storGagal, setStorGagal] = useState('')
   // Mode maintenance per sekolah (diatur dari sini, bukan lagi dari akun Super Admin).
   const [mt, setMt] = useState<{ y: Yayasan; aktif: boolean; pesan: string; mulai: string; selesai: string; memuat: boolean } | null>(null)
   const toastId = useRef(0)
@@ -314,6 +331,18 @@ export default function DeveloperPage() {
     try { setMon(await api('/api/developer/monitor')); setMonGagal('') }
     catch (e) { setMonGagal((e as Error).message) }
   }, [api])
+
+  // Ukuran storage lebih berat & berubah pelan: dimuat sekali saat tab dibuka
+  // (dan saat "Segarkan"), TIDAK ikut polling 15 detik.
+  const muatPenyimpanan = useCallback(async () => {
+    try { setStor(await api('/api/developer/penyimpanan')); setStorGagal('') }
+    catch (e) { setStorGagal((e as Error).message) }
+  }, [api])
+
+  useEffect(() => {
+    if (tab !== 'monitor' || !ready) return
+    void muatPenyimpanan()
+  }, [tab, ready, muatPenyimpanan])
 
   useEffect(() => {
     if (tab !== 'monitor' || !ready) return
@@ -719,7 +748,7 @@ export default function DeveloperPage() {
                       <span className={`px-3 py-1 rounded-full text-sm font-bold ring-1 ${WARNA_STATUS[mon.server.status]}`}>{mon.server.status}</span>
                       <p className="text-sm text-slate-400">Status server ({mon.server.windowMenit} menit terakhir, semua sekolah)</p>
                     </div>
-                    <button onClick={() => void muatMonitor()} className="inline-flex items-center gap-1.5 text-xs text-slate-300 hover:text-white"><RefreshCw className="w-3.5 h-3.5" />Segarkan</button>
+                    <button onClick={() => { void muatMonitor(); void muatPenyimpanan() }} className="inline-flex items-center gap-1.5 text-xs text-slate-300 hover:text-white"><RefreshCw className="w-3.5 h-3.5" />Segarkan</button>
                   </div>
                   {mon.server.alasan.length > 0 && (
                     <ul className="mt-3 space-y-1 text-sm text-amber-200/90 list-disc list-inside">{mon.server.alasan.map(a => <li key={a}>{a}</li>)}</ul>
@@ -742,6 +771,57 @@ export default function DeveloperPage() {
                       <p className="text-xs text-slate-500">{k.s}</p>
                     </div>
                   ))}
+                </div>
+
+                <div className="dv-kaca rounded-2xl p-5">
+                  <h3 className="font-bold text-white text-sm">Penyimpanan Supabase</h3>
+                  {storGagal && <p className="mt-3 text-sm text-rose-300">{storGagal}</p>}
+                  {!stor && !storGagal && <div className="mt-3 h-20 rounded-xl dv-skel" />}
+                  {stor && (
+                    <>
+                      <div className="mt-3 grid md:grid-cols-2 gap-4">
+                        {[
+                          { l: 'Storage (file)', d: stor.storage, s: `${stor.storage.jumlahFile.toLocaleString('id-ID')} file` },
+                          { l: 'Database', d: stor.database, s: 'tabel & indeks' },
+                        ].map(k => (
+                          <div key={k.l}>
+                            <div className="flex items-baseline justify-between">
+                              <p className="text-[11px] uppercase tracking-wider text-slate-500">{k.l}</p>
+                              <p className="text-xs text-slate-500">{k.s}</p>
+                            </div>
+                            <p className="text-xl font-extrabold text-white tabular-nums mt-1">
+                              {fmtUkuran(k.d.pakaiByte)} <span className="text-sm font-medium text-slate-400">dari {fmtUkuran(k.d.kuotaByte)}</span>
+                            </p>
+                            <div className="mt-2 h-2 rounded-full bg-white/10 overflow-hidden">
+                              <div className={`h-full rounded-full ${warnaBar(k.d.persen)}`} style={{ width: `${Math.max(1, k.d.persen)}%` }} />
+                            </div>
+                            <p className="mt-1.5 text-xs text-slate-400 tabular-nums">
+                              Sisa {fmtUkuran(k.d.sisaByte)} · terpakai {k.d.persen}%
+                              {k.d.persen >= 90 && <span className="text-rose-300"> · hampir penuh</span>}
+                              {k.d.persen >= 70 && k.d.persen < 90 && <span className="text-amber-300"> · mulai penuh</span>}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="mt-4 overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead><tr className="text-left text-[11px] uppercase tracking-wider text-slate-500"><th className="py-1.5">Sekolah</th><th>File</th><th>Ukuran</th><th>Porsi storage</th></tr></thead>
+                          <tbody className="text-slate-200 tabular-nums">
+                            {stor.perSekolah.map(k => (
+                              <tr key={k.id} className="border-t border-white/5">
+                                <td className="py-1.5">{k.nama}</td>
+                                <td>{k.jumlahFile.toLocaleString('id-ID')}</td>
+                                <td>{fmtUkuran(k.ukuranByte)}</td>
+                                <td>{stor.storage.pakaiByte > 0 ? `${Math.round((k.ukuranByte / stor.storage.pakaiByte) * 1000) / 10}%` : '0%'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <p className="mt-3 text-xs text-slate-500 flex items-center gap-1.5"><ShieldCheck className="w-3.5 h-3.5" />Hanya ukuran dan jumlah file. Kuota mengikuti env SUPABASE_STORAGE_KUOTA_MB dan SUPABASE_DB_KUOTA_MB.</p>
+                    </>
+                  )}
                 </div>
 
                 <div className="dv-kaca rounded-2xl p-5">
