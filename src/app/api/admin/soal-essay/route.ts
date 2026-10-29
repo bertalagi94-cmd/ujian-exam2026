@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
+import { antreanSuperAdmin } from '@/lib/admin-kelas'
 import { ubahStatusPaket, perkayaPaket } from '@/lib/persetujuan-paket'
 import { bacaBatasDurasiEssay, validasiDurasiEssayAdmin } from '@/lib/durasi-ujian'
 
@@ -19,10 +20,13 @@ export async function GET(req: NextRequest) {
     .order('tanggal', { ascending: false })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  if (!pakets?.length) return NextResponse.json({ data: [] })
+  // Admin Kelas aktif → antrean MENUNGGU hanya berisi kelas tanpa Admin Kelas
+  // (lihat antreanSuperAdmin). Tab Disetujui/Ditolak tetap lengkap.
+  const daftar = status === 'MENUNGGU' ? await antreanSuperAdmin(db, pakets ?? []) : (pakets ?? [])
+  if (!daftar.length) return NextResponse.json({ data: [] })
 
-  const mapelIds = [...new Set(pakets.map(p => p.mapel_id).filter(Boolean))]
-  const diperkaya = await perkayaPaket(db, pakets)
+  const mapelIds = [...new Set(daftar.map(p => p.mapel_id).filter(Boolean))]
+  const diperkaya = await perkayaPaket(db, daftar)
 
   // Info jadwal untuk popup "tetapkan durasi essay" saat validasi. Jadwal
   // menyimpan kelas sebagai NAMA (mis. "13"), sedangkan paket memakai id

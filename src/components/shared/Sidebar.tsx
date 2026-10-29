@@ -474,12 +474,14 @@ export function AdminSidebar() {
     { label: 'Mata Pelajaran', href: '/admin/mapel', icon: BookOpen },
     { label: 'Jadwal Ujian', href: '/admin/jadwal', icon: Calendar, section: 'Persiapan Ujian' },
     { label: 'Kisi-kisi', href: '/admin/kisi-kisi', icon: FileText },
-    {
+    // Disembunyikan kalau Admin Kelas aktif dan semua kelas sudah punya Admin
+    // Kelas (tugasnya beralih). counts belum terisi (undefined) → tetap tampil.
+    ...(counts.validasiSoalTampil === 0 ? [] : [{
       label: 'Validasi Soal',
       href: '/admin/soal',
       icon: ClipboardList,
       badge: counts.validasiSoal || undefined,
-    },
+    } as NavItem]),
     { label: 'Pelanggaran', href: '/admin/pelanggaran', icon: ShieldAlert, section: 'Hasil & Pemantauan' },
     { label: 'Izin Layar Pantau', href: '/admin/layar-pantau', icon: Radio, badge: counts.izinLayarPantau || undefined },
     { label: 'Rekap Nilai', href: '/admin/nilai', icon: BarChart3 },

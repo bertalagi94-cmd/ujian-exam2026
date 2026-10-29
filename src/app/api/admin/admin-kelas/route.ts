@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/auth'
 import { tenantDb, yayasanIdDari, idsMilikYayasan } from '@/lib/tenant'
 import { catatAktivitas } from '@/lib/aktivitas'
+import { adminKelasAktif, KUNCI_ADMIN_KELAS_AKTIF } from '@/lib/admin-kelas'
 
 export const dynamic = 'force-dynamic'
 
@@ -15,10 +16,11 @@ export async function GET(req: NextRequest) {
   if ('error' in auth) return auth.error
   const db = tenantDb(yayasanIdDari(auth.user))
 
-  const [guru, kelas, tugas] = await Promise.all([
+  const [guru, kelas, tugas, aktif] = await Promise.all([
     db.from('users').select('username, nama, status').eq('role', 'GURU').order('nama'),
     db.from('kelas').select('id, nama').order('nama'),
     db.from('admin_kelas').select('username, kelas_id'),
+    adminKelasAktif(db),
   ])
   const err = guru.error ?? kelas.error ?? tugas.error
   if (err) return NextResponse.json({ error: err.message }, { status: 500 })
@@ -27,6 +29,7 @@ export async function GET(req: NextRequest) {
   for (const t of (tugas.data ?? []) as any[]) (peta[t.username] ??= []).push(String(t.kelas_id))
 
   return NextResponse.json({
+    aktif,
     guru: (guru.data ?? []).map((g: any) => ({
       username: g.username, nama: g.nama, status: g.status,
       kelas_ids: peta[g.username] ?? [],
@@ -82,3 +85,29 @@ export async function PUT(req: NextRequest) {
   return NextResponse.json({ message: kelasIds.length ? 'Penugasan Admin Kelas disimpan' : 'Status Admin Kelas dicabut' })
 }
 
+
+// PATCH { aktif: boolean } — hidup/matikan fitur Admin Kelas untuk yayasan ini.
+// Penugasan tidak dihapus saat dimatikan; hanya berhenti berlaku.
+export async function PATCH(req: NextRequest) {
+  const auth = requireRole(req, ['ADMIN'])
+  if ('error' in auth) return auth.error
+  const db = tenantDb(yayasanIdDari(auth.user))
+
+  const body = await req.json().catch(() => null)
+  if (typeof body?.aktif !== 'boolean') {
+    return NextResponse.json({ error: 'aktif harus true atau false' }, { status: 400 })
+  }
+  const { error } = await db.from('pengaturan').upsert(
+    { key: KUNCI_ADMIN_KELAS_AKTIF, value: body.aktif ? 'true' : 'false', updated_at: new Date().toISOString() },
+    { onConflict: 'yayasan_id,key' }
+  )
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  catatAktivitas(db, auth.user.username, 'ATUR_ADMIN_KELAS', `Fitur Admin Kelas ${body.aktif ? 'diaktifkan' : 'dimatikan'}`)
+  return NextResponse.json({
+    aktif: body.aktif,
+    message: body.aktif
+      ? 'Admin Kelas diaktifkan. Validasi soal di kelas yang punya Admin Kelas kini ditangani mereka.'
+      : 'Admin Kelas dimatikan. Semua validasi soal kembali ke Super Admin.',
+  })
+}

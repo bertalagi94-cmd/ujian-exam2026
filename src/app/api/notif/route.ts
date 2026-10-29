@@ -12,7 +12,7 @@ import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 import { getGuruSekolahScope } from '@/lib/kepsek-scope'
 import { hitungUjianDibukaSiswa } from '@/lib/sesi-dibuka-siswa'
-import { getKelasAdminKelas } from '@/lib/admin-kelas'
+import { getKelasAdminKelas, adminKelasAktif, antreanSuperAdmin, adaKelasTanpaAdminKelas } from '@/lib/admin-kelas'
 
 export const dynamic = 'force-dynamic'
 
@@ -32,18 +32,34 @@ export async function GET(req: NextRequest) {
     // sekali), padahal ada pekerjaan yang perlu ditinjau admin. Sekarang
     // dijumlahkan dari kedua tabel, sama seperti gabungan kedua tab (PG +
     // Essay) di halaman /admin/soal.
-    const [{ count: pgCount }, { count: essayCount }, { count: izinCount }] = await Promise.all([
-      db.from('paket_soal').select('*', { count: 'exact', head: true }).eq('status', 'MENUNGGU'),
-      db.from('paket_essay').select('*', { count: 'exact', head: true }).eq('status', 'MENUNGGU'),
+    // Antrean Super Admin: kalau Admin Kelas aktif, paket di kelas yang sudah
+    // punya Admin Kelas tidak dihitung (lihat antreanSuperAdmin). Karena itu
+    // paket MENUNGGU diambil ringkas lalu disaring, bukan count langsung.
+    const menunggu = (tabel: string) =>
+      db.from(tabel).select('kelas_id, guru_id').eq('status', 'MENUNGGU')
+    const [pgRes, essayRes, { count: izinCount }, aktif] = await Promise.all([
+      menunggu('paket_soal'),
+      menunggu('paket_essay'),
       // Permintaan izin Layar Pantau dari guru (migrasi 44).
       db.from('izin_layar_pantau').select('*', { count: 'exact', head: true }).eq('status', 'MENUNGGU'),
+      adminKelasAktif(db),
     ])
+    const [pgList, essayList] = await Promise.all([
+      antreanSuperAdmin(db, (pgRes.data ?? []) as any[]),
+      antreanSuperAdmin(db, (essayRes.data ?? []) as any[]),
+    ])
+    const pgCount = pgList.length
+    const essayCount = essayList.length
+    // Fitur aktif & SEMUA kelas sudah punya Admin Kelas → menu Validasi Soal
+    // Super Admin disembunyikan (tugasnya beralih ke Admin Kelas).
+    const validasiSoalTampil = !aktif || (await adaKelasTanpaAdminKelas(db)) || pgCount + essayCount > 0
 
     return NextResponse.json({
-      validasiSoal: (pgCount ?? 0) + (essayCount ?? 0),
-      validasiSoalPg: pgCount ?? 0,
-      validasiSoalEssay: essayCount ?? 0,
+      validasiSoal: pgCount + essayCount,
+      validasiSoalPg: pgCount,
+      validasiSoalEssay: essayCount,
       izinLayarPantau: izinCount ?? 0,
+      validasiSoalTampil: validasiSoalTampil ? 1 : 0,
     })
   }
 

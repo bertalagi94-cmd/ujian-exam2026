@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
+import { antreanSuperAdmin } from '@/lib/admin-kelas'
 import { ubahStatusPaket, perkayaPaket } from '@/lib/persetujuan-paket'
 
 export async function GET(req: NextRequest) {
@@ -18,9 +19,12 @@ export async function GET(req: NextRequest) {
     .order('tanggal', { ascending: false })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  if (!pakets?.length) return NextResponse.json({ data: [] })
+  // Admin Kelas aktif → antrean MENUNGGU hanya berisi kelas tanpa Admin Kelas
+  // (lihat antreanSuperAdmin). Tab Disetujui/Ditolak tetap lengkap.
+  const daftar = status === 'MENUNGGU' ? await antreanSuperAdmin(db, pakets ?? []) : (pakets ?? [])
+  if (!daftar.length) return NextResponse.json({ data: [] })
 
-  const enriched = await perkayaPaket(db, pakets)
+  const enriched = await perkayaPaket(db, daftar)
 
   return NextResponse.json({ data: enriched })
 }

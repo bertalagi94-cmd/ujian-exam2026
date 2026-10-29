@@ -11,6 +11,8 @@ export default function AdminKelasKelolaPage() {
   const [guru, setGuru] = useState<Guru[]>([])
   const [kelas, setKelas] = useState<Kelas[]>([])
   const [loading, setLoading] = useState(true)
+  const [aktif, setAktif] = useState(false)
+  const [ganti, setGanti] = useState(false)
   const [edit, setEdit] = useState<Guru | null>(null)
   const [pilih, setPilih] = useState<Set<string>>(new Set())
   const [saving, setSaving] = useState(false)
@@ -19,8 +21,8 @@ export default function AdminKelasKelolaPage() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const r = await apiRequest<{ guru: Guru[]; kelas: Kelas[] }>('/api/admin/admin-kelas')
-      setGuru(r.guru); setKelas(r.kelas)
+      const r = await apiRequest<{ aktif: boolean; guru: Guru[]; kelas: Kelas[] }>('/api/admin/admin-kelas')
+      setGuru(r.guru); setKelas(r.kelas); setAktif(r.aktif)
     } catch (e) {
       setToast({ msg: e instanceof Error ? e.message : 'Gagal memuat', type: 'error' })
     } finally { setLoading(false) }
@@ -28,6 +30,20 @@ export default function AdminKelasKelolaPage() {
   useEffect(() => { load() }, [load])
 
   const namaKelas = (id: string) => kelas.find(k => k.id === id)?.nama ?? id
+
+  async function ubahAktif(nilai: boolean) {
+    setGanti(true)
+    try {
+      const r = await apiRequest<{ aktif: boolean; message: string }>('/api/admin/admin-kelas', {
+        method: 'PATCH', body: JSON.stringify({ aktif: nilai }),
+      })
+      setAktif(r.aktif)
+      setToast({ msg: r.message, type: 'success' })
+      window.dispatchEvent(new Event('notif-changed'))
+    } catch (e) {
+      setToast({ msg: e instanceof Error ? e.message : 'Gagal mengubah', type: 'error' })
+    } finally { setGanti(false) }
+  }
 
   function buka(g: Guru) { setEdit(g); setPilih(new Set(g.kelas_ids)) }
   function toggle(id: string) {
@@ -60,8 +76,26 @@ export default function AdminKelasKelolaPage() {
         </p>
       </div>
 
+      <div className="card p-4 flex items-center justify-between gap-4">
+        <div>
+          <p className="font-medium text-slate-900">Aktifkan Admin Kelas</p>
+          <p className="text-xs text-slate-500">
+            {aktif
+              ? 'Aktif: validasi soal di kelas yang punya Admin Kelas dikerjakan mereka. Menu Validasi Soal Anda hanya menampilkan kelas tanpa Admin Kelas.'
+              : 'Nonaktif: Anda (Super Admin) memvalidasi semua paket soal. Cocok untuk sekolah dengan sedikit kelas.'}
+          </p>
+        </div>
+        <button
+          role="switch" aria-checked={aktif} disabled={ganti || loading}
+          onClick={() => ubahAktif(!aktif)}
+          className={`relative w-12 h-7 rounded-full transition-colors shrink-0 ${aktif ? 'bg-emerald-500' : 'bg-slate-300'}`}
+        >
+          <span className={`absolute top-0.5 left-0.5 w-6 h-6 bg-white rounded-full transition-transform ${aktif ? 'translate-x-5' : ''}`} />
+        </button>
+      </div>
+
       {loading ? <div className="flex justify-center py-16"><Spinner /></div> : (
-        <div className="card divide-y divide-slate-100">
+        <div className={`card divide-y divide-slate-100 ${aktif ? '' : 'opacity-60'}`}>
           {guru.map(g => (
             <div key={g.username} className="flex items-center justify-between gap-4 p-4">
               <div className="min-w-0">
