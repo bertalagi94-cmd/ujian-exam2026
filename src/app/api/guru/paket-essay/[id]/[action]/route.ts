@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
-import { kirimPasanganPaket, cekPasanganPaket } from '@/lib/gabungKirim'
+import { kirimPasanganPaket, cekPasanganPaket, type CounterpartResult } from '@/lib/gabungKirim'
+import { cekBatasMinSoal } from '@/lib/batas-soal'
 import { cekSesiMapelKelasSudahMulai, pesanBankSoalTerkunci } from '@/lib/sesi-kelas'
 
 // GET dipakai FE untuk menanyakan (tanpa mengubah apa pun) apakah ada paket
@@ -86,6 +87,10 @@ export async function POST(
       return NextResponse.json({ error: 'Paket harus memiliki minimal 1 soal' }, { status: 400 })
     }
 
+    // Batas minimal per mapel (opsional, diatur Super Admin; bawaan mati).
+    const kurangEssay = await cekBatasMinSoal(db, { jenis: 'essay', mapelId: paket.mapel_id, jumlah: count })
+    if (kurangEssay) return NextResponse.json({ error: kurangEssay }, { status: 400 })
+
     const { error } = await db
       .from('paket_essay')
       .update({ status: 'MENUNGGU', jumlah_soal: count, catatan: null, notif_dibaca: true, tanggal: new Date().toISOString() })
@@ -101,7 +106,7 @@ export async function POST(
     const body = await req.json().catch(() => ({} as { gabungPasangan?: boolean }))
     const gabungPasangan = body?.gabungPasangan !== false
 
-    const pasangan = gabungPasangan
+    const pasangan: CounterpartResult = gabungPasangan
       ? await kirimPasanganPaket(db, {
         mapelId: paket.mapel_id,
         kelasId: paket.kelas_id,
@@ -113,6 +118,8 @@ export async function POST(
     return NextResponse.json({
       message: pasangan.submitted
         ? 'Paket Essay dan PG untuk mapel & kelas ini berhasil dikirim sekaligus untuk validasi'
+        : pasangan.alasanTidakIkut
+        ? `Paket berhasil dikirim untuk validasi. ${pasangan.alasanTidakIkut}, jadi paket PG belum ikut terkirim.`
         : 'Paket berhasil dikirim untuk validasi',
       gabungPg: pasangan.submitted,
     })

@@ -12,16 +12,20 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { tentukanDurasiEssay } from '@/lib/durasi-ujian'
+import { cekBatasMinSoal } from '@/lib/batas-soal'
 
-interface CounterpartResult {
+export interface CounterpartResult {
   submitted: boolean
   id?: string
+  /** Terisi bila pasangan TIDAK ikut terkirim karena kurang dari batas minimal soal mapel. */
+  alasanTidakIkut?: string
 }
 
 interface CounterpartCheck {
   ada: boolean
   id?: string
   jumlahSoal?: number
+  alasanTidakIkut?: string
 }
 
 /**
@@ -63,6 +67,16 @@ export async function cekPasanganPaket(
 
   if (!count || count < 1) return { ada: false }
 
+  // Batas minimal per mapel (opsional): pasangan yang jumlah soalnya masih
+  // kurang TIDAK boleh ikut terkirim — kalau tidak, batas bisa terlewati
+  // lewat pengiriman gabungan PG+Essay.
+  const kurang = await cekBatasMinSoal(db, {
+    jenis: jenisPasangan === 'PG' ? 'pg' : 'essay',
+    mapelId,
+    jumlah: count,
+  })
+  if (kurang) return { ada: false, alasanTidakIkut: kurang }
+
   return { ada: true, id: pasangan.id, jumlahSoal: count }
 }
 
@@ -84,7 +98,7 @@ export async function kirimPasanganPaket(
   }
 ): Promise<CounterpartResult> {
   const cek = await cekPasanganPaket(db, opts)
-  if (!cek.ada || !cek.id) return { submitted: false }
+  if (!cek.ada || !cek.id) return { submitted: false, alasanTidakIkut: cek.alasanTidakIkut }
 
   const paketTable = opts.jenisPasangan === 'PG' ? 'paket_soal' : 'paket_essay'
   const soalTable = opts.jenisPasangan === 'PG' ? 'soal' : 'soal_essay'

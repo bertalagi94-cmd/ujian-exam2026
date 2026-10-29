@@ -8,6 +8,7 @@ import {
 } from 'lucide-react'
 import Link from 'next/link'
 import { Toast, Spinner, Confirm } from '@/components/ui'
+import BatasMinSoalCard from '@/components/admin/BatasMinSoalCard'
 import { HackerPopup, HackerPopupType } from '@/components/ui/HackerPopup'
 import { apiRequest } from '@/lib/utils'
 import {
@@ -806,6 +807,9 @@ export default function AdminPengaturanPage() {
               </div>
             )}
           </div>
+
+          {/* Batas minimal jumlah soal per mapel (opsional) */}
+          <BatasMinSoalCard onToast={showToast} />
 
           {/* Info ringkasan keamanan */}
           <div className="card space-y-4">
