@@ -5,7 +5,9 @@
 // Catatan isi:
 //   - Pengawas, Wali Kelas, dan Admin Kelas BUKAN akun terpisah: itu tugas
 //     tambahan akun Guru, jadi pertanyaannya ada di tab Guru.
-//   - "Admin" di sini = Super Admin (pengelola sistem sekolah/yayasan).
+//   - "Admin" di sini = Super Admin (pengelola aplikasi sekolah/yayasan).
+//   - Bahasa sengaja dibuat sederhana dan sehari-hari: tidak semua pengguna
+//     paham istilah IT. Nama menu ditulis persis seperti yang tampil di aplikasi.
 //
 // PERF: data diekstrak dari src/app/login/page.tsx dan di-lazy-load lewat TentangModal (tab Q&A).
 import type { ReactNode } from 'react'
@@ -53,19 +55,19 @@ export const QA_ROLES: QaRole[] = [
         items: [
           {
             q: 'Apa itu SmartExam?',
-            a: 'SmartExam adalah sistem ujian berbasis komputer (CBT) untuk berbagai sekolah dan jenjang — bisa dikerjakan lewat HP maupun laptop/komputer. Guru membuat soal dan paket soal, admin memvalidasi dan menjadwalkan ujian, dan siswa mengerjakan ujian secara online dengan pengawasan real-time.',
+            a: 'SmartExam adalah aplikasi ujian lewat komputer atau HP untuk berbagai sekolah dan jenjang. Guru membuat soal, admin memeriksa dan menjadwalkan ujian, dan siswa mengerjakan ujian secara online dengan diawasi langsung oleh pengawas.',
           },
           {
             q: 'Ada peran apa saja, dan saya termasuk yang mana?',
-            a: 'Ada empat jenis akun: (1) Siswa — login dengan NISN. (2) Guru — membuat soal, memeriksa essay, dan bisa merangkap tugas tambahan. (3) Kepala Sekolah — memantau ujian dan hasilnya. (4) Admin (Super Admin) — pengelola sistem sekolah. Pengawas, Wali Kelas, dan Admin Kelas bukan akun terpisah: itu tugas tambahan yang diberikan admin kepada akun Guru, dan menunya muncul otomatis di sidebar guru tersebut. Pilih tab peran Anda di atas untuk melihat pertanyaan yang sesuai.',
+            a: 'Ada empat jenis akun: (1) Siswa, masuk dengan NISN. (2) Guru, membuat soal, memeriksa essay, dan bisa mendapat tugas tambahan. (3) Kepala Sekolah, memantau ujian dan hasilnya. (4) Admin (Super Admin), pengelola aplikasi sekolah. Pengawas, Wali Kelas, dan Admin Kelas bukan akun tersendiri. Itu tugas tambahan yang diberikan admin kepada akun Guru, dan menunya muncul sendiri di menu samping guru tersebut. Pilih tab peran Anda di atas untuk melihat pertanyaan yang sesuai.',
           },
           {
-            q: 'Browser apa yang direkomendasikan?',
-            a: 'Kebanyakan siswa mengerjakan ujian lewat HP, jadi gunakan Chrome versi terbaru di Android atau Safari versi terbaru di iPhone/iPad. Di laptop/komputer, gunakan Google Chrome atau Mozilla Firefox versi terbaru. Hindari browser lama, dan pastikan JavaScript aktif.',
+            q: 'Aplikasi apa yang disarankan untuk membuka SmartExam?',
+            a: 'Kebanyakan siswa mengerjakan ujian lewat HP, jadi pakai Chrome versi terbaru di Android atau Safari versi terbaru di iPhone/iPad. Di laptop atau komputer, pakai Google Chrome atau Mozilla Firefox versi terbaru. Hindari aplikasi pembuka internet yang sudah lama tidak diperbarui.',
           },
           {
-            q: 'Apakah bisa digunakan di HP?',
-            a: 'Bisa, dan justru inilah cara paling umum siswa mengerjakan ujian — tampilan dan sistem anti-kecurangan (layar penuh, deteksi pindah aplikasi, dll) sudah dirancang untuk HP. Pastikan baterai cukup, HP tidak dalam mode hemat baterai/data yang agresif, dan notifikasi lain di-silent dulu supaya tidak terpicu pindah aplikasi.',
+            q: 'Apakah bisa dipakai di HP?',
+            a: 'Bisa, dan inilah cara yang paling sering dipakai siswa. Tampilannya dan penjaga kejujuran ujian (layar penuh, mendeteksi pindah aplikasi, dll) sudah dibuat untuk HP. Pastikan baterai cukup, HP tidak dalam mode hemat baterai atau hemat data yang terlalu ketat, dan matikan suara notifikasi lain dulu supaya tidak dianggap pindah aplikasi.',
           },
         ],
       },
@@ -74,11 +76,11 @@ export const QA_ROLES: QaRole[] = [
         items: [
           {
             q: 'Halaman error atau tidak bisa dibuka, apa yang harus dilakukan?',
-            a: 'Coba muat ulang halaman (F5 atau tarik layar ke bawah di HP). Jika masih error, tunggu beberapa menit lalu coba lagi. Siswa: beri tahu pengawas ruangan. Guru dan Kepala Sekolah: beri tahu admin sekolah. Admin: lihat pertanyaan di tab Admin.',
+            a: 'Muat ulang halamannya (tekan F5, atau tarik layar ke bawah di HP). Kalau masih bermasalah, tunggu beberapa menit lalu coba lagi. Siswa: kabari pengawas ruangan. Guru dan Kepala Sekolah: kabari admin sekolah. Admin: lihat pertanyaan di tab Admin.',
           },
           {
             q: 'Masalah saya tidak ada di daftar ini',
-            a: 'Hubungi Admin sekolah Anda. Siswa cukup menyampaikan ke pengawas atau guru, yang akan meneruskannya ke admin.',
+            a: 'Hubungi Admin sekolah Anda. Siswa cukup menyampaikan ke pengawas atau guru, nanti diteruskan ke admin.',
           },
         ],
       },
@@ -89,7 +91,7 @@ export const QA_ROLES: QaRole[] = [
   {
     id: 'siswa',
     label: 'Siswa',
-    untuk: 'Untuk siswa yang login memakai NISN.',
+    untuk: 'Untuk siswa yang masuk memakai NISN.',
     icon: <GraduationCap className="w-4 h-4" />,
     text: 'text-orange-700',
     bg: 'bg-orange-50',
@@ -97,15 +99,15 @@ export const QA_ROLES: QaRole[] = [
     gradient: 'from-orange-500 to-amber-500',
     groups: [
       {
-        category: 'Login & Akun',
+        category: 'Masuk & Akun',
         items: [
           {
             q: 'Username dan password saya apa?',
-            a: 'Username Anda adalah NISN (Nomor Induk Siswa Nasional). Password awalnya biasanya juga NISN Anda. Setelah masuk, sebaiknya ganti sendiri lewat menu Profil Saya.',
+            a: 'Username Anda adalah NISN (Nomor Induk Siswa Nasional). Password awalnya biasanya juga NISN Anda. Setelah berhasil masuk, sebaiknya ganti sendiri lewat menu Profil Saya.',
           },
           {
-            q: 'Saya lupa password, bagaimana cara reset?',
-            a: 'Kalau Anda masih ingat password lama, ganti sendiri lewat menu Profil Saya (cukup masukkan password lama). Kalau benar-benar lupa, minta guru atau admin sekolah untuk mereset passwordnya.',
+            q: 'Saya lupa password, bagaimana caranya?',
+            a: 'Kalau Anda masih ingat password lama, ganti sendiri lewat menu Profil Saya (cukup masukkan password lama). Kalau benar-benar lupa, minta guru atau admin sekolah untuk mengembalikan password Anda ke password awal.',
           },
         ],
       },
@@ -113,16 +115,16 @@ export const QA_ROLES: QaRole[] = [
         category: 'Sebelum Ujian',
         items: [
           {
-            q: 'Bagaimana saya tahu ujian sudah dibuka oleh pengawas?',
-            a: 'Setelah pengawas membuka sesi, muncul angka kecil berwarna merah pada menu Beranda dan Mulai Ujian selama Anda belum menyelesaikan ujian tersebut. Jika sesi sudah terbuka saat Anda login, tampil juga pemberitahuan satu kali. Untuk memulai, buka menu Mulai Ujian dan masukkan kode ujian dari pengawas.',
+            q: 'Bagaimana saya tahu ujian sudah dibuka pengawas?',
+            a: 'Setelah pengawas membuka ujian, muncul angka kecil berwarna merah pada menu Beranda dan Mulai Ujian selama Anda belum menyelesaikan ujian itu. Kalau ujian sudah dibuka saat Anda masuk, muncul juga pemberitahuan satu kali. Untuk memulai, buka menu Mulai Ujian lalu masukkan kode ujian dari pengawas.',
           },
           {
             q: 'Menu Mulai Ujian tidak ada, kenapa?',
-            a: 'Menu Mulai Ujian hanya muncul kalau Anda punya ujian yang bisa diikuti: ujian yang dijadwalkan hari ini, atau sesi (termasuk susulan) yang sedang dibuka pengawas dan belum Anda ikuti. Cek menu Jadwal untuk melihat jadwal Anda. Kalau seharusnya ada ujian tetapi menunya tidak muncul, beri tahu pengawas atau guru.',
+            a: 'Menu Mulai Ujian hanya muncul kalau Anda punya ujian yang bisa diikuti: ujian yang dijadwalkan hari ini, atau ujian (termasuk susulan) yang sedang dibuka pengawas dan belum Anda ikuti. Cek menu Jadwal untuk melihat jadwal Anda. Kalau seharusnya ada ujian tapi menunya tidak muncul, kabari pengawas atau guru.',
           },
           {
-            q: 'Siswa tidak muncul di daftar peserta ujian',
-            a: 'Beri tahu pengawas atau guru. Penyebab umumnya: Anda belum terdaftar di kelas yang dijadwalkan, atau baru ditambahkan setelah sesi dibuat. Admin yang akan memeriksa data kelas Anda.',
+            q: 'Nama saya tidak ada di daftar peserta ujian',
+            a: 'Kabari pengawas atau guru. Penyebab yang paling sering: Anda belum terdaftar di kelas yang dijadwalkan, atau baru ditambahkan setelah ujian dibuat. Admin akan memeriksa data kelas Anda.',
           },
         ],
       },
@@ -130,44 +132,44 @@ export const QA_ROLES: QaRole[] = [
         category: 'Saat Ujian',
         items: [
           {
-            q: 'Apakah jawaban tersimpan otomatis?',
-            a: 'Ya, setiap jawaban yang dipilih langsung tersimpan otomatis. Tidak perlu khawatir jika koneksi terputus sebentar — jawaban yang sudah dijawab tetap aman.',
+            q: 'Apakah jawaban saya tersimpan sendiri?',
+            a: 'Ya, setiap jawaban yang Anda pilih langsung tersimpan sendiri. Tidak perlu cemas kalau koneksi putus sebentar: jawaban yang sudah terisi tetap aman.',
           },
           {
-            q: 'Apa yang dimaksud dengan pelanggaran?',
-            a: 'Sistem mendeteksi jika Anda berpindah tab, meminimalkan jendela browser, keluar dari layar penuh, atau membuka aplikasi lain. Setiap deteksi langsung menghentikan ujian Anda sementara (status RESET). Untuk lanjut, Anda perlu kode 7 karakter dari pengawas. Jumlah pelanggaran yang melebihi batas dari admin dipakai pengawas untuk memutuskan apakah akun perlu dikunci permanen.',
+            q: 'Apa yang dimaksud pelanggaran?',
+            a: 'Aplikasi tahu kalau Anda pindah halaman, mengecilkan jendela, keluar dari layar penuh, atau membuka aplikasi lain. Setiap kali itu terjadi, ujian Anda langsung berhenti sementara (statusnya RESET). Untuk lanjut, Anda perlu kode 7 karakter dari pengawas. Kalau jumlah pelanggaran melewati batas yang ditetapkan admin, pengawas yang memutuskan apakah akun Anda perlu dikunci permanen.',
           },
           {
             q: 'Status ujian saya "RESET" / saya diminta kode, apa yang harus dilakukan?',
-            a: 'Angkat tangan atau hubungi pengawas ruangan dan minta kode 7 karakter. Masukkan kode itu untuk melanjutkan dari soal terakhir. Kalau pelanggaran sudah melebihi batas, pengawas bisa mengunci akun Anda secara permanen untuk sesi itu.',
+            a: 'Angkat tangan atau panggil pengawas ruangan, lalu minta kode 7 karakter. Masukkan kode itu untuk melanjutkan dari soal terakhir. Kalau pelanggaran sudah melewati batas, pengawas bisa mengunci akun Anda secara permanen untuk ujian itu.',
           },
           {
-            q: 'Kenapa ujian harus dalam mode layar penuh (fullscreen)?',
-            a: 'Ini bagian dari sistem anti-kecurangan — keluar dari layar penuh dihitung sama seperti berpindah tab/aplikasi, yaitu sebagai pelanggaran. Di HP, membuka Kontrol Cepat/Notifikasi, mengganti WiFi, membalas chat, atau menekan tombol Home langsung tercatat sebagai pelanggaran. Jika perangkat Anda tidak mendukung layar penuh sama sekali (beberapa browser di iPhone/iPad), beri tahu pengawas sebelum ujian dimulai.',
+            q: 'Kenapa ujian harus dalam layar penuh?',
+            a: 'Ini bagian dari penjaga kejujuran ujian. Keluar dari layar penuh dianggap sama seperti pindah halaman atau aplikasi, yaitu pelanggaran. Di HP, membuka panel notifikasi atau pengaturan cepat, mengganti WiFi, membalas chat, atau menekan tombol Home langsung dicatat sebagai pelanggaran. Kalau perangkat Anda sama sekali tidak mendukung layar penuh (beberapa iPhone/iPad), kabari pengawas sebelum ujian dimulai.',
           },
           {
             q: 'Internet saya putus saat ujian, bagaimana?',
-            a: 'Jangan panik, dan JANGAN keluar dari layar ujian untuk membuka pengaturan WiFi/data — itu akan tercatat sebagai pelanggaran. Cukup tetap di halaman ujian: jawaban yang sudah dijawab tersimpan di perangkat Anda dan otomatis terkirim begitu koneksi kembali. Kalau koneksi tidak kunjung pulih dan Anda terpaksa membuka pengaturan HP, beri tahu pengawas DULU sebelum melakukannya.',
+            a: 'Tenang, dan JANGAN keluar dari layar ujian untuk membuka pengaturan WiFi atau data karena itu dicatat sebagai pelanggaran. Tetap di halaman ujian saja: jawaban yang sudah terisi tersimpan di perangkat Anda dan terkirim sendiri begitu internet kembali. Kalau internet tidak kunjung pulih dan Anda terpaksa membuka pengaturan HP, kabari pengawas DULU sebelum melakukannya.',
           },
           {
-            q: 'Saya tidak sengaja menutup tab saat ujian, bagaimana?',
-            a: 'Buka kembali browser, login ulang, lalu masuk lagi ke halaman ujian. Ini tercatat sebagai pelanggaran dan ujian dihentikan sementara — minta kode 7 karakter ke pengawas untuk melanjutkan dari soal terakhir.',
+            q: 'Saya tidak sengaja menutup halaman ujian, bagaimana?',
+            a: 'Buka lagi aplikasi pembuka internet Anda, masuk lagi, lalu buka halaman ujian. Ini dicatat sebagai pelanggaran dan ujian berhenti sementara, jadi minta kode 7 karakter ke pengawas untuk melanjutkan dari soal terakhir.',
           },
           {
             q: 'Bisakah saya mengerjakan ujian yang sama di HP dan laptop sekaligus?',
-            a: 'Tidak. Satu sesi ujian hanya boleh aktif di satu perangkat. Kalau Anda login ke ujian yang sama di perangkat kedua, sesi di perangkat pertama otomatis terputus. Gunakan satu perangkat sampai ujian selesai.',
+            a: 'Tidak. Satu ujian hanya boleh dibuka di satu perangkat. Kalau Anda masuk ke ujian yang sama di perangkat kedua, ujian di perangkat pertama otomatis terputus. Pakai satu perangkat saja sampai ujian selesai.',
           },
           {
             q: 'Internet mati total dan soal essay belum sempat dibuka, apa yang harus dilakukan?',
-            a: 'Tetap tenang dan tetap di layar ujian. Minta "kode darurat" ke pengawas ruangan — kode ini dibacakan langsung atau ditulis di papan, bukan dikirim lewat internet — lalu masukkan untuk membuka soal essay secara offline. Begitu internet pulih, jawaban dan waktu pengerjaan Anda otomatis disinkronkan.',
+            a: 'Tetap tenang dan tetap di layar ujian. Minta "kode darurat" ke pengawas ruangan. Kode ini dibacakan langsung atau ditulis di papan, bukan dikirim lewat internet. Masukkan kode itu untuk membuka soal essay tanpa internet. Begitu internet pulih, jawaban dan waktu pengerjaan Anda terkirim sendiri.',
           },
           {
             q: 'Ada menu "Pengiriman Tertunda", itu untuk apa?',
-            a: 'Menu ini hanya muncul kalau ada jawaban atau paket ujian Anda yang belum berhasil terkirim (biasanya karena internet sempat putus). Sistem terus mencoba mengirim ulang otomatis; Anda juga bisa menekan "Kirim Sekarang" untuk mencoba lebih cepat. Jawaban yang sudah tersimpan tidak akan hilang.',
+            a: 'Menu ini hanya muncul kalau ada jawaban Anda yang belum berhasil terkirim (biasanya karena internet sempat putus). Aplikasi terus mencoba mengirim ulang sendiri. Anda juga bisa menekan "Kirim Sekarang" supaya lebih cepat. Jawaban yang sudah tersimpan tidak akan hilang.',
           },
           {
             q: 'Listrik atau HP mati di tengah ujian, apa yang harus dilakukan?',
-            a: 'Beri tahu pengawas segera. Jawaban sebelum mati tetap tersimpan. Jika Anda tidak bisa melanjutkan, guru pengawas atau admin dapat memberi kesempatan ujian susulan dengan kode akses baru.',
+            a: 'Segera kabari pengawas. Jawaban yang sudah terisi sebelum mati tetap tersimpan. Kalau Anda tidak bisa melanjutkan, guru pengawas atau admin bisa memberi kesempatan ujian susulan dengan kode akses baru.',
           },
         ],
       },
@@ -176,15 +178,15 @@ export const QA_ROLES: QaRole[] = [
         items: [
           {
             q: 'Nilai tidak muncul setelah ujian selesai',
-            a: 'Pastikan Anda benar-benar menekan "Selesai Ujian", bukan hanya menutup browser. Lalu coba muat ulang halaman Nilai Saya. Untuk mata pelajaran yang punya soal essay, nilai total baru tampil setelah guru selesai memeriksa essay dan merilis nilainya.',
+            a: 'Pastikan Anda benar-benar menekan "Selesai Ujian", bukan hanya menutup halaman. Lalu muat ulang halaman Nilai Saya. Untuk mata pelajaran yang punya soal essay, nilai total baru muncul setelah guru selesai memeriksa essay dan mengumumkan nilainya.',
           },
           {
             q: 'Akun saya dikunci permanen oleh pengawas, bagaimana dengan nilai saya?',
-            a: 'Kunci permanen berarti ujian Anda pada sesi itu dihentikan dan nilainya ditetapkan 0 (terkunci = gugur), kecuali nilai yang sudah terlanjur dikirim ke wali kelas. Kalau menurut Anda ini terjadi karena kendala teknis, bicarakan dengan pengawas dan guru mata pelajaran; kesempatan ujian susulan hanya bisa diberikan oleh guru pengawas atau admin.',
+            a: 'Dikunci permanen berarti ujian Anda pada kali itu dihentikan dan nilainya menjadi 0 (terkunci berarti gugur), kecuali nilai yang sudah terlanjur dikirim ke wali kelas. Kalau menurut Anda ini terjadi karena masalah pada perangkat atau jaringan, bicarakan dengan pengawas dan guru mata pelajaran. Kesempatan ujian susulan hanya bisa diberikan oleh guru pengawas atau admin.',
           },
           {
             q: 'Soal essay dikerjakan dengan diketik atau di kertas?',
-            a: 'Tergantung pengaturan guru untuk ujian itu: bisa digital (diketik di sistem) atau kertas. Pengawas akan menjelaskan sebelum essay dimulai. Essay baru bisa dikerjakan setelah pengawas membuka aksesnya.',
+            a: 'Tergantung pilihan guru untuk ujian itu: bisa diketik di layar atau ditulis di kertas. Pengawas akan menjelaskan sebelum essay dimulai. Essay baru bisa dikerjakan setelah pengawas membukanya.',
           },
         ],
       },
@@ -195,7 +197,7 @@ export const QA_ROLES: QaRole[] = [
   {
     id: 'guru',
     label: 'Guru',
-    untuk: 'Untuk guru, termasuk guru yang merangkap Pengawas, Wali Kelas, atau Admin Kelas.',
+    untuk: 'Untuk guru, termasuk guru yang juga bertugas sebagai Pengawas, Wali Kelas, atau Admin Kelas.',
     icon: <Users className="w-4 h-4" />,
     text: 'text-emerald-700',
     bg: 'bg-emerald-50',
@@ -207,15 +209,15 @@ export const QA_ROLES: QaRole[] = [
         items: [
           {
             q: 'Username dan password guru dari mana? Lupa password bagaimana?',
-            a: 'Username dan password awal dibuat oleh Admin di menu Data Pengguna. Kalau lupa password, minta Admin mereset lewat menu yang sama.',
+            a: 'Username dan password awal dibuatkan oleh Admin di menu Data Pengguna. Kalau lupa password, minta Admin mengembalikannya ke password awal lewat menu yang sama.',
           },
           {
-            q: 'Menu Jadwal Mengawas Saya, Wali Kelas, atau Admin Kelas tidak muncul di sidebar saya',
-            a: 'Menu itu muncul hanya kalau Admin menugaskan Anda: Jadwal Mengawas Saya untuk guru yang punya jadwal jaga, Wali Kelas untuk guru yang ditunjuk wali kelas, dan Admin Kelas untuk guru yang ditunjuk memvalidasi soal (dan hanya bila fitur Admin Kelas diaktifkan). Minta Admin memeriksa penugasan Anda.',
+            q: 'Menu Jadwal Mengawas Saya, Wali Kelas, atau Admin Kelas tidak muncul di menu samping saya',
+            a: 'Menu itu hanya muncul kalau Admin menugaskan Anda. Jadwal Mengawas Saya untuk guru yang punya jadwal jaga, Wali Kelas untuk guru yang ditunjuk jadi wali kelas, dan Admin Kelas untuk guru yang ditunjuk menyetujui soal (itu pun hanya kalau fitur Admin Kelas dinyalakan). Minta Admin memeriksa penugasan Anda.',
           },
           {
-            q: 'Satu guru mengajar di lebih dari satu sekolah/jenjang, apakah bisa?',
-            a: 'Bisa. Admin dapat menautkan satu akun guru ke lebih dari satu sekolah di menu Data Pengguna, sehingga Anda melihat kelas dan kisi-kisi dari semua sekolah yang diampu dalam satu akun.',
+            q: 'Satu guru mengajar di lebih dari satu sekolah/jenjang, bisa?',
+            a: 'Bisa. Admin dapat menghubungkan satu akun guru ke lebih dari satu sekolah di menu Data Pengguna, jadi Anda melihat kelas dan kisi-kisi dari semua sekolah tempat Anda mengajar dalam satu akun.',
           },
         ],
       },
@@ -223,48 +225,48 @@ export const QA_ROLES: QaRole[] = [
         category: 'Membuat Soal & Mengirim Paket',
         items: [
           {
-            q: 'Bagaimana cara mengimpor soal dari Word?',
-            a: 'Buka menu Buat Soal, lalu klik "Impor dari Word" (untuk essay: "Impor Soal dari Word"). Unduh template, isi satu tabel per nomor soal di Word, lalu unggah file .docx. Periksa pratinjau, kemudian klik Impor. Tidak ada soal yang tersimpan sebelum tombol Impor ditekan. Isi hanya kolom kuning dan jangan ubah kolom biru (nama baris). Teks soal dan gambar soal ditulis di sel yang sama: klik di dalam sel Soal, lalu Sisipkan ▸ Gambar (satu gambar per sel). Cara yang sama berlaku untuk opsi jawaban bergambar. Tabel oranye di awal template hanyalah contoh dan tidak ikut diimpor.',
+            q: 'Bagaimana cara memasukkan soal dari Word?',
+            a: 'Buka menu Buat Soal, lalu klik "Impor dari Word" (untuk essay: "Impor Soal dari Word"). Unduh contoh formatnya, isi satu tabel untuk tiap nomor soal di Word, lalu unggah file .docx. Periksa tampilan awalnya, kemudian klik Impor. Tidak ada soal yang tersimpan sebelum tombol Impor ditekan. Isi hanya kolom kuning dan jangan ubah kolom biru (nama baris). Tulisan soal dan gambar soal ditaruh di kotak yang sama: klik di dalam kotak Soal, lalu Sisipkan ▸ Gambar (satu gambar per kotak). Caranya sama untuk pilihan jawaban bergambar. Tabel oranye di awal hanya contoh dan tidak ikut dimasukkan.',
           },
           {
-            q: 'Mengapa setelah impor selesai, form menampilkan nomor soal berikutnya?',
-            a: 'Form pada halaman Buat Soal selalu dipakai untuk menambah soal berikutnya. Setelah 5 soal berhasil diimpor, form menampilkan "Soal ke-6". Seluruh soal hasil impor tersimpan dan dapat dilihat di bagian "Soal yang sudah dibuat" di bawah form, tempat setiap soal bisa diedit atau dihapus. Kalau jumlah soal sudah cukup, form tidak perlu diisi; lanjutkan ke tahap kirim paket.',
+            q: 'Kenapa setelah impor selesai, form menampilkan nomor soal berikutnya?',
+            a: 'Form di halaman Buat Soal selalu dipakai untuk menambah soal berikutnya. Setelah 5 soal berhasil dimasukkan, form menampilkan "Soal ke-6". Semua soal hasil impor sudah tersimpan dan bisa dilihat di bagian "Soal yang sudah dibuat" di bawah form, tempat tiap soal bisa diubah atau dihapus. Kalau jumlah soalnya sudah cukup, form tidak perlu diisi; lanjut saja ke tahap kirim paket.',
           },
           {
-            q: 'Saya tidak sengaja mengimpor file yang sama dua kali, apakah soalnya jadi ganda?',
-            a: 'Tidak. Sebelum mengimpor, sistem membandingkan teks soal, teks pilihan jawaban, dan kunci dengan soal yang sudah ada di paket. Soal yang sama persis ditandai kuning di pratinjau dan dilewati; untuk essay yang dibandingkan adalah teks soalnya. Gambar tidak ikut dibandingkan, jadi dua soal dengan teks, opsi, dan kunci yang sama tetapi gambar berbeda dianggap kembar. Jika itu soal yang memang berbeda, tambahkan lewat form "Soal ke-N".',
+            q: 'Saya tidak sengaja memasukkan file yang sama dua kali, apakah soalnya jadi ganda?',
+            a: 'Tidak. Sebelum dimasukkan, aplikasi membandingkan tulisan soal, tulisan pilihan jawaban, dan kunci dengan soal yang sudah ada di paket. Soal yang persis sama ditandai kuning di tampilan awal dan dilewati. Untuk essay, yang dibandingkan adalah tulisan soalnya. Gambar tidak ikut dibandingkan, jadi dua soal yang tulisan, pilihan, dan kuncinya sama tapi gambarnya beda tetap dianggap kembar. Kalau itu memang soal yang berbeda, tambahkan lewat form "Soal ke-N".',
           },
           {
-            q: 'Soal saya ditandai merah di pratinjau impor, apa artinya?',
-            a: 'Ada isian yang perlu diperbaiki. Alasannya tertulis di bawah soal tersebut, misalnya: soal atau opsi belum diisi, kunci kosong atau tidak sesuai (kunci harus satu huruf dalam rentang opsi, mis. A–D), atau bobot essay belum diisi atau bukan angka lebih dari 0. Perbaiki di file Word lalu unggah ulang, atau centang "Lewati soal yang bermasalah" untuk mengimpor soal yang sudah benar saja.',
+            q: 'Soal saya ditandai merah di tampilan awal impor, artinya apa?',
+            a: 'Ada isian yang perlu diperbaiki. Alasannya tertulis di bawah soal itu, misalnya: soal atau pilihan jawaban belum diisi, kunci kosong atau tidak cocok (kunci harus satu huruf sesuai jumlah pilihan, mis. A sampai D), atau bobot essay belum diisi atau bukan angka di atas 0. Perbaiki di file Word lalu unggah lagi, atau centang "Lewati soal yang bermasalah" untuk memasukkan soal yang sudah benar saja.',
           },
           {
             q: 'Gambar atau rumus di soal Word saya tidak terbaca, bagaimana?',
-            a: 'Gunakan gambar berformat PNG atau JPG yang disisipkan lewat Sisipkan ▸ Gambar. Format EMF/WMF/SVG tidak didukung, dan diagram, bentuk, atau kotak teks Word bukan gambar sehingga tidak ikut terimpor. Cara termudah: jadikan gambar lalu sisipkan ulang. Hanya satu gambar per sel yang dipakai, dan gambar yang terlalu besar dikecilkan otomatis.',
+            a: 'Pakai gambar berformat PNG atau JPG yang dimasukkan lewat Sisipkan ▸ Gambar. Format EMF, WMF, dan SVG tidak bisa dibaca. Diagram, bentuk, atau kotak teks di Word juga bukan gambar sehingga tidak ikut terbawa. Cara termudah: ubah jadi gambar (foto layar), lalu sisipkan lagi. Hanya satu gambar per kotak yang dipakai, dan gambar yang terlalu besar dikecilkan sendiri.',
           },
           {
-            q: 'Muncul pesan paket terkunci atau jumlah opsi tidak sama',
-            a: 'Soal hanya bisa ditambah, diedit, atau dihapus selama paket berstatus draft atau ditolak. Paket yang sudah dikirim atau disetujui terkunci, begitu pula bila sesi ujian mapel dan kelas itu sudah dimulai. Semua soal dalam satu paket harus memakai jumlah opsi yang sama (4 atau 5); jika paket sudah berisi soal 4 opsi, unduh template dengan 4 opsi. Bila admin mengunci jumlah opsi, jumlah opsi mengikuti pengaturan admin dan tidak bisa diganti per soal.',
+            q: 'Muncul pesan paket terkunci atau jumlah pilihan jawaban tidak sama',
+            a: 'Soal hanya bisa ditambah, diubah, atau dihapus selama paket masih berstatus draft atau ditolak. Paket yang sudah dikirim atau disetujui terkunci, begitu juga kalau ujian mata pelajaran dan kelas itu sudah dimulai. Semua soal dalam satu paket harus punya jumlah pilihan jawaban yang sama (4 atau 5). Kalau paket sudah berisi soal 4 pilihan, unduh contoh format yang 4 pilihan. Kalau admin mengunci jumlah pilihan, jumlahnya mengikuti pengaturan admin dan tidak bisa diganti per soal.',
           },
           {
             q: 'Paket tidak bisa dikirim: muncul pesan "minimal ... soal, saat ini baru ..."',
-            a: 'Admin menetapkan batas minimal jumlah soal untuk mata pelajaran Anda (misalnya 30 soal PG atau 5 soal essay). Pengiriman ditolak sampai jumlah soal di paket mencapai batas itu; pesannya menyebutkan angka batas dan jumlah soal Anda saat ini. Tambahkan soal yang kurang (bisa lewat Impor dari Word), lalu kirim ulang. Batas ini hanya berlaku untuk pengiriman baru, jadi paket yang sudah dikirim atau disetujui tidak terpengaruh. Kalau Anda merasa angkanya tidak sesuai, hubungi Admin.',
+            a: 'Admin menetapkan jumlah soal minimal untuk mata pelajaran Anda (misalnya 30 soal PG atau 5 soal essay). Paket tidak bisa dikirim sampai jumlah soalnya mencapai batas itu. Pesannya menyebut batas dan jumlah soal Anda sekarang. Tambahkan soal yang kurang (bisa lewat Impor dari Word), lalu kirim lagi. Aturan ini hanya berlaku untuk pengiriman baru, jadi paket yang sudah dikirim atau disetujui tidak terpengaruh. Kalau menurut Anda angkanya tidak sesuai, hubungi Admin.',
           },
           {
             q: 'Kalau saya kirim paket PG, apakah paket Essay ikut terkirim (dan sebaliknya)?',
-            a: 'Setelah Anda menekan Kirim, sistem akan menanyakan apakah paket pasangannya (mata pelajaran dan kelas yang sama) ikut dikirim sekaligus. Pasangan yang jumlah soalnya masih kurang dari batas minimal tidak ikut terkirim; Anda akan diberi tahu alasannya, dan paket itu bisa dikirim sendiri setelah soalnya cukup. Admin tetap memvalidasi paket PG dan Essay secara terpisah.',
+            a: 'Setelah Anda menekan Kirim, aplikasi bertanya apakah paket pasangannya (mata pelajaran dan kelas yang sama) ikut dikirim sekalian. Pasangan yang jumlah soalnya masih kurang dari batas minimal tidak ikut terkirim; Anda diberi tahu alasannya, dan paket itu bisa dikirim sendiri setelah soalnya cukup. Admin tetap memeriksa paket PG dan Essay secara terpisah.',
           },
           {
             q: 'Paket saya ditolak admin, apa yang harus dilakukan?',
-            a: 'Buka paket yang berstatus ditolak, baca catatan dari admin, perbaiki soal yang dimaksud (soal pada paket ditolak boleh diedit), lalu kirim ulang. Paket yang sudah dikirim dan masih menunggu validasi juga bisa ditarik kembali bila Anda ingin mengubahnya.',
+            a: 'Buka paket yang berstatus ditolak, baca catatan dari admin, perbaiki soal yang dimaksud (soal pada paket yang ditolak boleh diubah), lalu kirim lagi. Paket yang sudah dikirim dan masih menunggu persetujuan juga bisa Anda tarik kembali kalau ingin mengubahnya.',
           },
           {
-            q: 'Apakah soal bisa digunakan ulang untuk ujian berikutnya?',
-            a: 'Soal PG dan essay dibuat langsung di dalam satu paket lewat menu Buat Soal, jadi tidak ada bank soal terpisah yang dipakai lintas paket. Yang bisa dilakukan: duplikasi paket yang sudah ada untuk ujian susulan atau semester berikutnya. Untuk soal baru dalam jumlah banyak, gunakan Impor dari Word.',
+            q: 'Apakah soal bisa dipakai lagi untuk ujian berikutnya?',
+            a: 'Soal PG dan essay dibuat langsung di dalam satu paket lewat menu Buat Soal, jadi tidak ada bank soal terpisah yang bisa dipakai lintas paket. Yang bisa Anda lakukan: gandakan paket yang sudah ada untuk ujian susulan atau semester berikutnya. Kalau perlu banyak soal baru, pakai Impor dari Word.',
           },
           {
-            q: 'Siapa yang menentukan durasi soal essay?',
-            a: 'Anda bisa mengusulkan durasi essay di pengaturan essay, tetapi keputusan akhir diisi oleh Admin pada jadwal ujian. Jika Admin mengosongkannya, jadwal mengikuti usulan Anda.',
+            q: 'Siapa yang menentukan lama waktu soal essay?',
+            a: 'Anda bisa mengusulkan lama waktu essay di pengaturan essay, tetapi keputusan akhirnya diisi Admin di jadwal ujian. Kalau Admin mengosongkannya, jadwal mengikuti usulan Anda.',
           },
         ],
       },
@@ -272,12 +274,12 @@ export const QA_ROLES: QaRole[] = [
         category: 'Penilaian',
         items: [
           {
-            q: 'Di mana saya memeriksa essay dan merilis nilai?',
-            a: 'Menu Penilaian punya tiga tab: Periksa Jawaban Essay (koreksi manual), Rekap Nilai (nilai gabungan PG + essay per siswa), dan Kirim Nilai ke Wali Kelas. Untuk mata pelajaran dengan essay, nilai total siswa baru tampil setelah Anda selesai memeriksa dan merilis nilainya.',
+            q: 'Di mana saya memeriksa essay dan mengumumkan nilai?',
+            a: 'Menu Penilaian punya tiga tab: Periksa Jawaban Essay (menilai jawaban essay), Rekap Nilai (nilai gabungan PG dan essay tiap siswa), dan Kirim Nilai ke Wali Kelas. Untuk mata pelajaran yang punya essay, nilai total siswa baru muncul setelah Anda selesai memeriksa dan mengumumkan nilainya.',
           },
           {
             q: 'Siswa bilang nilainya tidak muncul, apa yang perlu saya cek?',
-            a: 'Pastikan siswa menekan "Selesai Ujian" (bukan hanya menutup browser). Lalu cek tab Rekap Nilai di menu Penilaian apakah datanya sudah masuk. Jika mapel punya essay, pastikan essay sudah diperiksa dan nilainya dirilis.',
+            a: 'Pastikan siswa menekan "Selesai Ujian" (bukan hanya menutup halaman). Lalu lihat tab Rekap Nilai di menu Penilaian, apakah datanya sudah masuk. Kalau mata pelajaran punya essay, pastikan essay sudah diperiksa dan nilainya sudah diumumkan.',
           },
         ],
       },
@@ -285,24 +287,24 @@ export const QA_ROLES: QaRole[] = [
         category: 'Mengawas Ujian (Pengawas)',
         items: [
           {
-            q: 'Bagaimana membuka sesi dan memantau siswa?',
-            a: 'Buka menu Jadwal Mengawas Saya lalu pilih tab Mode Pengawas. Di sana Anda membuka sesi (kode ujian dibagikan ke siswa), memantau peserta secara real-time, mereset siswa yang kena pelanggaran, membuka atau menutup akses mulai soal essay, dan menutup sesi. Jika ada ujian yang sedang berlangsung, halaman ini langsung terbuka di Mode Pengawas.',
+            q: 'Bagaimana cara membuka ujian dan memantau siswa?',
+            a: 'Buka menu Jadwal Mengawas Saya lalu pilih tab Mode Pengawas. Di sana Anda membuka ujian (kode ujian dibagikan ke siswa), memantau peserta secara langsung, mengaktifkan kembali siswa yang kena pelanggaran, membuka atau menutup izin mulai soal essay, dan menutup ujian. Kalau ada ujian yang sedang berjalan, halaman ini langsung terbuka di Mode Pengawas.',
           },
           {
             q: 'Siswa kena pelanggaran dan minta kode, apa yang saya lakukan?',
-            a: 'Setiap pelanggaran menghentikan ujian siswa sementara. Reset siswa tersebut di Mode Pengawas untuk memberi kode lanjut 7 karakter. Kalau jumlah pelanggarannya sudah melebihi batas dari Admin, Anda bisa memilih mengunci akunnya secara permanen untuk sesi itu; nilai siswa pada sesi itu ditetapkan 0 (terkunci = gugur), jadi gunakan hanya bila memang perlu.',
+            a: 'Setiap pelanggaran menghentikan ujian siswa sementara. Aktifkan kembali siswa itu di Mode Pengawas untuk memberinya kode lanjut 7 karakter. Kalau jumlah pelanggarannya sudah melewati batas dari Admin, Anda bisa memilih mengunci akunnya secara permanen untuk ujian itu. Nilai siswa pada ujian itu menjadi 0 (terkunci berarti gugur), jadi lakukan hanya kalau memang perlu.',
           },
           {
-            q: 'Internet mati total saat ujian, bagaimana pengawas harus bertindak?',
-            a: 'Untuk soal pilihan ganda tidak perlu tindakan khusus — jawaban siswa tersimpan di perangkat masing-masing dan terkirim otomatis begitu internet kembali. Untuk essay, buka Mode Pengawas lalu tekan "Tampilkan Kode Darurat", dan bacakan atau tuliskan kode itu di papan tulis (jangan lewat grup chat/internet) agar siswa bisa membuka soal essay secara offline. Begitu koneksi pulih, sistem otomatis menyinkronkan data essay siswa.',
+            q: 'Internet mati total saat ujian, apa yang harus dilakukan pengawas?',
+            a: 'Untuk soal pilihan ganda tidak perlu berbuat apa-apa: jawaban siswa tersimpan di perangkat masing-masing dan terkirim sendiri begitu internet kembali. Untuk essay, buka Mode Pengawas lalu tekan "Tampilkan Kode Darurat", dan bacakan atau tulis kode itu di papan tulis (jangan lewat grup chat atau internet) supaya siswa bisa membuka soal essay tanpa internet. Begitu internet pulih, data essay siswa terkirim sendiri.',
           },
           {
             q: 'Listrik mati atau siswa tidak sempat ujian, bagaimana memberi susulan?',
-            a: 'Catat kejadiannya dan laporkan ke Admin. Guru pengawas atau Admin dapat membuka ujian susulan dengan kode akses baru lewat fitur Susulan. Jawaban sebelum gangguan tetap tersimpan.',
+            a: 'Catat kejadiannya dan laporkan ke Admin. Guru pengawas atau Admin bisa membuka ujian susulan dengan kode akses baru lewat fitur Susulan. Jawaban sebelum gangguan tetap tersimpan.',
           },
           {
             q: 'Kenapa Layar Pantau meminta izin Admin?',
-            a: 'Layar Pantau adalah tampilan papan nilai ujian secara live untuk layar besar/TV, dan khusus dibuka lewat laptop atau komputer. Akun Guru wajib mendapat persetujuan Admin dulu (menu Izin Layar Pantau di akun Admin); izin berlaku selama 10 jam, lalu perlu diajukan lagi. Papan baru menampilkan data saat ada ujian yang berjalan.',
+            a: 'Layar Pantau adalah papan nilai ujian secara langsung untuk layar besar atau TV, dan hanya bisa dibuka lewat laptop atau komputer. Akun Guru harus mendapat persetujuan Admin dulu (lewat menu Izin Layar Pantau di akun Admin). Izin berlaku 10 jam, setelah itu perlu diajukan lagi. Papan baru berisi data kalau ada ujian yang sedang berjalan.',
           },
         ],
       },
@@ -311,11 +313,11 @@ export const QA_ROLES: QaRole[] = [
         items: [
           {
             q: 'Apa itu Admin Kelas dan apa tugasnya?',
-            a: 'Admin Kelas adalah guru yang ditunjuk Admin untuk memvalidasi paket soal pada kelas tertentu. Menu Admin Kelas muncul di sidebar Anda hanya bila fitur ini diaktifkan Admin dan Anda ditunjuk. Anda hanya melihat paket dari kelas yang menjadi tanggung jawab Anda; kelas lain tetap divalidasi Admin. Validasi memeriksa kelayakan paket yang dikirim guru, sedangkan batas minimal jumlah soal sudah dijaga otomatis saat paket dikirim.',
+            a: 'Admin Kelas adalah guru yang ditunjuk Admin untuk menyetujui paket soal di kelas tertentu. Menu Admin Kelas muncul di menu samping Anda hanya kalau fitur ini dinyalakan Admin dan Anda ditunjuk. Anda hanya melihat paket dari kelas yang jadi tanggung jawab Anda; kelas lain tetap diperiksa Admin. Tugas Anda menilai apakah paket yang dikirim guru layak dipakai. Jumlah soal minimal sudah dijaga otomatis saat paket dikirim.',
           },
           {
-            q: 'Apa tugas Wali Kelas di sistem ini?',
-            a: 'Menu Wali Kelas muncul untuk guru yang ditunjuk sebagai wali kelas. Di sana Anda memantau dan menerima kiriman nilai siswa di kelas yang Anda ampu, yang dikirim guru mata pelajaran lewat tab Kirim Nilai ke Wali Kelas.',
+            q: 'Apa tugas Wali Kelas di aplikasi ini?',
+            a: 'Menu Wali Kelas muncul untuk guru yang ditunjuk sebagai wali kelas. Di sana Anda memantau dan menerima nilai siswa di kelas Anda, yang dikirim guru mata pelajaran lewat tab Kirim Nilai ke Wali Kelas.',
           },
         ],
       },
@@ -334,11 +336,11 @@ export const QA_ROLES: QaRole[] = [
     gradient: 'from-blue-500 to-cyan-600',
     groups: [
       {
-        category: 'Login & Akun',
+        category: 'Masuk & Akun',
         items: [
           {
             q: 'Username dan password Kepala Sekolah dari mana? Lupa password bagaimana?',
-            a: 'Akun dibuat oleh Admin di menu Data Pengguna. Kalau lupa password, minta Admin mereset lewat menu yang sama.',
+            a: 'Akun dibuatkan oleh Admin di menu Data Pengguna. Kalau lupa password, minta Admin mengembalikannya ke password awal lewat menu yang sama.',
           },
         ],
       },
@@ -347,19 +349,19 @@ export const QA_ROLES: QaRole[] = [
         items: [
           {
             q: 'Apa saja yang bisa saya lihat di akun Kepala Sekolah?',
-            a: 'Dashboard ringkasan ujian, Monitoring Ujian (sesi yang sedang berlangsung, siapa yang sudah/belum mengerjakan, dan pelanggaran), Hasil Ujian (rekap nilai per kelas, mapel, dan siswa), Jadwal Ujian, Kisi-kisi, Data Kelas, serta Guru & Mapel. Akun ini hanya untuk melihat, bukan mengubah data.',
+            a: 'Halaman depan berisi ringkasan ujian, Monitoring Ujian (ujian yang sedang berjalan, siapa yang sudah atau belum mengerjakan, dan pelanggaran), Hasil Ujian (rekap nilai per kelas, mata pelajaran, dan siswa), Jadwal Ujian, Kisi-kisi, Data Kelas, serta Guru & Mapel. Akun ini hanya untuk melihat, bukan mengubah data.',
           },
           {
             q: 'Kelas, guru, atau ujian di akun saya kosong / tidak muncul',
-            a: 'Kepala Sekolah hanya melihat data sekolahnya sendiri. Jika semuanya kosong, kemungkinan akun Anda belum dikaitkan dengan sekolah. Minta Admin mengatur sekolah untuk akun Anda di menu Data Pengguna. Bila baru ada jadwal yang belum dimulai, data nilainya juga memang belum ada.',
+            a: 'Kepala Sekolah hanya melihat data sekolahnya sendiri. Kalau semuanya kosong, kemungkinan akun Anda belum dihubungkan dengan sekolah. Minta Admin mengatur sekolah untuk akun Anda di menu Data Pengguna. Kalau baru ada jadwal yang belum dimulai, data nilainya memang belum ada.',
           },
           {
-            q: 'Nilai suatu mapel belum lengkap di Hasil Ujian',
-            a: 'Untuk mata pelajaran yang punya soal essay, nilai total baru lengkap setelah guru selesai memeriksa essay dan merilis nilainya. Jika sudah lama belum lengkap, tanyakan ke guru mapel yang bersangkutan.',
+            q: 'Nilai suatu mata pelajaran belum lengkap di Hasil Ujian',
+            a: 'Untuk mata pelajaran yang punya soal essay, nilai total baru lengkap setelah guru selesai memeriksa essay dan mengumumkan nilainya. Kalau sudah lama belum lengkap, tanyakan ke guru mata pelajaran yang bersangkutan.',
           },
           {
-            q: 'Bagaimana membuka Layar Pantau?',
-            a: 'Layar Pantau menampilkan papan nilai ujian secara live dan hanya dibuka lewat laptop atau komputer (menu muncul di beranda login). Kepala Sekolah tidak perlu izin Admin; cukup login. Papan baru menampilkan data saat ada ujian yang sedang berjalan.',
+            q: 'Bagaimana cara membuka Layar Pantau?',
+            a: 'Layar Pantau menampilkan papan nilai ujian secara langsung dan hanya bisa dibuka lewat laptop atau komputer (tombolnya ada di beranda login). Kepala Sekolah tidak perlu izin Admin, cukup masuk. Papan baru berisi data kalau ada ujian yang sedang berjalan.',
           },
         ],
       },
@@ -370,7 +372,7 @@ export const QA_ROLES: QaRole[] = [
   {
     id: 'admin',
     label: 'Admin',
-    untuk: 'Untuk Admin (Super Admin) yang mengelola sistem sekolah atau yayasan.',
+    untuk: 'Untuk Admin (Super Admin) yang mengelola aplikasi sekolah atau yayasan.',
     icon: <Shield className="w-4 h-4" />,
     text: 'text-violet-700',
     bg: 'bg-violet-50',
@@ -378,52 +380,52 @@ export const QA_ROLES: QaRole[] = [
     gradient: 'from-violet-500 to-purple-600',
     groups: [
       {
-        category: 'Akun & Data Master',
+        category: 'Akun & Data Utama',
         items: [
           {
             q: 'Saya lupa password Admin, bagaimana?',
-            a: 'Hubungi pengelola sistem (developer) atau reset melalui database Supabase. Admin tidak bisa mereset passwordnya sendiri dari halaman login.',
+            a: 'Hubungi pengelola aplikasi (developer). Admin tidak bisa mengatur ulang passwordnya sendiri dari halaman login.',
           },
           {
-            q: 'Bagaimana mereset password guru, kepala sekolah, dan siswa?',
-            a: 'Guru dan Kepala Sekolah: menu Data Pengguna. Siswa: menu Data Siswa (guru juga bisa membantu mereset siswa). Password setelah reset kembali ke bawaan, lalu pemilik akun bisa menggantinya sendiri.',
+            q: 'Bagaimana cara mengembalikan password guru, kepala sekolah, dan siswa ke password awal?',
+            a: 'Guru dan Kepala Sekolah: lewat menu Data Pengguna. Siswa: lewat menu Data Siswa (guru juga bisa membantu siswa). Setelah dikembalikan ke password awal, pemilik akun bisa menggantinya sendiri.',
           },
           {
-            q: 'Bagaimana cara import data siswa massal?',
-            a: 'Gunakan tombol import di halaman Data Siswa (bukan menu terpisah). Unduh template Excel di sana, isi data siswa sesuai format (NISN, nama, kelas, dll), lalu unggah kembali. Sistem memvalidasi dan memasukkan datanya secara otomatis. Buat kelas dan mata pelajaran terlebih dahulu sebelum import.',
+            q: 'Bagaimana cara memasukkan data siswa sekaligus banyak?',
+            a: 'Pakai tombol impor di halaman Data Siswa (bukan menu terpisah). Unduh contoh format Excel di sana, isi data siswa sesuai format (NISN, nama, kelas, dll), lalu unggah lagi. Aplikasi memeriksa dan memasukkan datanya sendiri. Buat kelas dan mata pelajaran lebih dulu sebelum memasukkan data siswa.',
           },
           {
-            q: 'Satu guru mengajar di lebih dari satu sekolah/jenjang, apakah bisa?',
-            a: 'Bisa. Tautkan satu akun guru ke lebih dari satu sekolah di menu Data Pengguna, sehingga guru melihat kelas dan kisi-kisi dari semua sekolah yang diampu dalam satu akun.',
+            q: 'Satu guru mengajar di lebih dari satu sekolah/jenjang, bisa?',
+            a: 'Bisa. Hubungkan satu akun guru ke lebih dari satu sekolah di menu Data Pengguna, jadi guru melihat kelas dan kisi-kisi dari semua sekolah tempat ia mengajar dalam satu akun.',
           },
           {
-            q: 'Siswa tidak muncul di daftar sesi ujian',
-            a: 'Kemungkinan penyebab: (1) siswa belum terdaftar di kelas yang dijadwalkan, (2) kelas siswa tidak sesuai dengan jadwal ujian, (3) siswa baru ditambahkan setelah sesi dibuat. Periksa data siswa dan kelasnya di menu Data Siswa dan Jadwal Ujian.',
+            q: 'Siswa tidak muncul di daftar peserta ujian',
+            a: 'Kemungkinan penyebabnya: (1) siswa belum terdaftar di kelas yang dijadwalkan, (2) kelas siswa tidak sesuai dengan jadwal ujian, (3) siswa baru ditambahkan setelah ujian dibuat. Periksa data siswa dan kelasnya di menu Data Siswa dan Jadwal Ujian.',
           },
           {
             q: 'Apa itu fitur "Lihat Sebagai"?',
-            a: 'Fitur ini memungkinkan Admin masuk sementara sebagai akun guru, kepala sekolah, atau siswa tertentu untuk mengecek atau memperbaiki masalah dari sudut pandang mereka tanpa perlu tahu passwordnya. Sesi otomatis berakhir setelah 2 jam, dan pemilik akun melihat banner bahwa akunnya sedang dilihat oleh Admin.',
+            a: 'Fitur ini membuat Admin bisa masuk sementara sebagai akun guru, kepala sekolah, atau siswa tertentu untuk memeriksa atau memperbaiki masalah dari sudut pandang mereka, tanpa perlu tahu passwordnya. Setelah 2 jam Admin otomatis kembali ke akunnya, dan pemilik akun melihat pemberitahuan bahwa akunnya sedang dilihat Admin.',
           },
         ],
       },
       {
-        category: 'Soal, Validasi & Pengaturan Ujian',
+        category: 'Soal, Persetujuan & Pengaturan Ujian',
         items: [
           {
-            q: 'Bagaimana mengatur batas minimal jumlah soal per mata pelajaran?',
-            a: 'Buka Pengaturan, tab Pengaturan Ujian, kartu "Batas Minimal Jumlah Soal". Aktifkan saklarnya (bawaan mati). Untuk PG dan Essay masing-masing, klik "Tambah kelompok", isi angka minimalnya (misalnya 30), lalu centang mata pelajaran yang masuk kelompok itu. Buat kelompok lain untuk angka lain (misalnya 35). Satu mapel hanya bisa di satu kelompok, dan mapel yang tidak dicentang tetap memakai aturan bawaan (minimal 1 soal). Pengecekan dilakukan saat guru mengirim paket, jadi paket yang sudah dikirim atau disetujui tidak terpengaruh. Jangan lupa tekan Simpan Batas Soal.',
+            q: 'Bagaimana mengatur jumlah soal minimal untuk tiap mata pelajaran?',
+            a: 'Buka Pengaturan, tab Pengaturan Ujian, kartu "Batas Minimal Jumlah Soal". Nyalakan saklarnya (awalnya mati). Untuk PG dan Essay masing-masing, klik "Tambah kelompok", isi angka minimalnya (misalnya 30), lalu centang mata pelajaran yang masuk kelompok itu. Buat kelompok lain untuk angka lain (misalnya 35). Satu mata pelajaran hanya bisa ada di satu kelompok, dan yang tidak dicentang tetap memakai aturan awal (minimal 1 soal). Aturan ini dicek saat guru mengirim paket, jadi paket yang sudah dikirim atau disetujui tidak terpengaruh. Jangan lupa tekan Simpan Batas Soal.',
           },
           {
-            q: 'Apa itu Admin Kelas dan bagaimana mengaktifkannya?',
-            a: 'Admin Kelas adalah guru yang Anda tunjuk untuk memvalidasi paket soal pada kelas tertentu, supaya beban validasi tidak semuanya di Admin. Buka menu Admin Kelas, aktifkan fiturnya (bawaan mati), lalu tunjuk guru untuk tiap kelas (satu kelas satu Admin Kelas). Kelas tanpa Admin Kelas tetap Anda validasi sendiri di menu Validasi Soal. Mematikan fitur ini tidak menghapus penugasan, hanya menghentikan pemberlakuannya.',
+            q: 'Apa itu Admin Kelas dan bagaimana menyalakannya?',
+            a: 'Admin Kelas adalah guru yang Anda tunjuk untuk menyetujui paket soal di kelas tertentu, supaya pekerjaan memeriksa tidak semuanya di Admin. Buka menu Admin Kelas, nyalakan fiturnya (awalnya mati), lalu pilih guru untuk tiap kelas (satu kelas satu Admin Kelas). Kelas yang belum punya Admin Kelas tetap Anda periksa sendiri di menu Validasi Soal. Mematikan fitur ini tidak menghapus penunjukan, hanya menghentikan berlakunya.',
           },
           {
-            q: 'Apa yang bisa diatur di tab Pengaturan Ujian?',
-            a: 'Batas pelanggaran (sebelum siswa bisa dikunci), jumlah opsi jawaban default beserta opsi untuk mengunci jumlah opsi supaya guru tidak bisa mengubahnya, waktu minimal submit (siswa baru bisa mengirim jawaban setelah durasi tertentu), batas durasi essay, dan batas minimal jumlah soal per mapel. Waktu minimal submit tidak bisa diubah saat ada sesi ujian yang sedang berjalan; tunggu sampai semua sesi selesai.',
+            q: 'Apa saja yang bisa diatur di tab Pengaturan Ujian?',
+            a: 'Batas pelanggaran (sebelum siswa bisa dikunci), jumlah pilihan jawaban yang dipakai (beserta pilihan untuk mengunci jumlahnya supaya guru tidak bisa mengubah), waktu paling cepat siswa boleh mengirim jawaban, batas lama essay, dan jumlah soal minimal tiap mata pelajaran. Waktu paling cepat mengirim jawaban tidak bisa diubah selama ada ujian yang sedang berjalan; tunggu sampai semua ujian selesai.',
           },
           {
-            q: 'Siapa yang menentukan durasi soal essay?',
-            a: 'Guru boleh mengusulkan durasi essay, dan usulan itu tampil di form jadwal. Keputusan akhir Anda isi di jadwal ujian; jika dikosongkan, jadwal mengikuti usulan guru.',
+            q: 'Siapa yang menentukan lama waktu soal essay?',
+            a: 'Guru boleh mengusulkan lama waktu essay, dan usulan itu tampil di form jadwal. Keputusan akhirnya Anda isi di jadwal ujian. Kalau dikosongkan, jadwal mengikuti usulan guru.',
           },
         ],
       },
@@ -432,36 +434,36 @@ export const QA_ROLES: QaRole[] = [
         items: [
           {
             q: 'Guru meminta izin Layar Pantau, bagaimana menyetujuinya?',
-            a: 'Buka menu Izin Layar Pantau. Di sana Anda melihat permintaan guru, lalu bisa menyetujui, menolak, atau mencabut izin. Izin berlaku selama 10 jam sejak disetujui. Admin dan Kepala Sekolah tidak perlu izin. Layar Pantau hanya bisa dibuka lewat laptop atau komputer.',
+            a: 'Buka menu Izin Layar Pantau. Di sana Anda melihat permintaan guru, lalu bisa menyetujui, menolak, atau mencabut izin. Izin berlaku 10 jam sejak disetujui. Admin dan Kepala Sekolah tidak perlu izin. Layar Pantau hanya bisa dibuka lewat laptop atau komputer.',
           },
           {
-            q: 'Bagaimana memberi ujian susulan, mis. karena listrik mati?',
-            a: 'Di menu Jadwal Ujian, buka ujian susulan untuk jadwal tersebut dan pilih guru yang menjadi pengawasnya. Sistem akan menolak bila jadwal itu sudah punya sesi yang sedang berjalan, supaya tidak bentrok. Guru pengawas juga bisa membuka susulan dari akunnya.',
+            q: 'Bagaimana memberi ujian susulan, misalnya karena listrik mati?',
+            a: 'Di menu Jadwal Ujian, buka ujian susulan untuk jadwal itu dan pilih guru yang jadi pengawasnya. Susulan tidak bisa dibuka kalau jadwal itu masih punya ujian yang sedang berjalan, supaya tidak bentrok. Guru pengawas juga bisa membuka susulan dari akunnya.',
           },
           {
             q: 'Ada siswa yang dikunci permanen oleh pengawas, bagaimana nilainya?',
-            a: 'Aturannya terkunci = gugur: pada sesi itu siswa tidak bisa melanjutkan dan nilainya ditetapkan 0, kecuali nilai yang sudah terlanjur dikirim ke wali kelas. Jika kunci terjadi karena gangguan teknis, Anda bisa memberi kesempatan lewat ujian susulan.',
+            a: 'Aturannya: dikunci berarti gugur. Pada ujian itu siswa tidak bisa melanjutkan dan nilainya menjadi 0, kecuali nilai yang sudah terlanjur dikirim ke wali kelas. Kalau pengunciannya terjadi karena gangguan pada perangkat atau jaringan, Anda bisa memberi kesempatan lewat ujian susulan.',
           },
           {
             q: 'Nilai tidak muncul setelah ujian selesai',
-            a: 'Pastikan siswa menekan "Selesai Ujian", bukan hanya menutup browser. Cek menu Rekap Nilai apakah datanya sudah masuk. Untuk mapel yang punya essay, nilai total baru tampil setelah guru memeriksa essay dan merilis nilainya di menu Penilaian.',
+            a: 'Pastikan siswa menekan "Selesai Ujian", bukan hanya menutup halaman. Lihat menu Rekap Nilai, apakah datanya sudah masuk. Untuk mata pelajaran yang punya essay, nilai total baru muncul setelah guru memeriksa essay dan mengumumkan nilainya di menu Penilaian.',
           },
         ],
       },
       {
-        category: 'Teknis & Pemeliharaan',
+        category: 'Masalah Teknis & Perawatan',
         items: [
           {
-            q: 'Berapa banyak siswa yang bisa menggunakan sistem bersamaan?',
-            a: 'Bergantung pada paket Supabase yang digunakan. Paket gratis mendukung hingga ratusan koneksi bersamaan. Untuk jumlah siswa yang besar, pertimbangkan upgrade ke paket berbayar untuk performa optimal.',
+            q: 'Berapa banyak siswa yang bisa memakai aplikasi bersamaan?',
+            a: 'Tergantung paket layanan server yang dipakai. Paket gratis cukup untuk ratusan pengguna bersamaan. Kalau siswanya sangat banyak, sebaiknya tanyakan ke pengelola aplikasi tentang menaikkan ke paket berbayar supaya tetap lancar.',
           },
           {
-            q: 'Server error / halaman tidak bisa diakses',
-            a: 'Coba muat ulang halaman. Jika masih error, tunggu beberapa menit dan coba lagi. Cek status server di Supabase Dashboard, dan pastikan tidak ada proses berat seperti import data besar yang sedang berjalan. Untuk masalah teknis kritis, hubungi pengelola sistem.',
+            q: 'Aplikasi error / halaman tidak bisa dibuka',
+            a: 'Muat ulang halamannya. Kalau masih bermasalah, tunggu beberapa menit lalu coba lagi. Pastikan juga tidak ada pekerjaan besar yang sedang berjalan, seperti memasukkan data siswa dalam jumlah banyak. Untuk masalah yang serius, hubungi pengelola aplikasi.',
           },
           {
-            q: 'Data sekolah hilang setelah reset',
-            a: 'Jika reset "Semua Data" dilakukan, semua pengaturan termasuk data dan logo setiap sekolah ikut terhapus. Isi kembali di halaman Informasi Sekolah (dibuka lewat kartu di atas tab Pengaturan). Selalu lakukan backup di tab Backup & Restore sebelum reset apa pun.',
+            q: 'Data sekolah hilang setelah Reset Data',
+            a: 'Kalau Reset "Semua Data" dilakukan, semua pengaturan ikut terhapus, termasuk data dan logo tiap sekolah. Isi lagi di halaman Informasi Sekolah (dibuka lewat kartu di atas tab Pengaturan). Selalu buat cadangan dulu di tab Backup & Restore sebelum menghapus data apa pun.',
           },
         ],
       },
