@@ -9,6 +9,9 @@
     },
     "src/app/api/admin/users/import/route.ts": {
       "maxDuration": 60
+    },
+    "src/app/api/admin/users/kredensial/route.ts": {
+      "maxDuration": 60
     }
   },
   "crons": [

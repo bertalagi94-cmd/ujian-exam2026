@@ -6,6 +6,7 @@ import { Plus, Pencil, Trash2, RotateCcw, Building2, Eye, Upload, Download, Lock
 import { Modal, Confirm, StatusBadge, SearchInput, EmptyState, Spinner, Toast } from '@/components/ui'
 import { apiRequest, formatDateTime } from '@/lib/utils'
 import { User, Mapel, Sekolah } from '@/types'
+import type { HasilKredensial } from '@/lib/ekspor-akun'
 import { mulaiLihatSebagai } from '@/lib/lihat-sebagai'
 
 // Role "Pengawas" SENGAJA tidak ada di sini. Pengawas bukan role akun yang
@@ -85,6 +86,10 @@ export default function AdminUsersPage() {
   const [importFileName, setImportFileName] = useState('')
   const [importing, setImporting] = useState(false)
   const [importResult, setImportResult] = useState<ImportResult | null>(null)
+
+  // Ekspor akun (Excel / kartu PDF) — lihat src/lib/ekspor-akun.ts
+  const [eksporOpen, setEksporOpen] = useState(false)
+  const [eksporBusy, setEksporBusy] = useState<'excel' | 'pdf' | null>(null)
   const importFileRef = useRef<HTMLInputElement>(null)
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
 
@@ -195,6 +200,39 @@ export default function AdminUsersPage() {
     } catch (err: unknown) {
       showToast(err instanceof Error ? err.message : 'Gagal reset', 'error')
     } finally { setSaving(false) }
+  }
+
+  // ── EKSPOR AKUN (Excel / kartu PDF) ────────────────────────────────────
+  // Server hanya membuktikan password mana yang MASIH sama dengan username
+  // (password awal); password asli tidak pernah dikirim. Admin tidak ikut.
+  async function handleEkspor(jenis: 'excel' | 'pdf') {
+    if (eksporBusy) return
+    setEksporBusy(jenis)
+    try {
+      const hasil = await apiRequest<HasilKredensial>('/api/admin/users/kredensial', { method: 'POST' })
+      if (hasil.total === 0) {
+        showToast('Tidak ada akun yang bisa diekspor.', 'error')
+        return
+      }
+      const { unduhExcel, unduhPdfKartu } = await import('@/lib/ekspor-akun')
+      if (jenis === 'excel') {
+        await unduhExcel(hasil)
+        const tanpa = hasil.total - hasil.passwordTerbaca
+        showToast(`${hasil.total} akun diekspor${tanpa > 0 ? ` (${tanpa} akun sudah ganti password)` : ''}`)
+      } else {
+        const r = await unduhPdfKartu(hasil, `${window.location.origin}/login`)
+        if (r.jumlahKartu === 0) {
+          showToast('Tidak ada kartu yang bisa dibuat: semua akun sudah mengganti password (atau username terlalu panjang). Reset password dulu.', 'error')
+        } else {
+          showToast(`${r.jumlahKartu} kartu dibuat${r.dilewati > 0 ? `, ${r.dilewati} akun dilewati (sudah ganti password / terlalu panjang)` : ''}`)
+        }
+      }
+      setEksporOpen(false)
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Gagal mengekspor akun', 'error')
+    } finally {
+      setEksporBusy(null)
+    }
   }
 
   // ── IMPOR PENGGUNA ─────────────────────────────────────────────────────
@@ -353,6 +391,9 @@ export default function AdminUsersPage() {
           <p className="page-subtitle">{users.length} pengguna terdaftar</p>
         </div>
         <div className="flex items-center gap-2">
+          <button onClick={() => setEksporOpen(true)} className="btn-secondary btn-sm">
+            <Download className="w-4 h-4" /> Ekspor Akun
+          </button>
           <button onClick={openImport} className="btn-secondary btn-sm">
             <Upload className="w-4 h-4" /> Impor
           </button>
@@ -802,6 +843,29 @@ export default function AdminUsersPage() {
               )}
             </div>
           )}
+        </div>
+      </Modal>
+
+      <Modal open={eksporOpen} onClose={() => { if (!eksporBusy) setEksporOpen(false) }} title="Ekspor Akun Pengguna" size="md">
+        <div className="space-y-4 text-sm text-slate-600">
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-amber-800 text-xs leading-relaxed">
+            <p className="font-semibold mb-1">File ini berisi password. Perlakukan sebagai rahasia.</p>
+            <ul className="list-disc pl-4 space-y-0.5">
+              <li>Akun Admin, akun tester, dan akun nonaktif tidak disertakan.</li>
+              <li>Yang tertulis hanya <b>password awal</b> (sama dengan username). Akun yang sudah mengganti passwordnya tidak ditampilkan; reset dulu lewat tombol reset di daftar.</li>
+              <li>Bagikan ke tiap guru hanya akunnya sendiri. Jangan kirim daftar lengkap ke grup.</li>
+            </ul>
+          </div>
+          <div className="grid gap-2">
+            <button onClick={() => handleEkspor('pdf')} disabled={!!eksporBusy} className="btn-primary justify-start">
+              {eksporBusy === 'pdf' ? <Spinner /> : <Download className="w-4 h-4" />}
+              Kartu akun (PDF) — digunting, satu kartu per guru
+            </button>
+            <button onClick={() => handleEkspor('excel')} disabled={!!eksporBusy} className="btn-secondary justify-start">
+              {eksporBusy === 'excel' ? <Spinner /> : <Download className="w-4 h-4" />}
+              Daftar lengkap (Excel) — untuk arsip admin
+            </button>
+          </div>
         </div>
       </Modal>
 
