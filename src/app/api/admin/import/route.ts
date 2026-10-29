@@ -94,7 +94,7 @@ export async function GET(req: NextRequest) {
         .in('nis', semuaNis.slice(i, i + 200))
         .neq('yayasan_id', yayasanId)
       if (error) {
-        return new Response(JSON.stringify({ error: `Gagal memeriksa NIS: ${error.message}` }), {
+        return new Response(JSON.stringify({ error: `Gagal memeriksa NISN: ${error.message}` }), {
           status: 500,
           headers: { 'Content-Type': 'application/json' },
         })
@@ -136,7 +136,7 @@ export async function GET(req: NextRequest) {
             const nama = String(row.nama ?? '').trim().toUpperCase()
             if (!nis || !nama) return null
             if (nisYayasanLain.has(nis)) {
-              errors.push(`NIS ${nis} (${nama}): NIS sudah terdaftar`)
+              errors.push(`NISN ${nis} (${nama}): NISN sudah terdaftar`)
               return null
             }
 

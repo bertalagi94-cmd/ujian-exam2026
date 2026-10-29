@@ -49,7 +49,7 @@ export const QA_ITEMS: QaSection[] = [
       },
       {
         q: 'Username saya apa?',
-        a: 'Siswa menggunakan NIS (Nomor Induk Siswa). Guru dan Kepala Sekolah menggunakan username yang dibuat oleh Admin saat pembuatan akun. Tidak ada peran "Pengawas" tersendiri — pengawas adalah guru yang ditugaskan menjaga sesi ujian tertentu.',
+        a: 'Siswa menggunakan NISN (Nomor Induk Siswa Nasional). Guru dan Kepala Sekolah menggunakan username yang dibuat oleh Admin saat pembuatan akun. Tidak ada peran "Pengawas" tersendiri — pengawas adalah guru yang ditugaskan menjaga sesi ujian tertentu.',
       },
       {
         q: 'Status ujian saya "RESET" / saya diminta kode, apa yang harus dilakukan?',
@@ -177,7 +177,7 @@ export const QA_ITEMS: QaSection[] = [
       },
       {
         q: 'Bagaimana cara import data siswa massal?',
-        a: 'Gunakan tombol import di halaman Data Siswa (bukan menu Import terpisah). Unduh template Excel yang tersedia di sana, isi data siswa sesuai format (NIS, nama, kelas, dll), lalu upload kembali. Sistem akan memvalidasi dan memasukkan data secara otomatis.',
+        a: 'Gunakan tombol import di halaman Data Siswa (bukan menu Import terpisah). Unduh template Excel yang tersedia di sana, isi data siswa sesuai format (NISN, nama, kelas, dll), lalu upload kembali. Sistem akan memvalidasi dan memasukkan data secara otomatis.',
       },
       {
         q: 'Apakah soal bisa digunakan ulang untuk ujian berikutnya?',

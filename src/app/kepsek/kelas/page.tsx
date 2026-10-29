@@ -151,7 +151,7 @@ export default function KepsekKelasPage() {
                           <thead>
                             <tr>
                               <th className="w-12">#</th>
-                              <th>NIS</th>
+                              <th>NISN</th>
                               <th>Nama Siswa</th>
                             </tr>
                           </thead>

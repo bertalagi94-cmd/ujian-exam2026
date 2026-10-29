@@ -955,10 +955,10 @@ export default function LoginPage() {
                   </div>
                 )}
                 <div>
-                  <label className="block text-sm font-medium text-slate-600 mb-1.5">Username / Email / NIS</label>
+                  <label className="block text-sm font-medium text-slate-600 mb-1.5">Username / Email / NISN</label>
                   <div className="relative">
                     <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                    <input type="text" placeholder="Masukkan username, email, atau NIS"
+                    <input type="text" placeholder="Masukkan username, email, atau NISN"
                       className="w-full pl-10 pr-4 py-3 rounded-xl text-sm text-slate-900 placeholder-slate-400 bg-slate-50 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-sky-400/60 focus:border-sky-400/60 transition-all"
                       value={form.username} onChange={e => setForm(f => ({ ...f, username: e.target.value }))}
                       autoComplete="username" autoFocus
@@ -1176,14 +1176,14 @@ export default function LoginPage() {
                       </div>
                     )}
                     <div>
-                      <label className="block text-sm font-medium text-slate-600 mb-1">Username / Email / NIS</label>
+                      <label className="block text-sm font-medium text-slate-600 mb-1">Username / Email / NISN</label>
                       <div className="relative"
                         style={{ transition: 'transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1)' }}
                         onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.transform = 'scale(1.03)' }}
                         onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.transform = 'scale(1)' }}
                       >
                         <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                        <input type="text" placeholder="Masukkan username, email, atau NIS"
+                        <input type="text" placeholder="Masukkan username, email, atau NISN"
                           className="w-full pl-10 pr-4 py-2 rounded-xl text-sm text-slate-900 placeholder-slate-400 bg-slate-50 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-sky-400/60 focus:border-sky-400/60 transition-all"
                           value={form.username}
                           onChange={e => { setForm(f => ({ ...f, username: e.target.value })); resetIdleTimer() }}

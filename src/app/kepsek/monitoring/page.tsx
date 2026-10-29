@@ -140,7 +140,7 @@ export default function KepsekMonitoringPage() {
                             <div className="table-wrapper">
                               <table className="table">
                                 <thead>
-                                  <tr><th>NIS</th><th>Nama Siswa</th></tr>
+                                  <tr><th>NISN</th><th>Nama Siswa</th></tr>
                                 </thead>
                                 <tbody>
                                   {r.siswaBelum.map(s => (

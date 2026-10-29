@@ -40,7 +40,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
   const sesiId = params.id
   const { nis } = await req.json()
 
-  if (!nis) return NextResponse.json({ error: 'NIS diperlukan' }, { status: 400 })
+  if (!nis) return NextResponse.json({ error: 'NISN diperlukan' }, { status: 400 })
 
   if (auth.user.role === 'GURU') {
     const sah = await verifySesiOwnership(db, sesiId, auth.user.username)

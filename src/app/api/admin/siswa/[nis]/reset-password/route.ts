@@ -23,5 +23,5 @@ export async function POST(req: NextRequest, props: { params: Promise<{ nis: str
   if (!data || data.length === 0) {
     return NextResponse.json({ error: 'Siswa tidak ditemukan' }, { status: 404 })
   }
-  return NextResponse.json({ message: 'Password berhasil direset ke NIS' })
+  return NextResponse.json({ message: 'Password berhasil direset ke NISN' })
 }

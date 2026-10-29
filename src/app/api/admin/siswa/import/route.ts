@@ -93,7 +93,7 @@ export async function POST(req: NextRequest) {
         .in('nis', semuaNis.slice(i, i + 200))
         .neq('yayasan_id', yayasanId)
       if (error) {
-        return new Response(JSON.stringify({ error: `Gagal memeriksa NIS: ${error.message}` }), {
+        return new Response(JSON.stringify({ error: `Gagal memeriksa NISN: ${error.message}` }), {
           status: 500,
           headers: { 'Content-Type': 'application/json' },
         })
@@ -136,7 +136,7 @@ export async function POST(req: NextRequest) {
       if (duplicateNis.length > 0) {
         send({
           type: 'warning',
-          message: `${duplicateNis.length} NIS muncul lebih dari sekali di file ini. Baris dengan NIS yang sama akan saling menimpa (baris terakhir yang dipakai) — hanya 1 siswa per NIS yang tersimpan.`,
+          message: `${duplicateNis.length} NISN muncul lebih dari sekali di file ini. Baris dengan NISN yang sama akan saling menimpa (baris terakhir yang dipakai) — hanya 1 siswa per NISN yang tersimpan.`,
           duplicateNis: duplicateNis.slice(0, 50),
         })
       }
@@ -157,7 +157,7 @@ export async function POST(req: NextRequest) {
             const nama = String(row.nama ?? '').trim().toUpperCase()
             if (!nis || !nama) return null
             if (nisYayasanLain.has(nis)) {
-              errors.push(`NIS ${nis} (${nama}): NIS sudah terdaftar`)
+              errors.push(`NISN ${nis} (${nama}): NISN sudah terdaftar`)
               return null
             }
 
@@ -217,7 +217,7 @@ export async function POST(req: NextRequest) {
           for (const record of upsertBatch) {
             const { error: rowError } = await db.from('siswa').upsert([record], { onConflict: 'nis' })
             if (rowError) {
-              errors.push(`NIS ${record.nis} (${record.nama}): ${rowError.message}`)
+              errors.push(`NISN ${record.nis} (${record.nama}): ${rowError.message}`)
               skipped++
             } else {
               inserted++

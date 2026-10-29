@@ -94,7 +94,7 @@ function KartuSiswaContent() {
           <div class="kartu-info">
             <div class="siswa-nama">${esc(siswa.nama)}</div>
             <table class="detail-table">
-              <tr><td>NIS</td><td>:</td><td><strong>${esc(siswa.nis)}</strong></td></tr>
+              <tr><td>NISN</td><td>:</td><td><strong>${esc(siswa.nis)}</strong></td></tr>
               <tr><td>Jenis Kelamin</td><td>:</td><td>${esc(siswa.jenis_kelamin ?? '-')}</td></tr>
               <tr><td>Tempat Lahir</td><td>:</td><td>${esc(siswa.tempat_lahir ?? '-')}</td></tr>
               <tr><td>Tanggal Lahir</td><td>:</td><td>${siswa.tanggal_lahir ? fmtTanggal(siswa.tanggal_lahir) : '-'}</td></tr>

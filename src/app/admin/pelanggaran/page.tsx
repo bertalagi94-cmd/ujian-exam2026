@@ -177,7 +177,7 @@ export default function AdminPelanggaranPage() {
           <SearchInput
             value={search}
             onChange={setSearch}
-            placeholder="Cari nama / NIS / jenis..."
+            placeholder="Cari nama / NISN / jenis..."
           />
           <select
             className="input"

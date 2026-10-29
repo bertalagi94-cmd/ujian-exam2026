@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
   const db = tenantDb(yayasanIdDari(auth.user))
   const { kodeSesi, nis, deviceId } = await req.json()
 
-  if (nis !== user.nis) return NextResponse.json({ valid: false, message: 'NIS tidak sesuai' })
+  if (nis !== user.nis) return NextResponse.json({ valid: false, message: 'NISN tidak sesuai' })
 
   // Ambil sesi aktif
   // FIX ARSITEKTUR KRITIS: sertakan paket_soal_id — kalau sesi ini SUDAH

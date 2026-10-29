@@ -147,7 +147,7 @@ export default function WaliKelasPage() {
       const wb = XLSX.utils.book_new()
 
       const ringkasanData = data.nilaiRekap.map((row, i) => {
-        const r: Record<string, unknown> = { No: i + 1, NIS: row.nis, 'Nama Siswa': row.nama }
+        const r: Record<string, unknown> = { No: i + 1, NISN: row.nis, 'Nama Siswa': row.nama }
         data.mapelList.forEach(mp => {
           const v = row[mp.mapel_id]
           if (v && typeof v === 'object') {
@@ -168,7 +168,7 @@ export default function WaliKelasPage() {
           const obj = v && typeof v === 'object' ? v as { nilai: number; grade: string; lulus: boolean } : null
           return {
             No: i + 1,
-            NIS: row.nis,
+            NISN: row.nis,
             'Nama Siswa': row.nama,
             Nilai: obj ? obj.nilai : '-',
             Grade: obj ? obj.grade : '-',

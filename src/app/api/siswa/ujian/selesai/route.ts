@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
   }
   const { sesiId, nis, waktuSelesaiClient, deviceId } = body
 
-  if (nis !== user.nis) return NextResponse.json({ error: 'NIS tidak sesuai' }, { status: 403 })
+  if (nis !== user.nis) return NextResponse.json({ error: 'NISN tidak sesuai' }, { status: 403 })
 
   // FIX BUG #1b: cek status siswa SEBELUM cek nilai. Sebelumnya endpoint ini
   // hanya peduli "apakah nilai sudah ada?" sehingga siswa yang sudah dikunci

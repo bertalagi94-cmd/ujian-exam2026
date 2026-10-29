@@ -189,7 +189,7 @@ function CetakContent() {
         </table>
         <table class="hadir-table">
           <thead>
-            <tr><th class="tc" style="width:40px">No</th><th style="width:120px">NIS</th><th>Nama Siswa</th><th style="width:140px">Tanda Tangan</th></tr>
+            <tr><th class="tc" style="width:40px">No</th><th style="width:120px">NISN</th><th>Nama Siswa</th><th style="width:140px">Tanda Tangan</th></tr>
           </thead>
           <tbody>${rows}</tbody>
         </table>

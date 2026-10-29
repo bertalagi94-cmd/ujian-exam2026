@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
   const { nis, nama, kelas, jenis_kelamin, tempat_lahir, tanggal_lahir, status } = body
 
   if (!nis || !nama || !kelas) {
-    return NextResponse.json({ error: 'NIS, nama, dan kelas wajib diisi' }, { status: 400 })
+    return NextResponse.json({ error: 'NISN, nama, dan kelas wajib diisi' }, { status: 400 })
   }
 
   const kelasNama = String(kelas).trim().toUpperCase()
@@ -99,7 +99,7 @@ export async function POST(req: NextRequest) {
   })
 
   if (error) {
-    if (error.code === '23505') return NextResponse.json({ error: 'NIS sudah terdaftar' }, { status: 409 })
+    if (error.code === '23505') return NextResponse.json({ error: 'NISN sudah terdaftar' }, { status: 409 })
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 

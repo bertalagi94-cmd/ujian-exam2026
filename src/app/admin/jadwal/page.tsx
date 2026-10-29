@@ -725,7 +725,7 @@ export default function AdminJadwalPage() {
       my += jumlahSoalLines.length * 5 + 3
 
       const colW = [12, 35, w - 12 - 35 - 38, 38]
-      const headers = ['No', 'NIS', 'Nama Siswa', 'Tanda Tangan']
+      const headers = ['No', 'NISN', 'Nama Siswa', 'Tanda Tangan']
       doc.setFillColor(220, 220, 220)
       doc.setDrawColor(0)
       let cx = lm

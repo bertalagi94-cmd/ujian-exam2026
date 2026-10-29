@@ -185,7 +185,7 @@ export const ROLES: RoleData[] = [
       {
         title: 'Login Siswa',
         icon: <User className="w-4 h-4" />,
-        detail: 'Gunakan NIS (Nomor Induk Siswa) sebagai username. Password default biasanya adalah NIS Anda. Hubungi admin/guru jika lupa password.',
+        detail: 'Gunakan NISN (Nomor Induk Siswa Nasional) sebagai username. Password default biasanya adalah NISN Anda. Hubungi admin/guru jika lupa password.',
       },
       {
         title: 'Dashboard & Jadwal',

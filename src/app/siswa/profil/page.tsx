@@ -119,7 +119,7 @@ export default function SiswaProfilPage() {
             </div>
             <div className="min-w-0">
               <div className="font-bold text-slate-900 text-lg truncate">{profil?.nama}</div>
-              <div className="text-sm text-slate-500">NIS {profil?.nis} &middot; Kelas {profil?.kelas}</div>
+              <div className="text-sm text-slate-500">NISN {profil?.nis} &middot; Kelas {profil?.kelas}</div>
               <span className={`badge mt-1 ${profil?.status === 'AKTIF' ? 'badge-green' : 'badge-red'}`}>
                 {profil?.status === 'AKTIF' ? 'Akun Aktif' : profil?.status}
               </span>
@@ -127,7 +127,7 @@ export default function SiswaProfilPage() {
           </div>
 
           <div className="mt-2">
-            <BiodataRow icon={CreditCard} label="NIS" value={profil?.nis} />
+            <BiodataRow icon={CreditCard} label="NISN" value={profil?.nis} />
             <BiodataRow icon={User} label="Nama Lengkap" value={profil?.nama} />
             <BiodataRow
               icon={GraduationCap}

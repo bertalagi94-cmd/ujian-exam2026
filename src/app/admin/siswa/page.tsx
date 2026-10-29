@@ -197,7 +197,7 @@ export default function AdminSiswaPage() {
     setSaving(true)
     try {
       await apiRequest(`/api/admin/siswa/${resetId}/reset-password`, { method: 'POST' })
-      showToast('Password berhasil direset ke NIS')
+      showToast('Password berhasil direset ke NISN')
       setResetId(null)
     } catch (err: unknown) {
       showToast(err instanceof Error ? err.message : 'Gagal reset', 'error')
@@ -232,7 +232,7 @@ export default function AdminSiswaPage() {
 
       const rows = res.data.map((s, i) => ({
         No: i + 1,
-        NIS: s.nis,
+        NISN: s.nis,
         'Nama Siswa': s.nama,
         Kelas: s.kelas,
         'Jenis Kelamin': s.jenis_kelamin ?? '',
@@ -261,7 +261,7 @@ export default function AdminSiswaPage() {
     const XLSX = await import('xlsx')
     const templateRows = [
       {
-        NIS: '12345',
+        NISN: '0012345678',
         'Nama Siswa': 'Contoh Nama Siswa',
         Kelas: 'X-A',
         'Jenis Kelamin': 'LAKI-LAKI',
@@ -270,7 +270,7 @@ export default function AdminSiswaPage() {
         Status: 'AKTIF',
       },
       {
-        NIS: '12346',
+        NISN: '0012345679',
         'Nama Siswa': 'Contoh Nama Siswi',
         Kelas: 'X-B',
         'Jenis Kelamin': 'PEREMPUAN',
@@ -289,7 +289,7 @@ export default function AdminSiswaPage() {
     XLSX.utils.sheet_add_aoa(ws, [
       [''],
       ['PETUNJUK PENGISIAN:'],
-      ['- NIS: wajib diisi, unik'],
+      ['- NISN: wajib diisi, unik (Nomor Induk Siswa Nasional, 10 digit)'],
       ['- Nama Siswa: wajib diisi'],
       ['- Kelas: wajib diisi (sesuai nama kelas yang ada)'],
       ['- Jenis Kelamin: LAKI-LAKI atau PEREMPUAN'],
@@ -323,9 +323,9 @@ export default function AdminSiswaPage() {
         const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws)
 
         const parsed: Partial<Siswa>[] = rows
-          .filter(r => r['NIS'] && r['Nama Siswa'])
+          .filter(r => (r['NISN'] ?? r['NIS']) && r['Nama Siswa'])
           .map(r => ({
-            nis: String(r['NIS']).trim(),
+            nis: String(r['NISN'] ?? r['NIS']).trim(),
             nama: String(r['Nama Siswa']).trim(),
             kelas: String(r['Kelas'] ?? '').trim(),
             jenis_kelamin: r['Jenis Kelamin']
@@ -337,7 +337,7 @@ export default function AdminSiswaPage() {
           }))
 
         if (parsed.length === 0) {
-          showToast('Tidak ada data valid ditemukan. Pastikan kolom NIS dan Nama Siswa terisi.', 'error')
+          showToast('Tidak ada data valid ditemukan. Pastikan kolom NISN dan Nama Siswa terisi.', 'error')
           return
         }
 
@@ -518,7 +518,7 @@ export default function AdminSiswaPage() {
         <SearchInput
           value={search}
           onChange={v => { setSearch(v); setPage(1) }}
-          placeholder="Cari nama atau NIS..."
+          placeholder="Cari nama atau NISN..."
           className="flex-1 min-w-[200px]"
         />
         <select
@@ -581,7 +581,7 @@ export default function AdminSiswaPage() {
               <thead>
                 <tr>
                   <th>#</th>
-                  <th>NIS</th>
+                  <th>NISN</th>
                   <th>Nama Siswa</th>
                   <th>Kelas</th>
                   <th>Jenis Kelamin</th>
@@ -672,8 +672,8 @@ export default function AdminSiswaPage() {
         <form id="siswa-form" onSubmit={handleSave} className="space-y-4">
           {!editData?.nis && (
             <div>
-              <label className="label">NIS *</label>
-              <input name="nis" className="input" placeholder="Nomor Induk Siswa" required defaultValue={editData?.nis} />
+              <label className="label">NISN *</label>
+              <input name="nis" className="input" placeholder="Nomor Induk Siswa Nasional (NISN)" required defaultValue={editData?.nis} />
             </div>
           )}
           <div>
@@ -753,7 +753,7 @@ export default function AdminSiswaPage() {
           </div>
           {!editData?.nis && (
             <div className="alert-info text-xs">
-              Password default: NIS siswa. Siswa dapat menggantinya setelah login pertama.
+              Password default: NISN siswa. Siswa dapat menggantinya setelah login pertama.
             </div>
           )}
 
@@ -826,14 +826,14 @@ export default function AdminSiswaPage() {
         {importProgress.phase === 'idle' && (
           <div className="space-y-3">
             <div className="alert-info text-xs">
-              Periksa data berikut sebelum mengimpor. Siswa dengan NIS yang sudah ada akan diperbarui (upsert).
+              Periksa data berikut sebelum mengimpor. Siswa dengan NISN yang sudah ada akan diperbarui (upsert).
             </div>
             <div className="max-h-80 overflow-y-auto">
               <table className="table text-xs w-full">
                 <thead>
                   <tr>
                     <th>#</th>
-                    <th>NIS</th>
+                    <th>NISN</th>
                     <th>Nama</th>
                     <th>Kelas</th>
                     <th>JK</th>
@@ -865,7 +865,7 @@ export default function AdminSiswaPage() {
                 <p className="font-semibold">⚠ {importProgress.duplicateWarning.message}</p>
                 {importProgress.duplicateWarning.duplicateNis.length > 0 && (
                   <p className="mt-1 text-xs text-amber-700 font-mono break-all">
-                    NIS terdampak: {importProgress.duplicateWarning.duplicateNis.join(', ')}
+                    NISN terdampak: {importProgress.duplicateWarning.duplicateNis.join(', ')}
                   </p>
                 )}
               </div>
@@ -950,7 +950,7 @@ export default function AdminSiswaPage() {
                 <p className="font-semibold">⚠ {importProgress.duplicateWarning.message}</p>
                 {importProgress.duplicateWarning.duplicateNis.length > 0 && (
                   <p className="mt-1 text-xs text-amber-700 font-mono break-all">
-                    NIS terdampak: {importProgress.duplicateWarning.duplicateNis.join(', ')}
+                    NISN terdampak: {importProgress.duplicateWarning.duplicateNis.join(', ')}
                   </p>
                 )}
               </div>
@@ -1019,7 +1019,7 @@ export default function AdminSiswaPage() {
         onClose={() => setResetId(null)}
         onConfirm={handleReset}
         title="Reset Password"
-        message="Password siswa akan direset ke NIS-nya. Lanjutkan?"
+        message="Password siswa akan direset ke NISN-nya. Lanjutkan?"
         confirmLabel="Reset Password"
         variant="primary"
         loading={saving}

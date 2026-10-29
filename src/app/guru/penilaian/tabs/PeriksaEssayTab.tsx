@@ -564,7 +564,7 @@ export function PeriksaEssayTab({
                             >
                               <td>
                                 <p className="font-semibold text-slate-900">{p.nama}</p>
-                                <p className="text-xs text-slate-400">NIS {p.nis}</p>
+                                <p className="text-xs text-slate-400">NISN {p.nis}</p>
                               </td>
                               <td>
                                 {p.nilaiPg ? (

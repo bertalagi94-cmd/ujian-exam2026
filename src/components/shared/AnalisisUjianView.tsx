@@ -545,7 +545,7 @@ export default function AnalisisUjianView({ apiPath, showMapelFilter = false, sh
                   <span className="w-6 text-xs text-slate-400 text-right flex-shrink-0">{i + 1}</span>
                   <div>
                     <div className="text-sm font-medium text-slate-800">{s.nama}</div>
-                    <div className="text-xs text-slate-400">NIS: {s.nis}</div>
+                    <div className="text-xs text-slate-400">NISN: {s.nis}</div>
                   </div>
                 </div>
               ))}
