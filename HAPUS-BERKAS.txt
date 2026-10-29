@@ -1,0 +1,6 @@
+Hapus berkas-berkas ini dari repo Anda (tidak bisa dihapus lewat zip):
+src/app/api/admin/monitoring/daftar/route.ts
+src/app/api/admin/monitoring/live/route.ts
+src/app/api/admin/monitoring/route.ts
+src/components/shared/MonitoringPanel.tsx
+src/components/shared/NetworkFlowMonitor.tsx

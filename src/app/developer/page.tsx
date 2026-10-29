@@ -19,7 +19,26 @@ interface Pengajuan {
   created_at: string; diputuskan_at: string | null; kode_sekolah?: string | null
 }
 
-type Tab = 'pengajuan' | 'sekolah' | 'branding'
+interface MonitorData {
+  server: {
+    status: 'AMAN' | 'NORMAL' | 'WASPADA' | 'BERAT' | 'KRITIS'; alasan: string[]
+    totalRequest: number; errorCount: number; errorRatePersen: number
+    avgLatencyMs: number; p95LatencyMs: number; dbResponseMs: number; windowMenit: number; timestamp: string
+    perEndpoint: Record<string, { total: number; error: number; avgMs: number; p95Ms: number }>
+  }
+  histori: Array<{ mulai: string; total: number; errorRatePersen: number; avgLatencyMs: number }>
+  total: { sesiBerjalan: number; siswaAktif: number; login24Jam: number }
+  sekolah: Array<{ id: string; nama: string; status: string; sesiBerjalan: number; siswaAktif: number; maintenance: boolean }>
+}
+const WARNA_STATUS: Record<string, string> = {
+  AMAN: 'text-emerald-300 bg-emerald-400/10 ring-emerald-400/30',
+  NORMAL: 'text-sky-300 bg-sky-400/10 ring-sky-400/30',
+  WASPADA: 'text-amber-300 bg-amber-400/10 ring-amber-400/30',
+  BERAT: 'text-orange-300 bg-orange-400/10 ring-orange-400/30',
+  KRITIS: 'text-rose-300 bg-rose-400/10 ring-rose-400/30',
+}
+
+type Tab = 'pengajuan' | 'sekolah' | 'monitor' | 'branding'
 type FilterStatus = 'SEMUA' | 'AKTIF' | 'NONAKTIF' | 'MENUNGGU'
 type Tone = 'emerald' | 'rose' | 'amber'
 
@@ -170,6 +189,9 @@ export default function DeveloperPage() {
   const [bukaRiwayat, setBukaRiwayat] = useState(false)
   const [seret, setSeret] = useState(false)
   const [jam, setJam] = useState('')
+  // Monitor server GLOBAL (semua sekolah). Dimuat & disegarkan otomatis hanya saat tab dibuka.
+  const [mon, setMon] = useState<MonitorData | null>(null)
+  const [monGagal, setMonGagal] = useState('')
   // Mode maintenance per sekolah (diatur dari sini, bukan lagi dari akun Super Admin).
   const [mt, setMt] = useState<{ y: Yayasan; aktif: boolean; pesan: string; mulai: string; selesai: string; memuat: boolean } | null>(null)
   const toastId = useRef(0)
@@ -288,6 +310,18 @@ export default function DeveloperPage() {
     } else { kirim() }
   }
 
+  const muatMonitor = useCallback(async () => {
+    try { setMon(await api('/api/developer/monitor')); setMonGagal('') }
+    catch (e) { setMonGagal((e as Error).message) }
+  }, [api])
+
+  useEffect(() => {
+    if (tab !== 'monitor' || !ready) return
+    void muatMonitor()
+    const t = setInterval(() => { if (!document.hidden) void muatMonitor() }, 15_000)
+    return () => clearInterval(t)
+  }, [tab, ready, muatMonitor])
+
   async function bukaMaintenance(y: Yayasan) {
     setMt({ y, aktif: false, pesan: '', mulai: '', selesai: '', memuat: true })
     try {
@@ -382,6 +416,7 @@ export default function DeveloperPage() {
   const TABS: { id: Tab; label: string; ikon: React.ReactNode; badge?: number }[] = [
     { id: 'pengajuan', label: 'Pengajuan', ikon: <Inbox className="w-4 h-4" />, badge: pengajuan.menunggu.length },
     { id: 'sekolah', label: 'Daftar Sekolah', ikon: <Building2 className="w-4 h-4" />, badge: stat.total },
+    { id: 'monitor', label: 'Monitor Server', ikon: <Activity className="w-4 h-4" /> },
     { id: 'branding', label: 'Logo Aplikasi', ikon: <Sparkles className="w-4 h-4" /> },
   ]
 
@@ -666,6 +701,95 @@ export default function DeveloperPage() {
                   )
                 })}
               </div>
+            )}
+          </section>
+        )}
+
+        {/* ── TAB: Monitor server (global) ── */}
+        {tab === 'monitor' && (
+          <section className="space-y-4 dv-masuk">
+            {monGagal && <div className="dv-kaca rounded-2xl p-4 text-sm text-rose-300">{monGagal}</div>}
+            {!mon ? (
+              <div className="grid md:grid-cols-3 gap-3">{[0, 1, 2].map(i => <div key={i} className="h-28 rounded-2xl dv-skel" />)}</div>
+            ) : (
+              <>
+                <div className="dv-kaca rounded-2xl p-5 md:p-6">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <span className={`px-3 py-1 rounded-full text-sm font-bold ring-1 ${WARNA_STATUS[mon.server.status]}`}>{mon.server.status}</span>
+                      <p className="text-sm text-slate-400">Status server ({mon.server.windowMenit} menit terakhir, semua sekolah)</p>
+                    </div>
+                    <button onClick={() => void muatMonitor()} className="inline-flex items-center gap-1.5 text-xs text-slate-300 hover:text-white"><RefreshCw className="w-3.5 h-3.5" />Segarkan</button>
+                  </div>
+                  {mon.server.alasan.length > 0 && (
+                    <ul className="mt-3 space-y-1 text-sm text-amber-200/90 list-disc list-inside">{mon.server.alasan.map(a => <li key={a}>{a}</li>)}</ul>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  {[
+                    { l: 'Request', v: mon.server.totalRequest.toLocaleString('id-ID'), s: `${mon.server.errorCount} gagal` },
+                    { l: 'Error rate', v: `${mon.server.errorRatePersen}%`, s: `${mon.server.windowMenit} menit` },
+                    { l: 'Latensi rata-rata', v: `${mon.server.avgLatencyMs} ms`, s: `p95 ${mon.server.p95LatencyMs} ms` },
+                    { l: 'Ping database', v: `${mon.server.dbResponseMs} ms`, s: 'saat ini' },
+                    { l: 'Sesi berjalan', v: String(mon.total.sesiBerjalan), s: 'semua sekolah' },
+                    { l: 'Siswa mengerjakan', v: String(mon.total.siswaAktif), s: 'semua sekolah' },
+                    { l: 'Login', v: mon.total.login24Jam.toLocaleString('id-ID'), s: '24 jam terakhir' },
+                  ].map(k => (
+                    <div key={k.l} className="dv-kaca rounded-2xl p-4">
+                      <p className="text-[11px] uppercase tracking-wider text-slate-500">{k.l}</p>
+                      <p className="text-xl font-extrabold text-white tabular-nums mt-1">{k.v}</p>
+                      <p className="text-xs text-slate-500">{k.s}</p>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="dv-kaca rounded-2xl p-5">
+                  <h3 className="font-bold text-white text-sm">Per endpoint</h3>
+                  <div className="mt-3 overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead><tr className="text-left text-[11px] uppercase tracking-wider text-slate-500"><th className="py-1.5">Endpoint</th><th>Request</th><th>Gagal</th><th>Rata-rata</th><th>p95</th></tr></thead>
+                      <tbody className="text-slate-200 tabular-nums">
+                        {Object.entries(mon.server.perEndpoint).map(([ep, e]) => (
+                          <tr key={ep} className="border-t border-white/5"><td className="py-1.5">{ep}</td><td>{e.total}</td><td className={e.error ? 'text-rose-300' : ''}>{e.error}</td><td>{e.avgMs} ms</td><td>{e.p95Ms} ms</td></tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div className="dv-kaca rounded-2xl p-5">
+                  <h3 className="font-bold text-white text-sm">Riwayat 1 jam (per 5 menit)</h3>
+                  <div className="mt-3 flex items-end gap-1 h-24">
+                    {mon.histori.map(h => {
+                      const maks = Math.max(1, ...mon.histori.map(x => x.total))
+                      return (
+                        <div key={h.mulai} className="flex-1 flex flex-col justify-end h-full" title={`${new Date(h.mulai).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} · ${h.total} request · ${h.errorRatePersen}% gagal · ${h.avgLatencyMs} ms`}>
+                          <div className={`rounded-t ${h.errorRatePersen >= 8 ? 'bg-rose-400' : h.errorRatePersen > 0 ? 'bg-amber-400' : 'bg-emerald-400'}`} style={{ height: `${Math.max(3, (h.total / maks) * 100)}%` }} />
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                <div className="dv-kaca rounded-2xl p-5">
+                  <h3 className="font-bold text-white text-sm">Ringkasan per sekolah</h3>
+                  <div className="mt-3 overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead><tr className="text-left text-[11px] uppercase tracking-wider text-slate-500"><th className="py-1.5">Sekolah</th><th>Sesi berjalan</th><th>Siswa mengerjakan</th><th>Status</th></tr></thead>
+                      <tbody className="text-slate-200 tabular-nums">
+                        {mon.sekolah.map(k => (
+                          <tr key={k.id} className="border-t border-white/5">
+                            <td className="py-1.5">{k.nama}</td><td>{k.sesiBerjalan}</td><td>{k.siswaAktif}</td>
+                            <td>{k.maintenance ? <span className="text-amber-300">Maintenance</span> : k.status === 'AKTIF' ? 'Aktif' : k.status}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className="mt-3 text-xs text-slate-500 flex items-center gap-1.5"><ShieldCheck className="w-3.5 h-3.5" />Hanya hitungan; tidak ada data siswa, jawaban, atau nilai.</p>
+                </div>
+              </>
             )}
           </section>
         )}

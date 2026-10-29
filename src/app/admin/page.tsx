@@ -4,9 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Users, BookOpen, GraduationCap, BarChart3, Calendar, ClipboardCheck, TrendingUp, AlertCircle } from 'lucide-react'
 import { StatCard, PageLoader, Badge, StatusBadge } from '@/components/ui'
 import { apiRequest, formatDateTime, nilaiColor, fetchPublik } from '@/lib/utils'
-import MonitoringPanel from '@/components/shared/MonitoringPanel'
 import { SesiBelumDitutupAdmin } from '@/components/shared/SesiBelumDitutupAdmin'
-import NetworkFlowMonitor from '@/components/shared/NetworkFlowMonitor'
 
 interface DashboardData {
   stats: {
@@ -171,11 +169,6 @@ export default function AdminDashboard() {
         </div>
       </div>
 
-      {/* Floating Monitoring Panel */}
-      <MonitoringPanel />
-
-      {/* Network Flow Monitor - diagram alir realtime */}
-      <NetworkFlowMonitor />
     </div>
   )
 }
