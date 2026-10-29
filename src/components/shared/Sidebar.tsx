@@ -7,7 +7,7 @@ import {
   LayoutDashboard, Users, BookOpen, Calendar, ClipboardList,
   BarChart3, Settings, LogOut, Menu, X, ChevronRight, ChevronLeft,
   GraduationCap, School, User, FileText, Eye, ShieldAlert,
-  FileBarChart, CheckSquare, Send, CalendarDays, TrendingUp, Radio
+  FileBarChart, CheckSquare, Send, CalendarDays, TrendingUp, Radio, UserCheck
 } from 'lucide-react'
 import { cn, apiRequest, fetchPublik } from '@/lib/utils'
 import { AuthUser } from '@/types'
@@ -470,6 +470,7 @@ export function AdminSidebar() {
     { label: 'Kelas', href: '/admin/kelas', icon: School, section: 'Data Master' },
     { label: 'Data Siswa', href: '/admin/siswa', icon: Users },
     { label: 'Data Pengguna', href: '/admin/users', icon: User },
+    { label: 'Admin Kelas', href: '/admin/admin-kelas', icon: UserCheck },
     { label: 'Mata Pelajaran', href: '/admin/mapel', icon: BookOpen },
     { label: 'Jadwal Ujian', href: '/admin/jadwal', icon: Calendar, section: 'Persiapan Ujian' },
     { label: 'Kisi-kisi', href: '/admin/kisi-kisi', icon: FileText },
@@ -504,6 +505,7 @@ export function GuruSidebar() {
   const counts = useBadgeCounts('GURU')
   const [isWaliKelas, setIsWaliKelas] = useState(false)
   const [hasPengawasan, setHasPengawasan] = useState(false)
+  const [isAdminKelas, setIsAdminKelas] = useState(false)
   const pathname = usePathname()
 
   useEffect(() => {
@@ -516,6 +518,10 @@ export function GuruSidebar() {
 
     apiRequest<{ hasJadwal?: boolean; data?: unknown[] }>('/api/guru/jadwal-pengawasan', { timeoutMs: 8_000 })
       .then(d => { if (d.hasJadwal || (d.data && d.data.length > 0)) setHasPengawasan(true) })
+      .catch(() => {})
+
+    apiRequest<{ isAdminKelas?: boolean }>('/api/guru/admin-kelas/saya', { timeoutMs: 8_000 })
+      .then(d => { if (d.isAdminKelas) setIsAdminKelas(true) })
       .catch(() => {})
   }, [])
 
@@ -600,6 +606,10 @@ export function GuruSidebar() {
     // peran yang berbeda dari menu penilaian mapel biasa.
     tugasTambahan.push({ label: 'Wali Kelas', href: '/guru/wali-kelas', icon: School, variant: 'highlight' })
   }
+  if (isAdminKelas) {
+    // Badge merah = jumlah paket soal menunggu validasi di kelas wilayahnya.
+    tugasTambahan.push({ label: 'Admin Kelas', href: '/guru/admin-kelas', icon: ClipboardList, variant: 'highlight', badge: counts.adminKelas || undefined })
+  }
   if (tugasTambahan.length > 0) tugasTambahan[0].section = 'Tugas Tambahan'
   navItems.push(...tugasTambahan)
 
@@ -607,7 +617,7 @@ export function GuruSidebar() {
     <Sidebar
       role="GURU"
       roleColor="bg-emerald-600"
-      roleLabel={isWaliKelas ? 'Guru & Wali Kelas' : 'Guru'}
+      roleLabel={isWaliKelas ? 'Guru & Wali Kelas' : isAdminKelas ? 'Guru & Admin Kelas' : 'Guru'}
       accent="#059669"
       navItems={navItems}
     />

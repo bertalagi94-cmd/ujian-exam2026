@@ -44,6 +44,7 @@ export const TABEL_PER_YAYASAN: ReadonlySet<string> = new Set([
   'pelanggaran',
   // Ditambahkan di migrasi 44 (izin akses Layar Pantau untuk guru).
   'izin_layar_pantau',
+  'admin_kelas',
 ])
 
 /** Saklar keamanan: pendaftaran yayasan baru hanya boleh jalan kalau 'true'. */

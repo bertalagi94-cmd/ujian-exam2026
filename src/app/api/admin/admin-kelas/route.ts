@@ -1,0 +1,84 @@
+// /api/admin/admin-kelas — Super Admin menunjuk guru sebagai Admin Kelas.
+//
+// GET : daftar guru + kelas yang dipegang masing-masing, plus daftar semua kelas.
+// PUT : { username, kelas_ids: string[] } — GANTI seluruh penugasan guru itu.
+//       kelas_ids kosong = cabut status Admin Kelas.
+import { NextRequest, NextResponse } from 'next/server'
+import { requireRole } from '@/lib/auth'
+import { tenantDb, yayasanIdDari, idsMilikYayasan } from '@/lib/tenant'
+import { catatAktivitas } from '@/lib/aktivitas'
+
+export const dynamic = 'force-dynamic'
+
+export async function GET(req: NextRequest) {
+  const auth = requireRole(req, ['ADMIN'])
+  if ('error' in auth) return auth.error
+  const db = tenantDb(yayasanIdDari(auth.user))
+
+  const [guru, kelas, tugas] = await Promise.all([
+    db.from('users').select('username, nama, status').eq('role', 'GURU').order('nama'),
+    db.from('kelas').select('id, nama').order('nama'),
+    db.from('admin_kelas').select('username, kelas_id'),
+  ])
+  const err = guru.error ?? kelas.error ?? tugas.error
+  if (err) return NextResponse.json({ error: err.message }, { status: 500 })
+
+  const peta: Record<string, string[]> = {}
+  for (const t of (tugas.data ?? []) as any[]) (peta[t.username] ??= []).push(String(t.kelas_id))
+
+  return NextResponse.json({
+    guru: (guru.data ?? []).map((g: any) => ({
+      username: g.username, nama: g.nama, status: g.status,
+      kelas_ids: peta[g.username] ?? [],
+    })),
+    kelas: (kelas.data ?? []).map((k: any) => ({ id: String(k.id), nama: String(k.nama) })),
+  })
+}
+
+export async function PUT(req: NextRequest) {
+  const auth = requireRole(req, ['ADMIN'])
+  if ('error' in auth) return auth.error
+  const yayasanId = yayasanIdDari(auth.user)
+  const db = tenantDb(yayasanId)
+
+  const body = await req.json().catch(() => null)
+  const username = typeof body?.username === 'string' ? body.username : ''
+  const kelasIds: string[] = Array.isArray(body?.kelas_ids) ? [...new Set(body.kelas_ids.map(String))] as string[] : []
+  if (!username) return NextResponse.json({ error: 'username wajib diisi' }, { status: 400 })
+
+  // Hanya akun GURU milik yayasan ini yang bisa ditunjuk.
+  const { data: guru, error: gErr } = await db
+    .from('users').select('username, role').eq('username', username).maybeSingle()
+  if (gErr) return NextResponse.json({ error: gErr.message }, { status: 500 })
+  if (!guru || guru.role !== 'GURU') {
+    return NextResponse.json({ error: 'Hanya akun guru yang dapat ditunjuk sebagai Admin Kelas.' }, { status: 400 })
+  }
+  if (!(await idsMilikYayasan(db, 'kelas', kelasIds))) {
+    return NextResponse.json({ error: 'Ada kelas yang tidak valid.' }, { status: 400 })
+  }
+
+  const { data: ada, error: aErr } = await db.from('admin_kelas').select('kelas_id').eq('username', username)
+  if (aErr) return NextResponse.json({ error: aErr.message }, { status: 500 })
+  const lama = new Set((ada ?? []).map((r: any) => String(r.kelas_id)))
+  const baru = new Set(kelasIds)
+
+  const tambah = kelasIds.filter(id => !lama.has(id))
+  const hapus = [...lama].filter(id => !baru.has(id))
+
+  // Tambah dulu, baru hapus: guru tidak pernah sempat "kehilangan akses" di tengah proses.
+  if (tambah.length) {
+    const { error } = await db.from('admin_kelas').insert(
+      tambah.map(kelas_id => ({ username, kelas_id, ditugaskan_oleh: auth.user.username }))
+    )
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+  if (hapus.length) {
+    const { error } = await db.from('admin_kelas').delete().eq('username', username).in('kelas_id', hapus)
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+
+  catatAktivitas(db, auth.user.username, 'ATUR_ADMIN_KELAS',
+    `${username}: ${kelasIds.length} kelas (+${tambah.length} / -${hapus.length})`)
+  return NextResponse.json({ message: kelasIds.length ? 'Penugasan Admin Kelas disimpan' : 'Status Admin Kelas dicabut' })
+}
+

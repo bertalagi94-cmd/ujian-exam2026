@@ -12,6 +12,7 @@ import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRole } from '@/lib/auth'
 import { getGuruSekolahScope } from '@/lib/kepsek-scope'
 import { hitungUjianDibukaSiswa } from '@/lib/sesi-dibuka-siswa'
+import { getKelasAdminKelas } from '@/lib/admin-kelas'
 
 export const dynamic = 'force-dynamic'
 
@@ -96,9 +97,30 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    // Admin Kelas: paket PG + Essay MENUNGGU di kelas wilayahnya (selain buatannya
+    // sendiri, karena itu tidak bisa ia proses). Bukan Admin Kelas → semua 0.
+    // Gagal menghitung tidak boleh merusak badge guru lain: anggap 0.
+    let adminKelasPg = 0
+    let adminKelasEssay = 0
+    try {
+      const wilayah = await getKelasAdminKelas(db, user.username)
+      if (wilayah.length > 0) {
+        const kelasIds = wilayah.map(k => k.id)
+        const hitung = (tabel: string) =>
+          db.from(tabel).select('*', { count: 'exact', head: true })
+            .eq('status', 'MENUNGGU').in('kelas_id', kelasIds).neq('guru_id', user.username)
+        const [pg, essay] = await Promise.all([hitung('paket_soal'), hitung('paket_essay')])
+        adminKelasPg = pg.count ?? 0
+        adminKelasEssay = essay.count ?? 0
+      }
+    } catch { /* badge opsional */ }
+
     return NextResponse.json({
       bankSoal: disetujui ?? 0,
       kisiKisiBaru,
+      adminKelas: adminKelasPg + adminKelasEssay,
+      adminKelasPg,
+      adminKelasEssay,
     })
   }
 
