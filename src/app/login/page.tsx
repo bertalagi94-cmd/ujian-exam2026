@@ -6,21 +6,20 @@ import { useRouter, usePathname } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import {
   Eye, EyeOff, BookOpen, Lock, User, AlertCircle, X,
-  Shield, BarChart2, BookMarked, CheckCircle, Monitor,
-  Radio, HelpCircle,
+  Shield, BarChart2, CheckCircle, Monitor,
+  Radio, Info,
   Maximize, Minimize,
 } from 'lucide-react'
 import WitaClock from '@/components/login/WitaClock'
 import LayarPantauMenu from '@/components/login/LayarPantauMenu'
 import WelcomeSplash from '@/components/login/WelcomeSplash'
 
-// PERF: modal Panduan/QA berisi cukup banyak JSX + data (FAQ,
-// langkah panduan per role) yang hanya dibutuhkan KALAU tombolnya diklik.
-// Dengan next/dynamic({ ssr: false }), kode ini dipisah ke chunk JS
-// terpisah dan baru di-download saat modal pertama kali dibuka — tidak
-// lagi ikut initial bundle halaman /login.
-const GuideModal = dynamic(() => import('@/components/login/GuideModal'), { ssr: false })
-const QAModal = dynamic(() => import('@/components/login/QAModal'), { ssr: false })
+// PERF: jendela "Tentang" (Fitur + Panduan + Q&A) berisi cukup banyak JSX +
+// data yang hanya dibutuhkan KALAU tombolnya diklik. Dengan
+// next/dynamic({ ssr: false }), kode ini dipisah ke chunk JS terpisah dan
+// baru di-download saat jendela pertama kali dibuka — tidak lagi ikut
+// initial bundle halaman /login.
+const TentangModal = dynamic(() => import('@/components/login/TentangModal'), { ssr: false })
 
 interface SiteInfo {
   namaSekolah: string
@@ -57,7 +56,7 @@ interface JuaraItem {
 }
 
 // PERF: ROLES & QA_ITEMS dipindah ke RolesData.tsx / QaData.tsx (dipakai
-// oleh GuideModal / QAModal yang di-lazy-load), tidak lagi didefinisikan di sini.
+// oleh TentangModal yang di-lazy-load), tidak lagi didefinisikan di sini.
 function DevCredit() {
   return (
     <div className="flex justify-center mt-3">
@@ -151,8 +150,7 @@ export default function LoginPage() {
   const spotlightRef = useRef<HTMLDivElement>(null)
 
   // Modal state
-  const [showGuide, setShowGuide] = useState(false)
-  const [showQA, setShowQA] = useState(false)
+  const [showTentang, setShowTentang] = useState(false)
   const [mobileLoginOpen, setMobileLoginOpen] = useState(false)
   // Jaga-jaga tambahan: Next.js kadang memakai ulang instance halaman
   // /login yang sudah pernah dikunjungi (mis. sebelum login) alih-alih
@@ -562,10 +560,10 @@ export default function LoginPage() {
   }, [])
 
   useEffect(() => {
-    if (showGuide || showQA) { document.body.style.overflow = 'hidden' }
+    if (showTentang) { document.body.style.overflow = 'hidden' }
     else { document.body.style.overflow = '' }
     return () => { document.body.style.overflow = '' }
-  }, [showGuide, showQA])
+  }, [showTentang])
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault()
@@ -909,16 +907,11 @@ export default function LoginPage() {
                     Login
                   </button>
 
-                  <div className="flex gap-2">
-                    <button type="button" onClick={() => setShowGuide(true)}
-                      className="flex-1 flex flex-col items-center justify-center gap-1 py-2.5 rounded-xl text-slate-600 hover:text-slate-900 bg-white/90 border border-white/60 text-[10px] font-medium transition-all">
-                      <BookMarked className="w-4 h-4" /> Panduan
-                    </button>
-                    <button type="button" onClick={() => setShowQA(true)}
-                      className="flex-1 flex flex-col items-center justify-center gap-1 py-2.5 rounded-xl text-slate-600 hover:text-slate-900 bg-white/90 border border-white/60 text-[10px] font-medium transition-all">
-                      <HelpCircle className="w-4 h-4" /> Q&amp;A
-                    </button>
-                  </div>
+                  {/* Tentang (Fitur + Panduan + Q&A) — 1 tombol. */}
+                  <button type="button" onClick={() => setShowTentang(true)}
+                    className="flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-slate-600 hover:text-slate-900 bg-white/90 border border-white/60 text-xs font-medium transition-all">
+                    <Info className="w-4 h-4" /> Tentang
+                  </button>
                 </div>
               </div>
             ) : (
@@ -1014,17 +1007,6 @@ export default function LoginPage() {
               </div>
             </div>
 
-            {/* Panduan / Q&A — 2 pil senada */}
-            <div className="flex gap-2 mt-4">
-              <button type="button" onClick={() => setShowGuide(true)}
-                className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-slate-500 hover:text-slate-800 bg-white/70 border border-slate-200 hover:border-slate-300 text-xs font-medium transition-all">
-                <BookMarked className="w-3.5 h-3.5" /> Panduan
-              </button>
-              <button type="button" onClick={() => setShowQA(true)}
-                className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-slate-500 hover:text-slate-800 bg-white/70 border border-slate-200 hover:border-slate-300 text-xs font-medium transition-all">
-                <HelpCircle className="w-3.5 h-3.5" /> Q&amp;A
-              </button>
-            </div>
             <DevCredit />
             </>
             )}
@@ -1224,16 +1206,6 @@ export default function LoginPage() {
 
                   <div className="mt-3 pt-3 border-t border-slate-300/70 space-y-2">
                     <p className="text-xs font-medium text-slate-700 text-center">Lupa password? Hubungi administrator sekolah.</p>
-                    <div className="flex gap-2">
-                      <button type="button" onClick={() => { setShowGuide(true); resetIdleTimer() }}
-                        className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-xl bg-white/85 border border-slate-300 text-slate-700 hover:text-slate-900 hover:bg-white hover:border-slate-400 shadow-sm text-xs font-semibold transition-all">
-                        <BookMarked className="w-3.5 h-3.5" /> Panduan
-                      </button>
-                      <button type="button" onClick={() => { setShowQA(true); resetIdleTimer() }}
-                        className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-xl bg-white/85 border border-slate-300 text-slate-700 hover:text-slate-900 hover:bg-white hover:border-slate-400 shadow-sm text-xs font-semibold transition-all">
-                        <HelpCircle className="w-3.5 h-3.5" /> Q&amp;A
-                      </button>
-                    </div>
                     {/* Menu Layar Pantau — hanya laptop (disembunyikan di Android/HP) */}
                     <LayarPantauMenu compact />
                     <DevCredit />
@@ -1286,9 +1258,19 @@ export default function LoginPage() {
         </div>
       </div>
 
-      {/* Menu pojok kanan bawah: Ajukan Aktivasi + Login Developer, sejajar.
-          Hanya tampil di laptop/komputer (lg+); disembunyikan di HP. */}
+      {/* Menu pojok kanan bawah: Tentang + Ajukan Aktivasi + Login Developer, sejajar.
+          Hanya tampil di laptop/komputer (lg+); disembunyikan di HP
+          (di HP, tombol Tentang ada di panel Login). */}
       <div className="hidden lg:flex fixed z-30 right-5 bottom-5 items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setShowTentang(true)}
+          aria-label="Tentang aplikasi: fitur, panduan, dan tanya jawab"
+          className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 bg-white/70 hover:bg-white backdrop-blur-md border border-white/80 rounded-full px-3.5 py-1.5 shadow-md shadow-slate-900/10 hover:text-sky-700 active:scale-95 transition-all duration-200"
+        >
+          <Info className="w-[13px] h-[13px]" strokeWidth={2.4} aria-hidden="true" />
+          <span>Tentang</span>
+        </button>
         {pendaftaranDibuka && (
           <button
             type="button"
@@ -1316,12 +1298,8 @@ export default function LoginPage() {
         </button>
       </div>
 
-      {showGuide && (
-        <GuideModal year={year} onClose={() => setShowGuide(false)} onOpenQA={() => { setShowGuide(false); setShowQA(true) }} />
-      )}
-
-      {showQA && (
-        <QAModal year={year} onClose={() => setShowQA(false)} onOpenGuide={() => { setShowQA(false); setShowGuide(true) }} />
+      {showTentang && (
+        <TentangModal year={year} onClose={() => setShowTentang(false)} />
       )}
 
     </div>

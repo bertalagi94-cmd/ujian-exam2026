@@ -7,7 +7,7 @@
 //     tambahan akun Guru, jadi pertanyaannya ada di tab Guru.
 //   - "Admin" di sini = Super Admin (pengelola sistem sekolah/yayasan).
 //
-// PERF: data diekstrak dari src/app/login/page.tsx dan di-lazy-load lewat QAModal.
+// PERF: data diekstrak dari src/app/login/page.tsx dan di-lazy-load lewat TentangModal (tab Q&A).
 import type { ReactNode } from 'react'
 import { Info, GraduationCap, Users, UserCheck, Shield } from 'lucide-react'
 

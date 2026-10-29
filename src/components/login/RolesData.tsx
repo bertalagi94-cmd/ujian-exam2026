@@ -1,5 +1,5 @@
 // PERF: data panduan role diekstrak dari src/app/login/page.tsx agar
-// file utama halaman login lebih ringkas dan bisa di-lazy-load lewat GuideModal.
+// file utama halaman login lebih ringkas dan bisa di-lazy-load lewat TentangModal (tab Panduan).
 import type { ReactNode } from 'react'
 import {
   Shield, GraduationCap, Users, UserCheck,
