@@ -226,7 +226,9 @@ export function Sidebar({ navItems, role, roleColor, roleLabel, accent = '#0891b
         if (json?.data) {
           setSiteInfo({
             namaSekolah: json.data.namaSekolah ?? '',
-            logoUrl: json.data.logoAplikasi || json.data.logoUrl || '',
+            // Prioritas: logo SEKOLAH akun yang sedang login dulu, baru logo
+            // aplikasi global sebagai cadangan jika sekolah belum upload logo.
+            logoUrl: json.data.logoUrl || json.data.logoAplikasi || '',
           })
         }
       })

@@ -27,6 +27,21 @@ export async function GET(req: NextRequest) {
       if (error) return {}
       const map: Record<string, string> = {}
       data?.forEach(({ key, value }: { key: string; value: string }) => { map[key] = value ?? '' })
+
+      // Cadangan logo sekolah: kalau 'logoUrl' di Pengaturan kosong, pakai logo
+      // sekolah/jenjang pertama yang punya logo (diisi di Informasi Sekolah).
+      if (!map.logoUrl) {
+        const { data: sekolahLogo } = await db
+          .from('sekolah')
+          .select('logo_url')
+          .neq('logo_url', '')
+          .not('logo_url', 'is', null)
+          .order('urutan')
+          .order('created_at')
+          .limit(1)
+        const url = (sekolahLogo?.[0] as { logo_url?: string } | undefined)?.logo_url
+        if (url) map.logoUrl = url
+      }
       return map
     })
 
