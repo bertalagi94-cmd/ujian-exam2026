@@ -68,11 +68,29 @@ export async function PUT(req: NextRequest) {
   const tambah = kelasIds.filter(id => !lama.has(id))
   const hapus = [...lama].filter(id => !baru.has(id))
 
+  // Satu kelas = satu Admin Kelas. Tolak kalau ada kelas yang sudah dipegang guru lain.
+  if (tambah.length) {
+    const { data: dipegang, error: dErr } = await db
+      .from('admin_kelas').select('kelas_id, username').in('kelas_id', tambah).neq('username', username)
+    if (dErr) return NextResponse.json({ error: dErr.message }, { status: 500 })
+    if (dipegang?.length) {
+      const { data: namaKelas } = await db.from('kelas').select('id, nama').in('id', dipegang.map((d: any) => d.kelas_id))
+      const daftar = (namaKelas ?? []).map((k: any) => k.nama).join(', ')
+      return NextResponse.json(
+        { error: `Kelas ${daftar} sudah dipegang Admin Kelas lain. Lepaskan dulu dari guru tersebut.` },
+        { status: 409 }
+      )
+    }
+  }
+
   // Tambah dulu, baru hapus: guru tidak pernah sempat "kehilangan akses" di tengah proses.
   if (tambah.length) {
     const { error } = await db.from('admin_kelas').insert(
       tambah.map(kelas_id => ({ username, kelas_id, ditugaskan_oleh: auth.user.username }))
     )
+    if (error?.code === '23505') {
+      return NextResponse.json({ error: 'Ada kelas yang baru saja dipegang Admin Kelas lain. Muat ulang halaman.' }, { status: 409 })
+    }
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   }
   if (hapus.length) {

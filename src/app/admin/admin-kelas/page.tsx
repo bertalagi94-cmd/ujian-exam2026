@@ -45,6 +45,10 @@ export default function AdminKelasKelolaPage() {
     } finally { setGanti(false) }
   }
 
+  // kelas_id → guru pemegangnya (satu kelas hanya boleh satu Admin Kelas).
+  const pemegang = new Map<string, Guru>()
+  for (const g of guru) for (const id of g.kelas_ids) pemegang.set(id, g)
+
   function buka(g: Guru) { setEdit(g); setPilih(new Set(g.kelas_ids)) }
   function toggle(id: string) {
     setPilih(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n })
@@ -99,12 +103,23 @@ export default function AdminKelasKelolaPage() {
           {guru.map(g => (
             <div key={g.username} className="flex items-center justify-between gap-4 p-4">
               <div className="min-w-0">
-                <p className="font-medium text-slate-900 truncate">{g.nama}</p>
-                <p className="text-xs text-slate-500">
-                  {g.kelas_ids.length
-                    ? `Admin Kelas: ${g.kelas_ids.map(namaKelas).join(', ')}`
-                    : 'Bukan Admin Kelas'}
-                </p>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="font-medium text-slate-900 truncate">{g.nama}</p>
+                  {g.kelas_ids.length > 0 ? (
+                    <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-xs font-semibold">Admin Kelas</span>
+                  ) : (
+                    <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 text-xs">Guru biasa</span>
+                  )}
+                </div>
+                {g.kelas_ids.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-1.5">
+                    {g.kelas_ids.map(id => (
+                      <span key={id} className="px-2 py-0.5 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs">
+                        Kelas {namaKelas(id)}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
               <button className="btn-secondary text-sm" onClick={() => buka(g)}>Atur kelas</button>
             </div>
@@ -117,13 +132,22 @@ export default function AdminKelasKelolaPage() {
           <div className="bg-white rounded-2xl p-6 w-full max-w-md space-y-4 max-h-[85vh] overflow-y-auto">
             <h2 className="font-semibold text-lg">Kelas untuk {edit.nama}</h2>
             <div className="grid grid-cols-3 gap-2">
-              {kelas.map(k => (
-                <label key={k.id} className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm cursor-pointer ${
-                  pilih.has(k.id) ? 'border-emerald-500 bg-emerald-50' : 'border-slate-200'}`}>
-                  <input type="checkbox" checked={pilih.has(k.id)} onChange={() => toggle(k.id)} />
-                  {k.nama}
-                </label>
-              ))}
+              {kelas.map(k => {
+                const lain = pemegang.get(k.id)
+                const terkunci = !!lain && lain.username !== edit.username
+                return (
+                  <label key={k.id} title={terkunci ? `Dipegang ${lain!.nama}` : undefined}
+                    className={`flex flex-col gap-0.5 px-3 py-2 rounded-lg border text-sm ${
+                      terkunci ? 'border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed'
+                      : pilih.has(k.id) ? 'border-emerald-500 bg-emerald-50 cursor-pointer' : 'border-slate-200 cursor-pointer'}`}>
+                    <span className="flex items-center gap-2">
+                      <input type="checkbox" disabled={terkunci} checked={pilih.has(k.id)} onChange={() => toggle(k.id)} />
+                      {k.nama}
+                    </span>
+                    {terkunci && <span className="text-[10px] leading-tight truncate">Dipegang {lain!.nama}</span>}
+                  </label>
+                )
+              })}
             </div>
             <p className="text-xs text-slate-500">Kosongkan semua pilihan untuk mencabut status Admin Kelas.</p>
             <div className="flex justify-end gap-2">
