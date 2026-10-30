@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
-import { requireRole } from '@/lib/auth'
+import { requireRoleAktif } from '@/lib/status-akun'
 import { verifySesiOwnership } from '@/lib/sesi-ownership'
 import { ambilMaksReset, hitungKodeReset } from '@/lib/reset-berurutan'
 import { tuntaskanSiswaTerkunci } from '@/lib/kunci-siswa'
@@ -33,7 +33,7 @@ import { tuntaskanSiswaTerkunci } from '@/lib/kunci-siswa'
 // hanya membaca status siswa_ujian yang sudah menjadi sumber kebenaran itu.
 export async function POST(req: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
-  const auth = requireRole(req, ['GURU', 'ADMIN'])
+  const auth = await requireRoleAktif(req, ['GURU', 'ADMIN'])
   if ('error' in auth) return auth.error
 
   const db = tenantDb(yayasanIdDari(auth.user))

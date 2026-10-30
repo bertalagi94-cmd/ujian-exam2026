@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
-import { requireRole } from '@/lib/auth'
+import { requireRoleAktif } from '@/lib/status-akun'
 import { getKepsekScope } from '@/lib/kepsek-scope'
 import { petakanEssayAktifPerSesi } from '@/app/api/guru/kirim-nilai/route'
 
 export async function GET(req: NextRequest) {
-  const auth = requireRole(req, ['KEPSEK', 'ADMIN'])
+  const auth = await requireRoleAktif(req, ['KEPSEK', 'ADMIN'])
   if ('error' in auth) return auth.error
 
   const yayasanId = yayasanIdDari(auth.user)

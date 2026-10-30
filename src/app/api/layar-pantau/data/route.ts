@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { SupabaseClient } from '@supabase/supabase-js'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
-import { requireRole, JWTPayload } from '@/lib/auth'
+import { JWTPayload } from '@/lib/auth'
+import { requireRoleAktif } from '@/lib/status-akun'
 import { getKepsekScope } from '@/lib/kepsek-scope'
 import { tolakJikaBelumDiizinkan } from '@/lib/izin-layar-pantau'
 import { computeLiveLeaderboardUntukSesi, LiveLeaderboardSesi } from '@/lib/leaderboard-live'
@@ -27,7 +28,7 @@ export const dynamic = 'force-dynamic'
 export const fetchCache = 'force-no-store'
 
 export async function GET(req: NextRequest) {
-  const auth = requireRole(req, ['GURU', 'KEPSEK', 'ADMIN'], { izinkanWajibGanti: true })
+  const auth = await requireRoleAktif(req, ['GURU', 'KEPSEK', 'ADMIN'], { izinkanWajibGanti: true })
   // Layar Pantau sengaja tidak memaksa ganti password bawaan (permintaan pemilik aplikasi).
   if ('error' in auth) return auth.error
   const { user } = auth

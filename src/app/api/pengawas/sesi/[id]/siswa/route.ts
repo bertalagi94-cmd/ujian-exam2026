@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
-import { requireRole } from '@/lib/auth'
+import { requireRoleAktif } from '@/lib/status-akun'
 import { verifySesiOwnershipCached } from '@/lib/sesi-ownership'
 import { ambilTargetSiswaSesi } from '@/lib/target-siswa-sesi'
 
@@ -38,7 +38,7 @@ import { ambilTargetSiswaSesi } from '@/lib/target-siswa-sesi'
 // dipakai apa adanya untuk otorisasi login, tidak disentuh sama sekali).
 export async function GET(req: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
-  const auth = requireRole(req, ['GURU', 'ADMIN'])
+  const auth = await requireRoleAktif(req, ['GURU', 'ADMIN'])
   if ('error' in auth) return auth.error
 
   const db = tenantDb(yayasanIdDari(auth.user))

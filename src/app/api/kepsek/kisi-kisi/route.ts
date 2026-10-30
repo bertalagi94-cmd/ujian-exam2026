@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
-import { requireRole } from '@/lib/auth'
+import { requireRoleAktif } from '@/lib/status-akun'
 import { getKepsekScope } from '@/lib/kepsek-scope'
 
 // GET /api/kepsek/kisi-kisi — kepala sekolah memantau semua kisi-kisi yang
@@ -14,7 +14,7 @@ import { getKepsekScope } from '@/lib/kepsek-scope'
 // ditugaskan ke akun Kepsek tsb), sama seperti endpoint kepsek lain
 // (lihat kelas/route.ts, guru-mapel/route.ts, dll).
 export async function GET(req: NextRequest) {
-  const auth = requireRole(req, ['KEPSEK'])
+  const auth = await requireRoleAktif(req, ['KEPSEK'])
   if ('error' in auth) return auth.error
   const yayasanId = yayasanIdDari(auth.user)
   const db = tenantDb(yayasanId)

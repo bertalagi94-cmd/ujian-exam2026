@@ -9,7 +9,7 @@
 //   (`ujianDibuka`, lihat src/lib/sesi-dibuka-siswa.ts)
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
-import { requireRole } from '@/lib/auth'
+import { requireRoleAktif } from '@/lib/status-akun'
 import { getGuruSekolahScope } from '@/lib/kepsek-scope'
 import { hitungUjianDibukaSiswa } from '@/lib/sesi-dibuka-siswa'
 import { getKelasAdminKelas, adminKelasAktif, antreanSuperAdmin, adaKelasTanpaAdminKelas } from '@/lib/admin-kelas'
@@ -17,7 +17,7 @@ import { getKelasAdminKelas, adminKelasAktif, antreanSuperAdmin, adaKelasTanpaAd
 export const dynamic = 'force-dynamic'
 
 export async function GET(req: NextRequest) {
-  const auth = requireRole(req, ['ADMIN', 'GURU', 'SISWA'])
+  const auth = await requireRoleAktif(req, ['ADMIN', 'GURU', 'SISWA'])
   if ('error' in auth) return auth.error
   const { user } = auth
 
@@ -191,7 +191,7 @@ export async function GET(req: NextRequest) {
 // perilaku lama tetap jalan: guru menandai notifikasi paket soal
 // disetujui/ditolak sebagai sudah dibaca.
 export async function POST(req: NextRequest) {
-  const auth = requireRole(req, ['GURU', 'SISWA'])
+  const auth = await requireRoleAktif(req, ['GURU', 'SISWA'])
   if ('error' in auth) return auth.error
   const { user } = auth
 

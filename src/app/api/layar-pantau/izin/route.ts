@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
-import { requireRole } from '@/lib/auth'
+import { requireRoleAktif } from '@/lib/status-akun'
 import { generateId } from '@/lib/utils'
 import { ambilInfoIzin, izinDiperlukan } from '@/lib/izin-layar-pantau'
 import { catatAktivitas } from '@/lib/aktivitas'
@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic'
 // POST /api/layar-pantau/izin → guru mengajukan izin (menunggu persetujuan admin)
 
 export async function GET(req: NextRequest) {
-  const auth = requireRole(req, ['GURU', 'KEPSEK', 'ADMIN'], { izinkanWajibGanti: true })
+  const auth = await requireRoleAktif(req, ['GURU', 'KEPSEK', 'ADMIN'], { izinkanWajibGanti: true })
   if ('error' in auth) return auth.error
   const { user } = auth
   const db = tenantDb(yayasanIdDari(user))
@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const auth = requireRole(req, ['GURU'], { izinkanWajibGanti: true })
+  const auth = await requireRoleAktif(req, ['GURU'], { izinkanWajibGanti: true })
   if ('error' in auth) return auth.error
   const { user } = auth
   if (!izinDiperlukan(user)) return NextResponse.json({ error: 'Izin tidak diperlukan.' }, { status: 400 })

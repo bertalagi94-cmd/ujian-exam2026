@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
-import { requireRole } from '@/lib/auth'
+import { requireRoleAktif } from '@/lib/status-akun'
 import { verifySesiOwnership } from '@/lib/sesi-ownership'
 import { ambilTargetSiswaSesi } from '@/lib/target-siswa-sesi'
 import { ambilMaksReset, hitungSemuaKodeReset } from '@/lib/reset-berurutan'
@@ -22,7 +22,7 @@ import { ambilMaksReset, hitungSemuaKodeReset } from '@/lib/reset-berurutan'
 // giliran (lihat verifikasi-reset). Menampilkan R3 lebih awal tidak berguna.
 export async function GET(req: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
-  const auth = requireRole(req, ['GURU', 'ADMIN'])
+  const auth = await requireRoleAktif(req, ['GURU', 'ADMIN'])
   if ('error' in auth) return auth.error
 
   const db = tenantDb(yayasanIdDari(auth.user))

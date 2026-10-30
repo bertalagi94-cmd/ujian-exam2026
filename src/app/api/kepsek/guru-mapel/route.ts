@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
-import { requireRole } from '@/lib/auth'
+import { requireRoleAktif } from '@/lib/status-akun'
 import { getKepsekScope } from '@/lib/kepsek-scope'
 import { computeStatusSoalMap, buildStatusSoalKey } from '@/lib/soal-status'
 
@@ -19,7 +19,7 @@ import { computeStatusSoalMap, buildStatusSoalKey } from '@/lib/soal-status'
 // sekolah/jenjang yang ditugaskan ke akun Kepsek tersebut). ADMIN tidak
 // dibatasi (kelasScope = null = semua kelas).
 export async function GET(req: NextRequest) {
-  const auth = requireRole(req, ['KEPSEK', 'ADMIN'])
+  const auth = await requireRoleAktif(req, ['KEPSEK', 'ADMIN'])
   if ('error' in auth) return auth.error
 
   const yayasanId = yayasanIdDari(auth.user)
