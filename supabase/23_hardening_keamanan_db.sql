@@ -68,7 +68,16 @@ BEGIN
     v_hilang := array_append(v_hilang, 'fungsi sync_jawaban_revisi(jsonb) [migrasi 20]'::text);
   END IF;
 
-  IF to_regprocedure('public.finalisasi_pg_atomik(text,text,jsonb,boolean,jsonb)') IS NULL THEN
+  -- Dicek lewat NAMA, bukan signature. Migrasi 33 men-DROP versi 5 argumen
+  -- dan menggantinya dengan versi 6 argumen (+ device_id); pengecekan
+  -- signature 5 argumen membuat migrasi ini menolak dijalankan ulang setelah
+  -- migrasi 33 padahal fungsinya ada.
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public' AND p.proname = 'finalisasi_pg_atomik'
+  ) THEN
     v_hilang := array_append(v_hilang, 'fungsi finalisasi_pg_atomik(...) [migrasi 21]'::text);
   END IF;
 

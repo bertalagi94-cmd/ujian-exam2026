@@ -24,6 +24,11 @@ CREATE TABLE IF NOT EXISTS guru_sekolah (
   PRIMARY KEY (username, sekolah_id)
 );
 
+-- Hardening (pola migrasi 19/21/23): tabel baru wajib RLS + cabut hak anon/
+-- authenticated. Aplikasi hanya memakai service_role (BYPASSRLS).
+ALTER TABLE guru_sekolah ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON guru_sekolah FROM PUBLIC, anon, authenticated;
+
 CREATE INDEX IF NOT EXISTS idx_guru_sekolah_username ON guru_sekolah(username);
 CREATE INDEX IF NOT EXISTS idx_guru_sekolah_sekolah_id ON guru_sekolah(sekolah_id);
 
