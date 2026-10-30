@@ -24,7 +24,8 @@
 
 import { createAdminClient } from '@/lib/supabase'
 import { generateId } from '@/lib/utils'
-import { ambilDataSesiUntukPenilaian, hitungHasilPenilaian } from '@/lib/penilaian-ujian'
+import { ambilDataSesiUntukPenilaian, hitungHasilPenilaian, GagalMemuatDataPenilaian } from '@/lib/penilaian-ujian'
+import { ambilSemuaBaris } from '@/lib/ambil-semua'
 
 type DbClient = ReturnType<typeof createAdminClient>
 
@@ -51,7 +52,16 @@ export async function finalisasiNilaiPaksa(
 ): Promise<HasilFinalisasiPaksa> {
   if (!nisList.length) return { ok: true, jumlahDinilai: 0 }
 
-  const sesiCache = await ambilDataSesiUntukPenilaian(db, sesiId)
+  // FIX: kegagalan database saat memuat kunci jawaban dilaporkan sebagai
+  // ok:false (pemanggil meneruskannya ke admin/pengawas sebagai status 207),
+  // bukan dibiarkan melempar exception atau lanjut dengan kunci kosong.
+  let sesiCache: Awaited<ReturnType<typeof ambilDataSesiUntukPenilaian>>
+  try {
+    sesiCache = await ambilDataSesiUntukPenilaian(db, sesiId)
+  } catch (e) {
+    if (!(e instanceof GagalMemuatDataPenilaian)) throw e
+    return { ok: false, jumlahDinilai: 0, error: e.message }
+  }
   if (!sesiCache) {
     return { ok: false, jumlahDinilai: 0, error: 'Data sesi untuk penilaian tidak ditemukan (ambilDataSesiUntukPenilaian mengembalikan null).' }
   }
@@ -126,14 +136,41 @@ export async function finalisasiNilaiPaksa(
   const perluDinilai = nisList.filter(nis => !sudahAdaSet.has(nis))
   if (!perluDinilai.length) return { ok: true, jumlahDinilai: 0 }
 
-  const { data: semuaJawaban } = await db
-    .from('jawaban')
-    .select('nis, soal_id, jawaban')
-    .eq('sesi_id', sesiId)
-    .in('nis', perluDinilai)
+  // FIX (jawaban terpotong 1000 baris + error diabaikan): query tunggal ini
+  // dibatasi PostgREST maksimal 1000 baris TANPA error. Kalau siswa yang
+  // belum selesai banyak (mis. 25 siswa x 40 soal = 1000+ baris), sebagian
+  // jawaban hilang diam-diam dan siswa tertentu dinilai 0 -- upsert di bawah
+  // memakai ignoreDuplicates sehingga nilai itu tidak terkoreksi otomatis.
+  // Sekarang: NIS dipecah per kelompok (URL .in() tidak membengkak), tiap
+  // kelompok diambil halaman demi halaman dengan urutan stabil (nis, soal_id;
+  // unik per sesi lewat UNIQUE(sesi_id, nis, soal_id)), dan error APA PUN
+  // menghentikan proses SEBELUM ada nilai yang ditulis.
+  const UKURAN_KELOMPOK_NIS = 100
+  const semuaJawaban: { nis: string; soal_id: string; jawaban: string }[] = []
+  for (let i = 0; i < perluDinilai.length; i += UKURAN_KELOMPOK_NIS) {
+    const kelompok = perluDinilai.slice(i, i + UKURAN_KELOMPOK_NIS)
+    const { data: baris, error: errJawaban } = await ambilSemuaBaris<{ nis: string; soal_id: string; jawaban: string }>(
+      (dari, sampai) =>
+        db.from('jawaban')
+          .select('nis, soal_id, jawaban')
+          .eq('sesi_id', sesiId)
+          .in('nis', kelompok)
+          .order('nis', { ascending: true })
+          .order('soal_id', { ascending: true })
+          .range(dari, sampai)
+    )
+    if (errJawaban) {
+      return {
+        ok: false,
+        jumlahDinilai: 0,
+        error: `Gagal membaca jawaban siswa (nilai tidak ditulis agar tidak salah 0): ${errJawaban.message}`,
+      }
+    }
+    semuaJawaban.push(...baris)
+  }
 
   const jawabanPerSiswa = new Map<string, { soal_id: string; jawaban: string }[]>()
-  for (const j of semuaJawaban ?? []) {
+  for (const j of semuaJawaban) {
     if (!jawabanPerSiswa.has(j.nis)) jawabanPerSiswa.set(j.nis, [])
     jawabanPerSiswa.get(j.nis)!.push(j)
   }

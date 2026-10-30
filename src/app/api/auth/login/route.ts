@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
 import { createAdminClient } from '@/lib/supabase'
 import { signToken, WAJIB_GANTI_PASSWORD_AKTIF } from '@/lib/auth'
-import { cachedFetch, cacheGet, cacheSet } from '@/lib/cache'
+import { cachedFetch, cacheGet, cacheSet, cacheDel } from '@/lib/cache'
 import { generateId } from '@/lib/utils'
 import { instrumented } from '@/lib/metrik'
 import { cariYayasanById, tenantDb, YAYASAN_AWAL_ID } from '@/lib/tenant'
@@ -43,8 +43,11 @@ function getClientIp(req: NextRequest): string {
   return req.headers.get('x-real-ip') || 'unknown'
 }
 
+const kunciPercobaan = (ip: string, username: string) =>
+  `login-attempt:${ip}:${username.toLowerCase()}`
+
 function cekRateLimit(ip: string, username: string): { allowed: boolean; sisaDetik?: number } {
-  const key = `login-attempt:${ip}:${username.toLowerCase()}`
+  const key = kunciPercobaan(ip, username)
   const data = cacheGet<{ count: number; firstAt: number }>(key)
 
   if (!data) {
@@ -52,13 +55,27 @@ function cekRateLimit(ip: string, username: string): { allowed: boolean; sisaDet
     return { allowed: true }
   }
 
+  const sisaDetik = Math.max(Math.ceil((data.firstAt + WINDOW_DETIK * 1000 - Date.now()) / 1000), 1)
+
   if (data.count >= MAX_PERCOBAAN_LOGIN) {
-    const sisaDetik = Math.ceil((data.firstAt + WINDOW_DETIK * 1000 - Date.now()) / 1000)
-    return { allowed: false, sisaDetik: Math.max(sisaDetik, 1) }
+    return { allowed: false, sisaDetik }
   }
 
-  cacheSet(key, { count: data.count + 1, firstAt: data.firstAt }, WINDOW_DETIK)
+  // FIX: TTL dulu selalu di-reset ke WINDOW_DETIK penuh di setiap percobaan,
+  // padahal pesan "coba lagi dalam N menit" dihitung dari percobaan PERTAMA
+  // (firstAt). Jendela jadi bergeser dan pesan tidak sesuai kenyataan. Sekarang
+  // TTL = sisa jendela sejak percobaan pertama, sama seperti catatGagalIp().
+  cacheSet(key, { count: data.count + 1, firstAt: data.firstAt }, sisaDetik)
   return { allowed: true }
+}
+
+// FIX: percobaan yang BERHASIL tidak boleh ikut menghabiskan jatah. Dulu
+// counter bertambah sebelum password dicek dan tidak pernah di-reset, jadi
+// siswa yang login ulang 10x dalam 5 menit (jaringan putus-nyambung saat
+// ujian) terkunci walau passwordnya benar. Dipanggil hanya setelah password
+// terverifikasi; percobaan salah tetap terhitung.
+function resetRateLimit(ip: string, username: string): void {
+  cacheDel(kunciPercobaan(ip, username))
 }
 
 // ── Batas LOGIN GAGAL per IP (tanpa username) ──────────────────────────────
@@ -248,6 +265,7 @@ export async function POST(req: NextRequest) {
     if (user) {
       const match = await bcrypt.compare(String(password), user.password_hash || DUMMY_HASH)
       if (!match) { catatGagalIp(ip); return NextResponse.json({ error: GENERIC_LOGIN_ERROR }, { status: 401 }) }
+      resetRateLimit(ip, String(username).trim())
       if (!yayasanAktif) return NextResponse.json({ error: PESAN_NONAKTIF }, { status: 403 })
 
       // Diizinkan login saat maintenance: ADMIN atau akun tester (is_tester = 'YES').
@@ -271,6 +289,7 @@ export async function POST(req: NextRequest) {
     if (siswa) {
       const match = await bcrypt.compare(String(password), siswa.password_hash || DUMMY_HASH)
       if (!match) { catatGagalIp(ip); return NextResponse.json({ error: GENERIC_LOGIN_ERROR }, { status: 401 }) }
+      resetRateLimit(ip, String(username).trim())
       if (!yayasanAktif) return NextResponse.json({ error: PESAN_NONAKTIF }, { status: 403 })
 
       if (sedangMaintenance && siswa.is_tester !== 'YES') {
