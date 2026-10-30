@@ -20,15 +20,24 @@ berikut dari **Project Settings → API** (dibutuhkan di langkah 4):
 
 Buka **SQL Editor** di Supabase Dashboard, jalankan seluruh isi folder
 `supabase/` **sesuai urutan nomor filenya**, dari `01_schema.sql` sampai
-file bernomor terbesar (saat ini `24_reset_berurutan.sql` — cek folder
+file bernomor terbesar (saat ini `52_ukuran_storage.sql` — cek folder
 `supabase/` untuk nomor terbaru kalau ada tambahan setelah checklist ini
 dibuat).
 
-⚠️ **Migrasi 23 (hardening keamanan) WAJIB dan harus dijalankan TERAKHIR.**
-Ia mengaktifkan RLS di semua tabel dan mencabut semua hak `anon`/
-`authenticated`; ia sengaja **menolak berjalan** kalau migrasi 20/21/22
-belum terpasang. Kode aplikasi tidak punya jalur fallback — tanpa migrasi
-20/21/22 sinkron jawaban dan finalisasi ujian akan mengembalikan error.
+**Urutan yang benar:**
+1. Jalankan semua file **berurutan menurut nomor**, termasuk `23` di
+   posisi nomornya (setelah `22`). Migrasi 23 menolak berjalan kalau 20/21/22
+   belum terpasang — kalau urutannya benar, syarat itu otomatis terpenuhi.
+2. Setelah file bernomor terbesar selesai, **jalankan `23_hardening_keamanan_db.sql`
+   sekali lagi** sebagai langkah penutup. Migrasi 23 idempotent; menjalankannya
+   di akhir memastikan RLS aktif dan hak `anon`/`authenticated` tercabut pada
+   SEMUA tabel dan fungsi yang dibuat oleh migrasi 24–52. Ini bukan syarat
+   mutlak (default privileges dari 23 sudah melindungi objek baru), tetapi
+   jaring pengaman yang murah.
+3. Lanjut ke langkah 5 (verifikasi keamanan) di bawah.
+
+Kode aplikasi tidak punya jalur fallback: tanpa migrasi 20/21/22 sinkron
+jawaban dan finalisasi ujian akan mengembalikan error.
 
 Catatan:
 - `01_schema.sql` sampai `01b_seed_master_part1.sql` s/d `04_seed_jawaban.sql`
@@ -39,8 +48,8 @@ Catatan:
   keduanya tidak masalah.
 - Jalankan migrasi baru di database dulu, **baru** deploy kodenya.
 - `24_reset_berurutan.sql` (sistem reset pelanggaran R1/R2/R3) dijalankan
-  **setelah** 23. Aman: ia hanya menambah kolom + 3 fungsi dan mencabut hak
-  `anon`/`authenticated` untuk fungsi-fungsinya sendiri. Kode aplikasi tidak
+  **setelah** 23 (urutan nomor biasa). Aman: ia hanya menambah kolom + 3 fungsi
+  dan mencabut hak `anon`/`authenticated` untuk fungsi-fungsinya sendiri. Kode aplikasi tidak
   punya jalur fallback (fail-closed) — tanpa migrasi ini pelanggaran tidak
   tercatat (503), kode reset tidak bisa diverifikasi (503), dan daftar siswa
   di Mode Pengawas gagal dimuat.
@@ -71,8 +80,9 @@ Tidak perlu bikin folder manual di dalamnya — aplikasi akan membuat folder
 
 ## 4. Set environment variables di Vercel
 
-Buka **Vercel → Project Settings → Environment Variables**, isi 7 variabel
-berikut:
+Buka **Vercel → Project Settings → Environment Variables**, isi variabel
+berikut (3 dari Supabase + 6 lainnya; `RESET_PELANGGARAN_SECRET` dan
+`MULTI_YAYASAN_ENABLED` opsional):
 
 | Variabel | Sumber |
 |---|---|
