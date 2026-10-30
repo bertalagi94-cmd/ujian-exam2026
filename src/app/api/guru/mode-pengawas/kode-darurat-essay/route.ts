@@ -12,13 +12,13 @@
 // — pengawas perlu menanganinya secara manual (kode tidak akan berfungsi).
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
-import { requireRole } from '@/lib/auth'
+import { requireRoleAktif } from '@/lib/status-akun'
 import { verifySesiOwnership } from '@/lib/sesi-ownership'
 import { hitungKodeDarurat } from '@/lib/essay-amplop-server'
 import { PANJANG_KODE_DARURAT } from '@/lib/essay-amplop-shared'
 
 export async function GET(req: NextRequest) {
-  const auth = requireRole(req, ['GURU'])
+  const auth = await requireRoleAktif(req, ['GURU'])
   if ('error' in auth) return auth.error
   const { user } = auth
 

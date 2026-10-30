@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
-import { requireRole } from '@/lib/auth'
+import { requireRoleAktif } from '@/lib/status-akun'
 import { muatPengingatSesi } from '@/lib/sesi-belum-ditutup'
 
 // GET /api/guru/pengingat-tutup-sesi
@@ -15,7 +15,7 @@ import { muatPengingatSesi } from '@/lib/sesi-belum-ditutup'
 // masih punya siswa berstatus AKTIF (mis. siswa menutup aplikasi di tengah
 // ujian) tetap diingatkan di sini.
 export async function GET(req: NextRequest) {
-  const auth = requireRole(req, ['GURU'])
+  const auth = await requireRoleAktif(req, ['GURU'])
   if ('error' in auth) return auth.error
 
   try {

@@ -2,12 +2,12 @@
 // POST { sesiId } — mulai timer essay (idempotent: kalau sudah MENGERJAKAN, kembalikan waktu_mulai_essay yang sudah ada, jangan reset timer)
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
-import { requireRole } from '@/lib/auth'
+import { requireRoleAktif } from '@/lib/status-akun'
 import { kodeDaruratCocok } from '@/lib/essay-amplop-server'
 import { MAKS_PERCOBAAN_SERVER } from '@/lib/essay-amplop-shared'
 
 export async function POST(req: NextRequest) {
-  const auth = requireRole(req, ['SISWA'])
+  const auth = await requireRoleAktif(req, ['SISWA'])
   if ('error' in auth) return auth.error
   const { user } = auth
 

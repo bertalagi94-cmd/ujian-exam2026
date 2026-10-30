@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
-import { requireRole } from '@/lib/auth'
+import { requireRoleAktif } from '@/lib/status-akun'
 import { generateId } from '@/lib/utils'
 import { ambilMaksReset } from '@/lib/reset-berurutan'
 import { tuntaskanSiswaTerkunci } from '@/lib/kunci-siswa'
@@ -33,7 +33,7 @@ const PANJANG_MAKS_TEKS = 500
 const POLA_EVENT_ID = /^[A-Za-z0-9_.:-]{8,80}$/
 
 export async function POST(req: NextRequest) {
-  const auth = requireRole(req, ['SISWA'])
+  const auth = await requireRoleAktif(req, ['SISWA'])
   if ('error' in auth) return auth.error
   const { user } = auth
 

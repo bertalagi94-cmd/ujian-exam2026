@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
-import { requireRole } from '@/lib/auth'
+import { requireRoleAktif } from '@/lib/status-akun'
 
 // FITUR (Halaman profil siswa): sebelumnya biodata siswa (nama, kelas, NIS)
 // hanya muncul sepintas di header dashboard — tidak ada halaman khusus
@@ -9,7 +9,7 @@ import { requireRole } from '@/lib/auth'
 // ini murni READ-ONLY untuk data biodata; perubahan password ditangani
 // terpisah lewat PUT /api/siswa/ganti-password.
 export async function GET(req: NextRequest) {
-  const auth = requireRole(req, ['SISWA'])
+  const auth = await requireRoleAktif(req, ['SISWA'])
   if ('error' in auth) return auth.error
   const { user } = auth
   const db = tenantDb(yayasanIdDari(user))

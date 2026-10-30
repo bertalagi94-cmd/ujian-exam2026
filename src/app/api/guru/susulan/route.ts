@@ -4,7 +4,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
-import { requireRole } from '@/lib/auth'
+import { requireRoleAktif } from '@/lib/status-akun'
 import { generateId } from '@/lib/utils'
 import { cekSesiBentrokKelas, pesanBentrokKelas } from '@/lib/sesi-kelas'
 import { resolveEssayInfoJson } from '@/lib/gabungKirim'
@@ -18,7 +18,7 @@ function generateKode7(): string {
 }
 
 export async function POST(req: NextRequest) {
-  const auth = requireRole(req, ['GURU', 'ADMIN'])
+  const auth = await requireRoleAktif(req, ['GURU', 'ADMIN'])
   if ('error' in auth) return auth.error
 
   const db = tenantDb(yayasanIdDari(auth.user))

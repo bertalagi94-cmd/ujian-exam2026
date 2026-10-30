@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
-import { requireRole } from '@/lib/auth'
+import { requireRoleAktif } from '@/lib/status-akun'
 import { generateId } from '@/lib/utils'
 import { ambilDataSesiUntukPenilaian, hitungHasilPenilaian, GagalMemuatDataPenilaian } from '@/lib/penilaian-ujian'
 import { catatAktivitas } from '@/lib/aktivitas'
@@ -8,7 +8,7 @@ import { klaimkanWaktu } from '@/lib/klaim-offline'
 import { hitungBatasWaktuPg, sudahKedaluwarsa } from '@/lib/deadline-pg'
 
 export async function POST(req: NextRequest) {
-  const auth = requireRole(req, ['SISWA'])
+  const auth = await requireRoleAktif(req, ['SISWA'])
   if ('error' in auth) return auth.error
   const { user } = auth
 

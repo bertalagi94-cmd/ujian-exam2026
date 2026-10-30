@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
-import { requireRole } from '@/lib/auth'
+import { requireRoleAktif } from '@/lib/status-akun'
 
 // Ekstensi file ditentukan dari tipe MIME yang diizinkan, BUKAN dari nama file
 // kiriman klien. Nama file bisa berisi '/' atau '..' sehingga file bisa mendarat
@@ -13,7 +13,7 @@ const EKSTENSI_GAMBAR: Record<string, string> = {
 }
 
 export async function POST(req: NextRequest) {
-  const auth = requireRole(req, ['GURU'])
+  const auth = await requireRoleAktif(req, ['GURU'])
   if ('error' in auth) return auth.error
   const { user } = auth
 

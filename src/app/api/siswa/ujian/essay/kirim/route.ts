@@ -9,11 +9,11 @@
 //     bisa tampilkan hasil + lepas fullscreen, sesuai desain yang disepakati.
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
-import { requireRole } from '@/lib/auth'
+import { requireRoleAktif } from '@/lib/status-akun'
 import { essayTerlambatDitolak } from '@/lib/essay-waktu'
 
 export async function POST(req: NextRequest) {
-  const auth = requireRole(req, ['SISWA'])
+  const auth = await requireRoleAktif(req, ['SISWA'])
   if ('error' in auth) return auth.error
   const { user } = auth
   const nis = user.nis!

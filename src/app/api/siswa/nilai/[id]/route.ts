@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
-import { requireRole } from '@/lib/auth'
+import { requireRoleAktif } from '@/lib/status-akun'
 import { petakanEssayAktifPerSesi } from '@/app/api/guru/kirim-nilai/route'
 import { hitungGrade } from '@/lib/utils'
 
@@ -13,7 +13,7 @@ import { hitungGrade } from '@/lib/utils'
 // sudah submit duluan tidak bisa membocorkan opsi yang benar ke temannya.
 export async function GET(req: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
-  const auth = requireRole(req, ['SISWA'])
+  const auth = await requireRoleAktif(req, ['SISWA'])
   if ('error' in auth) return auth.error
   const { user } = auth
   const db = tenantDb(yayasanIdDari(auth.user))

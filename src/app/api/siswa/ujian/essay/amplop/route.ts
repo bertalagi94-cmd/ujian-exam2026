@@ -16,13 +16,13 @@
 //   { ada: true, amplop }     — simpan di perangkat (localStorage)
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
-import { requireRole } from '@/lib/auth'
+import { requireRoleAktif } from '@/lib/status-akun'
 import { cacheGet, cacheSet } from '@/lib/cache'
 import { buatAmplop, ambilGambarSebagaiDataUrl } from '@/lib/essay-amplop-server'
 import type { EssayAmplop, IsiAmplopEssay } from '@/lib/essay-amplop-shared'
 
 export async function GET(req: NextRequest) {
-  const auth = requireRole(req, ['SISWA'])
+  const auth = await requireRoleAktif(req, ['SISWA'])
   if ('error' in auth) return auth.error
   const { user } = auth
 

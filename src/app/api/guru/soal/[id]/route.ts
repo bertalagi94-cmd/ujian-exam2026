@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
-import { requireRole } from '@/lib/auth'
+import { requireRoleAktif } from '@/lib/status-akun'
 import { stripHtmlTags } from '@/lib/utils'
 import { cekSesiMapelKelasSudahMulai, pesanBankSoalTerkunci } from '@/lib/sesi-kelas'
 import { validasiKunciOpsi } from '@/lib/validasi-soal'
@@ -9,7 +9,7 @@ interface Ctx { params: Promise<{ id: string }> }
 
 export async function PUT(req: NextRequest, props: Ctx) {
   const params = await props.params;
-  const auth = requireRole(req, ['GURU'])
+  const auth = await requireRoleAktif(req, ['GURU'])
   if ('error' in auth) return auth.error
   const { user } = auth
 
@@ -97,7 +97,7 @@ export async function PUT(req: NextRequest, props: Ctx) {
 
 export async function DELETE(req: NextRequest, props: Ctx) {
   const params = await props.params;
-  const auth = requireRole(req, ['GURU'])
+  const auth = await requireRoleAktif(req, ['GURU'])
   if ('error' in auth) return auth.error
   const { user } = auth
 

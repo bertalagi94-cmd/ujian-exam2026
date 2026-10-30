@@ -6,11 +6,11 @@
 // 11_akses_mulai_essay.sql.
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
-import { requireRole } from '@/lib/auth'
+import { requireRoleAktif } from '@/lib/status-akun'
 import { verifySesiOwnership } from '@/lib/sesi-ownership'
 
 export async function POST(req: NextRequest) {
-  const auth = requireRole(req, ['GURU'])
+  const auth = await requireRoleAktif(req, ['GURU'])
   if ('error' in auth) return auth.error
   const { user } = auth
 

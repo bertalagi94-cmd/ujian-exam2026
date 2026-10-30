@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
-import { requireRole } from '@/lib/auth'
+import { requireRoleAktif } from '@/lib/status-akun'
 import { instrumented } from '@/lib/metrik'
 import { catatAktivitas } from '@/lib/aktivitas'
 import { hitungBatasWaktuPg, sudahKedaluwarsa, saringJawabanTerlambat } from '@/lib/deadline-pg'
@@ -18,7 +18,7 @@ import { normalisasiJawabanMasuk, MAKS_JAWABAN_PER_REQUEST } from '@/lib/sync-ja
 // keluhan "jawaban lambat/tidak tersimpan", jadi hasil & durasinya dicatat
 // ke metrik_sistem — lihat src/lib/metrik.ts.
 export async function POST(req: NextRequest) {
-  const auth = requireRole(req, ['SISWA'])
+  const auth = await requireRoleAktif(req, ['SISWA'])
   if ('error' in auth) return auth.error
   const { user } = auth
 
@@ -405,7 +405,7 @@ export async function POST(req: NextRequest) {
 // Dipakai untuk: (1) memulihkan progres siswa jika halaman ter-reload/koneksi putus,
 // (2) referensi totalSynced awal saat masuk ulang ke ujian.
 export async function GET(req: NextRequest) {
-  const auth = requireRole(req, ['SISWA'])
+  const auth = await requireRoleAktif(req, ['SISWA'])
   if ('error' in auth) return auth.error
   const { user } = auth
 

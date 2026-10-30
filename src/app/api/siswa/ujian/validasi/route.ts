@@ -1,7 +1,7 @@
 // app/api/siswa/ujian/validasi/route.ts
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
-import { requireRole } from '@/lib/auth'
+import { requireRoleAktif } from '@/lib/status-akun'
 import { catatAktivitas } from '@/lib/aktivitas'
 import { instrumented } from '@/lib/metrik'
 import { ambilMaksReset, MAKS_RESET_ABSOLUT } from '@/lib/reset-berurutan'
@@ -13,7 +13,7 @@ import { buatSemuaAmplopReset } from '@/lib/reset-amplop-server'
 const DEVICE_STALE_MS = 2 * 60 * 1000 // 2 menit
 
 export async function POST(req: NextRequest) {
-  const auth = requireRole(req, ['SISWA'])
+  const auth = await requireRoleAktif(req, ['SISWA'])
   if ('error' in auth) return auth.error
   const { user } = auth
 

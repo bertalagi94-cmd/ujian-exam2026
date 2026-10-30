@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
-import { requireRole } from '@/lib/auth'
+import { requireRoleAktif } from '@/lib/status-akun'
 
 // GET /api/guru/kisi-kisi/mapel-ampu
 // Mengembalikan daftar mapel dan kelas yang diampu guru ini.
@@ -8,7 +8,7 @@ import { requireRole } from '@/lib/auth'
 // lalu parse kolom kelas_list (format: "10,11,12") untuk mendapat daftar kelas.
 // Kelas di-lookup dari tabel kelas berdasarkan nama (karena id kelas = nama kelas).
 export async function GET(req: NextRequest) {
-  const auth = requireRole(req, ['GURU'])
+  const auth = await requireRoleAktif(req, ['GURU'])
   if ('error' in auth) return auth.error
   const { user } = auth
   const db = tenantDb(yayasanIdDari(auth.user))

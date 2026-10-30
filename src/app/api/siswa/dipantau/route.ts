@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
-import { requireRole } from '@/lib/auth'
+import { requireRoleAktif } from '@/lib/status-akun'
 import { sidDipantauUntuk } from '@/lib/dipantau'
 
 export const dynamic = 'force-dynamic'
@@ -10,7 +10,7 @@ export const dynamic = 'force-dynamic'
 // ujian status yang sama ikut di respons cek-sesi). Ringan: hanya baca peta
 // yang di-cache 4 detik, bukan query per siswa.
 export async function GET(req: NextRequest) {
-  const auth = requireRole(req, ['SISWA'])
+  const auth = await requireRoleAktif(req, ['SISWA'])
   if ('error' in auth) return auth.error
   const { user } = auth
   if (user.viewAs) return NextResponse.json({ dipantau: false })

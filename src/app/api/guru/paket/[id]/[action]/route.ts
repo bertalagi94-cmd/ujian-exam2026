@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
-import { requireRole } from '@/lib/auth'
+import { requireRoleAktif } from '@/lib/status-akun'
 import { kirimPasanganPaket, cekPasanganPaket, type CounterpartResult } from '@/lib/gabungKirim'
 import { cekBatasMinSoal } from '@/lib/batas-soal'
 import { cekSesiMapelKelasSudahMulai, pesanBankSoalTerkunci } from '@/lib/sesi-kelas'
@@ -14,7 +14,7 @@ export async function GET(
   props: { params: Promise<{ id: string; action: string }> }
 ) {
   const params = await props.params;
-  const auth = requireRole(req, ['GURU'])
+  const auth = await requireRoleAktif(req, ['GURU'])
   if ('error' in auth) return auth.error
   const { user } = auth
   const db = tenantDb(yayasanIdDari(auth.user))
@@ -48,7 +48,7 @@ export async function POST(
   props: { params: Promise<{ id: string; action: string }> }
 ) {
   const params = await props.params;
-  const auth = requireRole(req, ['GURU'])
+  const auth = await requireRoleAktif(req, ['GURU'])
   if ('error' in auth) return auth.error
   const { user } = auth
   const db = tenantDb(yayasanIdDari(auth.user))

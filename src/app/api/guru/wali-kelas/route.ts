@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
-import { requireRole } from '@/lib/auth'
+import { requireRoleAktif } from '@/lib/status-akun'
 import { hitungGrade } from '@/lib/utils'
 import { petakanEssayAktifPerSesi } from '@/app/api/guru/kirim-nilai/route'
 
@@ -8,7 +8,7 @@ import { petakanEssayAktifPerSesi } from '@/app/api/guru/kirim-nilai/route'
 // Body: { aksi: 'kembalikan', nilai_id: string, catatan?: string }
 // Wali kelas mengembalikan nilai ke guru pengampu untuk direvisi
 export async function POST(req: NextRequest) {
-  const auth = requireRole(req, ['GURU'])
+  const auth = await requireRoleAktif(req, ['GURU'])
   if ('error' in auth) return auth.error
   const { user } = auth
 
@@ -83,7 +83,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
-  const auth = requireRole(req, ['GURU'])
+  const auth = await requireRoleAktif(req, ['GURU'])
   if ('error' in auth) return auth.error
   const { user } = auth
 

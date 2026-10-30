@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
-import { requireRole } from '@/lib/auth'
+import { requireRoleAktif } from '@/lib/status-akun'
 import { sidDipantauUntuk } from '@/lib/dipantau'
 
 // GET /api/siswa/ujian/cek-sesi?sesiId=xxx&deviceId=yyy
@@ -8,7 +8,7 @@ import { sidDipantauUntuk } from '@/lib/dipantau'
 // Sekaligus memperbarui last_heartbeat (bukti device masih aktif) dan mendeteksi
 // kalau device lain telah mengambil alih sesi ini.
 export async function GET(req: NextRequest) {
-  const auth = requireRole(req, ['SISWA'])
+  const auth = await requireRoleAktif(req, ['SISWA'])
   if ('error' in auth) return auth.error
   const { user } = auth
 

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
-import { requireRole } from '@/lib/auth'
+import { requireRoleAktif } from '@/lib/status-akun'
 
 // FITUR (Ganti password sendiri): sebelumnya HANYA admin yang bisa mereset
 // password siswa (lihat /api/admin/siswa/[nis]/reset-password — hasilnya
@@ -15,7 +15,7 @@ import { requireRole } from '@/lib/auth'
 const PANJANG_MIN_PASSWORD = 6
 
 export async function PUT(req: NextRequest) {
-  const auth = requireRole(req, ['SISWA'])
+  const auth = await requireRoleAktif(req, ['SISWA'])
   if ('error' in auth) return auth.error
   const { user } = auth
 

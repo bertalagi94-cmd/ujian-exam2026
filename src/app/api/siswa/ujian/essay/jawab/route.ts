@@ -3,12 +3,12 @@
 // src/app/api/siswa/ujian/sync/route.ts (untuk PG).
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
-import { requireRole } from '@/lib/auth'
+import { requireRoleAktif } from '@/lib/status-akun'
 import { essayTerlambatDitolak } from '@/lib/essay-waktu'
 
 // POST { sesiId, jawaban: [{ soal_essay_id, jawaban_teks }] }
 export async function POST(req: NextRequest) {
-  const auth = requireRole(req, ['SISWA'])
+  const auth = await requireRoleAktif(req, ['SISWA'])
   if ('error' in auth) return auth.error
   const { user } = auth
 
@@ -184,7 +184,7 @@ export async function POST(req: NextRequest) {
 
 // GET ?sesiId=... — pulihkan progres jawaban essay digital (refresh halaman)
 export async function GET(req: NextRequest) {
-  const auth = requireRole(req, ['SISWA'])
+  const auth = await requireRoleAktif(req, ['SISWA'])
   if ('error' in auth) return auth.error
   const { user } = auth
 

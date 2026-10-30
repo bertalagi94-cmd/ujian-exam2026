@@ -1,12 +1,12 @@
 // Taruh di: src/app/api/guru/koreksi-essay/route.ts
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
-import { requireRole } from '@/lib/auth'
+import { requireRoleAktif } from '@/lib/status-akun'
 
 // GET ?sesiId=... — daftar siswa yang SUDAH_KIRIM essay di sesi ini,
 // beserta jawaban (teks untuk DIGITAL, url foto untuk KERTAS) dan nilai_pg.
 export async function GET(req: NextRequest) {
-  const auth = requireRole(req, ['GURU'])
+  const auth = await requireRoleAktif(req, ['GURU'])
   if ('error' in auth) return auth.error
   const { user } = auth
 
@@ -300,7 +300,7 @@ export async function GET(req: NextRequest) {
 // konversi tersembunyi di kepala guru) — dan setiap skor per soal disimpan
 // sebagai jejak audit di skor_essay_siswa.
 export async function PUT(req: NextRequest) {
-  const auth = requireRole(req, ['GURU'])
+  const auth = await requireRoleAktif(req, ['GURU'])
   if ('error' in auth) return auth.error
   const { user } = auth
 
@@ -540,7 +540,7 @@ export async function PUT(req: NextRequest) {
 // tampil ke guru/wali/siswa selalu konsisten dengan bobot yang berlaku
 // saat ini — bukan bobot lama yang "membeku" di data lama.
 export async function PATCH(req: NextRequest) {
-  const auth = requireRole(req, ['GURU'])
+  const auth = await requireRoleAktif(req, ['GURU'])
   if ('error' in auth) return auth.error
   const { user } = auth
 

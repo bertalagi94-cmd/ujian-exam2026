@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
-import { requireRole } from '@/lib/auth'
+import { requireRoleAktif } from '@/lib/status-akun'
 import { ambilMaksReset, kodeResetCocok } from '@/lib/reset-berurutan'
 import { cekDeviceSiswa, pesanDevice } from '@/lib/device-guard'
 
@@ -31,7 +31,7 @@ const LOCKOUT_MENIT = 5
 // bertahan antar request/instance. Setelah MAX_PERCOBAAN kali salah, siswa
 // dikunci sementara LOCKOUT_MENIT menit.
 export async function POST(req: NextRequest) {
-  const auth = requireRole(req, ['SISWA'])
+  const auth = await requireRoleAktif(req, ['SISWA'])
   if ('error' in auth) return auth.error
   const { user } = auth
 
