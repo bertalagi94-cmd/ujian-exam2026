@@ -12,7 +12,7 @@
 //     kepentingan) → diteruskan ke Super Admin / Admin Kelas lain.
 //   - Durasi essay & pengaturan jadwal tetap hak Super Admin (tidak ada di sini).
 import { NextRequest, NextResponse } from 'next/server'
-import { requireRole } from '@/lib/auth'
+import { requireRoleAktif } from '@/lib/status-akun'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { catatAktivitas } from '@/lib/aktivitas'
 import { getKelasAdminKelas, paketDalamWilayah, type KelasAdminKelas } from '@/lib/admin-kelas'
@@ -28,7 +28,7 @@ type Konteks = {
 }
 
 async function siapkan(req: NextRequest): Promise<{ ctx: Konteks } | { error: Response }> {
-  const auth = requireRole(req, ['GURU'])
+  const auth = await requireRoleAktif(req, ['GURU'])
   if ('error' in auth) return { error: auth.error }
   const db = tenantDb(yayasanIdDari(auth.user))
   const wilayah = await getKelasAdminKelas(db, auth.user.username)

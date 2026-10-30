@@ -45,11 +45,22 @@ export interface HasilFinalisasiPaksa {
   error?: string
 }
 
+// jenis 'TUTUP_PAKSA' (bawaan): dipanggil saat sesi ditutup paksa.
+// jenis 'ULANG': dipanggil dari POST /api/admin/sesi/[id]/finalisasi-ulang
+// untuk siswa yang sudah SELESAI tetapi tidak punya baris nilai (finalisasi
+// sebelumnya gagal). Bedanya: teks catatan guru, dan sesi tanpa soal PG
+// dilewati (tidak ada nilai PG yang bisa dihitung, jadi tidak dibuatkan nilai 0).
+export interface OpsiFinalisasiPaksa {
+  jenis?: 'TUTUP_PAKSA' | 'ULANG'
+}
+
 export async function finalisasiNilaiPaksa(
   db: DbClient,
   sesiId: string,
-  nisList: string[]
+  nisList: string[],
+  opsi: OpsiFinalisasiPaksa = {}
 ): Promise<HasilFinalisasiPaksa> {
+  const jenis = opsi.jenis ?? 'TUTUP_PAKSA'
   if (!nisList.length) return { ok: true, jumlahDinilai: 0 }
 
   // FIX: kegagalan database saat memuat kunci jawaban dilaporkan sebagai
@@ -66,6 +77,7 @@ export async function finalisasiNilaiPaksa(
     return { ok: false, jumlahDinilai: 0, error: 'Data sesi untuk penilaian tidak ditemukan (ambilDataSesiUntukPenilaian mengembalikan null).' }
   }
   const { sesi, kkm, totalSoal, kunciMap } = sesiCache
+  if (jenis === 'ULANG' && totalSoal === 0) return { ok: true, jumlahDinilai: 0 }
 
   // FIX BUG #12 (status_essay tidak pernah difinalisasi saat sesi ditutup
   // paksa): sebelumnya fungsi ini HANYA peduli tabel `nilai` — begitu semua
@@ -179,7 +191,11 @@ export async function finalisasiNilaiPaksa(
     const jawabanSiswa = jawabanPerSiswa.get(nis) ?? []
     const { benar, total, nilai: nilaiAngka, grade, lulus } = hitungHasilPenilaian(jawabanSiswa, kunciMap, totalSoal, kkm)
 
-    const catatan = jawabanSiswa.length > 0
+    const catatan = jenis === 'ULANG'
+      ? (jawabanSiswa.length > 0
+        ? 'Dinilai ulang otomatis oleh admin (finalisasi ulang) karena nilai siswa ini tidak tersimpan saat sesi ditutup. Nilai dihitung dari jawaban yang tersinkron ke server. Mohon ditinjau.'
+        : 'Dinilai ulang otomatis oleh admin (finalisasi ulang) karena nilai siswa ini tidak tersimpan saat sesi ditutup, dan TIDAK ADA jawaban yang tersinkron dari siswa ini. Mohon ditinjau, pertimbangkan kebijakan ujian susulan.')
+      : jawabanSiswa.length > 0
       ? 'Dinilai otomatis oleh sistem — sesi ditutup paksa oleh pengawas sebelum siswa sempat menekan "Selesai" sendiri (kemungkinan jaringan terputus total). Nilai dihitung dari jawaban terakhir yang berhasil tersinkron ke server. Mohon ditinjau.'
       : 'Dinilai otomatis oleh sistem — sesi ditutup paksa dan TIDAK ADA jawaban yang berhasil tersinkron dari siswa ini (kemungkinan jaringan terputus sejak awal ujian). Mohon ditinjau, pertimbangkan kebijakan ujian susulan.'
 
