@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
-import { requireRole } from '@/lib/auth'
+import { requireRoleAktif } from '@/lib/status-akun'
 import { cachedFetch } from '@/lib/cache'
 import { hitungGrade } from '@/lib/utils'
 import { petakanEssayAktifPerSesi } from '@/app/api/guru/kirim-nilai/route'
@@ -112,7 +112,7 @@ async function fetchDashboardData(yayasanId: string) {
 }
 
 export async function GET(req: NextRequest) {
-  const auth = requireRole(req, ['ADMIN'])
+  const auth = await requireRoleAktif(req, ['ADMIN'])
   if ('error' in auth) return auth.error
 
   // Cache 30 dtk — dashboard tidak perlu real-time tiap detik.

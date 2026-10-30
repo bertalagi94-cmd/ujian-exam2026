@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
-import { requireRole } from '@/lib/auth'
+import { requireRoleAktif } from '@/lib/status-akun'
 
 // GET /api/admin/kisi-kisi — lihat semua kisi-kisi
 export async function GET(req: NextRequest) {
-  const auth = requireRole(req, ['ADMIN'])
+  const auth = await requireRoleAktif(req, ['ADMIN'])
   if ('error' in auth) return auth.error
   const db = tenantDb(yayasanIdDari(auth.user))
 
@@ -42,7 +42,7 @@ export async function GET(req: NextRequest) {
 
 // DELETE /api/admin/kisi-kisi?id=xxx — admin bisa hapus kisi-kisi manapun
 export async function DELETE(req: NextRequest) {
-  const auth = requireRole(req, ['ADMIN'])
+  const auth = await requireRoleAktif(req, ['ADMIN'])
   if ('error' in auth) return auth.error
   const db = tenantDb(yayasanIdDari(auth.user))
   const { searchParams } = new URL(req.url)

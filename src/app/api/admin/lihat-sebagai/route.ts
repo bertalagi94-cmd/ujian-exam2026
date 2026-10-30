@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
-import { requireRole, signViewAsToken, VIEW_AS_MAX_SECONDS } from '@/lib/auth'
+import { signViewAsToken, VIEW_AS_MAX_SECONDS } from '@/lib/auth'
+import { requireRoleAktif } from '@/lib/status-akun'
 import { generateId } from '@/lib/utils'
 import { invalidasiDipantau } from '@/lib/dipantau'
 
@@ -21,7 +22,7 @@ function getClientIp(req: NextRequest): string {
 }
 
 export async function POST(req: NextRequest) {
-  const auth = requireRole(req, ['ADMIN'])
+  const auth = await requireRoleAktif(req, ['ADMIN'])
   if ('error' in auth) return auth.error
   const { user: admin } = auth
 

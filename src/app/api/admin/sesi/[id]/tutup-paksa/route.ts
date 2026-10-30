@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
-import { requireRole } from '@/lib/auth'
+import { requireRoleAktif } from '@/lib/status-akun'
 import { finalisasiNilaiPaksa } from '@/lib/finalisasi-nilai'
 
 interface Ctx { params: Promise<{ id: string }> }
@@ -38,7 +38,7 @@ interface Ctx { params: Promise<{ id: string }> }
 // pesan sukses palsu.
 export async function POST(req: NextRequest, props: Ctx) {
   const params = await props.params;
-  const auth = requireRole(req, ['ADMIN'])
+  const auth = await requireRoleAktif(req, ['ADMIN'])
   if ('error' in auth) return auth.error
 
   const db = tenantDb(yayasanIdDari(auth.user))

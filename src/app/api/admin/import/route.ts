@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server'
 import bcrypt from 'bcryptjs'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { createAdminClient } from '@/lib/supabase'
-import { requireRole } from '@/lib/auth'
+import { requireRoleAktif } from '@/lib/status-akun'
 
 interface ImportRow {
   nis: string
@@ -27,7 +27,7 @@ interface ImportRow {
 const pendingJobs = new Map<string, { rows: ImportRow[]; yayasanId: string }>()
 
 export async function POST(req: NextRequest) {
-  const auth = requireRole(req, ['ADMIN'])
+  const auth = await requireRoleAktif(req, ['ADMIN'])
   if ('error' in auth) return auth.error
 
   const body = await req.json()
@@ -53,7 +53,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
-  const auth = requireRole(req, ['ADMIN'])
+  const auth = await requireRoleAktif(req, ['ADMIN'])
   if ('error' in auth) return auth.error
 
   const jobId = req.nextUrl.searchParams.get('jobId')

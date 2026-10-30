@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari, idsMilikYayasan } from '@/lib/tenant'
-import { requireRole } from '@/lib/auth'
+import { requireRoleAktif } from '@/lib/status-akun'
 import { generateId } from '@/lib/utils'
 import { hapusFotoEssayFisik } from '@/lib/backup-restore-shared'
 import { cachedFetch, cacheDelPrefix } from '@/lib/cache'
@@ -70,7 +70,7 @@ async function fetchKelasData(tester: boolean, semua: boolean, yayasanId: string
 }
 
 export async function GET(req: NextRequest) {
-  const auth = requireRole(req, ['ADMIN', 'GURU', 'KEPSEK'])
+  const auth = await requireRoleAktif(req, ['ADMIN', 'GURU', 'KEPSEK'])
   if ('error' in auth) return auth.error
 
   const { searchParams } = new URL(req.url)
@@ -98,7 +98,7 @@ export async function GET(req: NextRequest) {
  * PUT — simpan/update wali kelas & jurusan ke tabel kelas (upsert by nama).
  */
 export async function PUT(req: NextRequest) {
-  const auth = requireRole(req, ['ADMIN'])
+  const auth = await requireRoleAktif(req, ['ADMIN'])
   if ('error' in auth) return auth.error
 
   const db = tenantDb(yayasanIdDari(auth.user))
@@ -183,7 +183,7 @@ export async function PUT(req: NextRequest) {
  * Body: { nama?: string, kelasId?: string }  (minimal salah satu)
  */
 export async function DELETE(req: NextRequest) {
-  const auth = requireRole(req, ['ADMIN'])
+  const auth = await requireRoleAktif(req, ['ADMIN'])
   if ('error' in auth) return auth.error
 
   const db = tenantDb(yayasanIdDari(auth.user))

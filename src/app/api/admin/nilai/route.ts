@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
-import { requireRole } from '@/lib/auth'
+import { requireRoleAktif } from '@/lib/status-akun'
 import { petakanEssayAktifPerSesi } from '@/app/api/guru/kirim-nilai/route'
 import { getKepsekScope } from '@/lib/kepsek-scope'
 
 export async function GET(req: NextRequest) {
-  const auth = requireRole(req, ['ADMIN', 'KEPSEK'])
+  const auth = await requireRoleAktif(req, ['ADMIN', 'KEPSEK'])
   if ('error' in auth) return auth.error
   const { user } = auth
 
@@ -121,7 +121,7 @@ export async function GET(req: NextRequest) {
 // misalnya sesi ditutup paksa oleh pengawas sebelum siswa selesai mengirim jawaban,
 // sehingga nilainya tidak valid/tidak ada dan siswa perlu diberi kesempatan ujian ulang.
 export async function PATCH(req: NextRequest) {
-  const auth = requireRole(req, ['ADMIN'])
+  const auth = await requireRoleAktif(req, ['ADMIN'])
   if ('error' in auth) return auth.error
 
   const db = tenantDb(yayasanIdDari(auth.user))

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
-import { requireRole } from '@/lib/auth'
+import { requireRoleAktif } from '@/lib/status-akun'
 import { cacheDelPrefix } from '@/lib/cache'
 
 // Ekstensi file ditentukan dari tipe MIME yang diizinkan, BUKAN dari nama file
@@ -19,7 +19,7 @@ const EKSTENSI_GAMBAR: Record<string, string> = {
 const TOLAK_LOGO_APLIKASI = 'Logo aplikasi hanya dapat diubah oleh developer.'
 
 export async function POST(req: NextRequest) {
-  const auth = requireRole(req, ['ADMIN'])
+  const auth = await requireRoleAktif(req, ['ADMIN'])
   if ('error' in auth) return auth.error
 
   const { searchParams } = new URL(req.url)
@@ -75,7 +75,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const auth = requireRole(req, ['ADMIN'])
+  const auth = await requireRoleAktif(req, ['ADMIN'])
   if ('error' in auth) return auth.error
 
   const { searchParams } = new URL(req.url)

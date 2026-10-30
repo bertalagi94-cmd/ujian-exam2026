@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
-import { requireRole } from '@/lib/auth'
+import { requireRoleAktif } from '@/lib/status-akun'
 import { muatPengingatSesi } from '@/lib/sesi-belum-ditutup'
 
 // GET /api/admin/sesi-belum-ditutup
@@ -14,7 +14,7 @@ import { muatPengingatSesi } from '@/lib/sesi-belum-ditutup'
 // HANYA MEMBACA. Sesi yang baru "semua peserta sudah selesai" tapi belum
 // terlambat tidak ikut dimuat di sini (itu urusan pengingat di akun pengawas).
 export async function GET(req: NextRequest) {
-  const auth = requireRole(req, ['ADMIN'])
+  const auth = await requireRoleAktif(req, ['ADMIN'])
   if ('error' in auth) return auth.error
 
   try {

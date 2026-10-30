@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
-import { requireRole } from '@/lib/auth'
+import { requireRoleAktif } from '@/lib/status-akun'
 import { catatAktivitas } from '@/lib/aktivitas'
 
 // POST /api/admin/users/kredensial
@@ -33,7 +33,7 @@ const MAKS_AKUN = 200
 const TANPA_CACHE = { 'Cache-Control': 'private, no-store, max-age=0', Pragma: 'no-cache' }
 
 export async function POST(req: NextRequest) {
-  const auth = requireRole(req, ['ADMIN'])
+  const auth = await requireRoleAktif(req, ['ADMIN'])
   if ('error' in auth) return auth.error
 
   const db = tenantDb(yayasanIdDari(auth.user))

@@ -1,7 +1,7 @@
 // app/api/admin/pengaturan/batas-soal/route.ts
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
-import { requireRole } from '@/lib/auth'
+import { requireRoleAktif } from '@/lib/status-akun'
 import { cacheDelPrefix } from '@/lib/cache'
 import {
   KUNCI_BATAS_MIN_SOAL,
@@ -19,7 +19,7 @@ import {
  * (tidak perlu menunggu sesi ujian selesai).
  */
 export async function GET(req: NextRequest) {
-  const auth = requireRole(req, ['ADMIN'])
+  const auth = await requireRoleAktif(req, ['ADMIN'])
   if ('error' in auth) return auth.error
   const db = tenantDb(yayasanIdDari(auth.user))
 
@@ -41,7 +41,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function PUT(req: NextRequest) {
-  const auth = requireRole(req, ['ADMIN'])
+  const auth = await requireRoleAktif(req, ['ADMIN'])
   if ('error' in auth) return auth.error
   const db = tenantDb(yayasanIdDari(auth.user))
 

@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
 import { tenantDb, yayasanIdDari, idsMilikYayasan } from '@/lib/tenant'
-import { requireRole } from '@/lib/auth'
+import { requireRoleAktif } from '@/lib/status-akun'
 
 interface Ctx { params: Promise<{ username: string }> }
 
 export async function PUT(req: NextRequest, props: Ctx) {
   const params = await props.params;
-  const auth = requireRole(req, ['ADMIN'])
+  const auth = await requireRoleAktif(req, ['ADMIN'])
   if ('error' in auth) return auth.error
 
   const db = tenantDb(yayasanIdDari(auth.user))
@@ -89,7 +89,7 @@ export async function PUT(req: NextRequest, props: Ctx) {
 
 export async function DELETE(req: NextRequest, props: Ctx) {
   const params = await props.params;
-  const auth = requireRole(req, ['ADMIN'])
+  const auth = await requireRoleAktif(req, ['ADMIN'])
   if ('error' in auth) return auth.error
 
   const db = tenantDb(yayasanIdDari(auth.user))

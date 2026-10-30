@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
-import { requireRole } from '@/lib/auth'
+import { requireRoleAktif } from '@/lib/status-akun'
 
 // Impor massal data pengguna (GURU / KEPSEK) dari file Excel.
 //
@@ -28,7 +28,7 @@ const BCRYPT_COST = 10 // sama dengan POST /api/admin/users
 const IMPORT_ROLES = ['GURU', 'KEPSEK']
 
 export async function POST(req: NextRequest) {
-  const auth = requireRole(req, ['ADMIN'])
+  const auth = await requireRoleAktif(req, ['ADMIN'])
   if ('error' in auth) return auth.error
 
   const body = await req.json().catch(() => null)

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
-import { requireRole } from '@/lib/auth'
+import { requireRoleAktif } from '@/lib/status-akun'
 
 // GET /api/admin/jadwal/usulan-essay?mapel_id=...&kelas=...
 //
@@ -9,7 +9,7 @@ import { requireRole } from '@/lib/auth'
 // tersimpan, jadi tidak bisa diambil dari daftar jadwal).
 // Hanya membaca. Keputusan durasi tetap diisi admin di jadwal.essay_durasi_menit.
 export async function GET(req: NextRequest) {
-  const auth = requireRole(req, ['ADMIN'])
+  const auth = await requireRoleAktif(req, ['ADMIN'])
   if ('error' in auth) return auth.error
 
   const { searchParams } = new URL(req.url)

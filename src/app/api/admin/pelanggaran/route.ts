@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
-import { requireRole } from '@/lib/auth'
+import { requireRoleAktif } from '@/lib/status-akun'
 import { getZonaWaktuSekolah, parseJadwalKeInstant } from '@/lib/pengaturan-waktu'
 import { generateId } from '@/lib/utils'
 import { ambilMaksReset, hitungKodeReset } from '@/lib/reset-berurutan'
@@ -8,7 +8,7 @@ import { ambilMaksReset, hitungKodeReset } from '@/lib/reset-berurutan'
 // GET /api/admin/pelanggaran
 // Query: page, per_page, search, status, jenis, sesiId, tanggal
 export async function GET(req: NextRequest) {
-  const auth = requireRole(req, ['ADMIN'])
+  const auth = await requireRoleAktif(req, ['ADMIN'])
   if ('error' in auth) return auth.error
 
   const db = tenantDb(yayasanIdDari(auth.user))
@@ -135,7 +135,7 @@ export async function GET(req: NextRequest) {
 // Body: { id, action, nis, sesiId }
 // action: 'update_status' | 'bypass_reset' | 'kunci_permanen' | 'hapus' | 'reset_semua'
 export async function PATCH(req: NextRequest) {
-  const auth = requireRole(req, ['ADMIN'])
+  const auth = await requireRoleAktif(req, ['ADMIN'])
   if ('error' in auth) return auth.error
 
   const db = tenantDb(yayasanIdDari(auth.user))

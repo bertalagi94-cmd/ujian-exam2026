@@ -4,7 +4,7 @@
 // PUT : { username, kelas_ids: string[] } — GANTI seluruh penugasan guru itu.
 //       kelas_ids kosong = cabut status Admin Kelas.
 import { NextRequest, NextResponse } from 'next/server'
-import { requireRole } from '@/lib/auth'
+import { requireRoleAktif } from '@/lib/status-akun'
 import { tenantDb, yayasanIdDari, idsMilikYayasan } from '@/lib/tenant'
 import { catatAktivitas } from '@/lib/aktivitas'
 import { adminKelasAktif, KUNCI_ADMIN_KELAS_AKTIF } from '@/lib/admin-kelas'
@@ -12,7 +12,7 @@ import { adminKelasAktif, KUNCI_ADMIN_KELAS_AKTIF } from '@/lib/admin-kelas'
 export const dynamic = 'force-dynamic'
 
 export async function GET(req: NextRequest) {
-  const auth = requireRole(req, ['ADMIN'])
+  const auth = await requireRoleAktif(req, ['ADMIN'])
   if ('error' in auth) return auth.error
   const db = tenantDb(yayasanIdDari(auth.user))
 
@@ -39,7 +39,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function PUT(req: NextRequest) {
-  const auth = requireRole(req, ['ADMIN'])
+  const auth = await requireRoleAktif(req, ['ADMIN'])
   if ('error' in auth) return auth.error
   const yayasanId = yayasanIdDari(auth.user)
   const db = tenantDb(yayasanId)
@@ -107,7 +107,7 @@ export async function PUT(req: NextRequest) {
 // PATCH { aktif: boolean } — hidup/matikan fitur Admin Kelas untuk yayasan ini.
 // Penugasan tidak dihapus saat dimatikan; hanya berhenti berlaku.
 export async function PATCH(req: NextRequest) {
-  const auth = requireRole(req, ['ADMIN'])
+  const auth = await requireRoleAktif(req, ['ADMIN'])
   if ('error' in auth) return auth.error
   const db = tenantDb(yayasanIdDari(auth.user))
 

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
-import { requireRole } from '@/lib/auth'
+import { requireRoleAktif } from '@/lib/status-akun'
 import { tolakJikaMultiYayasan } from '@/lib/tenant'
 import {
   BACKUP_BUCKETS,
@@ -196,7 +196,7 @@ async function handleFile(bucket: string, file: string) {
 }
 
 export async function GET(req: NextRequest) {
-  const auth = requireRole(req, ['ADMIN'])
+  const auth = await requireRoleAktif(req, ['ADMIN'])
   const tolak = tolakJikaMultiYayasan()
   if (tolak) return tolak
   if ('error' in auth) return auth.error

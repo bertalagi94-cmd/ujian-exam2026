@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
-import { requireRole, signToken } from '@/lib/auth'
+import { signToken } from '@/lib/auth'
+import { requireRoleAktif } from '@/lib/status-akun'
 import { cacheGet, cacheSet } from '@/lib/cache'
 
 // Ganti password SENDIRI untuk akun staf (ADMIN / GURU / KEPSEK). Siswa memakai
@@ -13,7 +14,7 @@ const MAKS_PERCOBAAN = 5
 const WINDOW_DETIK = 10 * 60
 
 export async function PUT(req: NextRequest) {
-  const auth = requireRole(req, ['ADMIN', 'GURU', 'KEPSEK'], { izinkanWajibGanti: true })
+  const auth = await requireRoleAktif(req, ['ADMIN', 'GURU', 'KEPSEK'], { izinkanWajibGanti: true })
   if ('error' in auth) return auth.error
   const { user } = auth
 
