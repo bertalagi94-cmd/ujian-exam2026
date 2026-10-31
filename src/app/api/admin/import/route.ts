@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRoleAktif } from '@/lib/status-akun'
+import { pastikanKelasAda, rapikanNamaKelas } from '@/lib/kelas-sync'
 
 interface ImportRow {
   nis: string
@@ -103,6 +104,25 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // Pastikan setiap kelas di file ini punya baris di tabel `kelas` (lihat
+  // src/lib/kelas-sync.ts). Kelas baru di yayasan multi-sekolah dibuat tanpa
+  // sekolah_id dan harus ditetapkan admin di menu Kelas.
+  let petaKelas: Map<string, string>
+  try {
+    const hasilKelas = await pastikanKelasAda(
+      db,
+      rows
+        .filter((r: any) => String(r.nis ?? '').trim() && String(r.nama ?? '').trim() && !nisYayasanLain.has(String(r.nis ?? '').trim()))
+        .map((r: any) => r.kelas)
+    )
+    petaKelas = hasilKelas.peta
+  } catch (e) {
+    return new Response(JSON.stringify({ error: e instanceof Error ? e.message : 'Gagal memproses kelas' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }
+
   // BCRYPT cost 6: ~15ms per hash (vs cost 10: ~100ms) — masih aman untuk import
   const BCRYPT_COST = 6
   // Batch upsert size
@@ -146,7 +166,7 @@ export async function GET(req: NextRequest) {
             return {
               nis,
               nama,
-              kelas: String(row.kelas ?? '').trim(),
+              kelas: petaKelas.get(rapikanNamaKelas(row.kelas)) ?? rapikanNamaKelas(row.kelas),
               password_hash,
               jenis_kelamin: row.jenis_kelamin || null,
               tempat_lahir: row.tempat_lahir || null,

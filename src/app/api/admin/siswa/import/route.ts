@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs'
 import { createAdminClient } from '@/lib/supabase'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRoleAktif } from '@/lib/status-akun'
+import { pastikanKelasAda, pesanKelasTanpaSekolah, rapikanNamaKelas } from '@/lib/kelas-sync'
 
 interface ImportRow {
   nis: string
@@ -102,6 +103,27 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // Pastikan setiap kelas di file ini punya baris di tabel `kelas`. Tanpa ini,
+  // siswa hasil import tidak cocok dengan kelas mana pun dan tidak terlihat
+  // oleh Kepsek/Guru (scope mereka dibangun dari tabel `kelas`).
+  let petaKelas: Map<string, string>
+  let kelasTanpaSekolah: string[]
+  try {
+    const hasilKelas = await pastikanKelasAda(
+      db,
+      rows
+        .filter((r) => String(r.nis ?? '').trim() && String(r.nama ?? '').trim() && !nisYayasanLain.has(String(r.nis ?? '').trim()))
+        .map((r) => r.kelas)
+    )
+    petaKelas = hasilKelas.peta
+    kelasTanpaSekolah = hasilKelas.tanpaSekolah
+  } catch (e) {
+    return new Response(JSON.stringify({ error: e instanceof Error ? e.message : 'Gagal memproses kelas' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }
+
   // BCRYPT cost 6: ~15ms per hash (vs cost 10: ~100ms) — masih aman untuk import
   const BCRYPT_COST = 6
   // Batch upsert size
@@ -133,10 +155,21 @@ export async function POST(req: NextRequest) {
         nisCount.set(nis, (nisCount.get(nis) ?? 0) + 1)
       }
       const duplicateNis = [...nisCount.entries()].filter(([, count]) => count > 1).map(([nis]) => nis)
+      // UI hanya punya satu slot untuk event 'warning', jadi semua peringatan
+      // digabung jadi satu pesan.
+      const pesanPeringatan: string[] = []
       if (duplicateNis.length > 0) {
+        pesanPeringatan.push(
+          `${duplicateNis.length} NISN muncul lebih dari sekali di file ini. Baris dengan NISN yang sama akan saling menimpa (baris terakhir yang dipakai) — hanya 1 siswa per NISN yang tersimpan.`
+        )
+      }
+      if (kelasTanpaSekolah.length > 0) {
+        pesanPeringatan.push(pesanKelasTanpaSekolah(kelasTanpaSekolah))
+      }
+      if (pesanPeringatan.length > 0) {
         send({
           type: 'warning',
-          message: `${duplicateNis.length} NISN muncul lebih dari sekali di file ini. Baris dengan NISN yang sama akan saling menimpa (baris terakhir yang dipakai) — hanya 1 siswa per NISN yang tersimpan.`,
+          message: pesanPeringatan.join(' '),
           duplicateNis: duplicateNis.slice(0, 50),
         })
       }
@@ -167,7 +200,7 @@ export async function POST(req: NextRequest) {
             return {
               nis,
               nama,
-              kelas: String(row.kelas ?? '').trim(),
+              kelas: petaKelas.get(rapikanNamaKelas(row.kelas)) ?? rapikanNamaKelas(row.kelas),
               password_hash,
               jenis_kelamin: row.jenis_kelamin || null,
               tempat_lahir: row.tempat_lahir || null,

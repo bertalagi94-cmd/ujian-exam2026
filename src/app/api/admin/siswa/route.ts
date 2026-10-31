@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRoleAktif } from '@/lib/status-akun'
-import { generateId } from '@/lib/utils'
+import { pastikanKelasAda, pesanKelasTanpaSekolah, rapikanNamaKelas } from '@/lib/kelas-sync'
 
 export async function GET(req: NextRequest) {
   const auth = await requireRoleAktif(req, ['ADMIN'])
@@ -63,26 +63,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'NISN, nama, dan kelas wajib diisi' }, { status: 400 })
   }
 
-  const kelasNama = String(kelas).trim().toUpperCase()
-
-  // Jika kelas belum ada di tabel kelas, otomatis buat entry baru
-  // FIX Bug #5: gunakan ilike (case-insensitive) agar tidak ada duplikat
-  // akibat perbedaan casing (mis. "10a" vs "10A" jadi dua kelas berbeda).
-  // Siswa dengan kelas casing berbeda tidak akan cocok dengan jadwal ujian.
-  const { data: kelasExist } = await db
-    .from('kelas')
-    .select('id')
-    .ilike('nama', kelasNama)
-    .maybeSingle()
-
-  if (!kelasExist) {
-    await db.from('kelas').insert({
-      id: generateId('KLS'),
-      nama: kelasNama,
-      wali_kelas: null,
-      jurusan: '-',
-      jumlah: 0,
-    })
+  // Pastikan kelas ada di tabel kelas (pencocokan tanpa peduli huruf besar/kecil
+  // dan spasi ganda). Kalau belum ada, dibuat — dengan sekolah_id otomatis
+  // kalau yayasan hanya punya satu sekolah, supaya Kepsek/Guru bisa melihatnya.
+  let kelasNama: string
+  let peringatan: string | undefined
+  try {
+    const hasil = await pastikanKelasAda(db, [kelas])
+    kelasNama = hasil.peta.get(rapikanNamaKelas(kelas)) ?? rapikanNamaKelas(kelas)
+    if (hasil.tanpaSekolah.length > 0) peringatan = pesanKelasTanpaSekolah(hasil.tanpaSekolah)
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : 'Gagal memproses kelas' }, { status: 500 })
   }
 
   const password_hash = await bcrypt.hash(String(nis), 10)
@@ -103,5 +94,5 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  return NextResponse.json({ message: 'Siswa berhasil ditambahkan' }, { status: 201 })
+  return NextResponse.json({ message: 'Siswa berhasil ditambahkan', ...(peringatan ? { peringatan } : {}) }, { status: 201 })
 }
