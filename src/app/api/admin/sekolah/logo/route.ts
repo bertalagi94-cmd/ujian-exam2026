@@ -18,6 +18,8 @@ const EKSTENSI_GAMBAR: Record<string, string> = {
 // mengubahnya, lewat /api/developer/logo-aplikasi.
 const TOLAK_LOGO_APLIKASI = 'Logo aplikasi hanya dapat diubah oleh developer.'
 
+const MAKS_BYTES_LOGO = 2 * 1024 * 1024
+
 export async function POST(req: NextRequest) {
   const auth = await requireRoleAktif(req, ['ADMIN'])
   if ('error' in auth) return auth.error
@@ -28,9 +30,16 @@ export async function POST(req: NextRequest) {
   }
   const sekolahId = searchParams.get('id')
 
-  const formData = await req.formData()
+  // FIX (audit upload): body non-multipart membuat formData() melempar (500),
+  // dan tidak ada batas ukuran file sama sekali (upload guru & logo aplikasi
+  // sudah membatasi 2 MB). Disamakan: 400 untuk body rusak, 2 MB untuk file.
+  const formData = await req.formData().catch(() => null)
+  if (!formData) return NextResponse.json({ error: 'Body request tidak valid' }, { status: 400 })
   const file = formData.get('file') as File | null
   if (!file) return NextResponse.json({ error: 'File tidak ditemukan' }, { status: 400 })
+  if (file.size > MAKS_BYTES_LOGO) {
+    return NextResponse.json({ error: 'Ukuran file maksimal 2MB' }, { status: 400 })
+  }
 
   const db = tenantDb(yayasanIdDari(auth.user))
   const ext = EKSTENSI_GAMBAR[file.type]

@@ -7,6 +7,7 @@ import { requireRoleAktif } from '@/lib/status-akun'
 import { essayTerlambatDitolak } from '@/lib/essay-waktu'
 import { hitungBatasWaktuPg, sudahKedaluwarsa, saringJawabanTerlambat } from '@/lib/deadline-pg'
 import { catatAktivitas } from '@/lib/aktivitas'
+import { normalisasiJawabanEssayMasuk, MAKS_JAWABAN_ESSAY_PER_REQUEST } from '@/lib/sync-essay-input'
 
 // POST { sesiId, jawaban: [{ soal_essay_id, jawaban_teks, revisi?, waktuJawabMs? }] }
 export async function POST(req: NextRequest) {
@@ -21,13 +22,26 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: 'Body tidak valid' }, { status: 400 })
   }
-  const { sesiId, jawaban, deviceId } = body as { sesiId?: string; jawaban?: any; deviceId?: string }
-  if (Array.isArray(jawaban) && jawaban.length > 100) {
+  // FIX (audit essay/jawab): JSON `null` lolos try/catch di atas lalu membuat
+  // destrukturisasi melempar TypeError (500). Isi `jawaban` juga dinormalisasi
+  // seperti jalur PG (lihat src/lib/sync-essay-input.ts): elemen null/format
+  // salah dibuang, soal_essay_id kembar digabung, revisi dipastikan integer
+  // aman, dan batas 20.000 karakter kini berlaku untuk semua tipe nilai.
+  if (!body || typeof body !== 'object') {
+    return NextResponse.json({ error: 'Body tidak valid' }, { status: 400 })
+  }
+  const { sesiId, deviceId } = body
+  if (Array.isArray(body.jawaban) && body.jawaban.length > MAKS_JAWABAN_ESSAY_PER_REQUEST) {
     return NextResponse.json({ error: 'Terlalu banyak jawaban dalam satu permintaan' }, { status: 400 })
   }
-  if (Array.isArray(jawaban) && jawaban.some((j: { jawaban_teks?: unknown }) => typeof j?.jawaban_teks === 'string' && j.jawaban_teks.length > 20000)) {
+  const norm = normalisasiJawabanEssayMasuk(body.jawaban)
+  if (norm.terlaluPanjang > 0) {
     return NextResponse.json({ error: 'Jawaban terlalu panjang (maks 20.000 karakter per soal)' }, { status: 400 })
   }
+  if (norm.dibuangFormat > 0 || norm.digabungKembar > 0) {
+    console.warn(`[essay/jawab] payload dinormalisasi untuk sesi ${sesiId}, nis ${user.nis}: ${norm.dibuangFormat} elemen dibuang (format tidak valid), ${norm.digabungKembar} digabung (soal_essay_id kembar).`)
+  }
+  const jawaban = norm.records
   if (!sesiId) return NextResponse.json({ error: 'sesiId diperlukan' }, { status: 400 })
 
   // FIX BUG P0: sertakan paket_essay_id — sama seperti essay/soal/route.ts &
@@ -131,7 +145,7 @@ export async function POST(req: NextRequest) {
     const idSoalSah = new Set((soalSahList ?? []).map(s => s.id))
 
     let jawabanValid: { soal_essay_id: string; jawaban_teks: string; revisi?: number; waktuJawabMs?: number }[] = jawaban.filter(
-      (j: { soal_essay_id: string; jawaban_teks: string }) => idSoalSah.has(j.soal_essay_id)
+      (j) => idSoalSah.has(j.soal_essay_id)
     )
 
     let acked: { soal_essay_id: string; jawaban_teks: string; revisi: number; accepted: boolean }[] | undefined

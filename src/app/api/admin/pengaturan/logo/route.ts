@@ -13,6 +13,8 @@ const EKSTENSI_GAMBAR: Record<string, string> = {
   'image/webp': 'webp',
 }
 
+const MAKS_BYTES_LOGO = 2 * 1024 * 1024
+
 export async function POST(req: NextRequest) {
   const auth = await requireRoleAktif(req, ['ADMIN'])
   if ('error' in auth) return auth.error
@@ -22,14 +24,20 @@ export async function POST(req: NextRequest) {
     const file = formData.get('file') as File | null
     if (!file) return NextResponse.json({ error: 'File tidak ditemukan' }, { status: 400 })
 
-    const db = tenantDb(yayasanIdDari(auth.user))
-    const bytes = await file.arrayBuffer()
-    const buffer = Buffer.from(bytes)
-
+    // FIX (audit upload): tidak ada batas ukuran sama sekali, dan seluruh file
+    // dibaca ke memori SEBELUM tipenya diperiksa. Sekarang tipe & ukuran
+    // (maks 2 MB, sama dengan upload guru dan logo aplikasi) dicek lebih dulu.
     const ext = EKSTENSI_GAMBAR[file.type]
     if (!ext) {
       return NextResponse.json({ error: 'Format logo tidak didukung. Gunakan JPG, PNG, GIF, atau WebP.' }, { status: 400 })
     }
+    if (file.size > MAKS_BYTES_LOGO) {
+      return NextResponse.json({ error: 'Ukuran file maksimal 2MB' }, { status: 400 })
+    }
+
+    const db = tenantDb(yayasanIdDari(auth.user))
+    const bytes = await file.arrayBuffer()
+    const buffer = Buffer.from(bytes)
     // Multi-yayasan: folder per yayasan agar logo tidak saling menimpa
     // (yayasan awal tetap tanpa folder, alamat lama tidak berubah).
     const yid = yayasanIdDari(auth.user)

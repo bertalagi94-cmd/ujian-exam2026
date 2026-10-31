@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { RealtimeChannel, SupabaseClient } from '@supabase/supabase-js'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { verifyToken, JWTPayload } from '@/lib/auth'
+import { periksaAkunMasihAktif } from '@/lib/status-akun'
 import { getKepsekScope } from '@/lib/kepsek-scope'
 import { ambilInfoIzin, izinDiperlukan, tolakJikaBelumDiizinkan } from '@/lib/izin-layar-pantau'
 import { computeLiveLeaderboardUntukSesi, LiveLeaderboardSesi } from '@/lib/leaderboard-live'
@@ -60,6 +61,20 @@ export async function GET(req: NextRequest) {
     return new Response('Unauthorized', { status: 401 })
   }
 
+  // FIX (audit stream): endpoint ini memverifikasi token langsung dengan
+  // verifyToken(), jadi TIDAK melewati requireRoleAktif() seperti
+  // /api/layar-pantau/data dan /izin. Akun GURU/KEPSEK/ADMIN yang sudah
+  // dinonaktifkan (atau yayasannya dinonaktifkan) tetap bisa membuka stream
+  // dan terus menerima papan live sampai token kedaluwarsa (10 jam) karena
+  // EventSource menyambung ulang otomatis tiap ~55 detik. Cek yang sama
+  // (di-cache 30 detik per akun) dipakai di sini. Pemeriksaan wajib-ganti-
+  // password SENGAJA tidak dipasang: /data memakai izinkanWajibGanti: true,
+  // jadi perilakunya disamakan.
+  const statusAkun = await periksaAkunMasihAktif(user)
+  if (!statusAkun.aktif) {
+    return new Response('Unauthorized', { status: 401 })
+  }
+
   // Token tanpa klaim yayasan (saat mode multi-yayasan menyala) ditolak: login ulang.
   let yayasanId: string
   try {
@@ -104,6 +119,35 @@ export async function GET(req: NextRequest) {
       // papan KOSONG selalu dikirim (klien butuh dua hasil kosong berturut-turut
       // untuk benar-benar mengosongkan layar, lihat terapkanDataBaru di page.tsx).
       let lastSignature = ''
+
+      // FIX (performa, audit stream): langganan Realtime di bawah menerima
+      // SETIAP perubahan di tabel jawaban/siswa_ujian/sesi_ujian -- dari semua
+      // kelas dan (saat mode multi-yayasan menyala) dari semua yayasan --
+      // lalu tiap event memicu recompute papan lengkap untuk viewer ini.
+      // jawaban & siswa_ujian tidak punya kolom yayasan_id (tabel volume besar,
+      // lihat migrasi 39), jadi filter sisi-server Realtime tidak bisa dipakai.
+      // Sebagai gantinya event disaring di sini memakai daftar sesi yang saat
+      // ini terlihat oleh viewer (diperbarui setiap pushBoards).
+      let sesiTerlihat = new Set<string>()
+      const eventRelevan = (tabel: 'jawaban' | 'siswa_ujian' | 'sesi_ujian', payload: any): boolean => {
+        const baru = (payload?.new ?? {}) as Record<string, unknown>
+        const lama = (payload?.old ?? {}) as Record<string, unknown>
+        if (tabel === 'sesi_ujian') {
+          // Sesi baru (belum ada di daftar) dari yayasan ini harus memicu
+          // recompute. Tanpa info yayasan di payload -> anggap relevan.
+          const yys = baru.yayasan_id ?? lama.yayasan_id
+          const id = (baru.id ?? lama.id) as string | undefined
+          if (id && sesiTerlihat.has(id)) return true
+          if (yys === undefined) return true
+          return yys === yayasanId
+        }
+        const sesiId = (baru.sesi_id ?? lama.sesi_id) as string | undefined
+        // DELETE tanpa replica identity penuh hanya membawa kunci utama:
+        // tidak bisa dipastikan sesinya, jadi tetap recompute (jarang terjadi).
+        if (!sesiId) return true
+        return sesiTerlihat.has(sesiId)
+      }
+
       const pushBoards = async () => {
         if (closed) return
         const myGen = ++gen
@@ -118,7 +162,8 @@ export async function GET(req: NextRequest) {
               return
             }
           }
-          const { boards, scopeWarning } = await ambilBoardsUntukViewer(db, user!, yayasanId)
+          const { boards, scopeWarning, sesiIds } = await ambilBoardsUntukViewer(db, user!, yayasanId)
+          if (sesiIds) sesiTerlihat = new Set(sesiIds)
           if (closed || myGen !== gen) return // sudah ditutup / ada panggilan lebih baru, buang hasil basi ini
           const signature = JSON.stringify({ boards, scopeWarning })
           if (boards.length > 0 && signature === lastSignature) return
@@ -165,9 +210,9 @@ export async function GET(req: NextRequest) {
       // ── Langganan Realtime ────────────────────────────────────────────
       channel = db
         .channel(`layar-pantau-${user.username}-${Date.now()}`)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'jawaban' }, scheduleRecompute)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'sesi_ujian' }, scheduleRecompute)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'siswa_ujian' }, scheduleRecompute)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'jawaban' }, (p: any) => { if (eventRelevan('jawaban', p)) scheduleRecompute() })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'sesi_ujian' }, (p: any) => { if (eventRelevan('sesi_ujian', p)) scheduleRecompute() })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'siswa_ujian' }, (p: any) => { if (eventRelevan('siswa_ujian', p)) scheduleRecompute() })
         .subscribe((status) => {
           if (status === 'SUBSCRIBED') send('status', { realtime: 'tersambung' })
           if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') send('status', { realtime: 'terputus' })
@@ -231,7 +276,7 @@ async function ambilBoardsUntukViewer(
   db: SupabaseClient<any>,
   user: ViewerUser,
   yayasanId: string
-): Promise<{ boards: LiveLeaderboardSesi[]; scopeWarning?: string }> {
+): Promise<{ boards: LiveLeaderboardSesi[]; scopeWarning?: string; sesiIds?: string[] }> {
   let sesiRows: {
     id: string; jadwal_id: string; mapel_id: string; kelas: string
     durasi: number | null; waktu_mulai: string; paket_soal_id: string | null; status: string
@@ -249,7 +294,7 @@ async function ambilBoardsUntukViewer(
     if (errJadwal) throw new Error(errJadwal.message)
 
     const jadwalIds = (jadwalSaya ?? []).map((j: { id: string }) => j.id)
-    if (jadwalIds.length === 0) return { boards: [] }
+    if (jadwalIds.length === 0) return { boards: [], sesiIds: [] }
 
     const { data, error } = await db
       .from('sesi_ujian')
@@ -263,6 +308,7 @@ async function ambilBoardsUntukViewer(
     if (scope.noScope || scope.kelasList.length === 0) {
       return {
         boards: [],
+        sesiIds: [],
         scopeWarning: scope.noScope ? 'Akun Kepsek Anda belum diset sekolah/jenjangnya oleh Admin.' : undefined,
       }
     }
@@ -282,8 +328,9 @@ async function ambilBoardsUntukViewer(
     sesiRows = data ?? []
   }
 
-  if (sesiRows.length === 0) return { boards: [] }
+  if (sesiRows.length === 0) return { boards: [], sesiIds: [] }
 
+  const sesiIds = sesiRows.map(s => s.id)
   const mapelIds = [...new Set(sesiRows.map(s => s.mapel_id))]
   const { data: mapelList } = await db.from('mapel').select('id, nama').in('id', mapelIds)
   const namaMapelMap = Object.fromEntries((mapelList ?? []).map((m: { id: string; nama: string }) => [m.id, m.nama]))
@@ -301,5 +348,5 @@ async function ambilBoardsUntukViewer(
     a.namaMapel.localeCompare(b.namaMapel)
   )
 
-  return { boards }
+  return { boards, sesiIds }
 }

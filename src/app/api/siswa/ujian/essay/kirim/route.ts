@@ -27,7 +27,14 @@ export async function POST(req: NextRequest) {
   // langsung dan mengubah status jadi SUDAH_KIRIM/SELESAI, memotong sesi
   // Device A tanpa sepengetahuannya. Sekarang deviceId wajib dikirim & wajib
   // cocok dengan device_id yang terdaftar, persis pola guard di essay/jawab.
-  const { sesiId, deviceId } = await req.json()
+  // FIX (audit essay/kirim): req.json() tanpa penjagaan melempar exception
+  // untuk body kosong/rusak (jadi 500 tanpa pesan jelas). Dibalas 400.
+  const body = await req.json().catch(() => null) as { sesiId?: unknown; deviceId?: unknown } | null
+  if (!body || typeof body !== 'object') {
+    return NextResponse.json({ error: 'Body request tidak valid' }, { status: 400 })
+  }
+  const sesiId = typeof body.sesiId === 'string' ? body.sesiId : undefined
+  const deviceId = typeof body.deviceId === 'string' ? body.deviceId : undefined
   if (!sesiId) return NextResponse.json({ error: 'sesiId diperlukan' }, { status: 400 })
 
   const { data: sesi } = await db.from('sesi_ujian').select('status, info_json').eq('id', sesiId).single()
