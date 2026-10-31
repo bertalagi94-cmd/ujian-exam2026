@@ -1687,6 +1687,7 @@ async function phaseExam() {
     const polaBurst = document.getElementById('cfg-polling')?.value === 'burst';
     const JENDELA_MS = 10000;
     let pollOk = 0, pollFail = 0;
+    state.kontrolCekSesi = []; // sampel latensi cek-sesi, untuk dibandingkan dengan health
     for (let round = 0; round < ROUNDS; round++) {
       if (state.stopRequested) break;
       const burstResults = await Promise.all(loggedInSiswa.map(async siswa => {
@@ -1694,7 +1695,10 @@ async function phaseExam() {
         return api('GET', `/api/siswa/ujian/cek-sesi?sesiId=${state.sesiId}&deviceId=${deviceIdFor(siswa.nis)}`, undefined, siswa.token)
           .catch(e => ({ ok: false, status: 0, error: e.message }));
       }));
-      for (const r of burstResults) { if (r.ok) pollOk++; else pollFail++; }
+      for (const r of burstResults) {
+        if (r.ok) pollOk++; else pollFail++;
+        if (typeof r.latency === 'number') state.kontrolCekSesi.push(r.latency);
+      }
       setProgress(((round + 1) / ROUNDS) * 100, `Heartbeat ${round + 1}/${ROUNDS} (${loggedInSiswa.length} siswa serentak)`);
       if (polaBurst && round < ROUNDS - 1) await sleep(800); // mode burst: jeda antar siklus
     }
@@ -1708,6 +1712,34 @@ async function phaseExam() {
       );
     }
     analyzeEndpointLatency('GET /api/siswa/ujian/cek-sesi', 'GET /api/siswa/ujian/cek-sesi (polling serentak)');
+
+    // ── PEMBANDING (kontrol): GET /api/siswa/ujian/health ───────────────────
+    // Endpoint ini TANPA autentikasi dan TANPA database (lihat komentar di
+    // src/app/api/siswa/ujian/health/route.ts). Dipanggil dengan jumlah & pola
+    // yang SAMA seperti cek-sesi. Kalau health juga lambat, penyebabnya ada di
+    // browser/jaringan penguji (atau platform), bukan di kode/database aplikasi.
+    // Kalau health cepat tapi cek-sesi lambat, selisihnya berasal dari sisi
+    // server/database. Hasilnya TIDAK dihitung sebagai bug.
+    if (!state.stopRequested) {
+      setAction(`Pembanding jaringan: ${loggedInSiswa.length} panggilan health (tanpa DB) …`);
+      state.kontrolHealth = [];
+      for (let round = 0; round < ROUNDS; round++) {
+        if (state.stopRequested) break;
+        const hasilHealth = await Promise.all(loggedInSiswa.map(async () => {
+          if (!polaBurst) await sleep(Math.random() * JENDELA_MS);
+          return api('GET', '/api/siswa/ujian/health')
+            .catch(e => ({ ok: false, status: 0, error: e.message }));
+        }));
+        for (const r of hasilHealth) {
+          if (typeof r.latency === 'number') state.kontrolHealth.push(r.latency);
+        }
+        setProgress(((round + 1) / ROUNDS) * 100, `Pembanding health ${round + 1}/${ROUNDS}`);
+        if (polaBurst && round < ROUNDS - 1) await sleep(800);
+      }
+      const rataH = state.kontrolHealth.length ? state.kontrolHealth.reduce((a, b) => a + b, 0) / state.kontrolHealth.length : 0;
+      const rataC = (state.kontrolCekSesi || []).length ? state.kontrolCekSesi.reduce((a, b) => a + b, 0) / state.kontrolCekSesi.length : 0;
+      log(`Pembanding: health (tanpa DB) rata² ${rataH.toFixed(0)}ms vs cek-sesi rata² ${rataC.toFixed(0)}ms`, 'info');
+    }
   }
 
   // Submit selesai ujian
@@ -3174,6 +3206,24 @@ function buildReportData() {
     .sort((a, b) => b.errors - a.errors)
     .slice(0, 10);
 
+  // Pembanding jaringan: health (tanpa DB) vs cek-sesi, jumlah & pola sama.
+  const ringkasSampel = (arr) => arr && arr.length
+    ? { n: arr.length, avg: arr.reduce((a, b) => a + b, 0) / arr.length, p95: percentile(arr, 95), max: Math.max(...arr) }
+    : null;
+  const sHealth = ringkasSampel(state.kontrolHealth);
+  const sCek = ringkasSampel(state.kontrolCekSesi);
+  let pembanding = null;
+  if (sHealth && sCek) {
+    const rasio = sHealth.avg / (sCek.avg || 1);
+    pembanding = {
+      health: sHealth, cekSesi: sCek,
+      kesimpulan: rasio >= 0.6
+        ? 'INDIKASI: health (tanpa database) hampir sama lambatnya dengan cek-sesi → penyebab dominan kemungkinan jaringan/browser penguji atau platform, bukan kode atau database aplikasi.'
+        : rasio <= 0.4
+          ? 'INDIKASI: health jauh lebih cepat daripada cek-sesi → selisihnya berasal dari sisi server/database (cek Supabase → Reports → Database).'
+          : 'INDIKASI: hasil di tengah-tengah, belum bisa dipastikan. Ulangi tes atau periksa metrik Supabase.',
+    };
+  }
 
   const counts = {};
   bugsLaporan.forEach(b => {
@@ -3224,6 +3274,7 @@ function buildReportData() {
     totalBugs: bugsLaporan.length,
     counts,
     errorEndpoints,
+    pembanding,
     sortedCats,
     rampResults,
     slowestEndpoints,
@@ -3257,6 +3308,15 @@ function buildReportMarkdown(d) {
       md += `| ${e.endpoint} | ${e.calls} | ${e.avgMs}ms | ${e.maxMs}ms |\n`;
     });
     md += `\n`;
+  }
+
+  if (d.pembanding) {
+    const f = (x) => `${x.toFixed(0)}ms`;
+    md += `## Pembanding Jaringan (health tanpa DB vs cek-sesi)\n\n`;
+    md += `| Endpoint | Sampel | Rata² | P95 | Terlama |\n|---|---|---|---|---|\n`;
+    md += `| GET /api/siswa/ujian/health (tanpa DB) | ${d.pembanding.health.n} | ${f(d.pembanding.health.avg)} | ${f(d.pembanding.health.p95)} | ${f(d.pembanding.health.max)} |\n`;
+    md += `| GET /api/siswa/ujian/cek-sesi | ${d.pembanding.cekSesi.n} | ${f(d.pembanding.cekSesi.avg)} | ${f(d.pembanding.cekSesi.p95)} | ${f(d.pembanding.cekSesi.max)} |\n\n`;
+    md += `${d.pembanding.kesimpulan}\n\n`;
   }
 
   if (d.errorEndpoints && d.errorEndpoints.length) {
@@ -3349,6 +3409,14 @@ function buildReportHtml(d) {
       html += `<tr><td>${escapeHtmlReport(e.endpoint)}</td><td>${e.calls}</td><td>${e.avgMs}ms</td><td>${e.maxMs}ms</td></tr>`;
     });
     html += `</tbody></table>`;
+  }
+
+  if (d.pembanding) {
+    const f = (x) => `${x.toFixed(0)}ms`;
+    html += `<h2>Pembanding Jaringan (health tanpa DB vs cek-sesi)</h2><table><thead><tr><th>Endpoint</th><th>Sampel</th><th>Rata²</th><th>P95</th><th>Terlama</th></tr></thead><tbody>
+      <tr><td>GET /api/siswa/ujian/health (tanpa DB)</td><td>${d.pembanding.health.n}</td><td>${f(d.pembanding.health.avg)}</td><td>${f(d.pembanding.health.p95)}</td><td>${f(d.pembanding.health.max)}</td></tr>
+      <tr><td>GET /api/siswa/ujian/cek-sesi</td><td>${d.pembanding.cekSesi.n}</td><td>${f(d.pembanding.cekSesi.avg)}</td><td>${f(d.pembanding.cekSesi.p95)}</td><td>${f(d.pembanding.cekSesi.max)}</td></tr>
+      </tbody></table><p>${escapeHtmlReport(d.pembanding.kesimpulan)}</p>`;
   }
 
   if (d.errorEndpoints && d.errorEndpoints.length) {

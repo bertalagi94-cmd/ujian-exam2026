@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import { NextResponse, after } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { generateId } from '@/lib/utils'
 
@@ -30,21 +30,31 @@ function catatMetrik(
   status: 'ok' | 'error',
   durasiMs: number
 ): void {
-  db.from('metrik_sistem')
-    .insert({ id: generateId('MTX'), endpoint, status, durasi_ms: Math.max(0, Math.round(durasiMs)) })
-    .then(({ error }: { error: unknown }) => {
+  // Ditulis lewat after() (waitUntil di Vercel): tetap TIDAK menambah latensi
+  // respons, tetapi platform menunggu penulisan selesai sebelum instance
+  // dibekukan. Sebelumnya promise dibiarkan menggantung (fire-and-forget biasa),
+  // sehingga di serverless koneksinya bisa basi dan muncul error ETIMEDOUT
+  // "Gagal catat metrik_sistem" di request lain pada instance yang sama.
+  after(async () => {
+    try {
+      const { error } = await db
+        .from('metrik_sistem')
+        .insert({ id: generateId('MTX'), endpoint, status, durasi_ms: Math.max(0, Math.round(durasiMs)) })
       if (error) console.error('Gagal catat metrik_sistem:', error)
-    })
+    } catch (e) {
+      console.error('Gagal catat metrik_sistem:', e instanceof Error ? e.message : e)
+    }
 
-  if (Math.random() < PROBABILITAS_CLEANUP) {
-    const batas = new Date(Date.now() - RETENSI_JAM * 60 * 60 * 1000).toISOString()
-    db.from('metrik_sistem')
-      .delete()
-      .lt('created_at', batas)
-      .then(({ error }: { error: unknown }) => {
+    if (Math.random() < PROBABILITAS_CLEANUP) {
+      try {
+        const batas = new Date(Date.now() - RETENSI_JAM * 60 * 60 * 1000).toISOString()
+        const { error } = await db.from('metrik_sistem').delete().lt('created_at', batas)
         if (error) console.error('Gagal bersihkan metrik_sistem lama:', error)
-      })
-  }
+      } catch (e) {
+        console.error('Gagal bersihkan metrik_sistem lama:', e instanceof Error ? e.message : e)
+      }
+    }
+  })
 }
 
 /**
