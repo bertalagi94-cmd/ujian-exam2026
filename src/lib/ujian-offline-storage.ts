@@ -131,6 +131,7 @@ export async function simpanAsset(record: AssetRecord): Promise<void> {
     tx.objectStore(STORE_ASSETS).put(record)
     tx.oncomplete = () => resolve()
     tx.onerror = () => reject(tx.error ?? new Error('Gagal menyimpan aset'))
+    tx.onabort = () => reject(tx.error ?? new Error('Gagal menyimpan aset (transaksi dibatalkan)'))
   })
 }
 
@@ -172,6 +173,7 @@ export async function healthCheckStorage(): Promise<{ ok: boolean; error?: strin
       tx.objectStore(STORE_HEALTHCHECK).put(testVal, testKey)
       tx.oncomplete = () => resolve()
       tx.onerror = () => reject(tx.error ?? new Error('Gagal menulis health-check'))
+      tx.onabort = () => reject(tx.error ?? new Error('Gagal menulis health-check (transaksi dibatalkan)'))
     })
     const read = await new Promise<{ t: number } | undefined>((resolve, reject) => {
       const tx = db.transaction(STORE_HEALTHCHECK, 'readonly')
@@ -207,6 +209,12 @@ export async function healthCheckStorage(): Promise<{ ok: boolean; error?: strin
 // ujian-outbox.ts: `${PREFIX}:${sesiId}:${nis}`) supaya data yang sudah
 // bermigrasi dari localStorage tetap konsisten penamaannya.
 
+// FIX (audit): SEMUA fungsi tulis di berkas ini sekarang juga menangani
+// `tx.onabort`. Kegagalan saat COMMIT (mis. kuota penyimpanan penuh) hanya
+// memicu event 'abort' pada transaksi, TANPA event 'error'. Tanpa penanganan
+// ini promise menggantung selamanya: `catch` pemanggil (fallback ke
+// localStorage) tidak pernah jalan, dan penjaga outbox (mulaiPenjagaOutbox)
+// berhenti di paket itu sehingga paket lain milik siswa ikut tertahan.
 export async function outboxPut<T>(key: string, value: T): Promise<void> {
   const db = await bukaDb()
   await new Promise<void>((resolve, reject) => {
@@ -214,6 +222,7 @@ export async function outboxPut<T>(key: string, value: T): Promise<void> {
     tx.objectStore(STORE_OUTBOX).put(value, key)
     tx.oncomplete = () => resolve()
     tx.onerror = () => reject(tx.error ?? new Error('Gagal menyimpan entri outbox'))
+    tx.onabort = () => reject(tx.error ?? new Error('Gagal menyimpan entri outbox (transaksi dibatalkan)'))
   })
 }
 
@@ -234,6 +243,7 @@ export async function outboxDelete(key: string): Promise<void> {
     tx.objectStore(STORE_OUTBOX).delete(key)
     tx.oncomplete = () => resolve()
     tx.onerror = () => reject(tx.error ?? new Error('Gagal menghapus entri outbox'))
+    tx.onabort = () => reject(tx.error ?? new Error('Gagal menghapus entri outbox (transaksi dibatalkan)'))
   })
 }
 
@@ -272,6 +282,7 @@ export async function pelanggaranQueuePut<T>(key: string, value: T): Promise<voi
     tx.objectStore(STORE_PELANGGARAN).put(value, key)
     tx.oncomplete = () => resolve()
     tx.onerror = () => reject(tx.error ?? new Error('Gagal menyimpan antrean pelanggaran'))
+    tx.onabort = () => reject(tx.error ?? new Error('Gagal menyimpan antrean pelanggaran (transaksi dibatalkan)'))
   })
 }
 
@@ -282,6 +293,7 @@ export async function pelanggaranQueueDelete(key: string): Promise<void> {
     tx.objectStore(STORE_PELANGGARAN).delete(key)
     tx.oncomplete = () => resolve()
     tx.onerror = () => reject(tx.error ?? new Error('Gagal menghapus antrean pelanggaran'))
+    tx.onabort = () => reject(tx.error ?? new Error('Gagal menghapus antrean pelanggaran (transaksi dibatalkan)'))
   })
 }
 
@@ -309,6 +321,7 @@ export async function resetMaterialPut<T>(key: string, value: T): Promise<void> 
     tx.objectStore(STORE_RESET_MATERIAL).put(value, key)
     tx.oncomplete = () => resolve()
     tx.onerror = () => reject(tx.error ?? new Error('Gagal menyimpan material reset'))
+    tx.onabort = () => reject(tx.error ?? new Error('Gagal menyimpan material reset (transaksi dibatalkan)'))
   })
 }
 
@@ -382,6 +395,7 @@ export async function resetPendingPut<T>(key: string, value: T): Promise<void> {
       tx.objectStore(STORE_RESET_PENDING).put(value, key)
       tx.oncomplete = () => resolve()
       tx.onerror = () => reject(tx.error ?? new Error('Gagal menyimpan antrean reset'))
+      tx.onabort = () => reject(tx.error ?? new Error('Gagal menyimpan antrean reset (transaksi dibatalkan)'))
     })
   } catch {
     // IndexedDB gagal total — fallback localStorage (lihat catatan di atas).
@@ -399,6 +413,7 @@ export async function resetPendingDelete(key: string): Promise<void> {
       tx.objectStore(STORE_RESET_PENDING).delete(key)
       tx.oncomplete = () => resolve()
       tx.onerror = () => reject(tx.error ?? new Error('Gagal menghapus antrean reset'))
+      tx.onabort = () => reject(tx.error ?? new Error('Gagal menghapus antrean reset (transaksi dibatalkan)'))
     })
   } catch {
     // Best-effort — tetap lanjut bersihkan fallback LS di bawah.
@@ -426,6 +441,7 @@ export async function resetPendingGetAllValues<T>(): Promise<T[]> {
       const reqValues = store.getAll()
       tx.oncomplete = () => resolve({ keys: reqKeys.result ?? [], values: (reqValues.result as T[]) ?? [] })
       tx.onerror = () => reject(tx.error ?? new Error('Gagal membaca antrean reset'))
+      tx.onabort = () => reject(tx.error ?? new Error('Gagal membaca antrean reset (transaksi dibatalkan)'))
     })
     nilaiIdb = hasil.values
     kunciIdb = new Set(hasil.keys.map(String))
