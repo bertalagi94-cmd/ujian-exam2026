@@ -1,21 +1,19 @@
-NOTIFIKASI SISWA TERPUTUS INTERNET
-==================================
+NOTIFIKASI SISWA TERPUTUS INTERNET (versi 2)
+============================================
 Ekstrak zip ini DI FOLDER UTAMA repo (yang berisi package.json), lalu pilih
-"timpa/replace" untuk 2 file berikut:
+"timpa/replace" untuk 2 file:
 
   src/components/shared/StatusJaringanBar.tsx
   src/app/guru/jadwal-pengawasan/tabs/ModePengawasTab.tsx
 
-Isi perubahan:
-- HP siswa: setelah 10 detik internet bermasalah, muncul kotak merah di atas layar
-  yang meminta siswa memberi tahu pengawas.
-- Panel pengawas: siswa berstatus "Ujian" yang heartbeat-nya berhenti 30 detik
-  memunculkan pop-up kuning + bunyi (sekali per siswa).
+Perubahan:
+- HP siswa: setelah 10 detik internet bermasalah, teks bar bawah (yang sudah ada)
+  berubah jadi "Internet terputus - beri tahu pengawas". Ditambah pil kecil di
+  atas selama 8 detik saja, tidak menghalangi sentuhan, maksimal 1x per menit.
+  Tidak ada kotak besar yang menutupi soal.
+- Panel pengawas: pop-up kuning + bunyi saat siswa "Ujian" tanpa sinyal >= 30 detik.
+- Dialog "Tutup Sesi": siswa yang offline diberi tanda "jawaban bisa hilang".
 
-PENTING: kedua file ini dibuat dari versi repo saat saya clone (31 Okt 2026).
-Kalau Anda sudah mengubah kedua file itu setelahnya, menimpa akan menghapus
-perubahan Anda. Dalam kasus itu pakai notifikasi-siswa-terputus.patch
-(git apply) atau minta saya gabungkan manual.
-
-Setelah menimpa, tes dulu dengan data percobaan: putuskan Wi-Fi satu HP siswa
-di tengah ujian, lalu nyalakan lagi.
+PENTING: dibuat dari repo saat di-clone (31 Okt 2026). Kalau kedua file sudah
+Anda ubah sendiri sesudahnya, menimpa akan menghapus perubahan itu; pakai
+notifikasi-siswa-terputus.patch (git apply) sebagai gantinya.

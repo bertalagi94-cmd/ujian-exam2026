@@ -1497,6 +1497,14 @@ export function ModePengawasTab() {
                     {siswaMasihAktif.map(sw => (
                       <div key={sw.nis} className="flex items-center gap-2 px-2 py-1.5 bg-white rounded-lg text-sm">
                         <span className="font-medium text-slate-800 truncate flex-1">{sw.nama}</span>
+                        {typeof sw.detik_tanpa_sinyal === 'number' && sw.detik_tanpa_sinyal >= BATAS_POPUP_TERPUTUS_DETIK && (
+                          <span
+                            className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 flex-shrink-0"
+                            title="Perangkat siswa ini tidak mengirim sinyal. Jawaban yang belum terkirim bisa hilang jika sesi ditutup sekarang."
+                          >
+                            📡 Offline — jawaban bisa hilang
+                          </span>
+                        )}
                         <span className="text-xs text-slate-400 font-mono">{sw.nis}</span>
                       </div>
                     ))}
