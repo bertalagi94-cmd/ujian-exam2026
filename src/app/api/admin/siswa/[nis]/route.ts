@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRoleAktif } from '@/lib/status-akun'
 import { hapusFotoEssayFisik } from '@/lib/backup-restore-shared'
+import { pastikanKelasAda, pesanKelasTanpaSekolah, rapikanNamaKelas } from '@/lib/kelas-sync'
 
 interface RouteContext {
   params: Promise<{ nis: string }>
@@ -24,11 +25,26 @@ export async function PUT(req: NextRequest, props: RouteContext) {
     return NextResponse.json({ error: "is_tester harus 'YES' atau 'NO'" }, { status: 400 })
   }
 
+  // Kelas dirapikan dan dipastikan ada di tabel `kelas` (lihat src/lib/kelas-sync.ts).
+  // Tanpa ini, salah ketik seperti "x a" membuat siswa tidak cocok dengan jadwal/sesi
+  // "X A" (perbandingan kelas di aplikasi persis) dan hilang dari scope Kepsek/Guru.
+  let kelasFinal: string | undefined
+  let peringatan: string | undefined
+  if (kelas && rapikanNamaKelas(kelas)) {
+    try {
+      const hasil = await pastikanKelasAda(db, [kelas])
+      kelasFinal = hasil.peta.get(rapikanNamaKelas(kelas)) ?? rapikanNamaKelas(kelas)
+      if (hasil.tanpaSekolah.length > 0) peringatan = pesanKelasTanpaSekolah(hasil.tanpaSekolah)
+    } catch (e) {
+      return NextResponse.json({ error: e instanceof Error ? e.message : 'Gagal memproses kelas' }, { status: 500 })
+    }
+  }
+
   const { data, error } = await db
     .from('siswa')
     .update({
       nama: nama ? String(nama).toUpperCase() : undefined,
-      kelas: kelas || undefined,
+      kelas: kelasFinal,
       jenis_kelamin: jenis_kelamin || null,
       tempat_lahir: tempat_lahir || null,
       tanggal_lahir: tanggal_lahir || null,
@@ -42,7 +58,7 @@ export async function PUT(req: NextRequest, props: RouteContext) {
   if (!data || data.length === 0) {
     return NextResponse.json({ error: 'Siswa tidak ditemukan' }, { status: 404 })
   }
-  return NextResponse.json({ message: 'Data berhasil diperbarui' })
+  return NextResponse.json({ message: 'Data berhasil diperbarui', ...(peringatan ? { peringatan } : {}) })
 }
 
 export async function DELETE(req: NextRequest, props: RouteContext) {
