@@ -216,12 +216,26 @@ export async function PATCH(req: NextRequest) {
     // Verifikasi nilai ini milik mapel guru
     const { data: nilaiRow } = await db
       .from('nilai')
-      .select('id, mapel_id, total, kkm')
+      .select('id, mapel_id, total, kkm, dikirim_ke_wali, dikembalikan')
       .eq('id', id)
       .single()
 
     if (!nilaiRow || !mapelIds.includes(nilaiRow.mapel_id)) {
       return NextResponse.json({ error: 'Tidak diizinkan' }, { status: 403 })
+    }
+
+    // FIX (audit: simpan_edit tidak terkunci setelah dikirim ke wali): UI
+    // (RekapNilaiTab `terkunci()`) sudah menyembunyikan tombol edit untuk nilai
+    // yang sudah dikirim, tetapi server tidak menolak — panggilan API langsung
+    // masih bisa mengubah nilai_edit/grade/lulus yang sudah resmi diterima
+    // wali kelas. Aturan di sini SAMA dengan UI: terkunci = sudah dikirim dan
+    // belum dikembalikan wali kelas. Nilai yang dikembalikan wali untuk
+    // direvisi (dikirim_ke_wali=false, dikembalikan=true) tetap bisa diedit.
+    if (nilaiRow.dikirim_ke_wali && !nilaiRow.dikembalikan) {
+      return NextResponse.json(
+        { error: 'Nilai ini sudah dikirim ke wali kelas dan tidak dapat diubah. Minta wali kelas mengembalikan nilai ini jika perlu direvisi.' },
+        { status: 409 }
+      )
     }
 
     const updateData: Record<string, unknown> = { catatan_guru: catatan_guru ?? null }

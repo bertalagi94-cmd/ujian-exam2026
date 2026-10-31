@@ -145,23 +145,44 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
   // Menampilkan kode ini TIDAK "memakainya" — pemakaian (dan kenaikan
   // reset_terpakai) baru terjadi atomik saat siswa memasukkan kodenya lewat
   // konsumsi_reset_berurutan di /api/siswa/ujian/verifikasi-reset.
-  await Promise.all([
-    db.from('siswa_ujian')
-      .update({ status: 'RESET' })
-      .eq('sesi_id', sesiId)
-      .eq('nis', nis)
-      .in('status', ['AKTIF', 'RESET']),
-    db.from('pelanggaran')
-      .update({ status: 'SUDAH_DITINDAKLANJUTI' })
-      .eq('sesi_id', sesiId)
-      .eq('nis', nis)
-      .eq('status', 'BELUM_DITINDAKLANJUTI'),
-  ])
+  //
+  // FIX (audit: hasil tulis tidak diperiksa): sebelumnya ketiga penulisan di
+  // bawah dijalankan tanpa membaca `error`, sehingga kalau salah satunya gagal
+  // pengawas TETAP menerima kode reset + pesan sukses. Akibatnya jejak audit
+  // bisa hilang, atau pelanggaran tertandai SUDAH_DITINDAKLANJUTI padahal
+  // status siswa tidak berubah. Sekarang setiap langkah diperiksa dan
+  // kegagalan dibalas 503 TANPA kode reset.
+  //
+  // Urutan sengaja berurutan (bukan Promise.all): status siswa diubah lebih
+  // dulu, baru pelanggaran ditandai. Kalau langkah kedua/ketiga gagal, siswa
+  // sudah berstatus RESET sehingga pengawas bisa mencoba lagi dengan aman
+  // (siswa RESET lolos pemeriksaan di atas tanpa perlu pelanggaran menunggu).
+  // Dengan Promise.all, kegagalan parsial bisa meninggalkan siswa AKTIF dengan
+  // pelanggaran yang sudah tertandai, dan percobaan ulang ditolak 409.
+  const { error: errStatus } = await db.from('siswa_ujian')
+    .update({ status: 'RESET' })
+    .eq('sesi_id', sesiId)
+    .eq('nis', nis)
+    .in('status', ['AKTIF', 'RESET'])
+  if (errStatus) {
+    console.error('[reset-siswa] gagal mengubah status siswa_ujian:', errStatus.message)
+    return NextResponse.json({ error: 'Status siswa belum dapat diperbarui. Kode reset belum diberikan, coba lagi sebentar lagi.' }, { status: 503 })
+  }
+
+  const { error: errPelanggaran } = await db.from('pelanggaran')
+    .update({ status: 'SUDAH_DITINDAKLANJUTI' })
+    .eq('sesi_id', sesiId)
+    .eq('nis', nis)
+    .eq('status', 'BELUM_DITINDAKLANJUTI')
+  if (errPelanggaran) {
+    console.error('[reset-siswa] gagal menandai pelanggaran:', errPelanggaran.message)
+    return NextResponse.json({ error: 'Pelanggaran belum dapat ditandai. Kode reset belum diberikan, coba lagi sebentar lagi.' }, { status: 503 })
+  }
 
   // Jejak audit SAJA — kode TIDAK disimpan mentah ('-'), sama seperti
   // bypass_reset ADMIN dan konsumsi_reset_berurutan. reset_no sengaja kosong
   // karena ini bukan pemakaian, hanya menampilkan giliran R(nomor).
-  await db.from('log_reset').insert({
+  const { error: errLog } = await db.from('log_reset').insert({
     nis,
     sesi_id: sesiId,
     reset_oleh: auth.user?.username ?? 'pengawas',
@@ -169,6 +190,11 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
     password_baru: '-',
     digunakan: false,
   })
+  if (errLog) {
+    // Tanpa jejak audit, kode tidak boleh diberikan.
+    console.error('[reset-siswa] gagal mencatat log_reset:', errLog.message)
+    return NextResponse.json({ error: 'Jejak audit reset belum dapat dicatat. Kode reset belum diberikan, coba lagi sebentar lagi.' }, { status: 503 })
+  }
 
   return NextResponse.json({
     dikunci_permanen: false,

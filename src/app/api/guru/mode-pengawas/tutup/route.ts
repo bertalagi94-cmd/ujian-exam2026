@@ -22,11 +22,21 @@ export async function POST(req: NextRequest) {
 
   const { data: sesi } = await db
     .from('sesi_ujian')
-    .select('jadwal_id')
+    .select('jadwal_id, status')
     .eq('id', sesiId)
     .single()
 
   if (!sesi) return NextResponse.json({ error: 'Sesi tidak ditemukan' }, { status: 404 })
+
+  // FIX (audit: tidak ada cek status saat tutup sesi): sebelumnya sesi yang
+  // sudah SELESAI tetap diproses ulang — `waktu_selesai` ditimpa dengan waktu
+  // sekarang (menggeser jendela jawaban susulan dan jejak waktu tutup), dan
+  // jadwal/siswa diubah lagi. Sama seperti admin/sesi/[id]/tutup-paksa: hanya
+  // sesi BERJALAN yang boleh ditutup. Kalau penutupan sebelumnya gagal
+  // sebagian (respons 207), pemulihannya lewat Finalisasi Ulang di menu Admin.
+  if (sesi.status !== 'BERJALAN') {
+    return NextResponse.json({ error: 'Sesi ini sudah tidak berstatus BERJALAN (mungkin sudah ditutup).' }, { status: 409 })
+  }
 
   // FIX (hasil update database tidak pernah diperiksa): sebelumnya endpoint
   // ini sama sekali tidak membaca `error` dari update sesi_ujian, jadwal,
@@ -36,16 +46,23 @@ export async function POST(req: NextRequest) {
   // admin/sesi/[id]/tutup-paksa/route.ts (lihat komentar di sana) — endpoint
   // ini bahkan lebih sering dipakai (penutupan sesi normal oleh pengawas),
   // jadi risikonya lebih sering terpapar.
-  const { error: errUpdateSesi } = await db.from('sesi_ujian').update({
+  // Update bersyarat `.eq('status', 'BERJALAN')` + `.select('id')`: kalau dua
+  // permintaan tutup (mis. dobel klik, atau pengawas dan admin bersamaan) tiba
+  // hampir serentak, hanya satu yang benar-benar mengubah baris; yang kalah
+  // mendapat 409 dan tidak menjalankan finalisasi kedua kali.
+  const { data: sesiTertutup, error: errUpdateSesi } = await db.from('sesi_ujian').update({
     status: 'SELESAI',
     waktu_selesai: new Date().toISOString(),
-  }).eq('id', sesiId)
+  }).eq('id', sesiId).eq('status', 'BERJALAN').select('id')
 
   if (errUpdateSesi) {
     return NextResponse.json(
       { error: `Gagal menutup sesi: ${errUpdateSesi.message}` },
       { status: 500 }
     )
+  }
+  if (!sesiTertutup || sesiTertutup.length === 0) {
+    return NextResponse.json({ error: 'Sesi ini sudah tidak berstatus BERJALAN (mungkin sudah ditutup).' }, { status: 409 })
   }
 
   let peringatan: string[] = []

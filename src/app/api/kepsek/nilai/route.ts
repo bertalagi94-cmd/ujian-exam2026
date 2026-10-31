@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRoleAktif } from '@/lib/status-akun'
 import { getKepsekScope } from '@/lib/kepsek-scope'
+import { ambilSemuaBaris } from '@/lib/ambil-semua'
 import { petakanEssayAktifPerSesi } from '@/app/api/guru/kirim-nilai/route'
 
 export async function GET(req: NextRequest) {
@@ -34,9 +35,14 @@ export async function GET(req: NextRequest) {
   // Mode "opsi": kembalikan daftar kombinasi kelas+mapel yang sudah punya nilai,
   // supaya dropdown filter di halaman hanya menampilkan pilihan yang valid (ada datanya).
   if (searchParams.get('mode') === 'opsi') {
-    let nilaiOpsiQuery = db.from('nilai').select('kelas, mapel_id')
-    if (kelasScope) nilaiOpsiQuery = nilaiOpsiQuery.in('kelas', kelasScope)
-    const { data: nilaiRows, error } = await nilaiOpsiQuery
+    // FIX (audit pagination nilai): dulu tanpa .range() sehingga dipotong di
+    // 1000 baris — kombinasi kelas+mapel yang barisnya ada setelah baris ke-1000
+    // tidak muncul di dropdown filter. Dibaca halaman demi halaman.
+    const { data: nilaiRows, error } = await ambilSemuaBaris<{ kelas: string; mapel_id: string }>((dari, sampai) => {
+      let q = db.from('nilai').select('kelas, mapel_id')
+      if (kelasScope) q = q.in('kelas', kelasScope)
+      return q.order('id', { ascending: true }).range(dari, sampai)
+    })
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
     const kelasSet = new Set<string>()

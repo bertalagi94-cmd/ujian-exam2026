@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRoleAktif } from '@/lib/status-akun'
 import { cachedFetch } from '@/lib/cache'
+import { ambilSemuaBaris } from '@/lib/ambil-semua'
 import { petakanEssayAktifPerSesi } from '@/app/api/guru/kirim-nilai/route'
 
 // =============================================================================
@@ -321,13 +322,23 @@ async function fetchLaporanLengkap(yayasanId: string) {
   // sumNilai. `lulus`/`tidakLulus` tidak perlu penyesuaian terpisah karena
   // kolom nilai.lulus sendiri sudah dihitung ulang dari nilai_total begitu
   // essay dinilai (lihat koreksi-essay/route.ts).
-  const { data: nilaiRows } = await db
-    .from('nilai')
-    .select('mapel_id, kelas, sesi_id, nilai, nilai_total, dirilis, lulus, dikirim_ke_wali, dikembalikan')
-    .in('mapel_id', safeIn(mapelIdsAll))
-    .in('kelas', safeIn(namaKelasAll))
-
+  //
+  // FIX (audit pagination nilai): query ini dulu tanpa .range() sehingga
+  // dipotong diam-diam di 1000 baris — rata-rata, jumlah lulus, dan progres
+  // kirim ke wali di laporan ikut salah untuk sekolah besar. Sekarang dibaca
+  // halaman demi halaman; kegagalan membaca dilaporkan (500), bukan diam-diam
+  // dianggap "tidak ada nilai".
   type NilaiRow = { mapel_id: string; kelas: string; sesi_id: string | null; nilai: number; nilai_total: number | null; dirilis: boolean | null; lulus: boolean; dikirim_ke_wali: boolean; dikembalikan: boolean }
+  const { data: nilaiRows, error: errNilaiRows } = await ambilSemuaBaris<NilaiRow>((dari, sampai) =>
+    db
+      .from('nilai')
+      .select('mapel_id, kelas, sesi_id, nilai, nilai_total, dirilis, lulus, dikirim_ke_wali, dikembalikan')
+      .in('mapel_id', safeIn(mapelIdsAll))
+      .in('kelas', safeIn(namaKelasAll))
+      .order('id', { ascending: true })
+      .range(dari, sampai)
+  )
+  if (errNilaiRows) throw new Error(`Gagal membaca data nilai: ${errNilaiRows.message}`)
   const nilaiRowsTyped = (nilaiRows ?? []) as NilaiRow[]
   const essayAktifMapLaporan = await petakanEssayAktifPerSesi(db, nilaiRowsTyped.map(n => n.sesi_id))
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRoleAktif } from '@/lib/status-akun'
+import { ambilSemuaBaris } from '@/lib/ambil-semua'
 
 // GET /api/admin/monitoring-nilai
 // Menampilkan rekap status pengiriman nilai per guru per kelas
@@ -11,9 +12,20 @@ export async function GET(req: NextRequest) {
   const db = tenantDb(yayasanIdDari(auth.user))
 
   // Ambil semua nilai beserta info pengiriman
-  const { data: nilaiList, error } = await db
-    .from('nilai')
-    .select('mapel_id, kelas, dikirim_ke_wali, dikirim_at, dikembalikan')
+  // FIX (audit pagination nilai): query tanpa .range() dipotong diam-diam di
+  // 1000 baris oleh PostgREST. Sekolah dengan banyak siswa x mapel punya jauh
+  // lebih banyak baris nilai, sehingga status pengiriman per guru/kelas bisa
+  // salah tanpa ada error. Sekarang dibaca halaman demi halaman (urutan `id`
+  // unik, wajib untuk pagination yang stabil).
+  const { data: nilaiList, error } = await ambilSemuaBaris<{
+    mapel_id: string; kelas: string; dikirim_ke_wali: boolean; dikirim_at: string | null; dikembalikan: boolean
+  }>((dari, sampai) =>
+    db
+      .from('nilai')
+      .select('mapel_id, kelas, dikirim_ke_wali, dikirim_at, dikembalikan')
+      .order('id', { ascending: true })
+      .range(dari, sampai)
+  )
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 

@@ -55,7 +55,7 @@ export async function POST(req: NextRequest, props: Ctx) {
     return NextResponse.json({ error: 'Sesi ini sudah tidak berstatus BERJALAN' }, { status: 400 })
   }
 
-  const { error: errUpdateSesi } = await db.from('sesi_ujian').update({
+  const { data: sesiTertutup, error: errUpdateSesi } = await db.from('sesi_ujian').update({
     status: 'SELESAI',
     waktu_selesai: new Date().toISOString(),
     // Digabung dengan info_json yang sudah ada (mis. pengawas_susulan untuk
@@ -69,7 +69,7 @@ export async function POST(req: NextRequest, props: Ctx) {
       ditutup_paksa_oleh_admin: auth.user.username,
       ditutup_paksa_pada: new Date().toISOString(),
     },
-  }).eq('id', sesiId)
+  }).eq('id', sesiId).eq('status', 'BERJALAN').select('id')
 
   // FIX: kalau langkah PALING PENTING ini (menutup sesi) gagal, hentikan di
   // sini dan laporkan apa adanya — melanjutkan ke langkah berikutnya
@@ -80,6 +80,11 @@ export async function POST(req: NextRequest, props: Ctx) {
       { error: `Gagal menutup sesi: ${errUpdateSesi.message}` },
       { status: 500 }
     )
+  }
+  // Pengecekan di atas dan update ini tidak atomik: kalau pengawas menutup
+  // sesi persis di antaranya, update bersyarat ini tidak mengubah baris apa pun.
+  if (!sesiTertutup || sesiTertutup.length === 0) {
+    return NextResponse.json({ error: 'Sesi ini sudah tidak berstatus BERJALAN' }, { status: 400 })
   }
 
   let peringatan: string[] = []

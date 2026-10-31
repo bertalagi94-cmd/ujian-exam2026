@@ -358,6 +358,29 @@ export async function POST(req: NextRequest) {
     })
   }
 
+  // ── BATAS TANGGAL PEMBUKAAN SESI ────────────────────────────────────────
+  // FIX (audit: tanggal jadwal tidak diperiksa saat membuka sesi): UI hanya
+  // menampilkan jadwal HARI INI (lihat GET di atas), tetapi POST ini tidak
+  // memeriksa tanggal sama sekali — panggilan API langsung bisa membuka sesi
+  // untuk jadwal minggu depan (ujian bocor lebih awal) atau jadwal yang sudah
+  // lewat. Sekarang jadwal harus bertanggal hari ini menurut zona waktu
+  // sekolah (sama persis dengan filter GET). Diletakkan SETELAH pengecekan
+  // "sesi sudah berjalan" supaya sesi yang sudah terlanjur dibuka (mis.
+  // melewati tengah malam) tetap bisa dilanjutkan, bukan diblokir.
+  {
+    const zonaBuka = await getZonaWaktuSekolah(yayasanIdDari(auth.user))
+    const hariIniBuka = tanggalHariIni(zonaBuka)
+    const tanggalJadwalBuka = String(jadwal.tanggal ?? '').slice(0, 10)
+    if (tanggalJadwalBuka !== hariIniBuka) {
+      const pesan = !tanggalJadwalBuka
+        ? 'Jadwal ini tidak memiliki tanggal yang valid, sesi tidak dapat dibuka. Hubungi admin.'
+        : tanggalJadwalBuka > hariIniBuka
+          ? `Jadwal ini baru dilaksanakan pada ${tanggalJadwalBuka}. Sesi hanya dapat dibuka pada hari pelaksanaan.`
+          : `Jadwal ini dijadwalkan pada ${tanggalJadwalBuka} dan sudah lewat. Hubungi admin untuk menjadwalkan ulang atau membuka ujian susulan.`
+      return NextResponse.json({ error: pesan, tanggalTidakSesuai: true }, { status: 400 })
+    }
+  }
+
   // ── ANTI-TABRAKAN LEVEL KELAS ──────────────────────────────────────────
   // Tolak kalau kelas ini sudah punya sesi BERJALAN dari JADWAL LAIN
   // (mapel lain / pengawas lain), supaya tidak ada 2 ujian aktif sekaligus

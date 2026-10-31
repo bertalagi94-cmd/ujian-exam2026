@@ -19,8 +19,14 @@ export async function GET(req: NextRequest) {
   // yang memiliki nama tersebut supaya nilai dari semua guru pengampu ikut ter-filter.
   const mapelNama = searchParams.get('mapel_nama')
   const kelasId = searchParams.get('kelas')
-  const page = parseInt(searchParams.get('page') ?? '1')
-  const perPage = parseInt(searchParams.get('per_page') ?? '50')
+  // FIX (audit pagination nilai): parseInt tanpa validasi bisa menghasilkan NaN
+  // (mis. ?page=abc) atau nilai <= 0 / sangat besar — .range(NaN, NaN) menjadi
+  // error 500 atau membaca ribuan baris sekaligus. Sekarang page minimal 1 dan
+  // per_page dibatasi 1..200 (UI memakai 30; bawaan tetap 50).
+  const pageRaw = parseInt(searchParams.get('page') ?? '1', 10)
+  const perPageRaw = parseInt(searchParams.get('per_page') ?? '50', 10)
+  const page = Number.isFinite(pageRaw) && pageRaw >= 1 ? pageRaw : 1
+  const perPage = Number.isFinite(perPageRaw) && perPageRaw >= 1 ? Math.min(perPageRaw, 200) : 50
 
   // FIX BUG (P1 — kebocoran lintas sekolah): endpoint ini mengizinkan role
   // KEPSEK tapi SEBELUM PERBAIKAN INI tidak pernah memanggil getKepsekScope()
@@ -50,7 +56,13 @@ export async function GET(req: NextRequest) {
   let query = db
     .from('nilai')
     .select('*', { count: 'exact' })
+    // FIX (audit pagination nilai): `timestamp` tidak unik (siswa satu kelas
+    // yang menyelesaikan ujian bersamaan bisa punya timestamp sama) sehingga
+    // urutan antar-halaman tidak deterministik — baris bisa muncul ganda di dua
+    // halaman atau terlewat sama sekali. `id` ditambahkan sebagai pembeda; urutan
+    // yang terlihat (terbaru di atas) tidak berubah.
     .order('timestamp', { ascending: false })
+    .order('id', { ascending: true })
 
   if (mapelNama) {
     const { data: mapelRows } = await db.from('mapel').select('id').eq('nama', mapelNama)
@@ -68,7 +80,9 @@ export async function GET(req: NextRequest) {
   const { data, count, error } = await query
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  if (!data || data.length === 0) return NextResponse.json({ data: [], total: 0 })
+  // `total` tetap dilaporkan walau halaman ini kosong (mis. page di luar
+  // rentang), supaya UI tidak menampilkan "0 data" padahal filter punya hasil.
+  if (!data || data.length === 0) return NextResponse.json({ data: [], total: count ?? 0 })
 
   // Enrich with names
   const nisSet = [...new Set(data.map(r => r.nis))]

@@ -9,6 +9,14 @@ import { hitungBatasWaktuPg, sudahKedaluwarsa, saringJawabanTerlambat } from '@/
 import { catatAktivitas } from '@/lib/aktivitas'
 import { normalisasiJawabanEssayMasuk, MAKS_JAWABAN_ESSAY_PER_REQUEST } from '@/lib/sync-essay-input'
 
+// JAWABAN ESSAY SUSULAN SETELAH SESI DITUTUP — padanan PG (lihat konstanta di
+// api/siswa/ujian/sync/route.ts). Jawaban yang dibuat siswa SEBELUM waktu
+// essay-nya habis tidak boleh hilang hanya karena HP-nya offline dan baru
+// terkirim setelah pengawas menutup sesi. Jendela penerimaan: berapa jam
+// setelah sesi ditutup. Samakan nilainya dengan JENDELA_JAWABAN_SUSULAN_JAM
+// di sync/route.ts bila kebijakan sekolah berubah.
+const JENDELA_ESSAY_SUSULAN_JAM = 24
+
 // POST { sesiId, jawaban: [{ soal_essay_id, jawaban_teks, revisi?, waktuJawabMs? }] }
 export async function POST(req: NextRequest) {
   const auth = await requireRoleAktif(req, ['SISWA'])
@@ -49,10 +57,21 @@ export async function POST(req: NextRequest) {
   // yang sudah di-snapshot ke sesi ini, bukan mapel+kelas+DISETUJUI secara
   // umum, atau jawaban siswa bisa tersimpan untuk soal yang berasal dari
   // paket yang berbeda dari yang dinilai guru saat koreksi.
-  const { data: sesi } = await db.from('sesi_ujian').select('status, info_json, mapel_id, kelas, paket_essay_id').eq('id', sesiId).single()
+  const { data: sesi } = await db.from('sesi_ujian').select('status, info_json, mapel_id, kelas, paket_essay_id, waktu_selesai').eq('id', sesiId).single()
   if (!sesi) return NextResponse.json({ error: 'Sesi tidak ditemukan' }, { status: 404 })
-  if (sesi.status !== 'BERJALAN') {
+  // Sesi SELESAI tidak lagi langsung ditolak: jawaban offline yang terbukti
+  // dibuat sebelum batas waktu essay siswa tetap diterima dalam jendela
+  // terbatas (lihat JENDELA_ESSAY_SUSULAN_JAM). Status selain BERJALAN/SELESAI
+  // dan sesi yang ditutup lebih lama dari jendela tetap ditolak seperti dulu.
+  const sesiDitutupSusulan = sesi.status === 'SELESAI'
+  if (sesi.status !== 'BERJALAN' && !sesiDitutupSusulan) {
     return NextResponse.json({ error: 'Sesi ujian sudah ditutup, jawaban tidak bisa disimpan lagi.' }, { status: 409 })
+  }
+  if (sesiDitutupSusulan) {
+    const selesaiMs = sesi.waktu_selesai ? new Date(sesi.waktu_selesai).getTime() : NaN
+    if (!Number.isFinite(selesaiMs) || Date.now() > selesaiMs + JENDELA_ESSAY_SUSULAN_JAM * 3600_000) {
+      return NextResponse.json({ error: 'Sesi ujian sudah ditutup, jawaban tidak bisa disimpan lagi.' }, { status: 409 })
+    }
   }
   if (sesi.info_json?.essay_mode_jawaban !== 'DIGITAL') {
     return NextResponse.json({ error: 'Sesi ini tidak menggunakan mode jawaban digital' }, { status: 400 })
@@ -77,7 +96,12 @@ export async function POST(req: NextRequest) {
   if (siswaUjian.status === 'TERKUNCI') {
     return NextResponse.json({ error: 'Akses ujian Anda dikunci.' }, { status: 403 })
   }
-  if (siswaUjian.status_essay !== 'MENGERJAKAN') {
+  // Sesi masih berjalan: harus MENGERJAKAN (tidak berubah). Sesi sudah ditutup:
+  // siswa yang sesinya ditutup paksa difinalisasi menjadi TIDAK_MENGERJAKAN
+  // (lihat finalisasi-nilai.ts) walau draft essay-nya ada — status itu boleh
+  // menerima susulan. SUDAH_KIRIM (siswa mengirim sendiri) tetap terkunci.
+  const statusEssayBolehSusulan = sesiDitutupSusulan && siswaUjian.status_essay === 'TIDAK_MENGERJAKAN'
+  if (siswaUjian.status_essay !== 'MENGERJAKAN' && !statusEssayBolehSusulan) {
     return NextResponse.json({ error: 'Sesi essay belum dimulai atau sudah selesai.' }, { status: 409 })
   }
 
@@ -114,6 +138,33 @@ export async function POST(req: NextRequest) {
   const sekarangMs = Date.now()
   const batasEssay = hitungBatasWaktuPg(siswaUjian.waktu_mulai_essay, sesi.info_json?.essay_durasi_menit)
   const essayKedaluwarsa = sudahKedaluwarsa(batasEssay, sekarangMs)
+
+  if (sesiDitutupSusulan) {
+    // Tanpa waktu mulai essay tidak ada batas waktu yang bisa dijadikan bukti
+    // -> tidak ada dasar menerima jawaban susulan (siswa belum pernah memulai essay).
+    if (!batasEssay) {
+      return NextResponse.json({ error: 'Sesi ujian sudah ditutup, jawaban tidak bisa disimpan lagi.' }, { status: 409 })
+    }
+    // Essay yang SUDAH dinilai guru (nilai_essay terisi — termasuk keputusan
+    // "Tidak Mengerjakan" = 0) tidak boleh berubah diam-diam di belakang guru.
+    // Baris nilai belum ada / nilai_essay masih kosong = belum dinilai -> boleh.
+    const { data: nilaiRow, error: nilaiErr } = await db
+      .from('nilai')
+      .select('nilai_essay')
+      .eq('sesi_id', sesiId)
+      .eq('nis', user.nis!)
+      .maybeSingle()
+    if (nilaiErr) {
+      console.error('[essay/jawab] gagal membaca nilai untuk jawaban susulan:', nilaiErr.message)
+      return NextResponse.json(
+        { error: 'Server belum dapat memeriksa status penilaian. Jawaban tetap aman di perangkat dan akan dicoba lagi otomatis.' },
+        { status: 503 }
+      )
+    }
+    if (nilaiRow && nilaiRow.nilai_essay != null) {
+      return NextResponse.json({ error: 'Essay Anda sudah dinilai guru, jawaban tidak bisa diubah lagi.' }, { status: 409 })
+    }
+  }
 
   if (Array.isArray(jawaban) && jawaban.length > 0) {
     // FIX BUG (soal_essay_id tidak divalidasi terhadap bank soal sesi ini):
@@ -152,7 +203,10 @@ export async function POST(req: NextRequest) {
     let ackDitolakTerlambat: { soal_essay_id: string; jawaban_teks: string; revisi: number; accepted: boolean }[] = []
     let jumlahDitolakTerlambat = 0
 
-    if (essayKedaluwarsa && batasEssay && jawabanValid.length > 0) {
+    // Sesi sudah ditutup: SEMUA perubahan baru wajib lolos saringan bukti waktu
+    // (bukan hanya kalau waktu siswa sudah lewat), supaya siswa yang masih
+    // online tidak bisa terus menulis setelah pengawas menutup sesi.
+    if ((essayKedaluwarsa || sesiDitutupSusulan) && batasEssay && jawabanValid.length > 0) {
       // Jawaban yang revisinya tidak lebih baru dari yang sudah tersimpan
       // bukan "perubahan baru" (client mengirim ulang seluruh isi tiap
       // autosave): dibiarkan lewat — RPC tidak akan menimpanya — dan TIDAK
@@ -183,6 +237,14 @@ export async function POST(req: NextRequest) {
       const idDiterima = new Set(diterima.map(d => d.soal_id))
       jawabanValid = jawabanValid.filter(j => tidakBerubah.includes(j) || idDiterima.has(j.soal_essay_id))
       jumlahDitolakTerlambat = ditolak.length
+
+      if (sesiDitutupSusulan && (diterima.length > 0 || ditolak.length > 0)) {
+        const alasanSusulan = ditolak.reduce<Record<string, number>>((acc, d) => { acc[d.alasan] = (acc[d.alasan] ?? 0) + 1; return acc }, {})
+        catatAktivitas(
+          db, user.nis!, 'ESSAY_SETELAH_TUTUP',
+          `Jawaban essay susulan setelah sesi ${sesiId} ditutup: ${diterima.length} perubahan diterima, ${ditolak.length} ditolak ${JSON.stringify(alasanSusulan)}.`
+        )
+      }
 
       if (ditolak.length > 0) {
         // ACK memakai revisi KLIEN + accepted:false (teks yang tersimpan di
