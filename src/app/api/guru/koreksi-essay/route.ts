@@ -255,7 +255,19 @@ export async function GET(req: NextRequest) {
     nilaiPg: nilaiMap[p.nis] ? { benar: nilaiMap[p.nis].benar, total: nilaiMap[p.nis].total, kkm: nilaiMap[p.nis].kkm, nilai: nilaiMap[p.nis].nilai } : null,
     nilaiEssay: nilaiMap[p.nis]?.nilai_essay ?? null,
     nilaiTotal: nilaiMap[p.nis]?.nilai_total ?? null,
-    sudahDinilai: nilaiMap[p.nis]?.dinilai_pada != null || p.status_essay === 'TIDAK_MENGERJAKAN',
+    // PERBAIKAN (siswa tutup-paksa tersangkut di rilis nilai): sebelumnya siswa
+    // berstatus TIDAK_MENGERJAKAN otomatis dianggap "sudah dinilai" walau
+    // nilai_essay-nya masih kosong -- padahal /api/guru/kirim-nilai menolak
+    // rilis selama nilai_essay kosong. Akibatnya tombol rilis massal tampak
+    // aktif tapi pasti ditolak server. Sekarang aturannya SAMA dengan server:
+    // "sudah dinilai" hanya kalau nilai_essay sudah terisi (nilai gugur total
+    // admin = 0, tanda guru "Tidak Mengerjakan" = 0, atau skor dari guru).
+    sudahDinilai: nilaiMap[p.nis]?.nilai_essay != null,
+    // Siswa yang essay-nya ditutup otomatis oleh sistem (sesi ditutup paksa,
+    // lihat finalisasi-nilai.ts) dan BELUM diputuskan guru: status_essay sudah
+    // TIDAK_MENGERJAKAN tapi nilai_essay masih kosong. Guru boleh menilai
+    // jawaban yang sempat tersimpan, atau menekan "Tidak Mengerjakan".
+    tutupPaksaBelumDinilai: p.status_essay === 'TIDAK_MENGERJAKAN' && p.status !== 'TERKUNCI' && nilaiMap[p.nis]?.nilai_essay == null,
     dirilis: nilaiMap[p.nis]?.dirilis ?? false,
     // FIX (kunci nilai essay setelah kirim ke wali kelas): dikirim ke
     // frontend supaya form skor & tombol Simpan/Tidak Mengerjakan bisa

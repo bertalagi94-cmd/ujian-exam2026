@@ -3,8 +3,25 @@ import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRoleAktif } from '@/lib/status-akun'
 import { instrumented } from '@/lib/metrik'
 import { catatAktivitas } from '@/lib/aktivitas'
-import { hitungBatasWaktuPg, sudahKedaluwarsa, saringJawabanTerlambat } from '@/lib/deadline-pg'
+import { hitungBatasWaktuPg, sudahKedaluwarsa, saringJawabanTerlambat, GRACE_MS } from '@/lib/deadline-pg'
 import { normalisasiJawabanMasuk, MAKS_JAWABAN_PER_REQUEST } from '@/lib/sync-jawaban-input'
+import { hitungUlangNilaiPgSetelahSusulan } from '@/lib/hitung-ulang-nilai-susulan'
+
+// ── JAWABAN SUSULAN SETELAH SESI DITUTUP (Tahap 2) ──────────────────────────
+// Prinsip: jawaban yang dibuat siswa SEBELUM waktunya habis tidak boleh hilang
+// hanya karena HP-nya offline dan baru terkirim setelah sesi ditutup.
+//
+// JENDELA: berapa jam setelah sesi ditutup jawaban susulan masih diterima.
+// Nilainya diteruskan ke fungsi database (supabase/55_...sql), yang
+// menegakkannya di dalam transaksi.
+const JENDELA_JAWABAN_SUSULAN_JAM = 24
+// KEBIJAKAN yang perlu diputuskan sekolah: pada sesi yang ditutup LEBIH AWAL
+// dari batas waktu siswa (mis. pengawas menutup saat siswa masih punya sisa
+// waktu), jawaban yang dibuat siswa offline di antara waktu tutup dan batas
+// waktunya sendiri:
+//   false (bawaan) = TETAP diterima (siswa diberi waktu penuh yang jadi haknya)
+//   true           = DITOLAK (hanya jawaban yang dibuat sebelum sesi ditutup)
+const SUSULAN_HANYA_SEBELUM_WAKTU_TUTUP = false
 
 // POST /api/siswa/ujian/sync
 // PENTING: setelah upsert, kita selalu hitung ulang jumlah baris jawaban yang
@@ -47,9 +64,13 @@ export async function POST(req: NextRequest) {
   // mengecek status sesi — siswa tetap bisa sync jawaban walau sesi sudah
   // ditutup pengawas (status SELESAI). Ditemukan otomatis oleh load test
   // (skenario "sync setelah sesi ditutup seharusnya ditolak").
-  const { data: sesi } = await db.from('sesi_ujian').select('status, paket_soal_id, durasi').eq('id', sesiId).single()
+  const { data: sesi } = await db.from('sesi_ujian').select('status, paket_soal_id, durasi, waktu_selesai').eq('id', sesiId).single()
   if (!sesi) return NextResponse.json({ error: 'Sesi tidak ditemukan' }, { status: 404 })
-  if (sesi.status !== 'BERJALAN') {
+  // Sesi SELESAI tidak lagi langsung ditolak: jawaban offline yang terbukti
+  // dibuat sebelum batas waktu siswa tetap diterima dalam jendela terbatas
+  // (lihat konstanta di atas). Status selain BERJALAN/SELESAI tetap ditolak.
+  const sesiDitutupSusulan = sesi.status === 'SELESAI'
+  if (sesi.status !== 'BERJALAN' && !sesiDitutupSusulan) {
     return NextResponse.json({ error: 'Sesi ujian sudah ditutup, jawaban tidak bisa disimpan lagi.' }, { status: 409 })
   }
 
@@ -180,11 +201,22 @@ export async function POST(req: NextRequest) {
     // seluruh penegakan deadline DILEWATI. /validasi & /verifikasi-reset sudah
     // jatuh ke waktu_mulai untuk kasus ini; disamakan di sini.
     const batasWaktu = hitungBatasWaktuPg(siswaUjian.waktu_mulai_awal ?? siswaUjian.waktu_mulai, sesi.durasi)
+    // Sesi sudah ditutup tapi waktu siswa tidak bisa dihitung (data lama tanpa
+    // waktu mulai): tidak ada bukti waktu sama sekali, jadi fail closed.
+    if (sesiDitutupSusulan && !batasWaktu && jawabanSahPaket.length > 0) {
+      return NextResponse.json(
+        { error: 'Sesi ujian sudah ditutup dan waktu pengerjaan Anda tidak dapat diverifikasi, jawaban tidak bisa disimpan lagi.' },
+        { status: 409 }
+      )
+    }
     let jawabanValid = jawabanSahPaket
     let ackTerlambat: { soal_id: string; jawaban: string; revisi: number; accepted: boolean }[] = []
     let ditolakTerlambatTanpaBaris = 0
     let jumlahDitolakTerlambat = 0
-    if (batasWaktu && sudahKedaluwarsa(batasWaktu, sekarangMs) && jawabanSahPaket.length > 0) {
+    // Pada sesi yang sudah ditutup, SEMUA jawaban wajib lolos saringan bukti
+    // waktu (seolah waktunya sudah lewat), bukan hanya kalau siswa ini sudah
+    // melewati batas waktunya sendiri.
+    if (batasWaktu && (sesiDitutupSusulan || sudahKedaluwarsa(batasWaktu, sekarangMs)) && jawabanSahPaket.length > 0) {
       // Ambil baris yang SUDAH ada di server untuk soal-soal yang dikirim. Jawaban
       // yang revisinya tidak lebih baru dari yang tersimpan bukan "perubahan
       // baru" (klien hanya mengirim ulang isi lamanya): dibiarkan lewat apa
@@ -211,7 +243,15 @@ export async function POST(req: NextRequest) {
       const checkpointTerakhirMs = siswaUjian.last_heartbeat
         ? new Date(siswaUjian.last_heartbeat).getTime()
         : null
-      const { diterima, ditolak } = saringJawabanTerlambat(kandidat, batasWaktu, sekarangMs, checkpointTerakhirMs)
+      // Opsi kebijakan: batasi susulan sampai waktu sesi ditutup (+ jeda wajar).
+      let batasSaring = batasWaktu
+      if (sesiDitutupSusulan && SUSULAN_HANYA_SEBELUM_WAKTU_TUTUP && sesi.waktu_selesai) {
+        const tutupMs = new Date(sesi.waktu_selesai).getTime()
+        if (Number.isFinite(tutupMs)) {
+          batasSaring = { ...batasWaktu, batasMaksMs: Math.min(batasWaktu.batasMaksMs, tutupMs + GRACE_MS) }
+        }
+      }
+      const { diterima, ditolak } = saringJawabanTerlambat(kandidat, batasSaring, sekarangMs, checkpointTerakhirMs)
       jawabanValid = [...tidakBerubah, ...diterima]
       jumlahDitolakTerlambat = ditolak.length
 
@@ -273,26 +313,36 @@ export async function POST(req: NextRequest) {
       // siswa_ujian dan MENGECEK ULANG status/device di dalam transaksi yang
       // sama dengan upsert jawaban -- pola yang sama seperti
       // finalisasi_pg_atomik untuk /selesai (migrasi 21/28/33).
-      const { data: rpcHasil, error: rpcError } = await db.rpc('sync_jawaban_atomik', {
-        p_sesi_id: sesiId,
-        p_nis: user.nis!,
-        p_device_id: typeof deviceId === 'string' ? deviceId : null,
-        p_records: records,
-      })
+      // Sesi sudah ditutup -> fungsi susulan (cek jendela waktu di dalam
+      // transaksi). Sesi berjalan -> fungsi biasa, TIDAK BERUBAH.
+      const { data: rpcHasil, error: rpcError } = sesiDitutupSusulan
+        ? await db.rpc('sync_jawaban_susulan_atomik', {
+            p_sesi_id: sesiId,
+            p_nis: user.nis!,
+            p_device_id: typeof deviceId === 'string' ? deviceId : null,
+            p_records: records,
+            p_jendela_jam: JENDELA_JAWABAN_SUSULAN_JAM,
+          })
+        : await db.rpc('sync_jawaban_atomik', {
+            p_sesi_id: sesiId,
+            p_nis: user.nis!,
+            p_device_id: typeof deviceId === 'string' ? deviceId : null,
+            p_records: records,
+          })
 
       if (rpcError) {
         // FAIL CLOSED (audit P0 #2). Tidak ada fallback ke upsert lama tanpa
         // proteksi revisi/atomik. Lebih baik client menerima error dan tetap
         // menyimpan jawaban di outbox lokal untuk dicoba lagi, daripada
         // server diam-diam menulis jawaban tanpa perlindungan.
-        console.error('[sync] sync_jawaban_atomik gagal:', rpcError.code, rpcError.message)
+        console.error(`[sync] ${sesiDitutupSusulan ? 'sync_jawaban_susulan_atomik' : 'sync_jawaban_atomik'} gagal:`, rpcError.code, rpcError.message)
         return NextResponse.json(
           { error: 'Server gagal menyimpan jawaban. Jawaban tetap aman di perangkat dan akan dicoba lagi otomatis.' },
           { status: 503 }
         )
       }
 
-      const hasil = rpcHasil as { hasil?: string; acked?: { out_soal_id: string; out_jawaban: string; out_revisi: number; out_accepted: boolean }[] } | null
+      const hasil = rpcHasil as { hasil?: string; jumlah_berubah?: number; acked?: { out_soal_id: string; out_jawaban: string; out_revisi: number; out_accepted: boolean }[] } | null
 
       // Race tertutup TEPAT sebelum penulisan: cek awal (di atas) sempat
       // lolos, tapi cek ULANG di dalam transaksi menemukan kondisi sudah
@@ -308,6 +358,18 @@ export async function POST(req: NextRequest) {
           return NextResponse.json(
             { error: 'Sesi ujian sudah ditutup, jawaban tidak bisa disimpan lagi.' },
             { status: 409 }
+          )
+        case 'JENDELA_HABIS':
+          return NextResponse.json(
+            { error: `Sesi ujian sudah ditutup lebih dari ${JENDELA_JAWABAN_SUSULAN_JAM} jam yang lalu, jawaban susulan tidak bisa diterima lagi. Hubungi guru/pengawas.` },
+            { status: 409 }
+          )
+        case 'SESI_MASIH_BERJALAN':
+          // Status sesi berubah di antara pengecekan awal dan transaksi:
+          // sementara, biarkan client mencoba lagi.
+          return NextResponse.json(
+            { error: 'Status sesi sedang berubah. Jawaban akan dicoba lagi otomatis.' },
+            { status: 503 }
           )
         case 'SISWA_TIDAK_TERDAFTAR':
           return NextResponse.json(
@@ -338,6 +400,32 @@ export async function POST(req: NextRequest) {
         revisi: r.out_revisi,
         accepted: r.out_accepted,
       }))
+
+      // Jawaban susulan sudah tersimpan -> hitung ulang nilai PG siswa ini.
+      // Selalu dijalankan pada jalur susulan (idempoten), bukan hanya kalau ada
+      // baris berubah: kalau hitung ulang gagal, client menerima 503 dan
+      // mencoba lagi, dan percobaan ulang itu (jumlah_berubah = 0) tetap
+      // memperbaiki nilainya. Aturan nilai yang tidak boleh diubah otomatis
+      // (sudah dikirim wali / dirilis / essay dinilai) ada di helper.
+      if (sesiDitutupSusulan) {
+        let hasilHitung: Awaited<ReturnType<typeof hitungUlangNilaiPgSetelahSusulan>>
+        try {
+          hasilHitung = await hitungUlangNilaiPgSetelahSusulan(db, sesiId, user.nis!)
+        } catch (e) {
+          hasilHitung = { hasil: 'GAGAL', error: e instanceof Error ? e.message : String(e) }
+        }
+        catatAktivitas(
+          db, user.nis!, 'SYNC_SETELAH_TUTUP',
+          `Jawaban susulan setelah sesi ${sesiId} ditutup: ${hasil?.jumlah_berubah ?? 0} jawaban diterima/diubah, hitung ulang nilai PG: ${JSON.stringify(hasilHitung)}.`
+        )
+        if (hasilHitung.hasil === 'GAGAL') {
+          console.error(`[sync] hitung ulang nilai susulan gagal (sesi ${sesiId}, nis ${user.nis}):`, hasilHitung.error)
+          return NextResponse.json(
+            { error: 'Jawaban tersimpan, tetapi server gagal memperbarui nilai. Akan dicoba lagi otomatis.' },
+            { status: 503 }
+          )
+        }
+      }
     }
 
     if (jawabanDitolak > 0) {

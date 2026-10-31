@@ -44,6 +44,11 @@ interface Peserta {
   nilaiEssay: number | null
   nilaiTotal: number | null
   sudahDinilai: boolean
+  // Sesi ditutup paksa -> essay ditutup otomatis oleh sistem (status_essay
+  // TIDAK_MENGERJAKAN) tapi guru BELUM memutuskan nilainya (nilai_essay kosong).
+  // Guru masih boleh menilai jawaban yang sempat tersimpan atau menekan
+  // "Tidak Mengerjakan".
+  tutupPaksaBelumDinilai?: boolean
   dirilis: boolean
   // FIX (kunci nilai essay setelah kirim ke wali kelas): kalau true, nilai
   // siswa ini sudah dikirim ke wali kelas — form skor & tombol Simpan/Tidak
@@ -338,6 +343,22 @@ export function PeriksaEssayTab({
   const jumlahBelumDinilai = data
     ? data.peserta.filter(p => p.statusEssay === 'SUDAH_KIRIM' && !p.dirilis && !p.sudahDinilai).length
     : 0
+  // Siswa yang sesinya ditutup paksa dan essay-nya belum diputuskan guru.
+  // Mereka memblokir rilis massal, jadi diberi peringatan tersendiri supaya
+  // tidak terlewat.
+  const jumlahTutupPaksaBelumDinilai = data
+    ? data.peserta.filter(p => p.tutupPaksaBelumDinilai).length
+    : 0
+
+  // Kontrol skor (kolom skor, Simpan, Tidak Mengerjakan) HANYA disembunyikan
+  // untuk siswa yang SENGAJA ditandai "Tidak Mengerjakan" oleh guru
+  // (nilai essay 0 tanpa skor per soal). Siswa tutup-paksa yang belum dinilai,
+  // atau yang sudah diberi skor oleh guru, tetap bisa diisi/diedit.
+  function kontrolSkorTersembunyi(p: Peserta): boolean {
+    if (p.statusEssay !== 'TIDAK_MENGERJAKAN') return false
+    if (p.tutupPaksaBelumDinilai) return false
+    return Object.keys(p.skorPerSoal ?? {}).length === 0
+  }
 
   // UX (redesain tampilan koreksi essay): sebelumnya status siswa ditampilkan
   // sebagai 3-4 badge berjejer sekaligus (Tidak Mengerjakan + Belum
@@ -345,12 +366,13 @@ export function PeriksaEssayTab({
   // satu siswa = satu badge, dipilih berdasarkan prioritas kondisi paling
   // relevan untuk guru di tahap koreksi ini.
   function statusBadge(p: Peserta): { variant: 'red' | 'yellow' | 'purple' | 'green' | 'slate'; label: string } {
-    if (p.statusEssay === 'TIDAK_MENGERJAKAN') return { variant: 'red', label: 'Tidak Mengerjakan' }
+    if (p.tutupPaksaBelumDinilai) return { variant: 'yellow', label: 'Perlu Dinilai (sesi ditutup paksa)' }
+    if (p.statusEssay === 'TIDAK_MENGERJAKAN' && kontrolSkorTersembunyi(p)) return { variant: 'red', label: 'Tidak Mengerjakan' }
     // FIX (siswa hilang dari antrean setelah sesi ditutup paksa): status
     // 'Belum Kirim' di sini sengaja mencakup SEMUA nilai selain SUDAH_KIRIM
     // (null/BELUM_MULAI/MENGERJAKAN) — termasuk peserta yang sesinya ditutup
     // paksa oleh pengawas/admin sebelum sempat menekan "Kirim" sendiri.
-    if (p.statusEssay !== 'SUDAH_KIRIM') return { variant: 'yellow', label: 'Belum Kirim' }
+    if (p.statusEssay !== 'SUDAH_KIRIM' && p.statusEssay !== 'TIDAK_MENGERJAKAN') return { variant: 'yellow', label: 'Belum Kirim' }
     // FIX (kunci nilai essay setelah kirim ke wali kelas): status ini
     // sengaja diprioritaskan di atas "Dirilis" — begitu nilai terkirim ke
     // wali kelas, itu yang paling penting diketahui guru (nilai sudah
@@ -451,6 +473,17 @@ export function PeriksaEssayTab({
                       <Clock className="w-3.5 h-3.5" /> {jumlahBelumMenjawab} Belum Menjawab
                     </Badge>
                   </div>
+
+                  {jumlahTutupPaksaBelumDinilai > 0 && (
+                    <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-2.5 py-2 flex items-start gap-1.5">
+                      <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                      <span>
+                        {jumlahTutupPaksaBelumDinilai} siswa sesinya ditutup paksa dan essay-nya belum dinilai.
+                        Buka barisnya untuk menilai jawaban yang sempat tersimpan, atau tekan &quot;Tidak Mengerjakan&quot;.
+                        Rilis nilai ke semua siswa baru bisa dilakukan setelah semuanya diputuskan.
+                      </span>
+                    </p>
+                  )}
 
                   {/* UX (declutter): ringkasan bobot + tombol "Petunjuk" saja
                       yang selalu tampil. Cara menilai, rumus lengkap, dan
@@ -597,7 +630,11 @@ export function PeriksaEssayTab({
                                 <td colSpan={6} className="bg-slate-50/60 p-0 border-b border-slate-100">
                                   <div className="p-4 space-y-4">
                                     <p className="text-xs text-slate-400 -mt-1">
-                                      Dikirim {p.waktuKirimEssay ? formatDateTime(p.waktuKirimEssay) : '-'}
+                                      {p.waktuKirimEssay
+                                        ? `Dikirim ${formatDateTime(p.waktuKirimEssay)}`
+                                        : p.tutupPaksaBelumDinilai
+                                          ? 'Belum dikirim siswa — sesi ditutup paksa. Yang tampil di bawah adalah jawaban yang sempat tersimpan.'
+                                          : 'Dikirim -'}
                                     </p>
 
                                     {/* UX (gabung Jawaban Siswa + Beri Skor per Soal): dulu ada dua
@@ -643,7 +680,7 @@ export function PeriksaEssayTab({
                                               </div>
                                               <p className="text-slate-700 font-medium mb-1.5">{soal.teks}</p>
                                               <p className="text-slate-600 whitespace-pre-wrap mb-2">{jawaban?.jawaban_teks?.trim() || <span className="italic text-slate-400">Tidak dijawab</span>}</p>
-                                              {p.statusEssay !== 'TIDAK_MENGERJAKAN' && (
+                                              {!kontrolSkorTersembunyi(p) && (
                                                 <div className="flex items-center justify-end gap-2 pt-1.5 border-t border-slate-100">
                                                   <span className="text-xs text-slate-500">Skor <span className="text-slate-400">(maks {soal.bobot_maks})</span></span>
                                                   <input
@@ -683,7 +720,7 @@ export function PeriksaEssayTab({
 
                                     {/* Mode KERTAS: tidak ada jawaban teks untuk digabung skornya,
                                         jadi input skor tetap tampil sebagai kartu tersendiri. */}
-                                    {data.modeJawaban !== 'DIGITAL' && p.statusEssay !== 'TIDAK_MENGERJAKAN' && (
+                                    {data.modeJawaban !== 'DIGITAL' && !kontrolSkorTersembunyi(p) && (
                                       <div className="bg-white rounded-lg border border-slate-200 p-3 space-y-3">
                                         <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Beri Skor per Soal</p>
                                         <div className="space-y-2">
@@ -726,7 +763,7 @@ export function PeriksaEssayTab({
                                         ada lagi konversi tersembunyi. Tombol Simpan tetap satu di
                                         paling bawah, di luar daftar jawaban, supaya tidak perlu
                                         scroll panjang lagi untuk menemukannya. */}
-                                    {p.statusEssay !== 'TIDAK_MENGERJAKAN' && (
+                                    {!kontrolSkorTersembunyi(p) && (
                                       <div className="bg-white rounded-lg border border-slate-200 p-3 space-y-3">
                                         {/* FIX (kunci nilai essay setelah kirim ke wali kelas): sembunyikan
                                             tombol ubah nilai sama sekali dan tampilkan alasan yang jelas,
