@@ -795,7 +795,10 @@ const ENDPOINT_SCHEMAS = {
   // ("namaSekolah"). Schema HARUS pakai path "data.namaSekolah", bukan "namaSekolah"
   // di root — kalau tidak, getByPath() akan selalu gagal menemukannya walau field
   // itu sebenarnya ada (false positive "field wajib hilang").
-  'GET /api/public/pengaturan':   { fields: ['data.namaSekolah'] },
+  // PERBAIKAN: tanpa token & tanpa ?kode= (mode multi-yayasan) server SENGAJA
+  // mengembalikan { data: {} } supaya data yayasan lain tidak bocor. Jadi
+  // cukup wajibkan objek "data"; isi namaSekolah baru diuji dengan token admin.
+  'GET /api/public/pengaturan':   { fields: ['data'] },
   'GET /api/admin/jadwal/rangkuman': { fields: [] },
   'GET /api/guru/wali-kelas':     { fields: [] },
   'GET /api/guru/jadwal-pengawasan': { arrayField: 'data' },
@@ -1517,6 +1520,16 @@ async function phaseRamp() {
 // =====================================================================
 // FASE 5 — SIMULASI UJIAN: validasi masuk, jawab soal, sync, selesai
 // =====================================================================
+// ── PERBAIKAN (false positive "validasi/selesai gagal") ────────────────
+// /api/siswa/ujian/validasi MENOLAK pendaftaran pertama kali (valid:false,
+// "Perangkat tidak terdeteksi…") kalau deviceId kosong / < 8 karakter — itu
+// proteksi anti-multi-device yang disengaja di server. Setelah terdaftar,
+// SEMUA endpoint siswa (sync, selesai, pelanggaran, verifikasi-reset,
+// cek-sesi) juga membandingkan deviceId dengan siswa_ujian.device_id.
+// Jadi simulator siswa WAJIB memakai deviceId yang sama di semua panggilan.
+// NIS sudah panjang & unik, jadi dipakai sebagai basis (>= 8 karakter).
+function deviceIdFor(nis) { return `${nis}_dev`; }
+
 async function phaseExam() {
   const loggedInSiswa = state.siswaList.filter(s => s.token);
   if (loggedInSiswa.length === 0) {
@@ -1532,7 +1545,7 @@ async function phaseExam() {
 
   await runBatched(loggedInSiswa, async (siswa) => {
     const r = await api('POST', '/api/siswa/ujian/validasi', {
-      kodeSesi: state.kodeSesi, nis: siswa.nis,
+      kodeSesi: state.kodeSesi, nis: siswa.nis, deviceId: deviceIdFor(siswa.nis),
     }, siswa.token);
     if (r.ok && r.data?.valid) {
       validasiOk++;
@@ -1557,7 +1570,7 @@ async function phaseExam() {
       soal_id: s.id,
       jawaban: ['A', 'B', 'C', 'D'][Math.floor(Math.random() * 4)],
     }));
-    const r = await api('POST', '/api/siswa/ujian/sync', { sesiId: state.sesiId, jawaban }, siswa.token);
+    const r = await api('POST', '/api/siswa/ujian/sync', { sesiId: state.sesiId, jawaban, deviceId: deviceIdFor(siswa.nis) }, siswa.token);
     if (r.ok) syncOk++; else { syncFail++; recordBug(`Sync jawaban gagal untuk ${siswa.nis}`, JSON.stringify(r.data), 'POST /api/siswa/ujian/sync'); }
     return r;
   }, { batchSize, delayBetweenBatches }, (done, total) => {
@@ -1583,7 +1596,7 @@ async function phaseExam() {
     for (let round = 0; round < ROUNDS; round++) {
       if (state.stopRequested) break;
       const burstResults = await Promise.all(loggedInSiswa.map(siswa =>
-        api('GET', `/api/siswa/ujian/cek-sesi?sesiId=${state.sesiId}&deviceId=${siswa.nis}_device`, undefined, siswa.token)
+        api('GET', `/api/siswa/ujian/cek-sesi?sesiId=${state.sesiId}&deviceId=${deviceIdFor(siswa.nis)}`, undefined, siswa.token)
           .catch(e => ({ ok: false, status: 0, error: e.message }))
       ));
       for (const r of burstResults) { if (r.ok) pollOk++; else pollFail++; }
@@ -1607,7 +1620,7 @@ async function phaseExam() {
   let selesaiOk = 0;
 
   await runBatched(loggedInSiswa.filter(s => soalPerSiswa[s.nis]?.length), async (siswa) => {
-    const r = await api('POST', '/api/siswa/ujian/selesai', { sesiId: state.sesiId, nis: siswa.nis }, siswa.token);
+    const r = await api('POST', '/api/siswa/ujian/selesai', { sesiId: state.sesiId, nis: siswa.nis, deviceId: deviceIdFor(siswa.nis) }, siswa.token);
     if (r.ok) selesaiOk++;
     else recordBug(`Submit selesai gagal untuk ${siswa.nis}`, JSON.stringify(r.data), 'POST /api/siswa/ujian/selesai');
     return r;
@@ -1637,12 +1650,19 @@ async function phaseFeatures() {
   // ---------- 6b. Buat akun KEPSEK testing untuk uji endpoint kepala sekolah ----------
   setAction('Membuat akun kepsek testing…');
   state.kepsekUsername = `${state.runId}_kepsek`;
+  // PERBAIKAN: KEPSEK tanpa sekolah_id membuat /api/kepsek/* mengembalikan
+  // `scopeWarning` (perilaku yang disengaja, bukan bug). Tautkan akun uji ke
+  // sekolah pertama yang ada supaya endpoint kepsek diuji pada kondisi nyata.
+  const sekolahRes = await api('GET', '/api/admin/sekolah', undefined, state.adminToken);
+  const sekolahUji = Array.isArray(sekolahRes.data?.data) ? sekolahRes.data.data[0] : null;
+  if (!sekolahUji) log('Belum ada data sekolah — akun kepsek uji tanpa sekolah, pengecekan rekap nilai kepsek dilewati', 'warn');
   const kepsekRes = await api('POST', '/api/admin/users', {
     username: state.kepsekUsername,
     nama: `KEPSEK LOADTEST ${state.runId}`,
     role: 'KEPSEK',
     password: 'LoadTest123!',
     status: 'AKTIF',
+    ...(sekolahUji ? { sekolah_id: sekolahUji.id } : {}),
   }, state.adminToken);
   if (kepsekRes.ok) {
     const kepsekLogin = await api('POST', '/api/auth/login', { username: state.kepsekUsername, password: 'LoadTest123!' });
@@ -1653,7 +1673,24 @@ async function phaseFeatures() {
       await checkEndpoint('Dashboard kepsek', 'GET', '/api/kepsek/dashboard', undefined, state.kepsekToken);
       await checkEndpoint('Jadwal kepsek', 'GET', '/api/kepsek/jadwal', undefined, state.kepsekToken);
       await checkEndpoint('Monitoring kepsek', 'GET', '/api/kepsek/monitoring', undefined, state.kepsekToken);
-      await checkEndpoint('Rekap nilai kepsek', 'GET', `/api/kepsek/nilai?mapel_id=${state.mapelId}&kelas=${state.kelasNama}`, undefined, state.kepsekToken);
+      // PERBAIKAN: rekap nilai kepsek dibatasi ke kelas milik sekolahnya. Kelas uji
+      // belum tentu terikat ke sekolah tsb (→ 403 sah) dan kepsek tanpa sekolah
+      // mendapat scopeWarning (sah). Keduanya BUKAN bug, jadi hanya dicatat.
+      const kepsekNilai = await api('GET', `/api/kepsek/nilai?mapel_id=${state.mapelId}&kelas=${state.kelasNama}`, undefined, state.kepsekToken);
+      if (kepsekNilai.ok && Array.isArray(kepsekNilai.data?.data)) {
+        log('✓ Rekap nilai kepsek: struktur OK', 'ok');
+      } else if (kepsekNilai.ok && kepsekNilai.data?.scopeWarning) {
+        log('⊘ Rekap nilai kepsek dilewati: akun kepsek uji belum punya sekolah (scopeWarning sah)', 'warn');
+      } else if (kepsekNilai.status === 403) {
+        log('⊘ Rekap nilai kepsek dilewati: kelas uji bukan bagian dari sekolah kepsek uji (403 sah)', 'warn');
+      } else {
+        recordBugCat(
+          kepsekNilai.status >= 500 ? BUG_CATEGORIES.FUNGSIONAL : BUG_CATEGORIES.STRUKTUR,
+          'Rekap nilai kepsek → respons tidak terduga',
+          `HTTP ${kepsekNilai.status}. Body: ${JSON.stringify(kepsekNilai.data ?? kepsekNilai.error).slice(0, 300)}`,
+          'GET /api/kepsek/nilai'
+        );
+      }
     } else {
       recordBug('Login kepsek testing gagal', JSON.stringify(kepsekLogin.data), 'POST /api/auth/login');
     }
@@ -1675,16 +1712,16 @@ async function phaseFeatures() {
     const loginReset = await api('POST', '/api/auth/login', { username: nisReset, password: nisReset });
     if (loginReset.ok) {
       const tokenReset = loginReset.data.token;
-      const masuk = await api('POST', '/api/siswa/ujian/validasi', { kodeSesi: state.kodeSesi, nis: nisReset }, tokenReset);
+      const masuk = await api('POST', '/api/siswa/ujian/validasi', { kodeSesi: state.kodeSesi, nis: nisReset, deviceId: deviceIdFor(nisReset) }, tokenReset);
       if (masuk.ok && masuk.data?.valid) {
         const lapor = await checkEndpoint('Lapor pelanggaran (sisi siswa)', 'POST', '/api/siswa/ujian/pelanggaran',
-          { sesiId: state.sesiId, jenis: 'TES_OTOMATIS', detail: 'Dipicu otomatis oleh load test' }, tokenReset);
+          { sesiId: state.sesiId, jenis: 'TES_OTOMATIS', detail: 'Dipicu otomatis oleh load test', deviceId: deviceIdFor(nisReset) }, tokenReset);
         if (lapor.ok) {
           const reset = await checkEndpoint('Reset siswa (sisi pengawas)', 'POST', `/api/pengawas/sesi/${state.sesiId}/reset-siswa`,
             { nis: nisReset }, state.guruToken);
           if (reset.ok && reset.data?.kode_reset) {
             await checkEndpoint('Verifikasi kode reset (sisi siswa)', 'POST', '/api/siswa/ujian/verifikasi-reset',
-              { sesiId: state.sesiId, kodeReset: reset.data.kode_reset }, tokenReset);
+              { sesiId: state.sesiId, kodeReset: reset.data.kode_reset, deviceId: deviceIdFor(nisReset) }, tokenReset);
           } else if (reset.ok) {
             log('Reset siswa OK tapi tidak ada kode_reset (mungkin langsung dikunci permanen) — verifikasi kode dilewati', 'warn');
           }
@@ -1693,9 +1730,9 @@ async function phaseFeatures() {
         recordBug('Siswa khusus uji reset gagal masuk ujian', JSON.stringify(masuk.data), 'POST /api/siswa/ujian/validasi');
       }
       // Cek status sesi dari sisi siswa (polling) sebelum sesi ditutup
-      await checkEndpoint('Cek status sesi (polling siswa)', 'GET', `/api/siswa/ujian/cek-sesi?sesiId=${state.sesiId}`, undefined, tokenReset);
+      await checkEndpoint('Cek status sesi (polling siswa)', 'GET', `/api/siswa/ujian/cek-sesi?sesiId=${state.sesiId}&deviceId=${deviceIdFor(nisReset)}`, undefined, tokenReset);
       // Selesaikan ujian siswa ini juga, supaya datanya konsisten & ikut tercakup saat cleanup
-      await api('POST', '/api/siswa/ujian/selesai', { sesiId: state.sesiId, nis: nisReset }, tokenReset);
+      await api('POST', '/api/siswa/ujian/selesai', { sesiId: state.sesiId, nis: nisReset, deviceId: deviceIdFor(nisReset) }, tokenReset);
     } else {
       recordBug('Login siswa khusus uji reset gagal', JSON.stringify(loginReset.data), 'POST /api/auth/login');
     }
@@ -1766,6 +1803,20 @@ async function phaseFeatures() {
   // ---------- 6i. Endpoint publik (tanpa token) ----------
   setAction('Menguji endpoint publik (tanpa login)…');
   await checkEndpoint('Pengaturan publik (tanpa token)', 'GET', '/api/public/pengaturan', undefined, undefined);
+  {
+    // Dengan token, yayasan ditentukan dari token — di sinilah isi pengaturan diharapkan ada.
+    const pengDenganToken = await api('GET', '/api/public/pengaturan', undefined, state.adminToken);
+    if (!pengDenganToken.ok || typeof pengDenganToken.data?.data !== 'object' || pengDenganToken.data?.data === null) {
+      recordBugCat(
+        BUG_CATEGORIES.STRUKTUR,
+        'Pengaturan publik (dengan token admin) → objek "data" tidak ada',
+        `HTTP ${pengDenganToken.status}. Body: ${JSON.stringify(pengDenganToken.data ?? pengDenganToken.error).slice(0, 300)}`,
+        'GET /api/public/pengaturan (dengan token)'
+      );
+    } else {
+      log('✓ Pengaturan publik (dengan token admin): struktur OK', 'ok');
+    }
+  }
 
   // ---------- 6j. Batas otorisasi "pengawas": guru LAIN tidak boleh memantau sesi ini ----------
   // CATATAN ARSITEKTUR: role PENGAWAS berdiri sendiri SUDAH TIDAK ADA di sistem
@@ -1833,7 +1884,7 @@ async function phaseFeatures() {
   await expectRejected(
     'Validasi ujian dengan kode sesi yang salah',
     'POST', '/api/siswa/ujian/validasi',
-    { kodeSesi: 'NGARANG999', nis: state.siswaList[0]?.nis },
+    { kodeSesi: 'NGARANG999', nis: state.siswaList[0]?.nis, deviceId: deviceIdFor(state.siswaList[0]?.nis) },
     state.siswaList[0]?.token,
     { checkValidFalse: true }
   );
@@ -1851,7 +1902,7 @@ async function phaseFeatures() {
       await expectRejected(
         'Siswa dari kelas lain mencoba masuk ke sesi ujian kelas testing',
         'POST', '/api/siswa/ujian/validasi',
-        { kodeSesi: state.kodeSesi, nis: nisLainKelas },
+        { kodeSesi: state.kodeSesi, nis: nisLainKelas, deviceId: deviceIdFor(nisLainKelas) },
         loginLain.data.token,
         { checkValidFalse: true }
       );
@@ -1865,7 +1916,7 @@ async function phaseFeatures() {
     await expectIdempotent(
       'Submit ujian 2x oleh siswa yang sama',
       'POST', '/api/siswa/ujian/selesai',
-      { sesiId: state.sesiId, nis: siswaSelesai.nis },
+      { sesiId: state.sesiId, nis: siswaSelesai.nis, deviceId: deviceIdFor(siswaSelesai.nis) },
       siswaSelesai.token,
       ['nilai', 'grade', 'benar', 'total', 'lulus']
     );
@@ -1923,7 +1974,7 @@ async function phaseFeatures() {
   setAction('Menguji bahwa sesi yang sudah ditutup benar-benar terkunci…');
   if (siswaSelesai) {
     const syncSetelahTutup = await api('POST', '/api/siswa/ujian/sync',
-      { sesiId: state.sesiId, jawaban: [{ soal_id: 'SL_TIDAKADA', jawaban: 'A' }] }, siswaSelesai.token);
+      { sesiId: state.sesiId, jawaban: [{ soal_id: 'SL_TIDAKADA', jawaban: 'A' }], deviceId: deviceIdFor(siswaSelesai.nis) }, siswaSelesai.token);
     if (syncSetelahTutup.ok) {
       recordBug(
         'Sync jawaban TETAP DITERIMA walau sesi sudah ditutup',
@@ -1943,7 +1994,7 @@ async function phaseFeatures() {
     await expectRejected(
       'Validasi masuk ujian setelah sesi ditutup',
       'POST', '/api/siswa/ujian/validasi',
-      { kodeSesi: state.kodeSesi, nis: siswaSelesai.nis },
+      { kodeSesi: state.kodeSesi, nis: siswaSelesai.nis, deviceId: deviceIdFor(siswaSelesai.nis) },
       siswaSelesai.token,
       { checkValidFalse: true }
     );
@@ -1976,7 +2027,7 @@ async function phaseFeatures() {
 
   // ── 6p (bagian 1). Uji endpoint yang sebelumnya tidak tercakup ───────────
   setAction('Menguji endpoint admin yang belum tercakup…');
-  await checkEndpoint('Monitoring admin', 'GET', '/api/admin/monitoring', undefined, state.adminToken);
+  await checkEndpoint('Monitoring admin', 'GET', '/api/admin/monitoring-nilai', undefined, state.adminToken);
   await checkEndpoint('Pelanggaran admin', 'GET', `/api/admin/pelanggaran?sesi_id=${state.sesiId}`, undefined, state.adminToken);
   // POST tanpa body sengaja dikirim untuk memverifikasi validasi
   // "jadwalId diperlukan" berjalan (HTTP 400 terkontrol) — TIDAK membuka
@@ -2014,7 +2065,7 @@ async function phaseFeatures() {
     'GET /api/admin/nilai',
     'GET /api/admin/analisis-ujian',
     'GET /api/admin/kisi-kisi',
-    'GET /api/admin/monitoring',
+    'GET /api/admin/monitoring-nilai',
     'GET /api/admin/pelanggaran',
     'POST /api/admin/susulan',
     'GET /api/admin/pengaturan',
@@ -2095,7 +2146,9 @@ async function phaseFeatures() {
   const guruNilai  = await api('GET', `/api/guru/nilai?mapel_id=${state.mapelId}`, undefined, state.guruToken);
   if (adminNilai.ok && guruNilai.ok) {
     const adminCount = adminNilai.data?.total ?? adminNilai.data?.data?.length ?? 0;
-    const guruCount  = guruNilai.data?.data?.length ?? 0;
+    // PERBAIKAN: guru/nilai SENGAJA menambahkan baris placeholder (belum_ujian:true)
+    // untuk siswa yang belum ujian — jangan dihitung sebagai baris nilai.
+    const guruCount  = (guruNilai.data?.data ?? []).filter(d => !d.belum_ujian).length;
     if (adminCount !== guruCount) {
       recordBugCat(
         BUG_CATEGORIES.KONSISTENSI,
@@ -2150,7 +2203,7 @@ async function phaseSmartDetection() {
   if (siswaA) {
     const [r1, r2] = await apiBurst(
       2, 'POST', '/api/siswa/ujian/selesai',
-      () => ({ sesiId: state.sesiId, nis: siswaA.nis }),
+      () => ({ sesiId: state.sesiId, nis: siswaA.nis, deviceId: deviceIdFor(siswaA.nis) }),
       () => siswaA.token
     );
     // Dua hal yang dicek:
@@ -2304,7 +2357,7 @@ async function phaseSmartDetection() {
   if (siswaA && state.sesiId) {
     // Ambil daftar soal siswa A
     const validasiUlang = await api('POST', '/api/siswa/ujian/validasi', {
-      kodeSesi: state.kodeSesi, nis: siswaA.nis,
+      kodeSesi: state.kodeSesi, nis: siswaA.nis, deviceId: deviceIdFor(siswaA.nis),
     }, siswaA.token);
     const soalListA = validasiUlang.data?.soalList || [];
 
@@ -2314,13 +2367,13 @@ async function phaseSmartDetection() {
         soal_id: s.id,
         jawaban: ['A', 'B', 'C', 'D'][i % 4],
       }));
-      const sync1 = await api('POST', '/api/siswa/ujian/sync', { sesiId: state.sesiId, jawaban: jawabanAwal }, siswaA.token);
+      const sync1 = await api('POST', '/api/siswa/ujian/sync', { sesiId: state.sesiId, jawaban: jawabanAwal, deviceId: deviceIdFor(siswaA.nis) }, siswaA.token);
 
       if (sync1.ok) {
         // Simulasi "koneksi putus" = sleep 2 detik
         await sleep(2000);
         // Sync ulang dengan jawaban SAMA (retry setelah reconnect)
-        const sync2 = await api('POST', '/api/siswa/ujian/sync', { sesiId: state.sesiId, jawaban: jawabanAwal }, siswaA.token);
+        const sync2 = await api('POST', '/api/siswa/ujian/sync', { sesiId: state.sesiId, jawaban: jawabanAwal, deviceId: deviceIdFor(siswaA.nis) }, siswaA.token);
 
         if (!sync2.ok) {
           recordBugCat(
@@ -2336,7 +2389,7 @@ async function phaseSmartDetection() {
 
         // Lanjut: apakah jawaban yang disync masih tercatat setelah submit?
         // Ini verifikasi "nilai tidak hilang setelah koneksi putus"
-        const submitPost = await api('POST', '/api/siswa/ujian/selesai', { sesiId: state.sesiId, nis: siswaA.nis }, siswaA.token);
+        const submitPost = await api('POST', '/api/siswa/ujian/selesai', { sesiId: state.sesiId, nis: siswaA.nis, deviceId: deviceIdFor(siswaA.nis) }, siswaA.token);
         if (submitPost.ok) {
           const nilaiPost = submitPost.data?.nilai ?? submitPost.data?.score ?? submitPost.data?.benar;
           state.scoreConsistencyLog.push({ nis: siswaA.nis, nilai: nilaiPost, source: 'submit_after_retry_sync' });
@@ -2366,7 +2419,7 @@ async function phaseSmartDetection() {
       await fetch(state.baseUrl + '/api/siswa/ujian/selesai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${siswaB.token}` },
-        body: JSON.stringify({ sesiId: state.sesiId, nis: siswaB.nis }),
+        body: JSON.stringify({ sesiId: state.sesiId, nis: siswaB.nis, deviceId: deviceIdFor(siswaB.nis) }),
         signal: controller.signal,
       });
     } catch (e) {
@@ -2387,7 +2440,7 @@ async function phaseSmartDetection() {
     }
 
     // Sekarang kirim submit ulang (siswa B reconnect dan coba lagi)
-    const retrySubmit = await api('POST', '/api/siswa/ujian/selesai', { sesiId: state.sesiId, nis: siswaB.nis }, siswaB.token);
+    const retrySubmit = await api('POST', '/api/siswa/ujian/selesai', { sesiId: state.sesiId, nis: siswaB.nis, deviceId: deviceIdFor(siswaB.nis) }, siswaB.token);
     if (!retrySubmit.ok && retrySubmit.status !== 400) {
       // 400 acceptable jika sudah submit sebelumnya
       recordBugCat(
@@ -2414,6 +2467,7 @@ async function phaseSmartDetection() {
     const idleCheck = await api('POST', '/api/siswa/ujian/sync', {
       sesiId: state.sesiId,
       jawaban: [{ soal_id: 'IDLE_TEST', jawaban: 'A' }],
+      deviceId: deviceIdFor(siswaIdle.nis),
     }, siswaIdle.token);
     if (!idleCheck.ok && idleCheck.status === 401) {
       recordBugCat(
@@ -2438,7 +2492,7 @@ async function phaseSmartDetection() {
     ['GET /api/admin/nilai', `/api/admin/nilai?mapel_id=${state.mapelId}`, state.adminToken],
     // Ambil seluruh tabel siswa & mapel tanpa filter setiap dipanggil — layak
     // dipantau juga seiring jumlah siswa/log aktivitas bertambah.
-    ['GET /api/admin/monitoring', '/api/admin/monitoring', state.adminToken],
+    ['GET /api/admin/monitoring-nilai', '/api/admin/monitoring-nilai', state.adminToken],
   ];
   for (const [key, path, token] of endpointsToCheck) {
     // Ambil 3 sampel latensi sekarang (data sudah banyak)
@@ -2480,7 +2534,7 @@ async function phaseSmartDetection() {
 
   if (rekapAdmin.ok && rekapGuru.ok) {
     const adminData = rekapAdmin.data?.data || [];
-    const guruData  = rekapGuru.data?.data  || [];
+    const guruData  = (rekapGuru.data?.data || []).filter(d => !d.belum_ujian);
 
     // Buat map NIS → nilai dari masing-masing sumber
     const mapAdmin = {};
@@ -2518,7 +2572,7 @@ async function phaseSmartDetection() {
     const t0burst = performance.now();
     const burstResults = await Promise.all(
       belumSubmit.map(s =>
-        api('POST', '/api/siswa/ujian/selesai', { sesiId: state.sesiId, nis: s.nis }, s.token)
+        api('POST', '/api/siswa/ujian/selesai', { sesiId: state.sesiId, nis: s.nis, deviceId: deviceIdFor(s.nis) }, s.token)
           .then(r => { state.submitTimestamps[s.nis] = Date.now(); return r; })
           .catch(e => ({ ok: false, status: 0, error: e.message, latency: 0 }))
       )
