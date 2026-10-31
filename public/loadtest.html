@@ -332,6 +332,13 @@
           <option value="fast">Cepat (lebih agresif)</option>
         </select>
       </div>
+      <div class="field">
+        <label>Cara siswa masuk ujian (tahap validasi)</label>
+        <select id="cfg-masuk">
+          <option value="bertahap" selected>Bertahap (sama seperti kecepatan di atas)</option>
+          <option value="serentak">Serentak — gelombang 100 siswa tanpa jeda (meniru semua menekan "Masuk Ujian" bersamaan)</option>
+        </select>
+      </div>
     </div>
     <div class="row" style="margin-top:14px">
       <button class="btn-primary" id="btn-start">▶ Mulai Pengujian</button>
@@ -366,14 +373,23 @@
     </table>
   </div>
 
+  <!-- ============ UNDUH LAPORAN ============ -->
+  <!-- Panel sendiri (bukan di dalam panel bug) supaya tombol unduh tetap muncul
+       walau pengujian bersih dan jumlah bug = 0. Ditampilkan oleh renderStats()
+       begitu sudah ada request yang tercatat. -->
+  <div class="panel" id="unduh-panel" style="display:none">
+    <h2>📄 Unduh Hasil Pengujian</h2>
+    <p style="font-size:11.5px;color:var(--muted);margin:0 0 12px;">Laporan berisi ringkasan request, tabel tahap beban, endpoint terlambat, dan daftar bug (jika ada).</p>
+    <div class="row" style="flex-wrap:wrap;gap:8px;">
+      <button class="btn-ghost" id="btn-download-md">⬇ Download Laporan (.md)</button>
+      <button class="btn-ghost" id="btn-download-pdf">⬇ Download Laporan (PDF)</button>
+    </div>
+  </div>
+
   <!-- ============ BUGS ============ -->
   <div class="panel" id="bug-panel" style="display:none">
     <h2>🐞 Temuan Bug &amp; Anomali <span id="bug-count-badge" style="font-size:11px;background:#3a1010;color:#ff5c5c;border-radius:999px;padding:2px 10px;font-weight:700;letter-spacing:0;text-transform:none;margin-left:6px;">0</span></h2>
     <p style="font-size:11.5px;color:var(--muted);margin:0 0 12px;">Bug dikelompokkan berdasarkan kategori. Gunakan daftar ini sebagai fokus perbaikan Anda.</p>
-    <div class="row" style="margin-bottom:14px;flex-wrap:wrap;gap:8px;">
-      <button class="btn-ghost" id="btn-download-md">⬇ Download Laporan (.md)</button>
-      <button class="btn-ghost" id="btn-download-pdf">⬇ Download Laporan (PDF)</button>
-    </div>
     <div id="bug-list"></div>
   </div>
 
@@ -999,6 +1015,9 @@ function setAction(text) {
 }
 
 function renderStats() {
+  // Tombol unduh tampil begitu ada hasil, TERLEPAS dari jumlah bug.
+  const unduhPanel = document.getElementById('unduh-panel');
+  if (unduhPanel) unduhPanel.style.display = (state.totalRequests > 0 || state.bugs.length > 0) ? 'block' : 'none';
   const grid = document.getElementById('stat-grid');
   const avgLatency = state.latencies.length
     ? (state.latencies.reduce((a, b) => a + b, 0) / state.latencies.length).toFixed(0)
@@ -1541,6 +1560,24 @@ async function phaseRamp() {
 // NIS sudah panjang & unik, jadi dipakai sebagai basis (>= 8 karakter).
 function deviceIdFor(nis) { return `${nis}_dev`; }
 
+// Meniru siswa sungguhan: kalau server membalas coba_lagi (antrean masuk ujian
+// penuh — lihat reset-amplop-server.ts), siswa menunggu beberapa detik lalu
+// menekan "Masuk Ujian" lagi. Dicoba maksimal 4x; kegagalan yang tersisa baru
+// dianggap bug. `hitung.diminta_ulang` menghitung siswa yang pernah diminta
+// mencoba ulang (satu kali per siswa), supaya terlihat seberapa sering antrean penuh.
+async function validasiDenganCobaUlang(siswa, hitung) {
+  let r;
+  for (let percobaan = 0; percobaan < 4; percobaan++) {
+    r = await api('POST', '/api/siswa/ujian/validasi', {
+      kodeSesi: state.kodeSesi, nis: siswa.nis, deviceId: deviceIdFor(siswa.nis),
+    }, siswa.token);
+    if (!(r && r.data && r.data.coba_lagi)) break;
+    if (percobaan === 0 && hitung) hitung.diminta_ulang++;
+    await sleep(5000);
+  }
+  return r;
+}
+
 async function phaseExam() {
   const loggedInSiswa = state.siswaList.filter(s => s.token);
   if (loggedInSiswa.length === 0) {
@@ -1554,10 +1591,13 @@ async function phaseExam() {
   const soalPerSiswa = {};
   let validasiOk = 0;
 
+  const masukSerentak = document.getElementById('cfg-masuk')?.value === 'serentak';
+  const cfgMasuk = masukSerentak ? { batchSize: 100, delayBetweenBatches: 0 } : { batchSize, delayBetweenBatches };
+  const hitungMasuk = { diminta_ulang: 0 };
+  if (masukSerentak) log('Mode masuk SERENTAK: validasi dikirim dalam gelombang 100 siswa tanpa jeda', 'info');
+
   await runBatched(loggedInSiswa, async (siswa) => {
-    const r = await api('POST', '/api/siswa/ujian/validasi', {
-      kodeSesi: state.kodeSesi, nis: siswa.nis, deviceId: deviceIdFor(siswa.nis),
-    }, siswa.token);
+    const r = await validasiDenganCobaUlang(siswa, hitungMasuk);
     if (r.ok && r.data?.valid) {
       validasiOk++;
       soalPerSiswa[siswa.nis] = r.data.soalList || [];
@@ -1565,11 +1605,14 @@ async function phaseExam() {
       recordBug(`Validasi masuk ujian gagal untuk ${siswa.nis}`, JSON.stringify(r.data), 'POST /api/siswa/ujian/validasi');
     }
     return r;
-  }, { batchSize, delayBetweenBatches }, (done, total) => {
+  }, cfgMasuk, (done, total) => {
     setProgress((done / total) * 100, `${done}/${total} validasi`);
   });
 
   log(`${validasiOk}/${loggedInSiswa.length} siswa berhasil masuk ke ujian`, validasiOk === loggedInSiswa.length ? 'ok' : 'warn');
+  if (hitungMasuk.diminta_ulang > 0) {
+    log(`${hitungMasuk.diminta_ulang} siswa sempat diminta mencoba lagi karena server ramai (antrean masuk ujian penuh), lalu berhasil/gagal setelah mencoba ulang`, 'warn');
+  }
 
   // Simulasi menjawab + sync berkala (seperti autosave 30 detik di aplikasi asli)
   setAction('Mensimulasikan siswa menjawab soal (sync jawaban)…');
@@ -2764,7 +2807,39 @@ function phaseReport() {
 // =====================================================================
 // ORKESTRASI UTAMA
 // =====================================================================
+// Kosongkan SEMUA hasil run sebelumnya di memori halaman ini. Tanpa ini, run
+// kedua di halaman yang sama memakai ulang daftar siswa + token run pertama
+// (yang biasanya sudah dihapus lewat CLEANUP), sehingga muncul ratusan kegagalan
+// palsu "Akun tidak aktif" dan statistik kedua run tercampur dalam satu laporan.
+function resetHasilRunSebelumnya() {
+  Object.assign(state, {
+    adminToken: null, guruToken: null, kepsekUsername: null, kepsekToken: null,
+    guruLainUsername: null, guruLainToken: null, baselineSiswaAktif: null,
+    runId: null, kelasNama: null, guruUsername: null, mapelId: null, mapelNama: null,
+    usingForeignMapel: false, paketId: null, firstSoalId: null, jadwalId: null,
+    sesiId: null, kodeSesi: null, soalIds: [], siswaList: [], bugs: [], rampResults: [],
+    totalRequests: 0, totalErrors: 0, latencies: [],
+    endpointLatencyMap: {}, endpointErrorMap: {}, endpointCallCount: {}, responseSignatures: {},
+    slowEndpointsFlagged: new Set(), raceConditionLog: [], tokenLeakageLog: [],
+    syncRetryLog: [], scoreConsistencyLog: [], submitTimestamps: {},
+  });
+  const tbody = document.getElementById('ramp-tbody');
+  if (tbody) tbody.innerHTML = '';
+  const rampPanel = document.getElementById('ramp-panel');
+  if (rampPanel) rampPanel.style.display = 'none';
+  renderBugs();
+  renderStats();
+}
+
 async function runFullTest() {
+  // Ada hasil run sebelumnya di layar? Minta konfirmasi sebelum dikosongkan.
+  if (state.totalRequests > 0 || state.siswaList.length > 0) {
+    const lanjut = confirm('Hasil pengujian sebelumnya masih ada di halaman ini.\n\n' +
+      'Memulai pengujian baru akan MENGOSONGKAN hasil itu (unduh laporannya dulu kalau perlu). ' +
+      'Jalankan CLEANUP untuk run lama juga bila belum.\n\nLanjutkan pengujian baru?');
+    if (!lanjut) return;
+    resetHasilRunSebelumnya();
+  }
   state.stopRequested = false;
   document.getElementById('btn-start').disabled = true;
   document.getElementById('btn-stop').disabled = false;
@@ -3141,6 +3216,10 @@ function buildReportMarkdown(d) {
 
   md += `## Daftar Bug & Lokasi Kode yang Perlu Dicek\n\n`;
   md += `> Catatan: "File/area terduga" adalah tebakan otomatis berdasarkan endpoint yang terlibat — tetap perlu dicek manual, bukan kepastian.\n\n`;
+
+  if (d.sortedCats.length === 0) {
+    md += `_Tidak ada bug terdeteksi pada pengujian ini._\n\n`;
+  }
 
   d.sortedCats.forEach(([cat, bugs]) => {
     md += `### ${cat} (${bugs.length})\n\n`;
