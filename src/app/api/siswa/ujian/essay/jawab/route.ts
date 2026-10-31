@@ -5,8 +5,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRoleAktif } from '@/lib/status-akun'
 import { essayTerlambatDitolak } from '@/lib/essay-waktu'
+import { hitungBatasWaktuPg, sudahKedaluwarsa, saringJawabanTerlambat } from '@/lib/deadline-pg'
+import { catatAktivitas } from '@/lib/aktivitas'
 
-// POST { sesiId, jawaban: [{ soal_essay_id, jawaban_teks }] }
+// POST { sesiId, jawaban: [{ soal_essay_id, jawaban_teks, revisi?, waktuJawabMs? }] }
 export async function POST(req: NextRequest) {
   const auth = await requireRoleAktif(req, ['SISWA'])
   if ('error' in auth) return auth.error
@@ -86,6 +88,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Waktu pengerjaan essay Anda sudah habis.' }, { status: 409 })
   }
 
+  // FIX (audit temuan 1 — batas waktu essay bisa dilewati): lolos dari cek di
+  // atas hanya berarti heartbeat terakhir yang dicatat server masih SEBELUM
+  // deadline. Heartbeat itu hanya berhenti kalau browser siswa berhenti
+  // memanggil cek-sesi — dan siswa bisa sengaja memblokir request itu supaya
+  // server "mengira" ia offline. Karena itu heartbeat saja TIDAK CUKUP: setelah
+  // batas waktu lewat, jawaban hanya diterima kalau klaim waktu pembuatannya
+  // (waktuJawabMs, dari jam tepercaya client) jatuh sebelum batas — kebijakan
+  // yang SAMA dengan PG (lihat src/lib/deadline-pg.ts). Sebelum batas lewat,
+  // jalur ini tidak dijalankan sama sekali (perilaku normal tidak berubah).
+  const sekarangMs = Date.now()
+  const batasEssay = hitungBatasWaktuPg(siswaUjian.waktu_mulai_essay, sesi.info_json?.essay_durasi_menit)
+  const essayKedaluwarsa = sudahKedaluwarsa(batasEssay, sekarangMs)
+
   if (Array.isArray(jawaban) && jawaban.length > 0) {
     // FIX BUG (soal_essay_id tidak divalidasi terhadap bank soal sesi ini):
     // sebelumnya endpoint ini langsung meng-upsert `soal_essay_id` apa pun
@@ -115,11 +130,69 @@ export async function POST(req: NextRequest) {
     const { data: soalSahList } = await soalSahQuery
     const idSoalSah = new Set((soalSahList ?? []).map(s => s.id))
 
-    const jawabanValid = jawaban.filter(
+    let jawabanValid: { soal_essay_id: string; jawaban_teks: string; revisi?: number; waktuJawabMs?: number }[] = jawaban.filter(
       (j: { soal_essay_id: string; jawaban_teks: string }) => idSoalSah.has(j.soal_essay_id)
     )
 
     let acked: { soal_essay_id: string; jawaban_teks: string; revisi: number; accepted: boolean }[] | undefined
+    let ackDitolakTerlambat: { soal_essay_id: string; jawaban_teks: string; revisi: number; accepted: boolean }[] = []
+    let jumlahDitolakTerlambat = 0
+
+    if (essayKedaluwarsa && batasEssay && jawabanValid.length > 0) {
+      // Jawaban yang revisinya tidak lebih baru dari yang sudah tersimpan
+      // bukan "perubahan baru" (client mengirim ulang seluruh isi tiap
+      // autosave): dibiarkan lewat — RPC tidak akan menimpanya — dan TIDAK
+      // dihitung ditolak, supaya log audit hanya berisi perubahan yang
+      // benar-benar dipersoalkan. Sama persis dengan sync PG.
+      const idSemua = jawabanValid.map(j => j.soal_essay_id)
+      const { data: barisAda } = await db
+        .from('jawaban_essay').select('soal_essay_id, jawaban_teks, revisi')
+        .eq('sesi_id', sesiId).eq('nis', user.nis!).in('soal_essay_id', idSemua)
+      const adaMap = new Map(
+        (barisAda ?? []).map(r => [r.soal_essay_id as string, { teks: (r.jawaban_teks as string) ?? '', revisi: (r.revisi as number | null) ?? 0 }])
+      )
+      const tidakBerubah = jawabanValid.filter(j => {
+        const ada = adaMap.get(j.soal_essay_id)
+        return !!ada && (typeof j.revisi === 'number' ? j.revisi : 0) <= ada.revisi
+      })
+      const kandidat = jawabanValid
+        .filter(j => !tidakBerubah.includes(j))
+        .map(j => ({
+          soal_id: j.soal_essay_id,
+          jawaban: j.jawaban_teks ?? '',
+          revisi: typeof j.revisi === 'number' ? j.revisi : 0,
+          waktuJawabMs: typeof j.waktuJawabMs === 'number' && Number.isFinite(j.waktuJawabMs) ? j.waktuJawabMs : undefined,
+        }))
+
+      const checkpointMs = siswaUjian.last_heartbeat ? new Date(siswaUjian.last_heartbeat).getTime() : null
+      const { diterima, ditolak } = saringJawabanTerlambat(kandidat, batasEssay, sekarangMs, checkpointMs)
+      const idDiterima = new Set(diterima.map(d => d.soal_id))
+      jawabanValid = jawabanValid.filter(j => tidakBerubah.includes(j) || idDiterima.has(j.soal_essay_id))
+      jumlahDitolakTerlambat = ditolak.length
+
+      if (ditolak.length > 0) {
+        // ACK memakai revisi KLIEN + accepted:false (teks yang tersimpan di
+        // server dikembalikan apa adanya) supaya client menganggap soal itu
+        // "sudah ditangani" dan tidak menunggu revisi yang tidak akan pernah
+        // diterima; nilai yang tersimpan tetap yang lama.
+        ackDitolakTerlambat = ditolak.map(({ jawaban: j }) => ({
+          soal_essay_id: j.soal_id,
+          jawaban_teks: adaMap.get(j.soal_id)?.teks ?? j.jawaban,
+          revisi: j.revisi ?? 1,
+          accepted: false,
+        }))
+        const ringkasAlasan = ditolak.reduce<Record<string, number>>((acc, d) => { acc[d.alasan] = (acc[d.alasan] ?? 0) + 1; return acc }, {})
+        catatAktivitas(
+          db, user.nis!, 'ESSAY_TERLAMBAT',
+          `Autosave essay setelah batas waktu (sesi ${sesiId}, ${Math.round((sekarangMs - batasEssay.deadlineMs) / 1000)} dtk sesudah deadline): ${diterima.length} perubahan diterima (dibuat sebelum batas), ${ditolak.length} ditolak ${JSON.stringify(ringkasAlasan)}.`
+        )
+      } else if (diterima.length > 0) {
+        catatAktivitas(
+          db, user.nis!, 'ESSAY_TERLAMBAT',
+          `Autosave essay setelah batas waktu (sesi ${sesiId}, ${Math.round((sekarangMs - batasEssay.deadlineMs) / 1000)} dtk sesudah deadline): ${diterima.length} perubahan diterima karena dibuat sebelum batas (kerja offline).`
+        )
+      }
+    }
 
     if (jawabanValid.length > 0) {
       // FIX #5 (essay pakai sistem revisi, padanan PG — lihat migrasi
@@ -164,13 +237,19 @@ export async function POST(req: NextRequest) {
         }))
     }
 
+    if (ackDitolakTerlambat.length > 0) acked = [...(acked ?? []), ...ackDitolakTerlambat]
+
     const { count } = await db
       .from('jawaban_essay')
       .select('*', { count: 'exact', head: true })
       .eq('sesi_id', sesiId)
       .eq('nis', user.nis!)
 
-    return NextResponse.json({ totalTersimpan: count ?? 0, acked })
+    return NextResponse.json({
+      totalTersimpan: count ?? 0,
+      acked,
+      ...(jumlahDitolakTerlambat > 0 ? { ditolakTerlambat: jumlahDitolakTerlambat } : {}),
+    })
   }
 
   const { count } = await db

@@ -122,6 +122,20 @@ export async function POST(req: NextRequest) {
   // "kode salah" (yang menaikkan jatah gagal & menandai entri GAGAL).
   const nomorKlien = typeof body.nomor === 'number' && Number.isInteger(body.nomor) ? body.nomor : undefined
   if (nomorKlien !== undefined && nomorKlien >= 1 && nomorKlien <= terpakai && kodeResetCocok(sesiId, nis, nomorKlien, kodeReset)) {
+    // FIX (audit temuan 5): jalur "kode lama sudah pernah dipakai" ini dulu
+    // juga berlaku saat status siswa RESET lagi (pelanggaran BARU menunggu
+    // R(terpakai+1)). Kode lama tidak boleh membuka kunci itu: client akan
+    // menganggap `valid: true` sebagai izin melanjutkan walau server masih
+    // RESET. Untuk status RESET jawab "belum bisa" tanpa menghitung percobaan
+    // gagal; retryable supaya entri antrean offline TIDAK hilang dan tuntas
+    // (idempoten) begitu siswa sudah AKTIF lagi.
+    if (siswaUjian.status === 'RESET') {
+      return NextResponse.json({
+        valid: false,
+        retryable: true,
+        message: 'Kode ini sudah pernah dipakai. Minta kode reset berikutnya kepada pengawas.',
+      })
+    }
     return NextResponse.json({ valid: true, waktu_mulai: waktuMulai, reset_terpakai: terpakai, message: 'Kode benar. Ujian dilanjutkan.' })
   }
 

@@ -516,6 +516,15 @@ export async function PUT(req: NextRequest) {
       error: 'Nilai siswa ini sudah dikirim ke wali kelas dan tidak bisa diubah lagi. Hubungi admin/wali kelas jika perlu koreksi.',
     }, { status: 409 })
   }
+  // FIX (audit): penolakan siswa TERKUNCI sebelumnya hanya ada di route (cek
+  // di atas), sehingga kalau admin mengunci siswa TEPAT setelah cek itu tapi
+  // sebelum RPC ini jalan, nilai gugur-total 0 bisa tertimpa skor essay.
+  // Migrasi 53 menanam cek yang sama DI DALAM fungsi database.
+  if (hasilRpc?.hasil === 'SISWA_TERKUNCI') {
+    return NextResponse.json({
+      error: 'Siswa ini dikunci karena pelanggaran (gugur total). Nilai ditetapkan 0 dan tidak bisa diubah lewat koreksi essay.',
+    }, { status: 409 })
+  }
   if (hasilRpc?.hasil !== 'OK') {
     return NextResponse.json({ error: 'Gagal menyimpan koreksi essay (respons tidak dikenali). Coba lagi.' }, { status: 500 })
   }

@@ -269,12 +269,24 @@ export async function PATCH(req: NextRequest) {
     if (hasilRpc?.hasil === 'SESI_TIDAK_ADA') {
       return NextResponse.json({ error: 'Sesi tidak ditemukan' }, { status: 404 })
     }
-    if (hasilRpc?.hasil !== 'OK') {
+    if (hasilRpc?.hasil !== 'OK' && hasilRpc?.hasil !== 'OK_NILAI_TETAP') {
       return NextResponse.json({ error: 'Gagal mengunci siswa (respons tidak dikenali). Coba lagi.' }, { status: 500 })
+    }
+
+    // FIX (audit temuan 4): kalau nilai siswa sudah dikirim ke wali kelas,
+    // kunci_permanen_atomik sengaja TIDAK mengubahnya (migrasi 53 melaporkannya
+    // sebagai OK_NILAI_TETAP). Jangan bilang "nilai diset 0" padahal tidak.
+    if (hasilRpc?.hasil === 'OK_NILAI_TETAP') {
+      return NextResponse.json({
+        success: true,
+        nilaiDiubah: false,
+        message: `${siswa.nama} telah dikunci permanen, tetapi nilainya TIDAK diubah karena sudah dikirim ke wali kelas. Nilai tetap seperti yang diterima wali kelas; koordinasikan dengan wali kelas bila perlu dikoreksi.`,
+      })
     }
 
     return NextResponse.json({
       success: true,
+      nilaiDiubah: true,
       message: `${siswa.nama} telah dikunci permanen dan nilai diset 0.`,
     })
   }

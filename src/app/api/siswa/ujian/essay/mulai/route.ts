@@ -106,7 +106,27 @@ export async function POST(req: NextRequest) {
   //
   // Anti tebak-tebakan via API: hitungan percobaan dinaikkan ATOMIK di database
   // SEBELUM kode dibandingkan (baca-lalu-tulis biasa bisa ditembus request
-  // paralel). Lewat MAKS_PERCOBAAN_SERVER → ditolak permanen untuk siswa ini.
+  // paralel). Lewat MAKS_PERCOBAAN_SERVER → ditolak untuk siswa ini sampai
+  // pengawas mereset hitungannya.
+  //
+  // FIX (audit temuan 2 — siswa terkunci permanen dari rekonsiliasi): hitungan
+  // dulu TETAP naik walau kodenya BENAR, jadi retry otomatis client (tiap 10
+  // detik) setelah error 5xx/jaringan ikut menghabiskan jatah dan 10 kali gagal
+  // berujung 429 selamanya. Sekarang hitungan DIKEMBALIKAN (−1) untuk semua
+  // percobaan yang bukan tebakan salah: kode benar, dan percobaan yang ditolak
+  // karena sudah melewati batas (supaya hitungan tidak terus membengkak).
+  // Hanya TEBAKAN SALAH yang tersisa di hitungan — itulah yang memang harus
+  // dibatasi. Penaikan tetap atomik di depan, jadi request paralel tetap tidak
+  // bisa menembus batas: yang dikembalikan hanya yang kodenya benar.
+  const kembalikanPercobaan = async () => {
+    const { error: kembaliErr } = await db.rpc('essay_amplop_kembalikan_percobaan', {
+      p_sesi_id: sesiId,
+      p_nis: user.nis!,
+    })
+    // Fail-safe: kalau migrasi 53 belum terpasang, perilaku lama berlaku
+    // (hitungan tidak dikembalikan) — jangan menggagalkan alur siswa.
+    if (kembaliErr) console.warn('[essay/mulai] essay_amplop_kembalikan_percobaan gagal:', kembaliErr.message)
+  }
   let jalurDarurat = false
   let batasBawahDarurat: number | null = null
   if (kodeDarurat !== undefined && kodeDarurat !== null && kodeDarurat !== '') {
@@ -122,6 +142,7 @@ export async function POST(req: NextRequest) {
       )
     }
     if (Number(hitungan) > MAKS_PERCOBAAN_SERVER) {
+      await kembalikanPercobaan()
       return NextResponse.json(
         { error: 'Terlalu banyak percobaan kode darurat. Hubungi pengawas.' },
         { status: 429 }
@@ -130,6 +151,7 @@ export async function POST(req: NextRequest) {
     if (!kodeDaruratCocok(String(sesiId), kodeDarurat)) {
       return NextResponse.json({ error: 'Kode darurat tidak valid.' }, { status: 403 })
     }
+    await kembalikanPercobaan()
     jalurDarurat = true
 
     const { data: amplopRow } = await db

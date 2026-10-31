@@ -24,21 +24,45 @@ export const PBKDF2_ITERASI = 600_000
 export const PBKDF2_ITERASI_MAKS_CLIENT = 2_000_000
 
 /**
- * Jumlah digit kode darurat.
+ * Alfabet kode darurat: 32 karakter tanpa I, O, 0, 1 (supaya tidak tertukar
+ * saat dibacakan/ditulis di papan) — SAMA dengan alfabet kode reset
+ * (src/lib/reset-berurutan.ts). Panjangnya 32 supaya `byte & 31` menghasilkan
+ * sebaran seragam tanpa bias modulo.
+ */
+export const ALFABET_KODE_DARURAT = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+
+/**
+ * Jumlah karakter kode darurat.
  *
  * CATATAN KEAMANAN (baca sebelum mengecilkan nilai ini): siapa pun yang
  * memegang amplop (siswa bisa melihatnya di tab Network / localStorage) bisa
  * mencoba SEMUA kode secara offline dengan tool sendiri, tanpa lewat UI kita.
- * KDF yang lambat hanya memperlambat, tidak mencegah. Ruang kode 10^N:
- *   - 4 digit  = 10.000 kombinasi    → praktis hancur dalam hitungan detik–menit
- *                                       di laptop/GPU yang niat.
- *   - 6 digit  = 1.000.000 kombinasi → butuh waktu jauh lebih lama; cukup untuk
- *                                       menghalangi siswa biasa selama ujian,
- *                                       tapi bukan tahan terhadap penyerang serius.
- * 6 digit masih mudah dibacakan/ditulis di papan. Ubah ke 4 kalau
- * kemudahan lebih penting daripada ketahanan.
+ * KDF yang lambat hanya memperlambat, tidak mencegah. Ruang kode 32^N:
+ *   - 6 digit angka (10^6, versi lama) = 1.000.000 kombinasi → dengan satu
+ *                                       kandidat PBKDF2 ≈ 0,2 dtk per inti,
+ *                                       mesin 64 inti menyelesaikannya dalam
+ *                                       kisaran satu jam.
+ *   - 7 karakter (32^7)               = ≈ 3,4 × 10^10 kombinasi → ribuan kali
+ *                                       lebih besar, dengan perkiraan yang sama
+ *                                       butuh beberapa tahun di 64 inti.
+ * 7 karakter dari alfabet tanpa karakter ambigu masih mudah dibacakan/ditulis
+ * di papan. (Perkiraan waktu kasar, bukan hasil uji tool penyerang.)
+ *
+ * PERINGATAN DEPLOY: kunci amplop diturunkan dari kode ini. Mengubah panjang/
+ * alfabet di tengah sesi yang sedang berjalan membuat amplop yang sudah
+ * terkirim ke perangkat siswa tidak bisa dibuka dengan kode baru. Deploy di
+ * luar jam ujian.
  */
-export const PANJANG_KODE_DARURAT = 6
+export const PANJANG_KODE_DARURAT = 7
+
+/** Normalisasi input siswa: huruf besar, buang karakter di luar alfabet, batasi panjang. */
+export function normalisasiKodeDarurat(input: string): string {
+  let hasil = ''
+  for (const ch of input.toUpperCase()) {
+    if (ALFABET_KODE_DARURAT.includes(ch)) hasil += ch
+  }
+  return hasil.slice(0, PANJANG_KODE_DARURAT)
+}
 
 /** Maksimum kali kode boleh dikirim ke server /essay/mulai per siswa per sesi. */
 export const MAKS_PERCOBAAN_SERVER = 10

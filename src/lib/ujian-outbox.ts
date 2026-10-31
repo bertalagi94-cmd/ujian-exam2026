@@ -28,7 +28,7 @@
 // route.ts) — outbox ini murni pembungkus client yang boleh memanggil
 // keduanya berkali-kali dengan aman sampai mendapat ACK.
 
-import { ambilStatusOffline, hapusStatusOffline } from '@/lib/essay-amplop-client'
+import { ambilStatusOffline, hapusStatusOffline, bersihkanDataEssayOffline } from '@/lib/essay-amplop-client'
 import { apiRequest } from '@/lib/utils'
 import { outboxPut, outboxGet, outboxDelete, outboxGetAllValues } from '@/lib/ujian-offline-storage'
 
@@ -382,15 +382,20 @@ function sedangDiprosesAktif(paket: PaketUjianTertunda): boolean {
 
 // Baca backup jawaban essay lokal yang ditulis halaman ujian (mode DIGITAL) di
 // localStorage. Format baru {v, t} maupun format lama (flat map) didukung.
-function bacaBackupEssayLokal(sesiId: string, nis: string): Record<string, string> {
+function bacaBackupEssayLokal(sesiId: string, nis: string): { v: Record<string, string>; t: Record<string, number> } {
   try {
     const raw = localStorage.getItem(`ujian_essay_backup_${sesiId}_${nis}`)
-    if (!raw) return {}
+    if (!raw) return { v: {}, t: {} }
     const parsed = JSON.parse(raw)
-    const peta = parsed && typeof parsed === 'object' && 'v' in parsed ? parsed.v : parsed
-    return peta && typeof peta === 'object' ? (peta as Record<string, string>) : {}
+    const adaFormatBaru = !!parsed && typeof parsed === 'object' && 'v' in parsed
+    const peta = adaFormatBaru ? parsed.v : parsed
+    const waktu = adaFormatBaru && parsed.t && typeof parsed.t === 'object' ? parsed.t : {}
+    return {
+      v: peta && typeof peta === 'object' ? (peta as Record<string, string>) : {},
+      t: waktu as Record<string, number>,
+    }
   } catch {
-    return {}
+    return { v: {}, t: {} }
   }
 }
 
@@ -448,7 +453,8 @@ async function siapkanEssayUntukKirim(paket: PaketUjianTertunda): Promise<void> 
     hapusStatusOffline(paket.sesiId, paket.nis)
   }
 
-  const entries = Object.entries(bacaBackupEssayLokal(paket.sesiId, paket.nis))
+  const backupEssay = bacaBackupEssayLokal(paket.sesiId, paket.nis)
+  const entries = Object.entries(backupEssay.v)
     .filter(([, teks]) => typeof teks === 'string')
   if (entries.length > 0) {
     await abaikanJika409(() =>
@@ -456,7 +462,12 @@ async function siapkanEssayUntukKirim(paket: PaketUjianTertunda): Promise<void> 
         method: 'POST',
         body: JSON.stringify({
           sesiId: paket.sesiId,
-          jawaban: entries.map(([soal_essay_id, jawaban_teks]) => ({ soal_essay_id, jawaban_teks })),
+          jawaban: entries.map(([soal_essay_id, jawaban_teks]) => ({
+            soal_essay_id,
+            jawaban_teks,
+            // Bukti waktu untuk kebijakan jawaban terlambat (deadline-pg.ts).
+            waktuJawabMs: backupEssay.t?.[soal_essay_id] || undefined,
+          })),
           deviceId: paket.deviceId,
         }),
       })
@@ -543,6 +554,9 @@ export async function cobaKirimPaketTertunda(
         body: JSON.stringify({ sesiId: current.sesiId, deviceId: current.deviceId }),
       })
       current = await simpanPaketTertunda({ ...current, butuhKirimEssay: false })
+      // Essay sudah final di server: amplop terenkripsi & kode darurat tidak
+      // perlu lagi tersimpan di perangkat.
+      bersihkanDataEssayOffline(current.sesiId, current.nis)
     }
 
     // Kedua tahap (yang relevan) sudah ACK server — paket ini selesai.

@@ -74,6 +74,18 @@ export function hapusStatusOffline(sesiId: string, nis: string): void {
   try { localStorage.removeItem(kunciStatus(sesiId, nis)) } catch { /* abaikan */ }
 }
 
+/**
+ * Bersihkan amplop terenkripsi + kode darurat yang tersimpan di perangkat.
+ * Dipanggil SETELAH essay terkirim final ke server (essay sudah di tangan guru,
+ * tidak ada gunanya lagi menyimpan amplop/kode di localStorage — kalau tidak
+ * dibersihkan, siapa pun yang memakai perangkat itu belakangan masih memegang
+ * soal essay terenkripsi dan kodenya).
+ */
+export function bersihkanDataEssayOffline(sesiId: string, nis: string): void {
+  try { localStorage.removeItem(kunciAmplop(sesiId, nis)) } catch { /* abaikan */ }
+  hapusStatusOffline(sesiId, nis)
+}
+
 // ── Dekripsi ───────────────────────────────────────────────────────────────
 export class EnkripsiTidakDidukungError extends Error {
   constructor() {

@@ -8,10 +8,10 @@ import { Soal } from '@/types'
 import { Confirm, Spinner } from '@/components/ui'
 import {
   simpanAmplop, ambilAmplop, bukaAmplop,
-  ambilStatusOffline, simpanStatusOffline, hapusStatusOffline,
+  ambilStatusOffline, simpanStatusOffline, hapusStatusOffline, bersihkanDataEssayOffline,
   EnkripsiTidakDidukungError,
 } from '@/lib/essay-amplop-client'
-import { PANJANG_KODE_DARURAT, type EssayAmplop, type IsiAmplopEssay } from '@/lib/essay-amplop-shared'
+import { PANJANG_KODE_DARURAT, normalisasiKodeDarurat, type EssayAmplop, type IsiAmplopEssay } from '@/lib/essay-amplop-shared'
 import { mergeJawabanRevisi, nextRevisi, type EntriServer, type EntriLokal } from '@/lib/jawaban-merge'
 import {
   simpanKlaimPgSelesaiOffline, ambilKlaimPgSelesaiOffline, hapusKlaimPgSelesaiOffline,
@@ -3082,9 +3082,9 @@ export default function SiswaUjianPage() {
   async function handleBukaKodeDarurat() {
     const currentSesi = sesiInfoRef.current
     if (!currentSesi) return
-    const kodeBersih = kodeDarurat.trim()
+    const kodeBersih = normalisasiKodeDarurat(kodeDarurat)
     if (kodeBersih.length !== PANJANG_KODE_DARURAT) {
-      setKodeDaruratError(`Kode darurat terdiri dari ${PANJANG_KODE_DARURAT} angka.`)
+      setKodeDaruratError(`Kode darurat terdiri dari ${PANJANG_KODE_DARURAT} karakter (huruf dan angka).`)
       return
     }
     const sisaKunci = Math.ceil((kodeDaruratKunciSampai - Date.now()) / 1000)
@@ -3137,6 +3137,7 @@ export default function SiswaUjianPage() {
   //   'retry'   → masalah jaringan/server sementara, coba lagi nanti
   //   'ditolak' → server menolak permanen (kode/perangkat/sesi) — berhenti
   //               mencoba supaya tidak menghabiskan jatah percobaan
+  //   (429 jatah percobaan habis → 'retry' + bukti offline TETAP disimpan)
   async function laporkanBukaOffline(sesiId: string): Promise<'ok' | 'retry' | 'ditolak'> {
     let nis: string | undefined
     try { nis = JSON.parse(localStorage.getItem('user') ?? '{}').nis } catch { /* abaikan */ }
@@ -3158,6 +3159,7 @@ export default function SiswaUjianPage() {
       waktuMulaiEssayRef.current = res.waktuMulaiEssay
       hapusStatusOffline(sesiId, nis)
       setJaringanBermasalah(false)
+      setErrorEssay('')
       return 'ok'
     } catch (e) {
       const err = e as { status?: number; data?: { sementara?: boolean } } | undefined
@@ -3169,7 +3171,17 @@ export default function SiswaUjianPage() {
         setErrorEssay(e instanceof Error ? e.message : 'Akses ujian Anda sedang dikunci/menunggu reset.')
         return 'retry'
       }
-      if (st === 403 || st === 409 || st === 429) {
+      // FIX (audit temuan 2): 429 = jatah percobaan kode di server habis. Ini
+      // BUKAN penolakan permanen yang membuktikan kode salah — dulu bukti
+      // offline dihapus di sini sehingga siswa terkunci dari rekonsiliasi
+      // selamanya (status_essay tetap BELUM_MULAI, semua autosave ditolak).
+      // Sekarang bukti DISIMPAN dan percobaan diulang tiap 10 detik sampai
+      // pengawas mereset hitungan percobaan siswa ini (panel Mode Pengawas).
+      if (st === 429) {
+        setErrorEssay('Pembukaan essay belum bisa dicatat di server (terlalu banyak percobaan). Jawaban Anda aman di perangkat ini. Beri tahu pengawas agar mereset percobaan kode Anda.')
+        return 'retry'
+      }
+      if (st === 403 || st === 409) {
         hapusStatusOffline(sesiId, nis)
         setErrorEssay(e instanceof Error ? e.message : 'Server menolak pembukaan essay offline.')
         return 'ditolak'
@@ -3194,13 +3206,16 @@ export default function SiswaUjianPage() {
             </p>
             <input
               type="text"
-              inputMode="numeric"
+              inputMode="text"
               autoComplete="off"
+              autoCapitalize="characters"
+              autoCorrect="off"
+              spellCheck={false}
               className={`input text-center text-xl font-mono tracking-widest mb-2 ${kodeDaruratError ? 'input-error' : ''}`}
               placeholder={'•'.repeat(PANJANG_KODE_DARURAT)}
               maxLength={PANJANG_KODE_DARURAT}
               value={kodeDarurat}
-              onChange={e => { setKodeDarurat(e.target.value.replace(/\D/g, '')); setKodeDaruratError('') }}
+              onChange={e => { setKodeDarurat(normalisasiKodeDarurat(e.target.value)); setKodeDaruratError('') }}
               onKeyDown={e => e.key === 'Enter' && handleBukaKodeDarurat()}
             />
             {kodeDaruratError && (
@@ -3270,6 +3285,9 @@ export default function SiswaUjianPage() {
               soal_essay_id,
               jawaban_teks: teks,
               revisi: jawabanEssayRevisiRef.current[soal_essay_id] ?? 1,
+              // Bukti waktu untuk kebijakan jawaban terlambat (src/lib/deadline-pg.ts),
+              // sama seperti payload PG: server hanya memakainya setelah batas waktu lewat.
+              waktuJawabMs: jawabanEssayTsRef.current[soal_essay_id] || undefined,
             })),
             deviceId: getDeviceId(),
           }),
@@ -3617,6 +3635,12 @@ export default function SiswaUjianPage() {
       // karena 'SELESAI' termasuk dalam daftar fase yang melepas fullscreen).
       setNilaiPgSetelahEssay(res.nilaiPg)
       setEssaySelesaiDikirim(true)
+      // Essay sudah final di server: bersihkan amplop terenkripsi + kode darurat
+      // dari perangkat (tidak lagi dibutuhkan).
+      try {
+        const nisSelesai = JSON.parse(localStorage.getItem('user') ?? '{}').nis
+        if (nisSelesai) bersihkanDataEssayOffline(currentSesi.sesiId, nisSelesai)
+      } catch { /* abaikan */ }
       // FIX (animasi hitung mundur nilai tidak muncul setelah essay): layar
       // "Ujian Selesai" khusus essay dulu TIDAK punya animasi sama sekali,
       // jadi pin layar langsung dilepas. Sekarang animasi dinyalakan di sini

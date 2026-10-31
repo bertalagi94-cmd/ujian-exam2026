@@ -100,6 +100,30 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
     return NextResponse.json({ error: `${siswa.nama} sudah menyelesaikan ujian.` }, { status: 409 })
   }
 
+  // FIX (audit temuan 3): dulu siswa AKTIF tanpa pelanggaran apa pun tetap
+  // dipaksa ke status RESET (layar terkunci di tengah ujian) dan memakai satu
+  // jatah R1–R3 hanya karena salah klik. Siswa yang sudah RESET (menunggu kode)
+  // tetap boleh melihat kodenya lagi; siswa AKTIF baru boleh direset kalau ada
+  // pelanggaran yang menunggu tindak lanjut.
+  if (siswaUjian.status === 'AKTIF') {
+    const { count: menunggu, error: pelErr } = await db
+      .from('pelanggaran')
+      .select('*', { count: 'exact', head: true })
+      .eq('sesi_id', sesiId)
+      .eq('nis', nis)
+      .eq('status', 'BELUM_DITINDAKLANJUTI')
+    if (pelErr) {
+      console.error('[reset-siswa] gagal membaca pelanggaran:', pelErr.message)
+      return NextResponse.json({ error: 'Data pelanggaran belum dapat dibaca. Coba lagi sebentar lagi.' }, { status: 503 })
+    }
+    if (!menunggu) {
+      return NextResponse.json(
+        { error: `${siswa.nama} tidak memiliki pelanggaran yang menunggu tindak lanjut, jadi tidak perlu direset.` },
+        { status: 409 }
+      )
+    }
+  }
+
   const nomor = (siswaUjian.reset_terpakai ?? 0) + 1
   if (nomor > maks) {
     // Hanya mungkin bila batasPelanggaran diturunkan saat ujian berjalan.

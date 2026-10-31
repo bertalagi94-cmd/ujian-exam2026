@@ -15,7 +15,7 @@ import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRoleAktif } from '@/lib/status-akun'
 import { verifySesiOwnership } from '@/lib/sesi-ownership'
 import { hitungKodeDarurat } from '@/lib/essay-amplop-server'
-import { PANJANG_KODE_DARURAT } from '@/lib/essay-amplop-shared'
+import { PANJANG_KODE_DARURAT, MAKS_PERCOBAAN_SERVER } from '@/lib/essay-amplop-shared'
 
 export async function GET(req: NextRequest) {
   const auth = await requireRoleAktif(req, ['GURU'])
@@ -48,7 +48,7 @@ export async function GET(req: NextRequest) {
   const [{ data: siswaUjian }, { data: amplopRows }] = await Promise.all([
     db.from('siswa_ujian').select('nis, status, status_essay').eq('sesi_id', sesiId),
     db.from('essay_amplop_offline')
-      .select('nis, rekonsiliasi_at, dibuka_offline_at')
+      .select('nis, rekonsiliasi_at, dibuka_offline_at, percobaan_server')
       .eq('sesi_id', sesiId),
   ])
 
@@ -69,6 +69,19 @@ export async function GET(req: NextRequest) {
     belumAmplop = nisBelum.map(nis => ({ nis, nama: namaMap.get(nis) ?? nis }))
   }
 
+  // Siswa yang jatah percobaan kodenya di server HABIS (429 di /essay/mulai)
+  // dan belum berhasil rekonsiliasi: perlu direset pengawas supaya essay yang
+  // sudah mereka kerjakan offline bisa tercatat di server.
+  const nisTerblokir = (amplopRows ?? [])
+    .filter(r => Number(r.percobaan_server ?? 0) > MAKS_PERCOBAAN_SERVER && !r.rekonsiliasi_at)
+    .map(r => r.nis as string)
+  let terblokir: { nis: string; nama: string }[] = []
+  if (nisTerblokir.length > 0) {
+    const { data: namaBlok } = await db.from('siswa').select('nis, nama').in('nis', nisTerblokir)
+    const namaBlokMap = new Map((namaBlok ?? []).map(r => [r.nis, r.nama]))
+    terblokir = nisTerblokir.map(nis => ({ nis, nama: namaBlokMap.get(nis) ?? nis }))
+  }
+
   const res = NextResponse.json({
     kode: hitungKodeDarurat(sesiId),
     panjangKode: PANJANG_KODE_DARURAT,
@@ -76,6 +89,7 @@ export async function GET(req: NextRequest) {
     jumlahPerluAmplop: perluAmplop.length,
     jumlahSudahAmplop: perluAmplop.length - nisBelum.length,
     belumAmplop,
+    terblokir,
     jumlahBukaOffline: (amplopRows ?? []).filter(r => r.dibuka_offline_at).length,
   })
   res.headers.set('Cache-Control', 'no-store')

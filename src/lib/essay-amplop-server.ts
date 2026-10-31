@@ -6,7 +6,7 @@
 //
 // ── DESAIN KODE DARURAT ─────────────────────────────────────────────────────
 // Kode darurat per SESI diturunkan deterministik:
-//     kode = HMAC-SHA256(rahasiaServer, "essay-darurat-kode:" + sesiId)  → N digit
+//     kode = HMAC-SHA256(rahasiaServer, "essay-darurat-kode:" + sesiId)  → N karakter (alfabet 32)
 // Konsekuensinya:
 //   + Tidak ada kode yang tersimpan di database (tidak bisa bocor lewat dump
 //     DB / backup / kesalahan RLS). Server tinggal menghitung ulang kapan pun.
@@ -30,6 +30,7 @@ import { createHmac, createCipheriv, pbkdf2, randomBytes, timingSafeEqual } from
 import { promisify } from 'node:util'
 import { cacheGet, cacheSet } from '@/lib/cache'
 import {
+  ALFABET_KODE_DARURAT,
   AMPLOP_VERSI,
   PBKDF2_ITERASI,
   PANJANG_KODE_DARURAT,
@@ -54,11 +55,14 @@ function hmac(label: string, sesiId: string): Buffer {
   return createHmac('sha256', ambilRahasia()).update(`${label}:${sesiId}`).digest()
 }
 
-/** Kode darurat N digit untuk sesi ini (string, dengan nol di depan bila perlu). */
+/** Kode darurat N karakter (alfabet 32 tanpa karakter ambigu) untuk sesi ini. */
 export function hitungKodeDarurat(sesiId: string): string {
-  // 6 byte = 48 bit → modulo 10^N. Bias modulo diabaikan (sangat kecil untuk N ≤ 8).
-  const angka = hmac('essay-darurat-kode', sesiId).readUIntBE(0, 6)
-  return String(angka % 10 ** PANJANG_KODE_DARURAT).padStart(PANJANG_KODE_DARURAT, '0')
+  // Setiap karakter memakai satu byte HMAC (`byte & 31`): 256 habis dibagi 32,
+  // jadi sebarannya seragam tanpa bias modulo. HMAC-SHA256 = 32 byte ≥ N.
+  const mac = hmac('essay-darurat-kode', sesiId)
+  let kode = ''
+  for (let i = 0; i < PANJANG_KODE_DARURAT; i++) kode += ALFABET_KODE_DARURAT[mac[i] & 31]
+  return kode
 }
 
 /** Salt PBKDF2 per sesi (deterministik supaya kunci turunan bisa di-cache per sesi; salt bukan rahasia). */
@@ -70,7 +74,8 @@ function hitungSalt(sesiId: string): Buffer {
 export function kodeDaruratCocok(sesiId: string, kodeInput: unknown): boolean {
   if (typeof kodeInput !== 'string') return false
   const benar = Buffer.from(hitungKodeDarurat(sesiId), 'utf8')
-  const input = Buffer.from(kodeInput.trim(), 'utf8')
+  // Huruf besar/kecil dianggap sama (kode dibacakan lewat pengawas).
+  const input = Buffer.from(kodeInput.trim().toUpperCase(), 'utf8')
   if (input.length !== benar.length) return false
   return timingSafeEqual(benar, input)
 }
