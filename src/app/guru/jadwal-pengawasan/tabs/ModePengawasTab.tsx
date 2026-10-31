@@ -100,6 +100,11 @@ interface SiswaAktif {
 // ±10 detik saat online, jadi 60 detik = sudah 5–6 kali terlewat.
 const BATAS_TANPA_SINYAL_DETIK = 60
 
+// Ambang pop-up "siswa terputus". Heartbeat tiap ±10 dtk dan panel ini polling
+// tiap 8 dtk, jadi 30 dtk = ±3 heartbeat terlewat (cukup untuk menyaring sinyal
+// yang hanya lambat sebentar). Pop-up baru muncul ±30-45 dtk setelah putus.
+const BATAS_POPUP_TERPUTUS_DETIK = 30
+
 function formatTanpaSinyal(detik: number): string {
   if (detik < 120) return `${detik} dtk`
   const menit = Math.floor(detik / 60)
@@ -265,6 +270,13 @@ export function ModePengawasTab() {
   // Key: `${sesiId}::${nis}` → status terakhir yang tercatat. Dipakai untuk
   // mendeteksi transisi status, bukan cuma nilai statis.
   const prevStatusSiswaRef = useRef<Record<string, string>>({})
+
+  // Pop-up siswa TERPUTUS: daftar siswa AKTIF yang heartbeat-nya berhenti.
+  // Diturunkan dari data server tiap polling (bukan dari HP siswa, yang tidak
+  // bisa mengirim apa pun saat offline). Hilang otomatis saat sinyal kembali.
+  const [terputusList, setTerputusList] = useState<{ key: string; nama: string; kelas: string; detik: number }[]>([])
+  const terputusDiabaikanRef = useRef<Set<string>>(new Set())
+  const terputusDibunyikanRef = useRef<Set<string>>(new Set())
   // Timestamp pelanggaran terakhir yang sudah dilihat, per sesi — dipakai
   // sebagai parameter `sejak` supaya poll cepat di bawah ini murah (server
   // hanya perlu mencari baris yang lebih baru dari ini, hampir selalu kosong).
@@ -457,6 +469,28 @@ export function ModePengawasTab() {
           prevStatusSiswaRef.current[key] = s.status
         })
       })
+      // Siswa terputus: AKTIF + heartbeat berhenti >= ambang. Bunyi hanya sekali
+      // per siswa per kejadian putus (reset kalau sinyalnya kembali).
+      const terputusSekarang: { key: string; nama: string; kelas: string; detik: number }[] = []
+      sesiIds.forEach(id => {
+        (newSiswaMap[id] ?? []).forEach(s => {
+          const key = `${id}::${s.nis}`
+          const putus = s.status === 'AKTIF' && !s.dari_sesi_lain &&
+            typeof s.detik_tanpa_sinyal === 'number' && s.detik_tanpa_sinyal >= BATAS_POPUP_TERPUTUS_DETIK
+          if (putus) {
+            terputusSekarang.push({ key, nama: s.nama, kelas: s.kelas, detik: s.detik_tanpa_sinyal as number })
+          } else {
+            terputusDiabaikanRef.current.delete(key)
+            terputusDibunyikanRef.current.delete(key)
+          }
+        })
+      })
+      if (baselineSiapRef.current && terputusSekarang.some(t => !terputusDibunyikanRef.current.has(t.key))) {
+        playAlert()
+      }
+      terputusSekarang.forEach(t => terputusDibunyikanRef.current.add(t.key))
+      setTerputusList(terputusSekarang)
+
       if (siswaSelesaiBaru) {
         playSelesai()
         setSelesaiNotif(siswaSelesaiBaru)
@@ -841,6 +875,22 @@ export function ModePengawasTab() {
             <button onClick={() => setPelNotif(null)} className="ml-1 opacity-70 hover:opacity-100 text-lg leading-none">×</button>
           </div>
         )}
+        {terputusList.filter(t => !terputusDiabaikanRef.current.has(t.key)).map(t => (
+          <div key={t.key} className="bg-amber-500 text-white px-4 py-3 rounded-2xl shadow-2xl flex items-center gap-3 animate-fade-in max-w-xs">
+            <AlertTriangle className="w-5 h-5 flex-shrink-0" />
+            <div>
+              <div className="text-xs font-bold uppercase tracking-wide">Siswa Terputus dari Internet</div>
+              <div className="text-sm font-semibold truncate">{t.nama}</div>
+              <div className="text-xs opacity-90">
+                {t.kelas} · tidak ada sinyal {formatTanpaSinyal(t.detik)}. Kemungkinan kuota habis atau Wi-Fi mati. Mohon dihubungi.
+              </div>
+            </div>
+            <button
+              onClick={() => { terputusDiabaikanRef.current.add(t.key); setTerputusList(l => [...l]) }}
+              className="ml-1 opacity-70 hover:opacity-100 text-lg leading-none"
+            >×</button>
+          </div>
+        ))}
         {selesaiNotif && (
           <div className="bg-emerald-600 text-white px-4 py-3 rounded-2xl shadow-2xl flex items-center gap-3 animate-fade-in max-w-xs">
             <CheckCircle className="w-5 h-5 flex-shrink-0" />
