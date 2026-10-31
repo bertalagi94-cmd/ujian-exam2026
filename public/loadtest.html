@@ -788,6 +788,7 @@ const ENDPOINT_SCHEMAS = {
   'GET /api/guru/mode-pengawas':  { arrayField: 'data' },
   'GET /api/kepsek/jadwal':       { arrayField: 'data' },
   'GET /api/kepsek/nilai':        { arrayField: 'data' },
+  'GET /api/admin/soal':          { arrayField: 'data' },
   'GET /api/admin/analisis-ujian': { fields: ['data'] },
   'GET /api/guru/analisis-ujian':  { fields: ['data'] },
   // Response dibungkus { data: {...} } (lihat src/app/api/public/pengaturan/route.ts:
@@ -813,6 +814,9 @@ const ENDPOINT_SCHEMAS = {
 // hasilnya bercabang valid/invalid dengan field yang berbeda.
 const SIGNATURE_CHECK_EXCLUDED_ENDPOINTS = new Set([
   'POST /api/siswa/ujian/validasi', // { valid:false, message } vs { valid:true, sesiId, ... }
+  // cek-sesi: bentuk respons SAH bercabang (cabang "diambil_alih_device_lain" vs cabang normal)
+  // dan field opsional (jumlah_pelanggaran, dipantau_sid) dihilangkan saat undefined.
+  'GET /api/siswa/ujian/cek-sesi',
   'GET /api/notif',                 // bentuknya sengaja beda per role (lihat catatan skema di atas)
 ]);
 
@@ -2042,9 +2046,24 @@ async function phaseFeatures() {
     );
   }
   await checkEndpoint('Pengaturan admin', 'GET', '/api/admin/pengaturan', undefined, state.adminToken);
+  // PERBAIKAN: GET /api/admin/soal (antrean/riwayat paket soal) sebelumnya tak pernah dipanggil.
+  await checkEndpoint('Antrean paket soal admin', 'GET', '/api/admin/soal?status=DISETUJUI', undefined, state.adminToken);
   await checkEndpoint('Daftar soal guru', 'GET', `/api/guru/soal?paket_id=${state.paketId}`, undefined, state.guruToken);
   if (state.siswaList[0]?.token) {
-    await checkEndpoint('Cek status sesi (siswa polling)', 'GET', `/api/siswa/ujian/cek-sesi?sesiId=${state.sesiId}`, undefined, state.siswaList[0].token);
+    // PERBAIKAN: tanpa deviceId yang cocok, server SAH membalas cabang lain
+    // ({ diambil_alih_device_lain:true }) — itu yang dulu terbaca sebagai
+    // "response structure berubah". Kirim deviceId yang benar, lalu uji hal yang
+    // bermakna: device yang benar TIDAK boleh dianggap diambil alih.
+    const pollSiswa0 = await checkEndpoint('Cek status sesi (siswa polling)', 'GET',
+      `/api/siswa/ujian/cek-sesi?sesiId=${state.sesiId}&deviceId=${deviceIdFor(state.siswaList[0].nis)}`, undefined, state.siswaList[0].token);
+    if (pollSiswa0.ok && pollSiswa0.data?.diambil_alih_device_lain) {
+      recordBugCat(
+        BUG_CATEGORIES.FUNGSIONAL,
+        'cek-sesi menandai device yang SAMA sebagai diambil alih device lain',
+        `Siswa ${state.siswaList[0].nis} memanggil cek-sesi dengan deviceId yang sama seperti saat validasi, tapi server membalas diambil_alih_device_lain=true: ${JSON.stringify(pollSiswa0.data)}`,
+        'GET /api/siswa/ujian/cek-sesi'
+      );
+    }
   }
 
   // ── 6p (bagian 2). Deteksi endpoint yang ada di API tapi MASIH belum pernah ditest ──
