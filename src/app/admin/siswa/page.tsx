@@ -6,7 +6,7 @@
 // memakainya. Tidak ada perubahan perilaku/logika.
 import type * as XLSXType from 'xlsx'
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Plus, Upload, Download, Pencil, Trash2, RotateCcw, Search, FileDown, Eye } from 'lucide-react'
+import { Plus, Upload, Download, Pencil, Trash2, RotateCcw, Search, FileDown, Eye, KeyRound } from 'lucide-react'
 import { Modal, Confirm, StatusBadge, SearchInput, Pagination, EmptyState, Spinner, Toast } from '@/components/ui'
 import { apiRequest, formatDate } from '@/lib/utils'
 import { Siswa, Kelas } from '@/types'
@@ -85,6 +85,9 @@ export default function AdminSiswaPage() {
   const [formIsTester, setFormIsTester] = useState(false)
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [resetId, setResetId] = useState<string | null>(null)
+  // Reset password MASSAL (semua siswa pada tab yang sedang aktif).
+  const [resetSemuaOpen, setResetSemuaOpen] = useState(false)
+  const [resetSemuaLoading, setResetSemuaLoading] = useState(false)
   const [viewAsSiswa, setViewAsSiswa] = useState<Siswa | null>(null)
   const [saving, setSaving] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
@@ -147,6 +150,18 @@ export default function AdminSiswaPage() {
       .catch(() => setKelasCards([]))
   }, [accountTab])
 
+  // Total siswa pada tab aktif TANPA filter kelas/pencarian — dipakai di
+  // dialog "Reset Password Semua" supaya jumlah yang ditampilkan ke admin
+  // selalu sama dengan jumlah yang benar-benar akan direset (`total` di
+  // atas bisa lebih kecil kalau admin sedang mengetik di kotak pencarian
+  // atau memfilter kelas).
+  const [totalTab, setTotalTab] = useState(0)
+  useEffect(() => {
+    apiRequest<{ total: number }>(`/api/admin/siswa?page=1&per_page=1${accountTab === 'tester' ? '&tester=true' : ''}`)
+      .then(r => setTotalTab(r.total))
+      .catch(() => setTotalTab(0))
+  }, [accountTab, total])
+
   function openAdd() { setEditData({}); setKelasMode('pilih'); setKelasBaruInput(''); setFormIsTester(false); setModalOpen(true) }
   function openEdit(s: Siswa) { setEditData(s); setKelasMode('pilih'); setKelasBaruInput(''); setFormIsTester(s.is_tester === 'YES'); setModalOpen(true) }
 
@@ -203,6 +218,25 @@ export default function AdminSiswaPage() {
       showToast(err instanceof Error ? err.message : 'Gagal reset', 'error')
     } finally {
       setSaving(false)
+    }
+  }
+
+  // Reset password SEMUA siswa pada tab yang aktif (reguler/tester) ke
+  // NISN masing-masing — tidak mengikuti filter kelas/pencarian yang
+  // sedang aktif, lihat komentar di api/admin/siswa/reset-password-semua.
+  async function handleResetSemua() {
+    setResetSemuaLoading(true)
+    try {
+      const res = await apiRequest<{ message: string; jumlah: number }>(
+        '/api/admin/siswa/reset-password-semua',
+        { method: 'POST', body: JSON.stringify({ tester: accountTab === 'tester' }) }
+      )
+      showToast(res.message)
+      setResetSemuaOpen(false)
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Gagal mereset password massal', 'error')
+    } finally {
+      setResetSemuaLoading(false)
     }
   }
 
@@ -481,6 +515,13 @@ export default function AdminSiswaPage() {
           </button>
           <button onClick={handleExport} className="btn-secondary btn-sm">
             <Download className="w-4 h-4" /> Export
+          </button>
+          <button
+            onClick={() => setResetSemuaOpen(true)}
+            className="btn-secondary btn-sm"
+            title={`Reset password semua siswa (${accountTab === 'tester' ? 'akun tester' : 'akun reguler'}) ke NISN masing-masing`}
+          >
+            <KeyRound className="w-4 h-4" /> Reset Password Semua
           </button>
           <button onClick={openAdd} className="btn-primary btn-sm">
             <Plus className="w-4 h-4" /> Tambah Siswa
@@ -1023,6 +1064,18 @@ export default function AdminSiswaPage() {
         confirmLabel="Reset Password"
         variant="primary"
         loading={saving}
+      />
+
+      {/* Confirm Reset Password MASSAL */}
+      <Confirm
+        open={resetSemuaOpen}
+        onClose={() => setResetSemuaOpen(false)}
+        onConfirm={handleResetSemua}
+        title="Reset Password Semua Siswa"
+        message={`Password SEMUA siswa pada tab "${accountTab === 'tester' ? 'Akun Tester' : 'Akun Reguler'}" (${totalTab} siswa, tidak hanya yang sedang difilter/terlihat di halaman ini) akan direset ke NISN masing-masing. Siswa yang password-nya sudah pernah diganti sendiri juga ikut kembali ke NISN. Tindakan ini tidak bisa dibatalkan. Lanjutkan?`}
+        confirmLabel="Ya, Reset Semua"
+        variant="danger"
+        loading={resetSemuaLoading}
       />
     </div>
   )
