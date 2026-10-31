@@ -2530,7 +2530,18 @@ export default function SiswaUjianPage() {
           amankanPgOffline(expectedCount, totalSynced, true)
           setPgFinalisasiDitolak(true)
         }
-      } else if (!status && verified) {
+      } else if ((!status || status >= 500 || status === 408 || status === 429) && verified) {
+        // FIX (audit lanjutan): kondisi ini dulu hanya `!status && verified`
+        // (jaringan mati). Server yang SEMPAT membalas 5xx/408/429 -- mis.
+        // ratusan siswa menekan Selesai bersamaan, atau /selesai sengaja
+        // membalas 500 saat database gagal dibaca (lihat selesai/route.ts,
+        // yang tidak lagi menulis nilai 0 pada kondisi itu) -- jatuh ke
+        // cabang `else` di bawah: timer/autosync sudah dimatikan, paket tidak
+        // didaftarkan ke outbox, dan siswa hanya punya tombol "Coba Lagi"
+        // manual. Daftar status sementara ini SAMA dengan yang dipakai
+        // ujian-outbox.ts dan efek retry pgSelesaiOfflinePending (yang hanya
+        // berhenti pada 409/404), jadi penanganannya konsisten: jawaban sudah
+        // terverifikasi di server, finalisasi diulang otomatis di background.
         // FIX BUG P0 (offline PG -> Essay, laporan simulasi: siswa mati
         // koneksi tepat saat submit PG, tidak pernah sampai ke essay/jalur
         // darurat). `verified` di sini SUDAH true — artinya loop di atas
