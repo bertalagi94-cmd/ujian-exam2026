@@ -4,6 +4,7 @@ import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRoleAktif } from '@/lib/status-akun'
 import { catatAktivitas } from '@/lib/aktivitas'
 import { instrumented } from '@/lib/metrik'
+import { cachedFetch } from '@/lib/cache'
 import { ambilMaksReset, MAKS_RESET_ABSOLUT } from '@/lib/reset-berurutan'
 import { AntreanPenuhError, buatSemuaAmplopReset } from '@/lib/reset-amplop-server'
 
@@ -63,12 +64,24 @@ export async function POST(req: NextRequest) {
   }
 
   // FIX kelas_id: sesi.kelas = nama kelas, paket_soal.kelas_id = ID dari tabel kelas
-  const { data: kelasRow } = await db
-    .from('kelas')
-    .select('id')
-    .eq('nama', String(sesi.kelas))
-    .maybeSingle()
-  const kelasId = kelasRow?.id ?? String(sesi.kelas)
+  // PERF: saat ratusan siswa masuk bersamaan, lookup ini identik untuk semuanya
+  // (nama kelas sama) — dibagi lewat cache 30 dtk per yayasan (cachedFetch juga
+  // menggabungkan request yang tiba bersamaan jadi satu query). Hasil null
+  // (kelas belum ada) tidak pernah dianggap cache-hit, jadi tidak "menempel".
+  const namaKelasSesi = String(sesi.kelas)
+  const kelasIdDb = await cachedFetch<string | null>(
+    `validasi:kelas-id:${yayasanIdDari(auth.user)}:${namaKelasSesi}`,
+    30,
+    async () => {
+      const { data: kelasRow } = await db
+        .from('kelas')
+        .select('id')
+        .eq('nama', namaKelasSesi)
+        .maybeSingle()
+      return kelasRow?.id ?? null
+    }
+  )
+  const kelasId = kelasIdDb ?? namaKelasSesi
 
   // FIX ARSITEKTUR KRITIS (snapshot paket ke sesi): kalau sesi ini sudah
   // punya paket_soal_id tersimpan (siswa lain sudah pernah masuk duluan),
@@ -247,6 +260,18 @@ export async function POST(req: NextRequest) {
   //
   // Kalau maksReset menghasilkan 0 (fitur reset memang dimatikan untuk
   // sesi ini), TIDAK diblokir — reset offline memang tidak dibutuhkan.
+  const soalPromise = Promise.resolve(
+    db
+      .from('soal')
+      .select('id, paket_id, mapel_id, teks, opsi_a, opsi_b, opsi_c, opsi_d, opsi_e, jumlah_opsi, gambar_pertanyaan, gambar_opsi_a, gambar_opsi_b, gambar_opsi_c, gambar_opsi_d, gambar_opsi_e, status')
+      .eq('mapel_id', sesi.mapel_id)
+      .eq('status', 'DISETUJUI')
+      .eq('paket_id', paketData.id)
+  )
+  // Cabang return-awal (antrean penuh / material gagal) tidak menunggu hasilnya;
+  // cegah unhandled rejection kalau ternyata gagal.
+  soalPromise.catch(() => {})
+
   let resetMaterial: Awaited<ReturnType<typeof buatSemuaAmplopReset>> = []
   let maksReset = 0
   let gagalMenyiapkanReset = false
@@ -377,12 +402,11 @@ export async function POST(req: NextRequest) {
   // AKTIF itu "nyangkut" tanpa siswa benar-benar bisa mengerjakan apa pun.
   // Sekarang: soal diambil & divalidasi dulu, TIDAK ADA tulisan apa pun ke
   // siswa_ujian sebelum baris ini lolos.
-  const { data: soalList } = await db
-    .from('soal')
-    .select('id, paket_id, mapel_id, teks, opsi_a, opsi_b, opsi_c, opsi_d, opsi_e, jumlah_opsi, gambar_pertanyaan, gambar_opsi_a, gambar_opsi_b, gambar_opsi_c, gambar_opsi_d, gambar_opsi_e, status')
-    .eq('mapel_id', sesi.mapel_id)
-    .eq('status', 'DISETUJUI')
-    .eq('paket_id', paketData.id)
+  // PERF: query soal sudah DIMULAI sebelum blok antrean PBKDF2 di atas
+  // (soalPromise) supaya round-trip DB-nya tumpang-tindih dengan waktu
+  // menunggu/menghitung amplop, bukan berjalan sesudahnya. Ini hanya BACA;
+  // hasilnya tetap divalidasi di sini SEBELUM ada tulisan ke siswa_ujian.
+  const { data: soalList } = await soalPromise
 
   if (!soalList?.length) return NextResponse.json({ valid: false, message: 'Tidak ada soal tersedia untuk ujian ini. Pastikan paket soal sudah disetujui.' })
 

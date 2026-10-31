@@ -339,6 +339,13 @@
           <option value="serentak">Serentak — gelombang 100 siswa tanpa jeda (meniru semua menekan "Masuk Ujian" bersamaan)</option>
         </select>
       </div>
+      <div class="field">
+        <label>Pola polling cek-sesi (heartbeat)</label>
+        <select id="cfg-polling">
+          <option value="realistis" selected>Realistis — tiap siswa polling di waktu acak dalam jendela 10 dtk (seperti aplikasi asli)</option>
+          <option value="burst">Burst — semua siswa tepat bersamaan (skenario terburuk, angka latensi akan membengkak)</option>
+        </select>
+      </div>
     </div>
     <div class="row" style="margin-top:14px">
       <button class="btn-primary" id="btn-start">▶ Mulai Pengujian</button>
@@ -851,6 +858,31 @@ function getByPath(obj, path) {
 // (BUG_CATEGORIES dan LATENCY_*_MS sudah dideklarasikan di atas)
 
 // Versi recordBug yang menyertakan kategori
+// Bug latensi dicatat SEKALI per endpoint saat pertama kali melewati ambang,
+// sehingga angka di judul (mis. 5060ms) bisa jauh lebih kecil dari yang
+// terburuk di tabel (mis. 9248ms). Fungsi ini menghitung ulang judul/detail
+// dari SELURUH sampel endpoint tsb (tanpa mengubah state.bugs), plus penanda
+// apakah ini outlier tunggal atau pola sistemik. Dipakai panel bug & laporan.
+function bugsDenganLatensiTerburuk() {
+  return state.bugs.map(b => {
+    const sampel = state.endpointLatencyMap[b.meta];
+    if (!sampel || !sampel.length || !String(b.title).includes('ditemukan respons sangat lambat')) return b;
+    const mx = Math.max(...sampel);
+    const avg = sampel.reduce((x, y) => x + y, 0) / sampel.length;
+    const lambat = sampel.filter(x => x >= LATENCY_CRITICAL_MS).length;
+    const sistemik = lambat / sampel.length >= 0.05;
+    return {
+      ...b,
+      title: `${b.meta} → respons sangat lambat (terburuk ${mx.toFixed(0)}ms)`,
+      detail: `${lambat} dari ${sampel.length} panggilan ≥ ${LATENCY_CRITICAL_MS}ms; rata-rata ${avg.toFixed(0)}ms, terburuk ${mx.toFixed(0)}ms. ` +
+        (sistemik
+          ? 'Proporsinya besar — pola SISTEMIK, bukan kebetulan. '
+          : 'Proporsinya kecil — kemungkinan OUTLIER (cold start / koneksi DB sesaat); cek log Vercel pada waktu temuan sebelum menganggapnya bug kode. ') +
+        `Latensi diukur dari browser penguji (termasuk jaringan & antrean browser), bukan waktu eksekusi server. Ambang ${LATENCY_CRITICAL_MS}ms; batas fungsi Vercel bisa 10–60 detik.`,
+    };
+  });
+}
+
 function recordBugCat(category, title, detail, meta = '') {
   state.bugs.push({ category, title, detail, meta, time: nowStr() });
   log(`BUG [${category}]: ${title}`, 'bug');
@@ -1048,8 +1080,10 @@ function renderBugs() {
   if (badge) badge.textContent = state.bugs.length;
 
   // ── Ringkasan per kategori ─────────────────────────────────────────────
+  const bugsLaporan = bugsDenganLatensiTerburuk();
+
   const counts = {};
-  state.bugs.forEach(b => {
+  bugsLaporan.forEach(b => {
     const cat = b.category || BUG_CATEGORIES.FUNGSIONAL;
     counts[cat] = (counts[cat] || 0) + 1;
   });
@@ -1070,7 +1104,7 @@ function renderBugs() {
 
   // ── Daftar bug dikelompokkan per kategori, diurutkan severity tertinggi dulu ──
   const grouped = {};
-  state.bugs.forEach((b, idx) => {
+  bugsLaporan.forEach((b, idx) => {
     const cat = b.category || BUG_CATEGORIES.FUNGSIONAL;
     if (!grouped[cat]) grouped[cat] = [];
     grouped[cat].push({ ...b, idx: idx + 1 });
@@ -1644,18 +1678,25 @@ async function phaseExam() {
   // berlangsung, sehingga lebih representatif diuji sebagai burst konkuren
   // (Promise.all sungguhan), bukan satu per satu seperti checkEndpoint biasa.
   if (loggedInSiswa.length > 0) {
-    setAction(`Simulasi ${loggedInSiswa.length} siswa polling cek-sesi serentak (heartbeat)…`);
+    setAction(`Simulasi ${loggedInSiswa.length} siswa polling cek-sesi (heartbeat)…`);
     const ROUNDS = 3; // simulasikan beberapa siklus heartbeat, bukan cuma sekali
+    // FIX: aplikasi asli polling tiap ~10 dtk PER siswa (tersebar), bukan 500
+    // request pada milidetik yang sama. Mode "realistis" menyebar panggilan
+    // acak dalam jendela 10 dtk; jeda diberikan SEBELUM api() dipanggil, jadi
+    // tidak ikut terhitung sebagai latensi. Mode "burst" = perilaku lama.
+    const polaBurst = document.getElementById('cfg-polling')?.value === 'burst';
+    const JENDELA_MS = 10000;
     let pollOk = 0, pollFail = 0;
     for (let round = 0; round < ROUNDS; round++) {
       if (state.stopRequested) break;
-      const burstResults = await Promise.all(loggedInSiswa.map(siswa =>
-        api('GET', `/api/siswa/ujian/cek-sesi?sesiId=${state.sesiId}&deviceId=${deviceIdFor(siswa.nis)}`, undefined, siswa.token)
-          .catch(e => ({ ok: false, status: 0, error: e.message }))
-      ));
+      const burstResults = await Promise.all(loggedInSiswa.map(async siswa => {
+        if (!polaBurst) await sleep(Math.random() * JENDELA_MS);
+        return api('GET', `/api/siswa/ujian/cek-sesi?sesiId=${state.sesiId}&deviceId=${deviceIdFor(siswa.nis)}`, undefined, siswa.token)
+          .catch(e => ({ ok: false, status: 0, error: e.message }));
+      }));
       for (const r of burstResults) { if (r.ok) pollOk++; else pollFail++; }
       setProgress(((round + 1) / ROUNDS) * 100, `Heartbeat ${round + 1}/${ROUNDS} (${loggedInSiswa.length} siswa serentak)`);
-      if (round < ROUNDS - 1) await sleep(800); // jeda antar siklus heartbeat, mirip interval polling asli
+      if (polaBurst && round < ROUNDS - 1) await sleep(800); // mode burst: jeda antar siklus
     }
     log(`Polling cek-sesi serentak: ${pollOk} sukses, ${pollFail} gagal (${ROUNDS} siklus × ${loggedInSiswa.length} siswa)`, pollFail === 0 ? 'ok' : 'warn');
     if (pollFail > loggedInSiswa.length * ROUNDS * 0.05) { // toleransi 5%
@@ -3126,14 +3167,22 @@ function buildReportData() {
   const maxLatency = state.latencies.length ? Math.max(...state.latencies).toFixed(0) : 0;
   const errRate = state.totalRequests ? ((state.totalErrors / state.totalRequests) * 100).toFixed(1) : '0.0';
 
+  const bugsLaporan = bugsDenganLatensiTerburuk();
+  const errorEndpoints = Object.entries(state.endpointErrorMap)
+    .map(([endpoint, errors]) => ({ endpoint, errors, calls: state.endpointCallCount[endpoint] || 0 }))
+    .filter(e => e.errors > 0)
+    .sort((a, b) => b.errors - a.errors)
+    .slice(0, 10);
+
+
   const counts = {};
-  state.bugs.forEach(b => {
+  bugsLaporan.forEach(b => {
     const cat = b.category || BUG_CATEGORIES.FUNGSIONAL;
     counts[cat] = (counts[cat] || 0) + 1;
   });
 
   const grouped = {};
-  state.bugs.forEach((b, idx) => {
+  bugsLaporan.forEach((b, idx) => {
     const cat = b.category || BUG_CATEGORIES.FUNGSIONAL;
     if (!grouped[cat]) grouped[cat] = [];
     grouped[cat].push({ ...b, idx: idx + 1, fileHint: tebakFileHint(b) });
@@ -3172,8 +3221,9 @@ function buildReportData() {
     totalRequests: state.totalRequests,
     totalErrors: state.totalErrors,
     errRate, avgLatency, maxLatency,
-    totalBugs: state.bugs.length,
+    totalBugs: bugsLaporan.length,
     counts,
+    errorEndpoints,
     sortedCats,
     rampResults,
     slowestEndpoints,
@@ -3205,6 +3255,15 @@ function buildReportMarkdown(d) {
     md += `| Endpoint | Jumlah Panggilan | Rata² Respons | Respons Terlama |\n|---|---|---|---|\n`;
     d.slowestEndpoints.forEach(e => {
       md += `| ${e.endpoint} | ${e.calls} | ${e.avgMs}ms | ${e.maxMs}ms |\n`;
+    });
+    md += `\n`;
+  }
+
+  if (d.errorEndpoints && d.errorEndpoints.length) {
+    md += `## Error per Endpoint\n\n`;
+    md += `| Endpoint | Jumlah Panggilan | Error |\n|---|---|---|\n`;
+    d.errorEndpoints.forEach(e => {
+      md += `| ${e.endpoint} | ${e.calls} | ${e.errors} |\n`;
     });
     md += `\n`;
   }
@@ -3288,6 +3347,14 @@ function buildReportHtml(d) {
     </tr></thead><tbody>`;
     d.slowestEndpoints.forEach(e => {
       html += `<tr><td>${escapeHtmlReport(e.endpoint)}</td><td>${e.calls}</td><td>${e.avgMs}ms</td><td>${e.maxMs}ms</td></tr>`;
+    });
+    html += `</tbody></table>`;
+  }
+
+  if (d.errorEndpoints && d.errorEndpoints.length) {
+    html += `<h2>Error per Endpoint</h2><table><thead><tr><th>Endpoint</th><th>Jumlah Panggilan</th><th>Error</th></tr></thead><tbody>`;
+    d.errorEndpoints.forEach(e => {
+      html += `<tr><td>${escapeHtmlReport(e.endpoint)}</td><td>${e.calls}</td><td>${e.errors}</td></tr>`;
     });
     html += `</tbody></table>`;
   }
