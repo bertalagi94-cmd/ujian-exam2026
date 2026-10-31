@@ -1,0 +1,14 @@
+name: Semgrep OSS scan
+on:
+  workflow_dispatch: {}
+  push:
+    branches: ["main", "master"]
+
+jobs:
+  semgrep:
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep
+    steps:
+      - uses: actions/checkout@v4
+      - run: semgrep scan --config auto
