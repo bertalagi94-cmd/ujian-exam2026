@@ -1,0 +1,171 @@
+diff --git a/src/app/api/pengawas/sesi/[id]/siswa/route.ts b/src/app/api/pengawas/sesi/[id]/siswa/route.ts
+index 8da013c..f68cd9a 100644
+--- a/src/app/api/pengawas/sesi/[id]/siswa/route.ts
++++ b/src/app/api/pengawas/sesi/[id]/siswa/route.ts
+@@ -68,7 +68,7 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
+   // Ambil semua siswa yang SUDAH login (baris di siswa_ujian) untuk sesi ini
+   const { data: siswaUjian, error } = await db
+     .from('siswa_ujian')
+-    .select('nis, status, waktu_daftar, waktu_mulai, waktu_selesai, reset_terpakai')
++    .select('nis, status, waktu_daftar, waktu_mulai, waktu_selesai, reset_terpakai, last_heartbeat')
+     .eq('sesi_id', sesiId)
+     .order('waktu_daftar', { ascending: true })
+ 
+@@ -98,6 +98,39 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
+     pelanggaranMap[p.nis] = (pelanggaranMap[p.nis] ?? 0) + 1
+   }
+ 
++  // ── Petunjuk tidak langsung untuk pengawas (tambahan) ─────────────────────
++  // 1) Jeda heartbeat: dihitung DI SERVER terhadap jam server (bukan jam
++  //    perangkat pengawas), supaya akurat walau jam perangkat melenceng.
++  // 2) Ganti perangkat: dicatat server di log_aktivitas (aksi GANTI_PERANGKAT,
++  //    lihat validasi/route.ts) setiap kali perangkat lain mengambil alih
++  //    sesi siswa. Ini TIDAK bergantung pada antrean pelanggaran di HP siswa.
++  // Keduanya hanya PETUNJUK untuk ditindaklanjuti pengawas, bukan pelanggaran
++  // otomatis (siswa jujur yang pindah HP karena sinyal hilang tidak boleh
++  // langsung kena reset/kunci).
++  const sekarangMs = Date.now()
++  const gantiPerangkatMap: Record<string, number> = {}
++  if (nisList.length > 0) {
++    const { data: logGanti } = await db
++      .from('log_aktivitas')
++      .select('user_id, detail')
++      .eq('aksi', 'GANTI_PERANGKAT')
++      .in('user_id', nisList)
++      .like('detail', `sesi:${sesiId}|%`)
++      .limit(2000)
++    for (const r of logGanti ?? []) {
++      // `like` memperlakukan "_" sebagai wildcard; pastikan cocok persis.
++      if (typeof r.detail === 'string' && r.detail.startsWith(`sesi:${sesiId}|`)) {
++        gantiPerangkatMap[r.user_id] = (gantiPerangkatMap[r.user_id] ?? 0) + 1
++      }
++    }
++  }
++  const hitungDetikTanpaSinyal = (status: string, hb: string | null | undefined): number | null => {
++    if (status !== 'AKTIF' || !hb) return null
++    const t = new Date(hb).getTime()
++    if (Number.isNaN(t)) return null
++    return Math.max(0, Math.round((sekarangMs - t) / 1000))
++  }
++
+   // CATATAN: kode reset (R1/R2/R3) SENGAJA tidak ikut di respons polling ini.
+   // Kode diturunkan HMAC dan diambil pengawas lewat endpoint terpisah
+   // GET /api/pengawas/sesi/[id]/kode-reset (sekali saat sesi dibuka, lalu
+@@ -114,6 +147,8 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
+     waktu_selesai: s.waktu_selesai,
+     jumlah_pelanggaran: pelanggaranMap[s.nis] ?? 0,
+     reset_terpakai: s.reset_terpakai ?? 0,
++    detik_tanpa_sinyal: hitungDetikTanpaSinyal(s.status, s.last_heartbeat),
++    ganti_perangkat: gantiPerangkatMap[s.nis] ?? 0,
+   }))
+ 
+   // Siswa target yang BELUM punya baris di siswa_ujian sama sekali —
+@@ -130,6 +165,8 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
+       waktu_selesai: null,
+       jumlah_pelanggaran: 0,
+       reset_terpakai: 0,
++      detik_tanpa_sinyal: null,
++      ganti_perangkat: 0,
+     }))
+ 
+   // FIX: khusus sesi SUSULAN, sertakan juga siswa yang sudah SELESAI di sesi
+@@ -144,6 +181,7 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
+     nis: string; nama: string; kelas: string; status: 'SELESAI'
+     waktu_daftar: string | null; waktu_selesai: string | null
+     jumlah_pelanggaran: number; reset_terpakai: number
++    detik_tanpa_sinyal: null; ganti_perangkat: number
+     dari_sesi_lain: true
+   }[] = []
+ 
+@@ -199,6 +237,8 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
+             waktu_selesai: s.waktu_selesai,
+             jumlah_pelanggaran: pelanggaranLainMap[s.nis] ?? 0,
+             reset_terpakai: 0,
++            detik_tanpa_sinyal: null,
++            ganti_perangkat: 0,
+             dari_sesi_lain: true as const,
+           }))
+       }
+diff --git a/src/app/api/siswa/ujian/validasi/route.ts b/src/app/api/siswa/ujian/validasi/route.ts
+index fd2b7ab..db54c38 100644
+--- a/src/app/api/siswa/ujian/validasi/route.ts
++++ b/src/app/api/siswa/ujian/validasi/route.ts
+@@ -449,6 +449,27 @@ export async function POST(req: NextRequest) {
+       })
+     }
+   }
++
++  // ── Catat AMBIL-ALIH PERANGKAT ke log server (petunjuk untuk pengawas) ───
++  // Sampai di sini perangkat ini LOLOS (device lama sudah stale, atau
++  // deviceId berubah mis. karena data situs dihapus). Dicatat di SERVER supaya
++  // pengawas tetap punya petunjuk walau antrean pelanggaran di HP siswa hilang.
++  // Sengaja BUKAN pelanggaran otomatis: siswa jujur yang pindah HP karena
++  // sinyal hilang tidak boleh langsung kena RESET/kunci. Format `detail`
++  // dibaca oleh api/pengawas/sesi/[id]/siswa — jangan diubah sepihak.
++  if (
++    siswaUjian?.device_id &&
++    typeof deviceId === 'string' &&
++    siswaUjian.device_id !== deviceId
++  ) {
++    const lastHbMs = siswaUjian.last_heartbeat ? new Date(siswaUjian.last_heartbeat).getTime() : 0
++    const jedaDetik = lastHbMs > 0 ? Math.round((Date.now() - lastHbMs) / 1000) : -1
++    const ringkas = (v: string) => `${String(v).slice(0, 6)}…`
++    catatAktivitas(
++      db, nis, 'GANTI_PERANGKAT',
++      `sesi:${sesi.id}|jeda_detik:${jedaDetik}|lama:${ringkas(siswaUjian.device_id)}|baru:${ringkas(deviceId)}`
++    )
++  }
+   // ─────────────────────────────────────────────────────────────────────────
+ 
+   // Acak soal
+diff --git a/src/app/guru/jadwal-pengawasan/tabs/ModePengawasTab.tsx b/src/app/guru/jadwal-pengawasan/tabs/ModePengawasTab.tsx
+index 380e54d..13f0519 100644
+--- a/src/app/guru/jadwal-pengawasan/tabs/ModePengawasTab.tsx
++++ b/src/app/guru/jadwal-pengawasan/tabs/ModePengawasTab.tsx
+@@ -88,6 +88,23 @@ interface SiswaAktif {
+   // /api/pengawas/sesi/[id]/siswa. Dipakai untuk menampilkan label pembeda
+   // di UI, murni tampilan.
+   dari_sesi_lain?: boolean
++  // Detik sejak heartbeat terakhir yang diterima SERVER (null kalau tidak
++  // relevan: bukan AKTIF / belum ada heartbeat). Petunjuk "siswa mungkin
++  // offline" — bukan bukti pelanggaran.
++  detik_tanpa_sinyal?: number | null
++  // Berapa kali perangkat lain mengambil alih sesi siswa ini (dicatat server).
++  ganti_perangkat?: number
++}
++
++// Ambang (detik) sebelum label "tanpa sinyal" muncul. Heartbeat dikirim tiap
++// ±10 detik saat online, jadi 60 detik = sudah 5–6 kali terlewat.
++const BATAS_TANPA_SINYAL_DETIK = 60
++
++function formatTanpaSinyal(detik: number): string {
++  if (detik < 120) return `${detik} dtk`
++  const menit = Math.floor(detik / 60)
++  if (menit < 60) return `${menit} mnt`
++  return `${Math.floor(menit / 60)} j ${menit % 60} mnt`
+ }
+ 
+ interface Pelanggaran {
+@@ -1210,6 +1227,22 @@ export function ModePengawasTab() {
+                                         {sw.jumlah_pelanggaran}× langgar
+                                       </span>
+                                     )}
++                                    {sw.status === 'AKTIF' && !sw.dari_sesi_lain && typeof sw.detik_tanpa_sinyal === 'number' && sw.detik_tanpa_sinyal >= BATAS_TANPA_SINYAL_DETIK && (
++                                      <span
++                                        className="text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0 bg-slate-100 text-slate-600"
++                                        title="Server tidak menerima sinyal dari perangkat siswa ini. Bisa karena memang offline (diperbolehkan), tetapi perlu dicek jika berlangsung lama."
++                                      >
++                                        📡 Tanpa sinyal {formatTanpaSinyal(sw.detik_tanpa_sinyal)}
++                                      </span>
++                                    )}
++                                    {(sw.ganti_perangkat ?? 0) > 0 && !sw.dari_sesi_lain && (
++                                      <span
++                                        className="text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0 bg-orange-100 text-orange-700"
++                                        title="Perangkat lain mengambil alih sesi siswa ini (atau data aplikasi di perangkat dihapus). Mohon dicek langsung ke siswa."
++                                      >
++                                        🔁 Ganti perangkat{(sw.ganti_perangkat ?? 0) > 1 ? ` ${sw.ganti_perangkat}×` : ''}
++                                      </span>
++                                    )}
+                                     {(sw.status === 'AKTIF' || sw.status === 'RESET') && !sw.dari_sesi_lain && (
+                                       <div className="flex-shrink-0 flex items-center gap-1" aria-label="Kode reset">
+                                         {Array.from({ length: kodeResetMap[sesiId]?.maksReset ?? 3 }, (_, i) => i + 1).map(n => {

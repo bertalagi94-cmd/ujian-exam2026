@@ -88,6 +88,23 @@ interface SiswaAktif {
   // /api/pengawas/sesi/[id]/siswa. Dipakai untuk menampilkan label pembeda
   // di UI, murni tampilan.
   dari_sesi_lain?: boolean
+  // Detik sejak heartbeat terakhir yang diterima SERVER (null kalau tidak
+  // relevan: bukan AKTIF / belum ada heartbeat). Petunjuk "siswa mungkin
+  // offline" — bukan bukti pelanggaran.
+  detik_tanpa_sinyal?: number | null
+  // Berapa kali perangkat lain mengambil alih sesi siswa ini (dicatat server).
+  ganti_perangkat?: number
+}
+
+// Ambang (detik) sebelum label "tanpa sinyal" muncul. Heartbeat dikirim tiap
+// ±10 detik saat online, jadi 60 detik = sudah 5–6 kali terlewat.
+const BATAS_TANPA_SINYAL_DETIK = 60
+
+function formatTanpaSinyal(detik: number): string {
+  if (detik < 120) return `${detik} dtk`
+  const menit = Math.floor(detik / 60)
+  if (menit < 60) return `${menit} mnt`
+  return `${Math.floor(menit / 60)} j ${menit % 60} mnt`
 }
 
 interface Pelanggaran {
@@ -1208,6 +1225,22 @@ export function ModePengawasTab() {
                                     {sw.jumlah_pelanggaran > 0 && (
                                       <span className={`text-xs font-bold px-2 py-0.5 rounded-full flex-shrink-0 ${sw.jumlah_pelanggaran >= 3 ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
                                         {sw.jumlah_pelanggaran}× langgar
+                                      </span>
+                                    )}
+                                    {sw.status === 'AKTIF' && !sw.dari_sesi_lain && typeof sw.detik_tanpa_sinyal === 'number' && sw.detik_tanpa_sinyal >= BATAS_TANPA_SINYAL_DETIK && (
+                                      <span
+                                        className="text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0 bg-slate-100 text-slate-600"
+                                        title="Server tidak menerima sinyal dari perangkat siswa ini. Bisa karena memang offline (diperbolehkan), tetapi perlu dicek jika berlangsung lama."
+                                      >
+                                        📡 Tanpa sinyal {formatTanpaSinyal(sw.detik_tanpa_sinyal)}
+                                      </span>
+                                    )}
+                                    {(sw.ganti_perangkat ?? 0) > 0 && !sw.dari_sesi_lain && (
+                                      <span
+                                        className="text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0 bg-orange-100 text-orange-700"
+                                        title="Perangkat lain mengambil alih sesi siswa ini (atau data aplikasi di perangkat dihapus). Mohon dicek langsung ke siswa."
+                                      >
+                                        🔁 Ganti perangkat{(sw.ganti_perangkat ?? 0) > 1 ? ` ${sw.ganti_perangkat}×` : ''}
                                       </span>
                                     )}
                                     {(sw.status === 'AKTIF' || sw.status === 'RESET') && !sw.dari_sesi_lain && (

@@ -449,6 +449,27 @@ export async function POST(req: NextRequest) {
       })
     }
   }
+
+  // ── Catat AMBIL-ALIH PERANGKAT ke log server (petunjuk untuk pengawas) ───
+  // Sampai di sini perangkat ini LOLOS (device lama sudah stale, atau
+  // deviceId berubah mis. karena data situs dihapus). Dicatat di SERVER supaya
+  // pengawas tetap punya petunjuk walau antrean pelanggaran di HP siswa hilang.
+  // Sengaja BUKAN pelanggaran otomatis: siswa jujur yang pindah HP karena
+  // sinyal hilang tidak boleh langsung kena RESET/kunci. Format `detail`
+  // dibaca oleh api/pengawas/sesi/[id]/siswa — jangan diubah sepihak.
+  if (
+    siswaUjian?.device_id &&
+    typeof deviceId === 'string' &&
+    siswaUjian.device_id !== deviceId
+  ) {
+    const lastHbMs = siswaUjian.last_heartbeat ? new Date(siswaUjian.last_heartbeat).getTime() : 0
+    const jedaDetik = lastHbMs > 0 ? Math.round((Date.now() - lastHbMs) / 1000) : -1
+    const ringkas = (v: string) => `${String(v).slice(0, 6)}…`
+    catatAktivitas(
+      db, nis, 'GANTI_PERANGKAT',
+      `sesi:${sesi.id}|jeda_detik:${jedaDetik}|lama:${ringkas(siswaUjian.device_id)}|baru:${ringkas(deviceId)}`
+    )
+  }
   // ─────────────────────────────────────────────────────────────────────────
 
   // Acak soal

@@ -68,7 +68,7 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
   // Ambil semua siswa yang SUDAH login (baris di siswa_ujian) untuk sesi ini
   const { data: siswaUjian, error } = await db
     .from('siswa_ujian')
-    .select('nis, status, waktu_daftar, waktu_mulai, waktu_selesai, reset_terpakai')
+    .select('nis, status, waktu_daftar, waktu_mulai, waktu_selesai, reset_terpakai, last_heartbeat')
     .eq('sesi_id', sesiId)
     .order('waktu_daftar', { ascending: true })
 
@@ -98,6 +98,39 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
     pelanggaranMap[p.nis] = (pelanggaranMap[p.nis] ?? 0) + 1
   }
 
+  // ── Petunjuk tidak langsung untuk pengawas (tambahan) ─────────────────────
+  // 1) Jeda heartbeat: dihitung DI SERVER terhadap jam server (bukan jam
+  //    perangkat pengawas), supaya akurat walau jam perangkat melenceng.
+  // 2) Ganti perangkat: dicatat server di log_aktivitas (aksi GANTI_PERANGKAT,
+  //    lihat validasi/route.ts) setiap kali perangkat lain mengambil alih
+  //    sesi siswa. Ini TIDAK bergantung pada antrean pelanggaran di HP siswa.
+  // Keduanya hanya PETUNJUK untuk ditindaklanjuti pengawas, bukan pelanggaran
+  // otomatis (siswa jujur yang pindah HP karena sinyal hilang tidak boleh
+  // langsung kena reset/kunci).
+  const sekarangMs = Date.now()
+  const gantiPerangkatMap: Record<string, number> = {}
+  if (nisList.length > 0) {
+    const { data: logGanti } = await db
+      .from('log_aktivitas')
+      .select('user_id, detail')
+      .eq('aksi', 'GANTI_PERANGKAT')
+      .in('user_id', nisList)
+      .like('detail', `sesi:${sesiId}|%`)
+      .limit(2000)
+    for (const r of logGanti ?? []) {
+      // `like` memperlakukan "_" sebagai wildcard; pastikan cocok persis.
+      if (typeof r.detail === 'string' && r.detail.startsWith(`sesi:${sesiId}|`)) {
+        gantiPerangkatMap[r.user_id] = (gantiPerangkatMap[r.user_id] ?? 0) + 1
+      }
+    }
+  }
+  const hitungDetikTanpaSinyal = (status: string, hb: string | null | undefined): number | null => {
+    if (status !== 'AKTIF' || !hb) return null
+    const t = new Date(hb).getTime()
+    if (Number.isNaN(t)) return null
+    return Math.max(0, Math.round((sekarangMs - t) / 1000))
+  }
+
   // CATATAN: kode reset (R1/R2/R3) SENGAJA tidak ikut di respons polling ini.
   // Kode diturunkan HMAC dan diambil pengawas lewat endpoint terpisah
   // GET /api/pengawas/sesi/[id]/kode-reset (sekali saat sesi dibuka, lalu
@@ -114,6 +147,8 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
     waktu_selesai: s.waktu_selesai,
     jumlah_pelanggaran: pelanggaranMap[s.nis] ?? 0,
     reset_terpakai: s.reset_terpakai ?? 0,
+    detik_tanpa_sinyal: hitungDetikTanpaSinyal(s.status, s.last_heartbeat),
+    ganti_perangkat: gantiPerangkatMap[s.nis] ?? 0,
   }))
 
   // Siswa target yang BELUM punya baris di siswa_ujian sama sekali —
@@ -130,6 +165,8 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
       waktu_selesai: null,
       jumlah_pelanggaran: 0,
       reset_terpakai: 0,
+      detik_tanpa_sinyal: null,
+      ganti_perangkat: 0,
     }))
 
   // FIX: khusus sesi SUSULAN, sertakan juga siswa yang sudah SELESAI di sesi
@@ -144,6 +181,7 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
     nis: string; nama: string; kelas: string; status: 'SELESAI'
     waktu_daftar: string | null; waktu_selesai: string | null
     jumlah_pelanggaran: number; reset_terpakai: number
+    detik_tanpa_sinyal: null; ganti_perangkat: number
     dari_sesi_lain: true
   }[] = []
 
@@ -199,6 +237,8 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
             waktu_selesai: s.waktu_selesai,
             jumlah_pelanggaran: pelanggaranLainMap[s.nis] ?? 0,
             reset_terpakai: 0,
+            detik_tanpa_sinyal: null,
+            ganti_perangkat: 0,
             dari_sesi_lain: true as const,
           }))
       }
