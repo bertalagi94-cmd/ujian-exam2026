@@ -5,12 +5,17 @@ import { requireRoleAktif } from '@/lib/status-akun'
 import { catatAktivitas } from '@/lib/aktivitas'
 import { instrumented } from '@/lib/metrik'
 import { ambilMaksReset, MAKS_RESET_ABSOLUT } from '@/lib/reset-berurutan'
-import { buatSemuaAmplopReset } from '@/lib/reset-amplop-server'
+import { AntreanPenuhError, buatSemuaAmplopReset } from '@/lib/reset-amplop-server'
 
 // Threshold: kalau last_heartbeat device lama lebih muda dari ini,
 // anggap device lama masih aktif → tolak login device baru.
 // Kalau lebih tua (device lama sudah lama tidak polling), izinkan takeover.
 const DEVICE_STALE_MS = 2 * 60 * 1000 // 2 menit
+
+// Masuk-ujian serentak bisa mengantre untuk PBKDF2 (lihat reset-amplop-server.ts).
+// Tanpa ini batas bawaan platform (bisa serendah 10 dtk) memutus request yang
+// sebenarnya masih dalam antrean wajar. 30 dtk diizinkan di semua paket Vercel.
+export const maxDuration = 30
 
 export async function POST(req: NextRequest) {
   const auth = await requireRoleAktif(req, ['SISWA'])
@@ -258,8 +263,34 @@ export async function POST(req: NextRequest) {
   }
   if (!gagalMenyiapkanReset && maksReset > 0) {
     try {
+      // Ukur fase ini: 3x PBKDF2 600rb iterasi (~100 ms CPU masing-masing di
+      // 1 core) adalah tersangka utama latensi validasi saat banyak siswa masuk
+      // serentak. Log hanya kalau lambat, supaya log Vercel tidak berisik —
+      // bandingkan angka ini dengan durasi total fungsi di tab Logs.
+      const mulaiAmplop = Date.now()
       resetMaterial = await buatSemuaAmplopReset(sesi.id, nis, maksReset)
+      const durasiAmplop = Date.now() - mulaiAmplop
+      if (durasiAmplop > 500) {
+        console.warn(`[validasi][lambat] buatSemuaAmplopReset ${durasiAmplop}ms (maksReset=${maksReset})`)
+      }
     } catch (e) {
+      if (e instanceof AntreanPenuhError) {
+        // Banyak siswa masuk bersamaan di instance ini. START ditahan SEBELUM ada
+        // tulisan apa pun ke siswa_ujian (waktu ujian siswa tidak terpotong), dan
+        // kunci yang sudah sempat dihitung tetap di-cache sehingga percobaan
+        // berikutnya lebih cepat. Pesannya sengaja beda dari "sistem belum siap"
+        // supaya siswa tidak mengira ada kerusakan dan menghubungi admin.
+        console.warn('[validasi][antre-penuh] masuk ujian ditunda, siswa diminta mencoba lagi')
+        return NextResponse.json(
+          {
+            valid: false,
+            coba_lagi: true,
+            message: 'Server sedang ramai karena banyak siswa masuk bersamaan. ' +
+              'Tunggu beberapa detik, lalu tekan \"Masuk Ujian\" lagi. Ujian Anda belum dimulai dan waktu belum berjalan.',
+          },
+          { headers: { 'Retry-After': '5' } }
+        )
+      }
       console.error('[validasi] gagal menyiapkan material reset offline:', e instanceof Error ? e.message : e)
       resetMaterial = []
     }

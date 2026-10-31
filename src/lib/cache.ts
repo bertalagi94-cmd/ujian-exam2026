@@ -65,6 +65,12 @@ export function cacheDelPrefix(prefix: string): void {
  * Contoh:
  *   const data = await cachedFetch('pengaturan', 60, () => db.from(...))
  */
+// Pengambilan yang sedang berjalan per key. Tanpa ini, saat cache kosong/kedaluwarsa
+// SEMUA request yang tiba selama fn() belum selesai masing-masing menjalankan fn()
+// sendiri (cache stampede) — mis. ratusan polling siswa serentak ke database untuk
+// data yang sama. Sekarang mereka berbagi satu pengambilan.
+const berjalan = new Map<string, Promise<unknown>>()
+
 export async function cachedFetch<T>(
   key: string,
   ttlSeconds: number,
@@ -72,7 +78,15 @@ export async function cachedFetch<T>(
 ): Promise<T> {
   const hit = cacheGet<T>(key)
   if (hit !== null) return hit
-  const value = await fn()
-  cacheSet(key, value, ttlSeconds)
-  return value
+  const sedangBerjalan = berjalan.get(key) as Promise<T> | undefined
+  if (sedangBerjalan) return sedangBerjalan
+  const janji = (async () => {
+    const value = await fn()
+    cacheSet(key, value, ttlSeconds)
+    return value
+  })().finally(() => {
+    berjalan.delete(key)
+  })
+  berjalan.set(key, janji)
+  return janji
 }

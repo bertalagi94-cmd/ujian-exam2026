@@ -354,6 +354,7 @@
   <!-- ============ RAMP-UP TABLE ============ -->
   <div class="panel" id="ramp-panel" style="display:none">
     <h2>📈 Hasil Per Tahap Beban (Ramp-Up)</h2>
+    <p style="color:#666;font-size:13px;margin:0 0 8px">Tahap ini hanya mengukur LOGIN. Masuk ujian (validasi), sync, dan submit diukur terpisah di tabel "Endpoint Paling Lambat" — status AMAN di sini BUKAN berarti ujian serentak lolos.</p>
     <table id="ramp-table">
       <thead>
         <tr>
@@ -818,6 +819,12 @@ const SIGNATURE_CHECK_EXCLUDED_ENDPOINTS = new Set([
   // dan field opsional (jumlah_pelanggaran, dipantau_sid) dihilangkan saat undefined.
   'GET /api/siswa/ujian/cek-sesi',
   'GET /api/notif',                 // bentuknya sengaja beda per role (lihat catatan skema di atas)
+  // admin/siswa (POST): field `peringatan` SENGAJA hanya ada pada request yang baru
+  // membuat kelas dan kelas itu tidak punya sekolah (yayasan >1 sekolah) — lihat
+  // pastikanKelasAda di src/lib/kelas-sync.ts. Request pertama load test membuat
+  // kelas testing (ada `peringatan`), request berikutnya menemukan kelasnya sudah
+  // ada (tanpa `peringatan`). Itu perilaku deterministik, bukan drift.
+  'POST /api/admin/siswa',
 ]);
 
 // Ambil nilai dari path bertitik, mis. getByPath(obj, 'stats.totalSiswa')
@@ -3109,6 +3116,7 @@ function buildReportMarkdown(d) {
 
   if (d.rampResults.length) {
     md += `## Hasil Per Tahap Beban (Ramp-Up)\n\n`;
+    md += `> Tahap ini hanya mengukur LOGIN. Masuk ujian (validasi), sync, dan submit diukur terpisah di tabel "Endpoint Paling Lambat" — status AMAN di sini BUKAN berarti ujian serentak lolos.\n\n`;
     md += `| Tahap | Siswa | Berhasil | Gagal | Rata² Respons | Respons Terlama | Status |\n`;
     md += `|---|---|---|---|---|---|---|\n`;
     d.rampResults.forEach(r => {
@@ -3186,7 +3194,7 @@ function buildReportHtml(d) {
   </div>`;
 
   if (d.rampResults.length) {
-    html += `<h2>Hasil Per Tahap Beban (Ramp-Up)</h2><table><thead><tr>
+    html += `<h2>Hasil Per Tahap Beban (Ramp-Up)</h2><p style="color:#666;font-size:13px">Tahap ini hanya mengukur LOGIN. Masuk ujian (validasi), sync, dan submit diukur terpisah di tabel "Endpoint Paling Lambat" — status AMAN di sini BUKAN berarti ujian serentak lolos.</p><table><thead><tr>
       <th>Tahap</th><th>Siswa</th><th>Berhasil</th><th>Gagal</th><th>Rata² Respons</th><th>Respons Terlama</th><th>Status</th>
     </tr></thead><tbody>`;
     d.rampResults.forEach(r => {

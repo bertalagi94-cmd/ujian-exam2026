@@ -11,7 +11,9 @@
 // pre-cache. Lihat reset-amplop-shared.ts untuk desain lengkap & batasannya.
 
 import { createCipheriv, pbkdf2, randomBytes, createHmac } from 'node:crypto'
+import { availableParallelism } from 'node:os'
 import { promisify } from 'node:util'
+import { AntreanPenuhError, buatPembatasKonkurensi, intDariEnv } from '@/lib/batas-konkurensi'
 import { cacheGet, cacheSet } from '@/lib/cache'
 import { hitungKodeReset } from '@/lib/reset-berurutan'
 import {
@@ -38,14 +40,31 @@ function hitungSaltReset(sesiId: string, nis: string, nomor: number): Buffer {
     .subarray(0, 16)
 }
 
+// Derivasi yang SEDANG berjalan, per kunci cache. Cache biasa baru terisi SETELAH
+// PBKDF2 selesai (~100 ms CPU), jadi dua request validasi untuk (sesi, nis,
+// nomor) yang sama yang tiba berdekatan (klik ganda, retry client saat respons
+// lambat) sebelumnya sama-sama menghitung ulang. Dengan ini keduanya berbagi
+// satu perhitungan. Hasil & keamanan tidak berubah: kunci identik, IV tetap acak
+// per amplop.
+const derivasiBerjalan = new Map<string, Promise<Buffer>>()
+
 async function ambilKunciReset(sesiId: string, nis: string, nomor: number): Promise<Buffer> {
   const cacheKey = `reset-amplop-kunci:${sesiId}:${nis}:${nomor}`
   const hit = cacheGet<Buffer>(cacheKey)
   if (hit) return hit
+  const berjalan = derivasiBerjalan.get(cacheKey)
+  if (berjalan) return berjalan
   const kode = hitungKodeReset(sesiId, nis, nomor)
-  const kunci = await pbkdf2Async(kode, hitungSaltReset(sesiId, nis, nomor), RESET_PBKDF2_ITERASI, 32, 'sha256')
-  cacheSet(cacheKey, kunci, 60 * 60)
-  return kunci
+  const janji = pbkdf2Async(kode, hitungSaltReset(sesiId, nis, nomor), RESET_PBKDF2_ITERASI, 32, 'sha256')
+    .then((kunci) => {
+      cacheSet(cacheKey, kunci, 60 * 60)
+      return kunci
+    })
+    .finally(() => {
+      derivasiBerjalan.delete(cacheKey)
+    })
+  derivasiBerjalan.set(cacheKey, janji)
+  return janji
 }
 
 /** Bungkus SATU nomor reset (1..maks) jadi amplop AES-256-GCM. */
@@ -67,9 +86,40 @@ export async function buatAmplopReset(sesiId: string, nis: string, nomor: number
   }
 }
 
-/** R1..R(maks) sekaligus, untuk dikirim ke client saat pre-cache (masuk ujian). */
+// Pembatas untuk masuk-ujian serentak. SATU slot = SATU siswa (seluruh R1..R3),
+// bukan satu derivasi, supaya siswa yang sudah mulai tidak antre ulang di antara
+// siswa lain. Bawaan: konkurensi = jumlah CPU terlihat (maks 4, sesuai threadpool
+// libuv), antrean maks 25 siswa (~7 dtk di 1 core). Bisa disetel lewat env:
+//   RESET_PBKDF2_KONKURENSI (1..4), RESET_PBKDF2_ANTREAN_MAKS (0..500)
+const pembatasMasuk = buatPembatasKonkurensi(
+  intDariEnv('RESET_PBKDF2_KONKURENSI', Math.min(4, Math.max(1, availableParallelism())), 1, 4),
+  intDariEnv('RESET_PBKDF2_ANTREAN_MAKS', 25, 0, 500),
+)
+
+export { AntreanPenuhError }
+
+/** Apakah kunci R1..R(maks) siswa ini sudah ada di cache (tidak butuh PBKDF2 sama sekali)? */
+function semuaKunciSudahDiCache(sesiId: string, nis: string, maks: number): boolean {
+  for (let n = 1; n <= maks; n++) {
+    if (!cacheGet<Buffer>(`reset-amplop-kunci:${sesiId}:${nis}:${n}`)) return false
+  }
+  return true
+}
+
+/**
+ * R1..R(maks) sekaligus, untuk dikirim ke client saat pre-cache (masuk ujian).
+ *
+ * Masuk-ulang siswa yang kuncinya sudah di-cache langsung dikerjakan (hanya AES,
+ * hitungan milidetik) tanpa antre. Siswa yang butuh PBKDF2 diantrekan; kalau
+ * antrean penuh dilempar AntreanPenuhError (BELUM ada yang ditulis ke database
+ * pada titik ini — aman diulang siswa).
+ */
 export async function buatSemuaAmplopReset(sesiId: string, nis: string, maks: number): Promise<ResetAmplop[]> {
-  const hasil: ResetAmplop[] = []
-  for (let n = 1; n <= maks; n++) hasil.push(await buatAmplopReset(sesiId, nis, n))
-  return hasil
+  const kerja = async () => {
+    const hasil: ResetAmplop[] = []
+    for (let n = 1; n <= maks; n++) hasil.push(await buatAmplopReset(sesiId, nis, n))
+    return hasil
+  }
+  if (semuaKunciSudahDiCache(sesiId, nis, maks)) return kerja()
+  return pembatasMasuk.jalankan(kerja)
 }

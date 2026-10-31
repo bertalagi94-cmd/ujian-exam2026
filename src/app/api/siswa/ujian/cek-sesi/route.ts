@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse, after } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRoleAktif } from '@/lib/status-akun'
 import { sidDipantauUntuk } from '@/lib/dipantau'
@@ -18,6 +18,15 @@ export async function GET(req: NextRequest) {
   const deviceId = searchParams.get('deviceId')
 
   if (!sesiId) return NextResponse.json({ error: 'sesiId diperlukan' }, { status: 400 })
+
+  // Lookup "dipantau" tidak bergantung pada hasil dua query di bawah, jadi dijalankan
+  // BERSAMAAN dengannya (sebelumnya menunggu heartbeat selesai dulu). Sifatnya
+  // informatif (banner), jadi kalau gagal cukup dianggap tidak dipantau — jangan
+  // sampai polling status ujian ikut error. .catch juga mencegah unhandled
+  // rejection pada cabang return-awal (device diambil alih).
+  const sidDipantauPromise: Promise<string | null> = user.viewAs
+    ? Promise.resolve(null)
+    : sidDipantauUntuk(db, user.nis!).catch(() => null)
 
   const [{ data: sesi }, { data: siswaUjian }] = await Promise.all([
     db.from('sesi_ujian').select('id, status').eq('id', sesiId).single(),
@@ -54,18 +63,32 @@ export async function GET(req: NextRequest) {
   // meng-update last_heartbeat, siswa asli yang sedang ujian di device-nya
   // bisa salah dianggap tidak aktif / device berganti. Jadi untuk token
   // viewAs: baca boleh, tulis heartbeat dilewati.
+  //
+  // Ditulis SETELAH respons terkirim (after = waitUntil di Vercel): client tidak
+  // perlu menunggu satu round-trip DB hanya untuk menyimpan heartbeat, padahal
+  // endpoint ini dipanggil tiap 10 detik oleh setiap siswa. Tidak ada yang
+  // membaca hasil update ini di respons, dan error-nya memang tidak pernah
+  // memengaruhi respons sebelumnya.
   if (!user.viewAs && deviceId && siswaUjian?.status === 'AKTIF') {
-    await db
-      .from('siswa_ujian')
-      .update({ last_heartbeat: new Date().toISOString() })
-      .eq('sesi_id', sesiId)
-      .eq('nis', user.nis!)
+    const nis = user.nis!
+    const waktuHeartbeat = new Date().toISOString()
+    after(async () => {
+      try {
+        await db
+          .from('siswa_ujian')
+          .update({ last_heartbeat: waktuHeartbeat })
+          .eq('sesi_id', sesiId)
+          .eq('nis', nis)
+      } catch (e) {
+        console.error('[cek-sesi] gagal menulis heartbeat:', e instanceof Error ? e.message : e)
+      }
+    })
   }
 
   // Status "sedang dipantau admin" dititipkan di respons polling yang SUDAH ada
   // (tiap 10 detik selama ujian) — banner di halaman ujian tidak perlu request
   // tambahan. Sesi Lihat-sebagai itu sendiri tidak pernah ditandai dipantau.
-  const sidDipantau = user.viewAs ? null : await sidDipantauUntuk(db, user.nis!)
+  const sidDipantau = await sidDipantauPromise
 
   // FIX BUG (pesan "Ujian Dihentikan" selalu bunyi "melanggar {batas} kali"
   // walau siswa baru melanggar 1x): sebelumnya layar itu di client cuma
