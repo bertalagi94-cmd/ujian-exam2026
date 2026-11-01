@@ -24,7 +24,7 @@
 
 import { createAdminClient } from '@/lib/supabase'
 import { generateId } from '@/lib/utils'
-import { ambilDataSesiUntukPenilaian, hitungHasilPenilaian, GagalMemuatDataPenilaian } from '@/lib/penilaian-ujian'
+import { ambilDataSesiUntukPenilaian, hitungHasilPenilaian } from '@/lib/penilaian-ujian'
 import { ambilSemuaBaris } from '@/lib/ambil-semua'
 
 type DbClient = ReturnType<typeof createAdminClient>
@@ -45,39 +45,29 @@ export interface HasilFinalisasiPaksa {
   error?: string
 }
 
-// jenis 'TUTUP_PAKSA' (bawaan): dipanggil saat sesi ditutup paksa.
-// jenis 'ULANG': dipanggil dari POST /api/admin/sesi/[id]/finalisasi-ulang
-// untuk siswa yang sudah SELESAI tetapi tidak punya baris nilai (finalisasi
-// sebelumnya gagal). Bedanya: teks catatan guru, dan sesi tanpa soal PG
-// dilewati (tidak ada nilai PG yang bisa dihitung, jadi tidak dibuatkan nilai 0).
-export interface OpsiFinalisasiPaksa {
-  jenis?: 'TUTUP_PAKSA' | 'ULANG'
-}
-
 export async function finalisasiNilaiPaksa(
   db: DbClient,
   sesiId: string,
-  nisList: string[],
-  opsi: OpsiFinalisasiPaksa = {}
+  nisList: string[]
 ): Promise<HasilFinalisasiPaksa> {
-  const jenis = opsi.jenis ?? 'TUTUP_PAKSA'
   if (!nisList.length) return { ok: true, jumlahDinilai: 0 }
 
-  // FIX: kegagalan database saat memuat kunci jawaban dilaporkan sebagai
-  // ok:false (pemanggil meneruskannya ke admin/pengawas sebagai status 207),
-  // bukan dibiarkan melempar exception atau lanjut dengan kunci kosong.
   let sesiCache: Awaited<ReturnType<typeof ambilDataSesiUntukPenilaian>>
   try {
     sesiCache = await ambilDataSesiUntukPenilaian(db, sesiId)
   } catch (e) {
-    if (!(e instanceof GagalMemuatDataPenilaian)) throw e
-    return { ok: false, jumlahDinilai: 0, error: e.message }
+    // Data kunci/kkm gagal dibaca (bukan "sesi tidak ada"): JANGAN menilai —
+    // menilai dengan kunci kosong akan menulis nilai 0 permanen.
+    return {
+      ok: false,
+      jumlahDinilai: 0,
+      error: `Data kunci jawaban gagal dibaca, nilai TIDAK dihitung: ${e instanceof Error ? e.message : String(e)}`,
+    }
   }
   if (!sesiCache) {
     return { ok: false, jumlahDinilai: 0, error: 'Data sesi untuk penilaian tidak ditemukan (ambilDataSesiUntukPenilaian mengembalikan null).' }
   }
   const { sesi, kkm, totalSoal, kunciMap } = sesiCache
-  if (jenis === 'ULANG' && totalSoal === 0) return { ok: true, jumlahDinilai: 0 }
 
   // FIX BUG #12 (status_essay tidak pernah difinalisasi saat sesi ditutup
   // paksa): sebelumnya fungsi ini HANYA peduli tabel `nilai` — begitu semua
@@ -112,11 +102,22 @@ export async function finalisasiNilaiPaksa(
     // tidak bergantung pada perilaku NULL di operator NOT IN PostgREST/SQL —
     // lebih eksplisit dan tidak diam-diam melewatkan baris dengan status
     // essay yang belum pernah diisi.
-    const { data: statusEssaySaatIni } = await db
-      .from('siswa_ujian')
-      .select('nis, status_essay')
-      .eq('sesi_id', sesiId)
-      .in('nis', nisList)
+    const { data: statusEssaySaatIni, error: errStatusEssay } = await ambilSemuaBaris<{ nis: string; status_essay: string | null }>(
+      (dari, sampai) => db
+        .from('siswa_ujian')
+        .select('nis, status_essay')
+        .eq('sesi_id', sesiId)
+        .in('nis', nisList)
+        .order('nis', { ascending: true })
+        .range(dari, sampai)
+    )
+    if (errStatusEssay) {
+      return {
+        ok: false,
+        jumlahDinilai: 0,
+        error: `Gagal membaca status_essay: ${errStatusEssay.message}`,
+      }
+    }
     const nisPerluFinalisasiEssay = (statusEssaySaatIni ?? [])
       .filter(s => s.status_essay !== 'SUDAH_KIRIM' && s.status_essay !== 'TIDAK_MENGERJAKAN')
       .map(s => s.nis)
@@ -139,46 +140,50 @@ export async function finalisasiNilaiPaksa(
 
   // Jangan timpa siswa yang kebetulan sudah punya baris nilai (mis. sempat
   // submit sendiri tepat sebelum sesi ditutup).
-  const { data: nilaiAda } = await db
-    .from('nilai')
-    .select('nis')
-    .eq('sesi_id', sesiId)
-    .in('nis', nisList)
+  const { data: nilaiAda, error: errNilaiAda } = await ambilSemuaBaris<{ nis: string }>(
+    (dari, sampai) => db
+      .from('nilai')
+      .select('nis')
+      .eq('sesi_id', sesiId)
+      .in('nis', nisList)
+      .order('nis', { ascending: true })
+      .range(dari, sampai)
+  )
+  if (errNilaiAda) {
+    return {
+      ok: false,
+      jumlahDinilai: 0,
+      error: `Gagal memeriksa nilai yang sudah ada: ${errNilaiAda.message}`,
+    }
+  }
   const sudahAdaSet = new Set((nilaiAda ?? []).map(n => n.nis))
   const perluDinilai = nisList.filter(nis => !sudahAdaSet.has(nis))
   if (!perluDinilai.length) return { ok: true, jumlahDinilai: 0 }
 
-  // FIX (jawaban terpotong 1000 baris + error diabaikan): query tunggal ini
-  // dibatasi PostgREST maksimal 1000 baris TANPA error. Kalau siswa yang
-  // belum selesai banyak (mis. 25 siswa x 40 soal = 1000+ baris), sebagian
-  // jawaban hilang diam-diam dan siswa tertentu dinilai 0 -- upsert di bawah
-  // memakai ignoreDuplicates sehingga nilai itu tidak terkoreksi otomatis.
-  // Sekarang: NIS dipecah per kelompok (URL .in() tidak membengkak), tiap
-  // kelompok diambil halaman demi halaman dengan urutan stabil (nis, soal_id;
-  // unik per sesi lewat UNIQUE(sesi_id, nis, soal_id)), dan error APA PUN
-  // menghentikan proses SEBELUM ada nilai yang ditulis.
-  const UKURAN_KELOMPOK_NIS = 100
-  const semuaJawaban: { nis: string; soal_id: string; jawaban: string }[] = []
-  for (let i = 0; i < perluDinilai.length; i += UKURAN_KELOMPOK_NIS) {
-    const kelompok = perluDinilai.slice(i, i + UKURAN_KELOMPOK_NIS)
-    const { data: baris, error: errJawaban } = await ambilSemuaBaris<{ nis: string; soal_id: string; jawaban: string }>(
-      (dari, sampai) =>
-        db.from('jawaban')
-          .select('nis, soal_id, jawaban')
-          .eq('sesi_id', sesiId)
-          .in('nis', kelompok)
-          .order('nis', { ascending: true })
-          .order('soal_id', { ascending: true })
-          .range(dari, sampai)
-    )
-    if (errJawaban) {
-      return {
-        ok: false,
-        jumlahDinilai: 0,
-        error: `Gagal membaca jawaban siswa (nilai tidak ditulis agar tidak salah 0): ${errJawaban.message}`,
-      }
+  // FIX (nilai 0 salah massal): sebelumnya query ini tanpa paginasi dan error-nya
+  // diabaikan. PostgREST memotong diam-diam di max_rows (default 1000), padahal
+  // satu kelas (mis. 36 siswa x 40 soal = 1440 baris) sudah melewatinya. Siswa
+  // yang barisnya terpotong dinilai 0 dengan catatan "tidak ada jawaban
+  // tersinkron", dan karena nilai ditulis dengan ignoreDuplicates, tidak bisa
+  // diperbaiki dengan menjalankan ulang. Sekarang dipaginasi dengan urutan
+  // stabil (nis, soal_id) dan kegagalan dilaporkan jujur ke pemanggil
+  // (sebelum satu pun nilai ditulis).
+  const { data: semuaJawaban, error: errJawaban } = await ambilSemuaBaris<{ nis: string; soal_id: string; jawaban: string }>(
+    (dari, sampai) => db
+      .from('jawaban')
+      .select('nis, soal_id, jawaban')
+      .eq('sesi_id', sesiId)
+      .in('nis', perluDinilai)
+      .order('nis', { ascending: true })
+      .order('soal_id', { ascending: true })
+      .range(dari, sampai)
+  )
+  if (errJawaban) {
+    return {
+      ok: false,
+      jumlahDinilai: 0,
+      error: `Gagal membaca jawaban siswa, nilai TIDAK dihitung agar tidak tertulis 0 secara salah: ${errJawaban.message}`,
     }
-    semuaJawaban.push(...baris)
   }
 
   const jawabanPerSiswa = new Map<string, { soal_id: string; jawaban: string }[]>()
@@ -191,11 +196,7 @@ export async function finalisasiNilaiPaksa(
     const jawabanSiswa = jawabanPerSiswa.get(nis) ?? []
     const { benar, total, nilai: nilaiAngka, grade, lulus } = hitungHasilPenilaian(jawabanSiswa, kunciMap, totalSoal, kkm)
 
-    const catatan = jenis === 'ULANG'
-      ? (jawabanSiswa.length > 0
-        ? 'Dinilai ulang otomatis oleh admin (finalisasi ulang) karena nilai siswa ini tidak tersimpan saat sesi ditutup. Nilai dihitung dari jawaban yang tersinkron ke server. Mohon ditinjau.'
-        : 'Dinilai ulang otomatis oleh admin (finalisasi ulang) karena nilai siswa ini tidak tersimpan saat sesi ditutup, dan TIDAK ADA jawaban yang tersinkron dari siswa ini. Mohon ditinjau, pertimbangkan kebijakan ujian susulan.')
-      : jawabanSiswa.length > 0
+    const catatan = jawabanSiswa.length > 0
       ? 'Dinilai otomatis oleh sistem — sesi ditutup paksa oleh pengawas sebelum siswa sempat menekan "Selesai" sendiri (kemungkinan jaringan terputus total). Nilai dihitung dari jawaban terakhir yang berhasil tersinkron ke server. Mohon ditinjau.'
       : 'Dinilai otomatis oleh sistem — sesi ditutup paksa dan TIDAK ADA jawaban yang berhasil tersinkron dari siswa ini (kemungkinan jaringan terputus sejak awal ujian). Mohon ditinjau, pertimbangkan kebijakan ujian susulan.'
 

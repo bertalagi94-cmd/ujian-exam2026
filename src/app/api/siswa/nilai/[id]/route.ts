@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
-import { requireRoleAktif } from '@/lib/status-akun'
+import { requireRole } from '@/lib/auth'
 import { petakanEssayAktifPerSesi } from '@/app/api/guru/kirim-nilai/route'
 import { hitungGrade } from '@/lib/utils'
 
@@ -13,7 +13,7 @@ import { hitungGrade } from '@/lib/utils'
 // sudah submit duluan tidak bisa membocorkan opsi yang benar ke temannya.
 export async function GET(req: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
-  const auth = await requireRoleAktif(req, ['SISWA'])
+  const auth = requireRole(req, ['SISWA'])
   if ('error' in auth) return auth.error
   const { user } = auth
   const db = tenantDb(yayasanIdDari(auth.user))
@@ -310,7 +310,12 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
         dijawab,
         jawaban_siswa: dijawab ? String(jawabanMap[s.id] ?? '').trim().toUpperCase() || null : null,
         kunci: s.kunci ? String(s.kunci).trim().toUpperCase() : null,
-        benar: dijawab && jawabanMap[s.id] === s.kunci,
+        // Samakan format dengan mesin penilaian (penilaian-ujian.ts): kunci &
+        // jawaban dibandingkan setelah trim + huruf besar, supaya rincian
+        // di sini selalu konsisten dengan nilai yang sudah tersimpan.
+        benar: dijawab
+          && String(jawabanMap[s.id] ?? '').trim().toUpperCase() !== ''
+          && String(jawabanMap[s.id] ?? '').trim().toUpperCase() === String(s.kunci ?? '').trim().toUpperCase(),
       }
     })
   }

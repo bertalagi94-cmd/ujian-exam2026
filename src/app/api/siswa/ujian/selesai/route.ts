@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
-import { requireRoleAktif } from '@/lib/status-akun'
+import { requireRole } from '@/lib/auth'
 import { generateId } from '@/lib/utils'
-import { ambilDataSesiUntukPenilaian, hitungHasilPenilaian, GagalMemuatDataPenilaian } from '@/lib/penilaian-ujian'
+import { ambilDataSesiUntukPenilaian, hitungHasilPenilaian } from '@/lib/penilaian-ujian'
 import { catatAktivitas } from '@/lib/aktivitas'
 import { klaimkanWaktu } from '@/lib/klaim-offline'
 import { hitungBatasWaktuPg, sudahKedaluwarsa } from '@/lib/deadline-pg'
 
 export async function POST(req: NextRequest) {
-  const auth = await requireRoleAktif(req, ['SISWA'])
+  const auth = requireRole(req, ['SISWA'])
   if ('error' in auth) return auth.error
   const { user } = auth
 
@@ -90,21 +90,18 @@ export async function POST(req: NextRequest) {
   // performa: ini query yang sama yang sudah di-cache 5 menit per sesi_id
   // (lihat komentar "FIX PERFORMA" di bawah), jadi memindahkannya ke sini
   // tidak menambah beban — cache-nya tetap dipakai bersama oleh semua siswa.
-  //
-  // FIX (nilai 0 permanen): kalau data penilaian gagal dimuat karena error
-  // database, JANGAN lanjut dengan sesiCache = null. Jalur di bawah akan
-  // memakai default (kkm 75, essayAktif=false) dan bisa membuka nilai PG
-  // terlalu dini atau menilai dengan kunci kosong. 500 diperlakukan klien
-  // sebagai kegagalan sementara, jadi outbox mengirim ulang otomatis.
+  // FIX: kalau data kunci/kkm GAGAL dibaca dari DB (bukan "sesi tidak ada"),
+  // jangan lanjut menilai — kunci kosong akan menulis nilai 0 permanen.
+  // 503 = galat sementara: klien (ujian-outbox) mencoba lagi otomatis, dan
+  // jawaban siswa tetap aman di DB & perangkat.
   let sesiCache: Awaited<ReturnType<typeof ambilDataSesiUntukPenilaian>>
   try {
     sesiCache = await ambilDataSesiUntukPenilaian(db, sesiId)
   } catch (e) {
-    if (!(e instanceof GagalMemuatDataPenilaian)) throw e
-    console.error('[selesai]', e.message)
+    console.error('[selesai] data penilaian gagal dibaca:', e instanceof Error ? e.message : e)
     return NextResponse.json(
-      { error: 'Gagal memuat data penilaian. Jawaban Anda aman, silakan coba lagi.' },
-      { status: 500 }
+      { error: 'Server sedang sibuk saat menyiapkan penilaian. Jawaban Anda aman, silakan coba lagi sebentar lagi.', sementara: true },
+      { status: 503 }
     )
   }
   const kkmUntukEarlyReturn = sesiCache?.kkm ?? 75
@@ -311,21 +308,8 @@ export async function POST(req: NextRequest) {
 
   // Jawaban siswa ini TETAP harus di-query per-siswa (berbeda untuk tiap
   // siswa, tidak bisa di-cache bersama).
-  //
-  // FIX (nilai 0 permanen): error query ini dulu diabaikan. Kalau gagal,
-  // jawabanSiswa = null -> benar = 0 -> nilai 0 disimpan lewat
-  // finalisasi_pg_atomik (yang memakai p_nilai apa adanya), dan panggilan
-  // berikutnya langsung kena early-return "nilai sudah ada" sehingga tidak
-  // pernah dihitung ulang. Sekarang dibalas 500 (sementara) tanpa menulis nilai.
-  const { data: jawabanSiswa, error: errJawaban } = await db
+  const { data: jawabanSiswa } = await db
     .from('jawaban').select('soal_id, jawaban').eq('sesi_id', sesiId).eq('nis', nis)
-  if (errJawaban) {
-    console.error('[selesai] gagal membaca jawaban siswa:', errJawaban.message)
-    return NextResponse.json(
-      { error: 'Gagal membaca jawaban Anda dari server. Jawaban aman, silakan coba lagi.' },
-      { status: 500 }
-    )
-  }
 
   // Hitung nilai — kunciMap sudah didapat dari cache di atas, tidak perlu
   // query soal lagi di sini.

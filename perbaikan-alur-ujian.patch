@@ -1,0 +1,319 @@
+diff --git a/src/app/api/siswa/nilai/[id]/route.ts b/src/app/api/siswa/nilai/[id]/route.ts
+index bb938cb..f3fd74b 100644
+--- a/src/app/api/siswa/nilai/[id]/route.ts
++++ b/src/app/api/siswa/nilai/[id]/route.ts
+@@ -310,7 +310,12 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
+         dijawab,
+         jawaban_siswa: dijawab ? String(jawabanMap[s.id] ?? '').trim().toUpperCase() || null : null,
+         kunci: s.kunci ? String(s.kunci).trim().toUpperCase() : null,
+-        benar: dijawab && jawabanMap[s.id] === s.kunci,
++        // Samakan format dengan mesin penilaian (penilaian-ujian.ts): kunci &
++        // jawaban dibandingkan setelah trim + huruf besar, supaya rincian
++        // di sini selalu konsisten dengan nilai yang sudah tersimpan.
++        benar: dijawab
++          && String(jawabanMap[s.id] ?? '').trim().toUpperCase() !== ''
++          && String(jawabanMap[s.id] ?? '').trim().toUpperCase() === String(s.kunci ?? '').trim().toUpperCase(),
+       }
+     })
+   }
+diff --git a/src/app/api/siswa/ujian/selesai/route.ts b/src/app/api/siswa/ujian/selesai/route.ts
+index 69ec490..7a37f39 100644
+--- a/src/app/api/siswa/ujian/selesai/route.ts
++++ b/src/app/api/siswa/ujian/selesai/route.ts
+@@ -90,7 +90,20 @@ export async function POST(req: NextRequest) {
+   // performa: ini query yang sama yang sudah di-cache 5 menit per sesi_id
+   // (lihat komentar "FIX PERFORMA" di bawah), jadi memindahkannya ke sini
+   // tidak menambah beban — cache-nya tetap dipakai bersama oleh semua siswa.
+-  const sesiCache = await ambilDataSesiUntukPenilaian(db, sesiId)
++  // FIX: kalau data kunci/kkm GAGAL dibaca dari DB (bukan "sesi tidak ada"),
++  // jangan lanjut menilai — kunci kosong akan menulis nilai 0 permanen.
++  // 503 = galat sementara: klien (ujian-outbox) mencoba lagi otomatis, dan
++  // jawaban siswa tetap aman di DB & perangkat.
++  let sesiCache: Awaited<ReturnType<typeof ambilDataSesiUntukPenilaian>>
++  try {
++    sesiCache = await ambilDataSesiUntukPenilaian(db, sesiId)
++  } catch (e) {
++    console.error('[selesai] data penilaian gagal dibaca:', e instanceof Error ? e.message : e)
++    return NextResponse.json(
++      { error: 'Server sedang sibuk saat menyiapkan penilaian. Jawaban Anda aman, silakan coba lagi sebentar lagi.', sementara: true },
++      { status: 503 }
++    )
++  }
+   const kkmUntukEarlyReturn = sesiCache?.kkm ?? 75
+ 
+   // FIX (fitur essay): sesi punya essay kalau info_json.essay_aktif = true
+diff --git a/src/lib/finalisasi-nilai.ts b/src/lib/finalisasi-nilai.ts
+index ac3b5e9..97e6a3b 100644
+--- a/src/lib/finalisasi-nilai.ts
++++ b/src/lib/finalisasi-nilai.ts
+@@ -25,6 +25,7 @@
+ import { createAdminClient } from '@/lib/supabase'
+ import { generateId } from '@/lib/utils'
+ import { ambilDataSesiUntukPenilaian, hitungHasilPenilaian } from '@/lib/penilaian-ujian'
++import { ambilSemuaBaris } from '@/lib/ambil-semua'
+ 
+ type DbClient = ReturnType<typeof createAdminClient>
+ 
+@@ -51,7 +52,18 @@ export async function finalisasiNilaiPaksa(
+ ): Promise<HasilFinalisasiPaksa> {
+   if (!nisList.length) return { ok: true, jumlahDinilai: 0 }
+ 
+-  const sesiCache = await ambilDataSesiUntukPenilaian(db, sesiId)
++  let sesiCache: Awaited<ReturnType<typeof ambilDataSesiUntukPenilaian>>
++  try {
++    sesiCache = await ambilDataSesiUntukPenilaian(db, sesiId)
++  } catch (e) {
++    // Data kunci/kkm gagal dibaca (bukan "sesi tidak ada"): JANGAN menilai —
++    // menilai dengan kunci kosong akan menulis nilai 0 permanen.
++    return {
++      ok: false,
++      jumlahDinilai: 0,
++      error: `Data kunci jawaban gagal dibaca, nilai TIDAK dihitung: ${e instanceof Error ? e.message : String(e)}`,
++    }
++  }
+   if (!sesiCache) {
+     return { ok: false, jumlahDinilai: 0, error: 'Data sesi untuk penilaian tidak ditemukan (ambilDataSesiUntukPenilaian mengembalikan null).' }
+   }
+@@ -90,11 +102,22 @@ export async function finalisasiNilaiPaksa(
+     // tidak bergantung pada perilaku NULL di operator NOT IN PostgREST/SQL —
+     // lebih eksplisit dan tidak diam-diam melewatkan baris dengan status
+     // essay yang belum pernah diisi.
+-    const { data: statusEssaySaatIni } = await db
+-      .from('siswa_ujian')
+-      .select('nis, status_essay')
+-      .eq('sesi_id', sesiId)
+-      .in('nis', nisList)
++    const { data: statusEssaySaatIni, error: errStatusEssay } = await ambilSemuaBaris<{ nis: string; status_essay: string | null }>(
++      (dari, sampai) => db
++        .from('siswa_ujian')
++        .select('nis, status_essay')
++        .eq('sesi_id', sesiId)
++        .in('nis', nisList)
++        .order('nis', { ascending: true })
++        .range(dari, sampai)
++    )
++    if (errStatusEssay) {
++      return {
++        ok: false,
++        jumlahDinilai: 0,
++        error: `Gagal membaca status_essay: ${errStatusEssay.message}`,
++      }
++    }
+     const nisPerluFinalisasiEssay = (statusEssaySaatIni ?? [])
+       .filter(s => s.status_essay !== 'SUDAH_KIRIM' && s.status_essay !== 'TIDAK_MENGERJAKAN')
+       .map(s => s.nis)
+@@ -117,23 +140,54 @@ export async function finalisasiNilaiPaksa(
+ 
+   // Jangan timpa siswa yang kebetulan sudah punya baris nilai (mis. sempat
+   // submit sendiri tepat sebelum sesi ditutup).
+-  const { data: nilaiAda } = await db
+-    .from('nilai')
+-    .select('nis')
+-    .eq('sesi_id', sesiId)
+-    .in('nis', nisList)
++  const { data: nilaiAda, error: errNilaiAda } = await ambilSemuaBaris<{ nis: string }>(
++    (dari, sampai) => db
++      .from('nilai')
++      .select('nis')
++      .eq('sesi_id', sesiId)
++      .in('nis', nisList)
++      .order('nis', { ascending: true })
++      .range(dari, sampai)
++  )
++  if (errNilaiAda) {
++    return {
++      ok: false,
++      jumlahDinilai: 0,
++      error: `Gagal memeriksa nilai yang sudah ada: ${errNilaiAda.message}`,
++    }
++  }
+   const sudahAdaSet = new Set((nilaiAda ?? []).map(n => n.nis))
+   const perluDinilai = nisList.filter(nis => !sudahAdaSet.has(nis))
+   if (!perluDinilai.length) return { ok: true, jumlahDinilai: 0 }
+ 
+-  const { data: semuaJawaban } = await db
+-    .from('jawaban')
+-    .select('nis, soal_id, jawaban')
+-    .eq('sesi_id', sesiId)
+-    .in('nis', perluDinilai)
++  // FIX (nilai 0 salah massal): sebelumnya query ini tanpa paginasi dan error-nya
++  // diabaikan. PostgREST memotong diam-diam di max_rows (default 1000), padahal
++  // satu kelas (mis. 36 siswa x 40 soal = 1440 baris) sudah melewatinya. Siswa
++  // yang barisnya terpotong dinilai 0 dengan catatan "tidak ada jawaban
++  // tersinkron", dan karena nilai ditulis dengan ignoreDuplicates, tidak bisa
++  // diperbaiki dengan menjalankan ulang. Sekarang dipaginasi dengan urutan
++  // stabil (nis, soal_id) dan kegagalan dilaporkan jujur ke pemanggil
++  // (sebelum satu pun nilai ditulis).
++  const { data: semuaJawaban, error: errJawaban } = await ambilSemuaBaris<{ nis: string; soal_id: string; jawaban: string }>(
++    (dari, sampai) => db
++      .from('jawaban')
++      .select('nis, soal_id, jawaban')
++      .eq('sesi_id', sesiId)
++      .in('nis', perluDinilai)
++      .order('nis', { ascending: true })
++      .order('soal_id', { ascending: true })
++      .range(dari, sampai)
++  )
++  if (errJawaban) {
++    return {
++      ok: false,
++      jumlahDinilai: 0,
++      error: `Gagal membaca jawaban siswa, nilai TIDAK dihitung agar tidak tertulis 0 secara salah: ${errJawaban.message}`,
++    }
++  }
+ 
+   const jawabanPerSiswa = new Map<string, { soal_id: string; jawaban: string }[]>()
+-  for (const j of semuaJawaban ?? []) {
++  for (const j of semuaJawaban) {
+     if (!jawabanPerSiswa.has(j.nis)) jawabanPerSiswa.set(j.nis, [])
+     jawabanPerSiswa.get(j.nis)!.push(j)
+   }
+diff --git a/src/lib/penilaian-ujian.ts b/src/lib/penilaian-ujian.ts
+index 158e226..0c642bd 100644
+--- a/src/lib/penilaian-ujian.ts
++++ b/src/lib/penilaian-ujian.ts
+@@ -12,6 +12,25 @@
+ 
+ import { SupabaseClient } from '@supabase/supabase-js'
+ import { cachedFetch } from '@/lib/cache'
++import { ambilSemuaBaris } from '@/lib/ambil-semua'
++
++/**
++ * Dilempar kalau data penilaian (kunci/kkm/jumlah soal) TIDAK bisa diambil
++ * dengan benar dari database. Sengaja dilempar (bukan mengembalikan data
++ * kosong) supaya cachedFetch TIDAK menyimpannya: hasil kosong yang ter-cache
++ * 5 menit membuat semua siswa yang submit pada rentang itu dinilai 0.
++ */
++export class DataPenilaianGagalError extends Error {
++  constructor(pesan: string) {
++    super(pesan)
++    this.name = 'DataPenilaianGagalError'
++  }
++}
++
++/** Samakan format huruf jawaban/kunci (spasi & huruf kecil/besar). */
++export function normalisasiHuruf(v: unknown): string {
++  return typeof v === 'string' ? v.trim().toUpperCase() : ''
++}
+ 
+ export interface DataSesiUntukPenilaian {
+   sesi: { mapel_id: string; kelas: string; durasi?: number; info_json?: Record<string, unknown> }
+@@ -70,22 +89,29 @@ export async function ambilDataSesiUntukPenilaian(
+     // resolusi lama supaya nilai yang sudah ada tidak rusak. Sesi BARU tidak
+     // akan pernah lewat jalur fallback ini karena /validasi selalu mengisi
+     // paket_soal_id begitu siswa pertama masuk.
+-    const { data: sesi } = await db
++    const { data: sesi, error: errSesi } = await db
+       .from('sesi_ujian')
+       .select('mapel_id, kelas, durasi, info_json, paket_soal_id')
+       .eq('id', sesiId)
+       .single()
++    // PGRST116 = baris tidak ada (sesi memang tidak ada -> null, bukan galat).
++    if (errSesi && errSesi.code !== 'PGRST116') {
++      throw new DataPenilaianGagalError(`gagal membaca sesi_ujian: ${errSesi.message}`)
++    }
+     if (!sesi) return null
+ 
+     let paketId: string | null = sesi.paket_soal_id ?? null
+     let jumlahSoalPaket: number | null = null
+ 
+     if (paketId) {
+-      const { data: paketRow } = await db
++      const { data: paketRow, error: errPaket } = await db
+         .from('paket_soal')
+         .select('jumlah_soal')
+         .eq('id', paketId)
+         .maybeSingle()
++      if (errPaket) {
++        throw new DataPenilaianGagalError(`gagal membaca paket_soal: ${errPaket.message}`)
++      }
+       jumlahSoalPaket = paketRow?.jumlah_soal ?? null
+     } else {
+       // FALLBACK (sesi lama tanpa snapshot) — resolusi lama berdasarkan
+@@ -111,7 +137,7 @@ export async function ambilDataSesiUntukPenilaian(
+       jumlahSoalPaket = paketData?.jumlah_soal ?? null
+     }
+ 
+-    const [{ data: mapel }, { count: totalSoalCount }, { data: soalList }] = await Promise.all([
++    const [mapelRes, countRes, soalRes] = await Promise.all([
+       db.from('mapel').select('kkm').eq('id', sesi.mapel_id).single(),
+       db.from('soal')
+         .select('*', { count: 'exact', head: true })
+@@ -122,18 +148,55 @@ export async function ambilDataSesiUntukPenilaian(
+       // berdasarkan soal yang dia jawab) — supaya satu hasil cache ini bisa
+       // dipakai untuk menghitung nilai siswa MANAPUN di sesi ini, bukan cuma
+       // siswa yang memicu query pertama kali.
+-      db.from('soal')
+-        .select('id, kunci')
+-        .eq('mapel_id', sesi.mapel_id)
+-        .eq('paket_id', paketId ?? '')
+-        .eq('status', 'DISETUJUI'),
++      // Dipaginasi (ambilSemuaBaris) karena PostgREST memotong diam-diam di
++      // max_rows (default 1000).
++      ambilSemuaBaris<{ id: string; kunci: string }>((dari, sampai) =>
++        db.from('soal')
++          .select('id, kunci')
++          .eq('mapel_id', sesi.mapel_id)
++          .eq('paket_id', paketId ?? '')
++          .eq('status', 'DISETUJUI')
++          .order('id', { ascending: true })
++          .range(dari, sampai)
++      ),
+     ])
+ 
++    // FIX (nilai 0 massal akibat error sesaat di-cache): sebelumnya error ketiga
++    // query ini TIDAK dicek. Kalau salah satu gagal (timeout / lonjakan beban
++    // saat banyak siswa submit), `data` bernilai null -> kunciMap {} -> hasil
++    // kosong itu ikut di-cache 5 menit dan SEMUA siswa yang submit pada
++    // rentang itu dinilai 0 secara permanen. Sekarang galat dilempar sehingga
++    // cachedFetch tidak menyimpan apa pun; pemanggil memutuskan retry/gagal.
++    // mapel: PGRST116 (baris tidak ada) tetap boleh -> kkm default 75.
++    if (mapelRes.error && mapelRes.error.code !== 'PGRST116') {
++      throw new DataPenilaianGagalError(`gagal membaca mapel: ${mapelRes.error.message}`)
++    }
++    if (countRes.error) {
++      throw new DataPenilaianGagalError(`gagal menghitung soal paket: ${countRes.error.message}`)
++    }
++    if (soalRes.error) {
++      throw new DataPenilaianGagalError(`gagal membaca kunci soal: ${soalRes.error.message}`)
++    }
++
++    const kunciMap: Record<string, string> = Object.fromEntries(
++      soalRes.data.map(s => [s.id, normalisasiHuruf(s.kunci)])
++    )
++    const totalSoal = countRes.count ?? jumlahSoalPaket ?? 0
++
++    // Pengaman anomali: paket diketahui & punya soal, tapi tidak satu pun kunci
++    // terbaca. Hampir pasti pembacaan gagal/tidak lengkap, bukan kenyataan —
++    // jangan dijadikan dasar menilai (dan jangan di-cache).
++    if (paketId && totalSoal > 0 && Object.keys(kunciMap).length === 0) {
++      throw new DataPenilaianGagalError(
++        `kunci soal kosong untuk paket ${paketId} padahal totalSoal=${totalSoal}`
++      )
++    }
++
+     return {
+       sesi,
+-      kkm: mapel?.kkm ?? 75,
+-      totalSoal: totalSoalCount ?? jumlahSoalPaket ?? 0,
+-      kunciMap: Object.fromEntries((soalList ?? []).map((s: { id: string; kunci: string }) => [s.id, s.kunci])) as Record<string, string>,
++      kkm: mapelRes.data?.kkm ?? 75,
++      totalSoal,
++      kunciMap,
+     }
+   })
+ }
+@@ -162,7 +225,12 @@ export function hitungHasilPenilaian(
+ 
+   if (jawabanSiswa?.length) {
+     for (const j of jawabanSiswa) {
+-      if (j.jawaban && kunciMap[j.soal_id] === j.jawaban) benar++
++      // Bandingkan dalam format yang sama (kunci sudah dinormalisasi di
++      // ambilDataSesiUntukPenilaian; jawaban dinormalisasi di sini) supaya
++      // data lama/hasil restore berhuruf kecil atau berspasi tidak
++      // otomatis dinilai salah.
++      const jwb = normalisasiHuruf(j.jawaban)
++      if (jwb && kunciMap[j.soal_id] === jwb) benar++
+     }
+   }
+ 

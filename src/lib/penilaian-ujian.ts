@@ -11,7 +11,26 @@
 // sekali dibanding versi sebelumnya, hanya dipindahkan.
 
 import { SupabaseClient } from '@supabase/supabase-js'
-import { cacheGet, cacheSet } from '@/lib/cache'
+import { cachedFetch } from '@/lib/cache'
+import { ambilSemuaBaris } from '@/lib/ambil-semua'
+
+/**
+ * Dilempar kalau data penilaian (kunci/kkm/jumlah soal) TIDAK bisa diambil
+ * dengan benar dari database. Sengaja dilempar (bukan mengembalikan data
+ * kosong) supaya cachedFetch TIDAK menyimpannya: hasil kosong yang ter-cache
+ * 5 menit membuat semua siswa yang submit pada rentang itu dinilai 0.
+ */
+export class DataPenilaianGagalError extends Error {
+  constructor(pesan: string) {
+    super(pesan)
+    this.name = 'DataPenilaianGagalError'
+  }
+}
+
+/** Samakan format huruf jawaban/kunci (spasi & huruf kecil/besar). */
+export function normalisasiHuruf(v: unknown): string {
+  return typeof v === 'string' ? v.trim().toUpperCase() : ''
+}
 
 export interface DataSesiUntukPenilaian {
   sesi: { mapel_id: string; kelas: string; durasi?: number; info_json?: Record<string, unknown> }
@@ -19,22 +38,6 @@ export interface DataSesiUntukPenilaian {
   totalSoal: number
   kunciMap: Record<string, string>
 }
-
-/**
- * Dilempar kalau data penilaian GAGAL dimuat karena error database (bukan
- * karena sesinya memang tidak ada). Pemanggil WAJIB memperlakukan ini sebagai
- * kegagalan sementara (mis. HTTP 500 agar klien mencoba lagi) dan TIDAK boleh
- * lanjut menghitung nilai: kunciMap yang kosong akibat error akan membuat
- * semua jawaban dianggap salah dan nilai 0 tersimpan permanen.
- */
-export class GagalMemuatDataPenilaian extends Error {
-  constructor(bagian: string, detail: string) {
-    super(`Gagal memuat data penilaian (${bagian}): ${detail}`)
-    this.name = 'GagalMemuatDataPenilaian'
-  }
-}
-
-const KODE_BARIS_TIDAK_ADA = 'PGRST116'
 
 /**
  * Ambil data yang dibutuhkan untuk menilai ujian pada suatu sesi: kkm mapel,
@@ -55,139 +58,147 @@ export async function ambilDataSesiUntukPenilaian(
   db: SupabaseClient<any>,
   sesiId: string
 ): Promise<DataSesiUntukPenilaian | null> {
-  const kunciCache = `selesai:sesi:${sesiId}`
-  const hit = cacheGet<DataSesiUntukPenilaian>(kunciCache)
-  if (hit) return hit
-
-  const data = await muatDataSesiUntukPenilaian(db, sesiId)
-
-  // FIX: hanya simpan di cache kalau kunci jawaban benar-benar terisi.
-  // Hasil dengan kunciMap kosong (paket belum punya soal DISETUJUI, dsb.)
-  // tidak boleh bertahan 5 menit dan dipakai menilai semua siswa di sesi ini.
-  if (data && Object.keys(data.kunciMap).length > 0) {
-    cacheSet(kunciCache, data, 300)
-  }
-  return data
-}
-
-async function muatDataSesiUntukPenilaian(
-  db: SupabaseClient<any>,
-  sesiId: string
-): Promise<DataSesiUntukPenilaian | null> {
-  // FIX (fitur essay): tambah info_json ke select supaya caller (terutama
-  // selesai/route.ts) bisa tahu apakah sesi ini punya essay
-  // (info_json.essay_aktif) tanpa query terpisah — data ini statis untuk
-  // sesi yang sama jadi aman ikut di-cache 5 menit bersama field lain.
-  //
-  // FIX ARSITEKTUR KRITIS (soal yang dikerjakan siswa != kunci yang dipakai
-  // menilai): sebelumnya fungsi ini SELALU mencari ulang paket_soal
-  // berstatus DISETUJUI pada saat endpoint /selesai atau finalisasi paksa
-  // dipanggil — bukan paket yang BENAR-BENAR diberikan ke siswa saat mulai
-  // ujian (lihat validasi/route.ts). Kalau status paket berubah di antara
-  // "siswa mulai ujian" dan "nilai dihitung" (mis. admin membatalkan
-  // approval, atau — walau sudah dicegah cekSesiMapelKelasSudahMulai() di
-  // hampir semua jalur — ada celah lain), kunci yang dipakai menilai bisa
-  // berasal dari paket yang BERBEDA dari soal yang dikerjakan siswa,
-  // sehingga soal_id tidak pernah cocok dan nilai siswa salah total
-  // (biasanya jadi 0 walau jawabannya benar).
-  //
-  // FIX: sekarang membaca paket_soal_id yang SUDAH DI-SNAPSHOT ke
-  // sesi_ujian oleh /api/siswa/ujian/validasi (lihat FIX di sana) saat
-  // siswa pertama masuk sesi ini, dan SELALU memakai ID itu sepanjang
-  // sesi — tidak pernah mencari ulang berdasarkan status DISETUJUI untuk
-  // sesi yang sudah punya snapshot ini.
-  //
-  // FALLBACK KOMPATIBILITAS: sesi yang dibuat SEBELUM migrasi
-  // 14_snapshot_paket_dan_transaksi_atomik.sql belum punya paket_soal_id
-  // tersimpan (kolom masih NULL) — untuk sesi seperti itu (seharusnya
-  // sudah SELESAI semua per saat migrasi dijalankan), tetap dipakai
-  // resolusi lama supaya nilai yang sudah ada tidak rusak. Sesi BARU tidak
-  // akan pernah lewat jalur fallback ini karena /validasi selalu mengisi
-  // paket_soal_id begitu siswa pertama masuk.
-  const { data: sesi, error: errSesi } = await db
-    .from('sesi_ujian')
-    .select('mapel_id, kelas, durasi, info_json, paket_soal_id')
-    .eq('id', sesiId)
-    .single()
-  if (errSesi && errSesi.code !== KODE_BARIS_TIDAK_ADA) {
-    throw new GagalMemuatDataPenilaian('sesi', errSesi.message)
-  }
-  if (!sesi) return null
-
-  let paketId: string | null = sesi.paket_soal_id ?? null
-  let jumlahSoalPaket: number | null = null
-
-  if (paketId) {
-    const { data: paketRow, error: errPaketRow } = await db
-      .from('paket_soal')
-      .select('jumlah_soal')
-      .eq('id', paketId)
-      .maybeSingle()
-    if (errPaketRow) throw new GagalMemuatDataPenilaian('paket_soal', errPaketRow.message)
-    jumlahSoalPaket = paketRow?.jumlah_soal ?? null
-  } else {
-    // FALLBACK (sesi lama tanpa snapshot) — resolusi lama berdasarkan
-    // status DISETUJUI saat ini. FIX: sesi.kelas = nama kelas, tapi
-    // paket_soal.kelas_id = ID dari tabel kelas.
-    const { data: kelasRow, error: errKelas } = await db
-      .from('kelas')
-      .select('id')
-      .eq('nama', String(sesi.kelas))
-      .maybeSingle()
-    if (errKelas) throw new GagalMemuatDataPenilaian('kelas', errKelas.message)
-    const kelasId = kelasRow?.id ?? String(sesi.kelas)
-
-    const { data: paketData, error: errPaket } = await db
-      .from('paket_soal')
-      .select('id, jumlah_soal')
-      .eq('mapel_id', sesi.mapel_id)
-      .eq('kelas_id', kelasId)
-      .eq('status', 'DISETUJUI')
-      .limit(1)
+  return cachedFetch(`selesai:sesi:${sesiId}`, 300, async () => {
+    // FIX (fitur essay): tambah info_json ke select supaya caller (terutama
+    // selesai/route.ts) bisa tahu apakah sesi ini punya essay
+    // (info_json.essay_aktif) tanpa query terpisah — data ini statis untuk
+    // sesi yang sama jadi aman ikut di-cache 5 menit bersama field lain.
+    //
+    // FIX ARSITEKTUR KRITIS (soal yang dikerjakan siswa != kunci yang dipakai
+    // menilai): sebelumnya fungsi ini SELALU mencari ulang paket_soal
+    // berstatus DISETUJUI pada saat endpoint /selesai atau finalisasi paksa
+    // dipanggil — bukan paket yang BENAR-BENAR diberikan ke siswa saat mulai
+    // ujian (lihat validasi/route.ts). Kalau status paket berubah di antara
+    // "siswa mulai ujian" dan "nilai dihitung" (mis. admin membatalkan
+    // approval, atau — walau sudah dicegah cekSesiMapelKelasSudahMulai() di
+    // hampir semua jalur — ada celah lain), kunci yang dipakai menilai bisa
+    // berasal dari paket yang BERBEDA dari soal yang dikerjakan siswa,
+    // sehingga soal_id tidak pernah cocok dan nilai siswa salah total
+    // (biasanya jadi 0 walau jawabannya benar).
+    //
+    // FIX: sekarang membaca paket_soal_id yang SUDAH DI-SNAPSHOT ke
+    // sesi_ujian oleh /api/siswa/ujian/validasi (lihat FIX di sana) saat
+    // siswa pertama masuk sesi ini, dan SELALU memakai ID itu sepanjang
+    // sesi — tidak pernah mencari ulang berdasarkan status DISETUJUI untuk
+    // sesi yang sudah punya snapshot ini.
+    //
+    // FALLBACK KOMPATIBILITAS: sesi yang dibuat SEBELUM migrasi
+    // 14_snapshot_paket_dan_transaksi_atomik.sql belum punya paket_soal_id
+    // tersimpan (kolom masih NULL) — untuk sesi seperti itu (seharusnya
+    // sudah SELESAI semua per saat migrasi dijalankan), tetap dipakai
+    // resolusi lama supaya nilai yang sudah ada tidak rusak. Sesi BARU tidak
+    // akan pernah lewat jalur fallback ini karena /validasi selalu mengisi
+    // paket_soal_id begitu siswa pertama masuk.
+    const { data: sesi, error: errSesi } = await db
+      .from('sesi_ujian')
+      .select('mapel_id, kelas, durasi, info_json, paket_soal_id')
+      .eq('id', sesiId)
       .single()
-    if (errPaket && errPaket.code !== KODE_BARIS_TIDAK_ADA) {
-      throw new GagalMemuatDataPenilaian('paket_soal (fallback)', errPaket.message)
+    // PGRST116 = baris tidak ada (sesi memang tidak ada -> null, bukan galat).
+    if (errSesi && errSesi.code !== 'PGRST116') {
+      throw new DataPenilaianGagalError(`gagal membaca sesi_ujian: ${errSesi.message}`)
+    }
+    if (!sesi) return null
+
+    let paketId: string | null = sesi.paket_soal_id ?? null
+    let jumlahSoalPaket: number | null = null
+
+    if (paketId) {
+      const { data: paketRow, error: errPaket } = await db
+        .from('paket_soal')
+        .select('jumlah_soal')
+        .eq('id', paketId)
+        .maybeSingle()
+      if (errPaket) {
+        throw new DataPenilaianGagalError(`gagal membaca paket_soal: ${errPaket.message}`)
+      }
+      jumlahSoalPaket = paketRow?.jumlah_soal ?? null
+    } else {
+      // FALLBACK (sesi lama tanpa snapshot) — resolusi lama berdasarkan
+      // status DISETUJUI saat ini. FIX: sesi.kelas = nama kelas, tapi
+      // paket_soal.kelas_id = ID dari tabel kelas.
+      const { data: kelasRow } = await db
+        .from('kelas')
+        .select('id')
+        .eq('nama', String(sesi.kelas))
+        .maybeSingle()
+      const kelasId = kelasRow?.id ?? String(sesi.kelas)
+
+      const { data: paketData } = await db
+        .from('paket_soal')
+        .select('id, jumlah_soal')
+        .eq('mapel_id', sesi.mapel_id)
+        .eq('kelas_id', kelasId)
+        .eq('status', 'DISETUJUI')
+        .limit(1)
+        .single()
+
+      paketId = paketData?.id ?? null
+      jumlahSoalPaket = paketData?.jumlah_soal ?? null
     }
 
-    paketId = paketData?.id ?? null
-    jumlahSoalPaket = paketData?.jumlah_soal ?? null
-  }
+    const [mapelRes, countRes, soalRes] = await Promise.all([
+      db.from('mapel').select('kkm').eq('id', sesi.mapel_id).single(),
+      db.from('soal')
+        .select('*', { count: 'exact', head: true })
+        .eq('mapel_id', sesi.mapel_id)
+        .eq('status', 'DISETUJUI')
+        .eq('paket_id', paketId ?? ''),
+      // Ambil kunci SEMUA soal di paket ini sekaligus (bukan per-siswa
+      // berdasarkan soal yang dia jawab) — supaya satu hasil cache ini bisa
+      // dipakai untuk menghitung nilai siswa MANAPUN di sesi ini, bukan cuma
+      // siswa yang memicu query pertama kali.
+      // Dipaginasi (ambilSemuaBaris) karena PostgREST memotong diam-diam di
+      // max_rows (default 1000).
+      ambilSemuaBaris<{ id: string; kunci: string }>((dari, sampai) =>
+        db.from('soal')
+          .select('id, kunci')
+          .eq('mapel_id', sesi.mapel_id)
+          .eq('paket_id', paketId ?? '')
+          .eq('status', 'DISETUJUI')
+          .order('id', { ascending: true })
+          .range(dari, sampai)
+      ),
+    ])
 
-  const [
-    { data: mapel, error: errMapel },
-    { count: totalSoalCount, error: errCount },
-    { data: soalList, error: errSoal },
-  ] = await Promise.all([
-    db.from('mapel').select('kkm').eq('id', sesi.mapel_id).single(),
-    db.from('soal')
-      .select('*', { count: 'exact', head: true })
-      .eq('mapel_id', sesi.mapel_id)
-      .eq('status', 'DISETUJUI')
-      .eq('paket_id', paketId ?? ''),
-    // Ambil kunci SEMUA soal di paket ini sekaligus (bukan per-siswa
-    // berdasarkan soal yang dia jawab) — supaya satu hasil cache ini bisa
-    // dipakai untuk menghitung nilai siswa MANAPUN di sesi ini, bukan cuma
-    // siswa yang memicu query pertama kali.
-    db.from('soal')
-      .select('id, kunci')
-      .eq('mapel_id', sesi.mapel_id)
-      .eq('paket_id', paketId ?? '')
-      .eq('status', 'DISETUJUI'),
-  ])
+    // FIX (nilai 0 massal akibat error sesaat di-cache): sebelumnya error ketiga
+    // query ini TIDAK dicek. Kalau salah satu gagal (timeout / lonjakan beban
+    // saat banyak siswa submit), `data` bernilai null -> kunciMap {} -> hasil
+    // kosong itu ikut di-cache 5 menit dan SEMUA siswa yang submit pada
+    // rentang itu dinilai 0 secara permanen. Sekarang galat dilempar sehingga
+    // cachedFetch tidak menyimpan apa pun; pemanggil memutuskan retry/gagal.
+    // mapel: PGRST116 (baris tidak ada) tetap boleh -> kkm default 75.
+    if (mapelRes.error && mapelRes.error.code !== 'PGRST116') {
+      throw new DataPenilaianGagalError(`gagal membaca mapel: ${mapelRes.error.message}`)
+    }
+    if (countRes.error) {
+      throw new DataPenilaianGagalError(`gagal menghitung soal paket: ${countRes.error.message}`)
+    }
+    if (soalRes.error) {
+      throw new DataPenilaianGagalError(`gagal membaca kunci soal: ${soalRes.error.message}`)
+    }
 
-  // FIX: sebelumnya error ketiga query di atas diabaikan. Gangguan sesaat
-  // membuat soalList = null -> kunciMap kosong -> SEMUA siswa yang submit
-  // selama hasil itu tersimpan di cache dinilai 0 secara permanen.
-  if (errMapel && errMapel.code !== KODE_BARIS_TIDAK_ADA) throw new GagalMemuatDataPenilaian('mapel', errMapel.message)
-  if (errCount) throw new GagalMemuatDataPenilaian('jumlah soal', errCount.message)
-  if (errSoal) throw new GagalMemuatDataPenilaian('kunci soal', errSoal.message)
+    const kunciMap: Record<string, string> = Object.fromEntries(
+      soalRes.data.map(s => [s.id, normalisasiHuruf(s.kunci)])
+    )
+    const totalSoal = countRes.count ?? jumlahSoalPaket ?? 0
 
-  return {
-    sesi,
-    kkm: mapel?.kkm ?? 75,
-    totalSoal: totalSoalCount ?? jumlahSoalPaket ?? 0,
-    kunciMap: Object.fromEntries((soalList ?? []).map((s: { id: string; kunci: string }) => [s.id, s.kunci])) as Record<string, string>,
-  }
+    // Pengaman anomali: paket diketahui & punya soal, tapi tidak satu pun kunci
+    // terbaca. Hampir pasti pembacaan gagal/tidak lengkap, bukan kenyataan —
+    // jangan dijadikan dasar menilai (dan jangan di-cache).
+    if (paketId && totalSoal > 0 && Object.keys(kunciMap).length === 0) {
+      throw new DataPenilaianGagalError(
+        `kunci soal kosong untuk paket ${paketId} padahal totalSoal=${totalSoal}`
+      )
+    }
+
+    return {
+      sesi,
+      kkm: mapelRes.data?.kkm ?? 75,
+      totalSoal,
+      kunciMap,
+    }
+  })
 }
 
 export interface HasilPenilaian {
@@ -214,7 +225,12 @@ export function hitungHasilPenilaian(
 
   if (jawabanSiswa?.length) {
     for (const j of jawabanSiswa) {
-      if (j.jawaban && kunciMap[j.soal_id] === j.jawaban) benar++
+      // Bandingkan dalam format yang sama (kunci sudah dinormalisasi di
+      // ambilDataSesiUntukPenilaian; jawaban dinormalisasi di sini) supaya
+      // data lama/hasil restore berhuruf kecil atau berspasi tidak
+      // otomatis dinilai salah.
+      const jwb = normalisasiHuruf(j.jawaban)
+      if (jwb && kunciMap[j.soal_id] === jwb) benar++
     }
   }
 
