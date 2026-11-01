@@ -30,7 +30,22 @@ export async function POST(req: NextRequest) {
   return instrumented('validasi_ujian', async () => {
 
   const db = tenantDb(yayasanIdDari(auth.user))
-  const { kodeSesi, nis, deviceId } = await req.json()
+
+  // FIX (request cacat jatuh 500): sebelumnya `await req.json()` tanpa
+  // penjaga lalu `kodeSesi.toUpperCase()` di bawah. Body bukan JSON, tanpa
+  // kodeSesi, atau kodeSesi bukan string (mis. angka) melempar exception →
+  // 500, yang mengotori log & metrik error padahal ini kesalahan pemanggil
+  // (4xx). Pola yang sama dengan sync/route.ts dan selesai/route.ts. Klien
+  // resmi selalu mengirim kodeSesi string, jadi alur siswa tidak berubah.
+  const body = await req.json().catch(() => null) as
+    { kodeSesi?: unknown; nis?: unknown; deviceId?: unknown } | null
+  if (!body || typeof body !== 'object' || typeof body.kodeSesi !== 'string') {
+    return NextResponse.json(
+      { valid: false, error: 'Body request tidak valid', message: 'Permintaan tidak valid. Muat ulang halaman dan coba lagi.' },
+      { status: 400 }
+    )
+  }
+  const { kodeSesi, nis, deviceId } = body as { kodeSesi: string; nis?: any; deviceId?: any }
 
   if (nis !== user.nis) return NextResponse.json({ valid: false, message: 'NISN tidak sesuai' })
 
