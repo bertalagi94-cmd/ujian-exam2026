@@ -23,7 +23,7 @@
 //     dipanggil berulang atau bersamaan.
 
 import { createAdminClient } from '@/lib/supabase'
-import { ambilDataSesiUntukPenilaian, hitungHasilPenilaian, GagalMemuatDataPenilaian } from '@/lib/penilaian-ujian'
+import { ambilDataSesiUntukPenilaian, hitungHasilPenilaian, DataPenilaianGagalError } from '@/lib/penilaian-ujian'
 import { ambilSemuaBaris } from '@/lib/ambil-semua'
 
 type DbClient = ReturnType<typeof createAdminClient>
@@ -61,12 +61,12 @@ export async function hitungUlangNilaiPgSetelahSusulan(
   if (!nilaiRow) return { hasil: 'NILAI_BELUM_ADA' }
 
   // 2) Data penilaian sesi (kunci jawaban, KKM, total soal) -- gagal DB tidak
-  //    boleh jatuh jadi nilai 0 (lihat GagalMemuatDataPenilaian).
+  //    boleh jatuh jadi nilai 0 (lihat DataPenilaianGagalError).
   let dataSesi: Awaited<ReturnType<typeof ambilDataSesiUntukPenilaian>>
   try {
     dataSesi = await ambilDataSesiUntukPenilaian(db, sesiId)
   } catch (e) {
-    if (!(e instanceof GagalMemuatDataPenilaian)) throw e
+    if (!(e instanceof DataPenilaianGagalError)) throw e
     return { hasil: 'GAGAL', error: e.message }
   }
   if (!dataSesi) return { hasil: 'GAGAL', error: 'Data sesi untuk penilaian tidak ditemukan.' }
