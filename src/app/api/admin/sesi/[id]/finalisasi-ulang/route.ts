@@ -113,7 +113,7 @@ export async function POST(req: NextRequest, props: Ctx) {
     })
   }
 
-  const final = await finalisasiNilaiPaksa(db, sesiId, hasil.tanpaNilai, { jenis: 'ULANG' })
+  const final = await finalisasiNilaiPaksa(db, sesiId, hasil.tanpaNilai)
 
   if (!final.ok) {
     // Tidak ada nilai yang ditulis (finalisasiNilaiPaksa berhenti sebelum
