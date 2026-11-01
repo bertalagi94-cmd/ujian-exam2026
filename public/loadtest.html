@@ -304,7 +304,7 @@
       </div>
       <div class="field">
         <label>Password Admin</label>
-        <input id="cfg-admin-pass" type="password" value="admin123" />
+        <input id="cfg-admin-pass" type="password" value="" autocomplete="off" placeholder="masukkan sandi admin" />
       </div>
     </div>
     <div class="row" style="margin-top:10px">
@@ -335,8 +335,8 @@
       <div class="field">
         <label>Cara siswa masuk ujian (tahap validasi)</label>
         <select id="cfg-masuk">
-          <option value="bertahap" selected>Bertahap (sama seperti kecepatan di atas)</option>
-          <option value="serentak">Serentak — gelombang 100 siswa tanpa jeda (meniru semua menekan "Masuk Ujian" bersamaan)</option>
+          <option value="bertahap">Bertahap (sama seperti kecepatan di atas)</option>
+          <option value="serentak" selected>Serentak — mode Terpercaya: SEMUA siswa sekaligus; mode Lama: gelombang 100 tanpa jeda</option>
         </select>
       </div>
       <div class="field">
@@ -344,6 +344,37 @@
         <select id="cfg-polling">
           <option value="realistis" selected>Realistis — tiap siswa polling di waktu acak dalam jendela 10 dtk (seperti aplikasi asli)</option>
           <option value="burst">Burst — semua siswa tepat bersamaan (skenario terburuk, angka latensi akan membengkak)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Mode simulasi ujian</label>
+        <select id="cfg-mode-ujian">
+          <option value="terpercaya" selected>Terpercaya — submit serentak sungguhan, sync berkala, verifikasi nilai ke database, vonis LAYAK/BELUM</option>
+          <option value="lama">Lama — bertahap (hanya pembanding, TANPA vonis)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Login serentak penuh (semua siswa pada detik yang sama)</label>
+        <select id="cfg-login-penuh">
+          <option value="ya" selected>Ya (skenario terburuk jam masuk)</option>
+          <option value="tidak">Tidak</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Siklus sync berkala (autosave)</label>
+        <input id="cfg-sync-siklus" type="number" value="6" min="1" max="60" />
+      </div>
+      <div class="field">
+        <label>Jarak antar siklus sync (detik)</label>
+        <input id="cfg-sync-interval" type="number" value="5" min="1" max="60" />
+      </div>
+      <div class="field">
+        <label>Porsi siswa yang ditutup paksa saat masih aktif (%)</label>
+        <select id="cfg-porsi-tutup">
+          <option value="0">0</option>
+          <option value="20">20</option>
+          <option value="30" selected>30</option>
+          <option value="50">50</option>
         </select>
       </div>
     </div>
@@ -378,6 +409,12 @@
       </thead>
       <tbody id="ramp-tbody"></tbody>
     </table>
+  </div>
+
+  <!-- ============ VONIS KELAYAKAN ============ -->
+  <div class="panel" id="verdict-panel" style="display:none">
+    <h2>⚖ Vonis Kelayakan</h2>
+    <div id="verdict-body"></div>
   </div>
 
   <!-- ============ UNDUH LAPORAN ============ -->
@@ -583,6 +620,7 @@ const PHASES = [
   { key: 'exam',    label: '5. Simulasi Ujian' },
   { key: 'features',label: '6. Fitur Lain' },
   { key: 'smart',   label: '7. ⚡ Smart Detection' },
+  { key: 'verif',   label: '7b. Verifikasi Nilai' },
   { key: 'report',  label: '8. Laporan' },
 ];
 
@@ -2087,6 +2125,7 @@ async function phaseFeatures() {
   // di BODY (bukan path param) — server juga memverifikasi bahwa guru
   // pemanggil memang pengawas sesi ini (lihat verifySesiOwnership).
   const tutup = await api('POST', '/api/guru/mode-pengawas/tutup', { sesiId: state.sesiId }, state.guruToken);
+  state.hasilTutupSesi = tutup;
   if (!tutup.ok) recordBug('Gagal menutup sesi ujian', JSON.stringify(tutup.data), 'POST /api/guru/mode-pengawas/tutup');
   else log('Sesi ujian ditutup: OK', 'ok');
 
@@ -2802,6 +2841,453 @@ async function phaseSmartDetection() {
 // =====================================================================
 // FASE 8 — LAPORAN AKHIR
 // =====================================================================
+// =====================================================================
+// MODE UJIAN TERPERCAYA (ditambahkan) — submit serentak SUNGGUHAN, sync
+// berkala, baca-ulang jawaban, verifikasi nilai langsung dari database
+// (lewat GET /api/admin/nilai), tutup paksa saat siswa masih aktif, dan
+// VONIS otomatis dengan ambang tegas.
+//
+// Prinsip: tes ini TIDAK percaya pada "HTTP 200". Setiap siswa diberi
+// rencana jawaban deterministik (jumlah benar sudah diketahui), sehingga
+// nilai yang seharusnya tersimpan bisa dihitung di sisi tes lalu dicocokkan
+// dengan nilai yang benar-benar ada di database.
+// =====================================================================
+const AMBANG = {
+  loginGagalPertamaMaksPersen: 5,   // login serentak penuh, percobaan pertama
+  syncP95Ms: 3000,
+  submitGagalPertamaMaksPersen: 2,  // submit serentak, percobaan pertama
+  submitP95Ms: 8000,
+  minSiswaTerverifikasi: 20,        // populasi yang nilainya dicocokkan
+  skalaPenuhMin: 450,               // di bawah ini vonis maksimal "LULUS PARSIAL"
+  lagBrowserMaksMs: 1000,           // event-loop browser penguji
+};
+
+const HURUF_JAWAB = ['A', 'B', 'C', 'D'];
+
+function cfgNum(id, def) {
+  const el = document.getElementById(id);
+  const n = el ? parseInt(el.value, 10) : NaN;
+  return Number.isFinite(n) ? n : def;
+}
+
+function ringkasLatensi(arr) {
+  const a = (arr || []).filter(x => typeof x === 'number' && isFinite(x));
+  if (!a.length) return { n: 0, avg: 0, p95: 0, max: 0 };
+  return { n: a.length, avg: a.reduce((x, y) => x + y, 0) / a.length, p95: percentile(a, 95), max: Math.max(...a) };
+}
+
+// Kunci soal testing dibuat di phaseSoal(): soal nomor i berkunci HURUF[i % 4].
+function kunciDariTeks(teks) {
+  const m = /nomor\s+(\d+)/i.exec(teks || '');
+  return m ? HURUF_JAWAB[parseInt(m[1], 10) % 4] : null;
+}
+
+// Pemantau "lag" event-loop browser penguji. Kalau browser penguji sendiri
+// macet, latensi yang terukur membengkak karena penguji, bukan karena server.
+function mulaiPantauLag() {
+  const s = { max: 0, last: performance.now(), timer: null };
+  s.timer = setInterval(() => {
+    const now = performance.now();
+    const lag = now - s.last - 100;
+    if (lag > s.max) s.max = lag;
+    s.last = now;
+  }, 100);
+  return s;
+}
+function hentikanPantauLag(s) { clearInterval(s.timer); return Math.max(0, s.max); }
+
+// Panggil API dengan coba-ulang seperti klien sungguhan. Mengembalikan
+// hasil percobaan PERTAMA (strict) dan hasil AKHIR (setelah coba ulang).
+async function panggilDenganCobaUlang(buat, opsi = {}) {
+  const maks = opsi.maks ?? 3;
+  const jeda = opsi.jedaMs ?? [2000, 4000, 8000];
+  const berhasil = opsi.berhasil || (r => r.ok);
+  const hasil = { percobaan: 0, pertama: null, akhir: null, berhasilPertama: false, berhasilAkhir: false, totalMs: 0, kodeKhusus: null };
+  const t0 = performance.now();
+  for (let i = 0; i <= maks; i++) {
+    let r;
+    try { r = await buat(); } catch (e) { r = { ok: false, status: 0, networkError: true, error: e.message, latency: 0 }; }
+    hasil.percobaan = i + 1;
+    if (i === 0) { hasil.pertama = r; hasil.berhasilPertama = !!berhasil(r); }
+    hasil.akhir = r;
+    if (berhasil(r)) { hasil.berhasilAkhir = true; break; }
+    if (r?.data?.kode) hasil.kodeKhusus = r.data.kode;
+    if (r?.data?.kode === 'BELUM_MINIMAL_WAKTU') break; // pengaturan, bukan gangguan sementara
+    const sementara = r.networkError || r.status === 0 || r.status >= 500 || r.status === 429 ||
+      r?.data?.sementara === true || r?.data?.coba_lagi === true;
+    if (!sementara || i === maks) break;
+    await sleep(jeda[Math.min(i, jeda.length - 1)]);
+  }
+  hasil.totalMs = performance.now() - t0;
+  return hasil;
+}
+
+// Rencana jawaban deterministik: jumlah benar PASTI diketahui sehingga nilai
+// yang seharusnya tersimpan dapat dihitung ulang secara independen.
+function buatRencanaJawaban(siswa, k) {
+  const soalList = siswa.soalList || [];
+  const total = soalList.length;
+  const dijawab = Math.floor(total * 0.9);
+  const benarTarget = Math.floor(dijawab * (0.30 + 0.07 * (k % 10)));
+  const jawab = [];
+  for (let i = 0; i < dijawab; i++) {
+    const q = soalList[i];
+    const kunci = state.kunciUji[q.id];
+    const salah = HURUF_JAWAB.find(h => h !== kunci);
+    jawab.push({ soal_id: q.id, jawaban: i < benarTarget ? kunci : salah });
+  }
+  const nilai = total > 0 ? Math.round((benarTarget / total) * 100) : 0;
+  return { jawab, benar: benarTarget, total, nilai };
+}
+
+async function phaseExamTerpercaya() {
+  const semua = state.siswaList.filter(s => s.token && !s._isUser);
+  const v = state.verif = {
+    mulai: new Date().toISOString(), totalLogin: semua.length,
+    populasiKecil: false, blokirMinSubmit: false, tanpaKunci: false, tidakSelesai: null,
+    login: null, masuk: null, sync: null, bacaUlang: null, submit: null, nilai: null, tutup: null,
+    A: [], B: [], C: [], catatan: [], lagMaks: 0,
+  };
+  state.hasilTutupSesi = null;
+  state.kunciUji = {};
+  if (semua.length === 0) { log('Tidak ada siswa yang berhasil login — fase ujian terpercaya dilewati', 'warn'); v.tidakSelesai = 'Tidak ada siswa yang berhasil login.'; return; }
+
+  // Pembagian kelompok.
+  //  C = 5 siswa pertama: dipakai fase "Fitur Lain" & "Smart Detection" (tidak diverifikasi nilainya).
+  //  B = siswa yang TIDAK submit; sesi ditutup paksa saat mereka masih aktif (dilakukan di fase 6m).
+  //  A = siswa yang submit SERENTAK pada detik yang sama.
+  const siswaCadangan = semua.slice(0, Math.min(5, semua.length));
+  const populasi = semua.slice(siswaCadangan.length);
+  const porsiB = cfgNum('cfg-porsi-tutup', 30);
+  const nB = populasi.length >= 10 ? Math.max(porsiB > 0 ? 1 : 0, Math.round(populasi.length * porsiB / 100)) : 0;
+  const B = nB > 0 ? populasi.slice(populasi.length - nB) : [];
+  const A = populasi.slice(0, populasi.length - nB);
+  v.A = A.map(s => s.nis); v.B = B.map(s => s.nis); v.C = siswaCadangan.map(s => s.nis);
+  v.populasiKecil = populasi.length < AMBANG.minSiswaTerverifikasi;
+  B.forEach(s => { state.submitTimestamps[s.nis] = -1; });
+  log(`Mode TERPERCAYA: ${semua.length} siswa login → ${A.length} submit serentak, ${B.length} ditutup paksa, ${siswaCadangan.length} cadangan fase lain`, 'info');
+
+  // ── 1. Login serentak PENUH ──
+  if (document.getElementById('cfg-login-penuh')?.value === 'ya' && !state.stopRequested) {
+    setAction(`Login serentak penuh: ${semua.length} siswa pada detik yang sama…`);
+    const lag = mulaiPantauLag(); const t0 = performance.now();
+    const hs = await Promise.all(semua.map(async s => {
+      const h = await panggilDenganCobaUlang(
+        () => api('POST', '/api/auth/login', { username: s.nis, password: s.password }),
+        { maks: 2, berhasil: r => r.ok && !!r.data?.token });
+      if (h.berhasilAkhir) s.token = h.akhir.data.token;
+      return h;
+    }));
+    v.login = {
+      total: semua.length,
+      pertamaGagal: hs.filter(h => !h.berhasilPertama).length,
+      akhirGagal: hs.filter(h => !h.berhasilAkhir).length,
+      lat: ringkasLatensi(hs.map(h => h.pertama.latency)),
+      durasiMs: performance.now() - t0, lagMs: hentikanPantauLag(lag),
+    };
+    log(`Login serentak penuh: gagal pertama ${v.login.pertamaGagal}, gagal akhir ${v.login.akhirGagal}, P95 ${v.login.lat.p95.toFixed(0)}ms`, v.login.akhirGagal === 0 ? 'ok' : 'err');
+  }
+
+  // ── 2. Masuk ujian (validasi) ──
+  if (state.stopRequested) { v.tidakSelesai = 'Dihentikan pengguna.'; return; }
+  setAction(`Masuk ujian: ${semua.length} siswa menekan "Masuk Ujian"…`);
+  const masukSerentak = document.getElementById('cfg-masuk')?.value === 'serentak';
+  const lagMasuk = mulaiPantauLag(); const tMasuk = performance.now();
+  const masukFn = async (s) => {
+    const h = await panggilDenganCobaUlang(
+      () => api('POST', '/api/siswa/ujian/validasi', { kodeSesi: state.kodeSesi, nis: s.nis, deviceId: deviceIdFor(s.nis) }, s.token),
+      { maks: 4, jedaMs: [5000], berhasil: r => r.ok && r.data?.valid === true });
+    if (h.berhasilAkhir) s.soalList = h.akhir.data.soalList || [];
+    s._masuk = h;
+    return h;
+  };
+  let hsMasuk;
+  if (masukSerentak) hsMasuk = await Promise.all(semua.map(masukFn));
+  else { const { batchSize, delayBetweenBatches } = getSpeedConfig(); hsMasuk = await runBatched(semua, masukFn, { batchSize, delayBetweenBatches }); }
+  v.masuk = {
+    total: semua.length,
+    pertamaGagal: hsMasuk.filter(h => !h.berhasilPertama).length,
+    dimintaUlang: hsMasuk.filter(h => h.pertama?.data?.coba_lagi).length,
+    akhirGagal: hsMasuk.filter(h => !h.berhasilAkhir).length,
+    lat: ringkasLatensi(hsMasuk.map(h => h.pertama?.latency)),
+    durasiMs: performance.now() - tMasuk, lagMs: hentikanPantauLag(lagMasuk),
+  };
+  log(`Masuk ujian: ${semua.length - v.masuk.akhirGagal}/${semua.length} berhasil (diminta coba lagi: ${v.masuk.dimintaUlang})`, v.masuk.akhirGagal === 0 ? 'ok' : 'err');
+
+  // Kunci jawaban diturunkan dari teks soal (tanpa mengandalkan server).
+  let tanpaKunci = 0;
+  for (const s of semua) for (const q of (s.soalList || [])) {
+    if (state.kunciUji[q.id] === undefined) { const k = kunciDariTeks(q.teks); state.kunciUji[q.id] = k; if (!k) tanpaKunci++; }
+  }
+  v.tanpaKunci = tanpaKunci > 0 || Object.keys(state.kunciUji).length === 0;
+  const panjang = [...new Set(semua.filter(s => s.soalList?.length).map(s => s.soalList.length))];
+  if (panjang.length > 1) v.catatan.push(`Jumlah soal yang diterima antar siswa berbeda (${panjang.join(', ')}).`);
+  v.totalSoalUji = panjang[0] || 0;
+
+  const peserta = [...populasi, ...siswaCadangan].filter(s => s.soalList?.length);
+  populasi.forEach((s, k) => { if (s.soalList?.length) s._rencana = buatRencanaJawaban(s, k); });
+  siswaCadangan.forEach(s => { if (s.soalList?.length) s._rencana = buatRencanaJawaban(s, 3); });
+
+  // ── 3. Sync BERKALA (delta jawaban per siklus, seperti autosave) ──
+  if (state.stopRequested) { v.tidakSelesai = 'Dihentikan pengguna.'; return; }
+  const siklus = Math.max(1, cfgNum('cfg-sync-siklus', 6));
+  const intervalMs = Math.max(1, cfgNum('cfg-sync-interval', 5)) * 1000;
+  const pesertaSync = peserta.filter(s => s._rencana);
+  const syncLat = []; let syncPertamaGagal = 0, syncAkhirGagal = 0, syncTotal = 0;
+  const lagSync = mulaiPantauLag();
+  for (let c = 0; c < siklus; c++) {
+    if (state.stopRequested) break;
+    setAction(`Sync berkala: siklus ${c + 1}/${siklus} (${pesertaSync.length} siswa)…`);
+    const mulaiSiklus = performance.now();
+    await Promise.all(pesertaSync.map(async s => {
+      await sleep(Math.random() * intervalMs);
+      const tot = s._rencana.jawab.length;
+      const potong = s._rencana.jawab.slice(Math.floor(tot * c / siklus), Math.floor(tot * (c + 1) / siklus));
+      if (!potong.length) return;
+      syncTotal++;
+      const h = await panggilDenganCobaUlang(
+        () => api('POST', '/api/siswa/ujian/sync', { sesiId: state.sesiId, jawaban: potong, deviceId: deviceIdFor(s.nis) }, s.token),
+        { maks: 3 });
+      syncLat.push(h.pertama.latency);
+      if (!h.berhasilPertama) syncPertamaGagal++;
+      if (!h.berhasilAkhir) { syncAkhirGagal++; s._syncGagal = true; }
+    }));
+    setProgress(((c + 1) / siklus) * 100, `Sync siklus ${c + 1}/${siklus}`);
+    const sisa = intervalMs - (performance.now() - mulaiSiklus);
+    if (sisa > 0 && c < siklus - 1) await sleep(sisa);
+  }
+  v.sync = { siklus, pesertaSync: pesertaSync.length, panggilan: syncTotal, pertamaGagal: syncPertamaGagal, akhirGagal: syncAkhirGagal, lat: ringkasLatensi(syncLat), lagMs: hentikanPantauLag(lagSync) };
+  log(`Sync berkala: ${syncTotal} panggilan, gagal akhir ${syncAkhirGagal}, P95 ${v.sync.lat.p95.toFixed(0)}ms`, syncAkhirGagal === 0 ? 'ok' : 'err');
+
+  // ── 4. Baca-ulang jawaban dari server (apakah benar-benar TERSIMPAN?) ──
+  if (state.stopRequested) { v.tidakSelesai = 'Dihentikan pengguna.'; return; }
+  setAction('Membaca ulang jawaban tersimpan di server (seperti siswa refresh halaman)…');
+  let diperiksa = 0, gagalBaca = 0, jawabanHilang = 0, jawabanBeda = 0, siswaBermasalah = 0;
+  const contohBacaUlang = [];
+  await Promise.all(populasi.filter(s => s._rencana).map(async s => {
+    const h = await panggilDenganCobaUlang(
+      () => api('GET', `/api/siswa/ujian/sync?sesiId=${encodeURIComponent(state.sesiId)}&deviceId=${encodeURIComponent(deviceIdFor(s.nis))}`, undefined, s.token),
+      { maks: 2, berhasil: r => r.ok && Array.isArray(r.data?.jawaban) });
+    if (!h.berhasilAkhir) { gagalBaca++; return; }
+    diperiksa++;
+    const tersimpan = {}; h.akhir.data.jawaban.forEach(j => { tersimpan[j.soal_id] = j.jawaban; });
+    let hilang = 0, beda = 0;
+    for (const j of s._rencana.jawab) {
+      if (tersimpan[j.soal_id] === undefined) hilang++;
+      else if (String(tersimpan[j.soal_id]).trim().toUpperCase() !== j.jawaban) beda++;
+    }
+    if (hilang || beda) { siswaBermasalah++; jawabanHilang += hilang; jawabanBeda += beda; if (contohBacaUlang.length < 3) contohBacaUlang.push(`${s.nis}: hilang=${hilang}, beda=${beda}`); }
+  }));
+  v.bacaUlang = { diperiksa, gagalBaca, siswaBermasalah, jawabanHilang, jawabanBeda, contoh: contohBacaUlang };
+  log(`Baca-ulang jawaban: ${diperiksa} siswa diperiksa, jawaban hilang ${jawabanHilang}, berbeda ${jawabanBeda}`, (jawabanHilang + jawabanBeda + gagalBaca) === 0 ? 'ok' : 'err');
+  if (jawabanHilang + jawabanBeda > 0) {
+    recordBugCat(BUG_CATEGORIES.FATAL, `Jawaban siswa HILANG/BERUBAH setelah sync (${siswaBermasalah} siswa)`,
+      `Setelah sync berkala sukses (HTTP 200), pembacaan ulang dari server menunjukkan ${jawabanHilang} jawaban hilang dan ${jawabanBeda} jawaban berbeda dari yang dikirim. Contoh: ${contohBacaUlang.join('; ')}.`,
+      'POST/GET /api/siswa/ujian/sync');
+  }
+
+  // ── 5. SUBMIT SERENTAK SUNGGUHAN (tanpa batch, tanpa jeda) ──
+  if (state.stopRequested) { v.tidakSelesai = 'Dihentikan pengguna.'; return; }
+  const gandaSet = new Set(A.filter((_, i) => i % 10 === 0).map(s => s.nis)); // ±10% mengetuk "Selesai" dua kali
+  setAction(`SUBMIT SERENTAK: ${A.length} siswa menekan "Selesai" pada detik yang sama…`);
+  const lagSubmit = mulaiPantauLag(); const tSubmit = performance.now();
+  const hsSubmit = await Promise.all(A.filter(s => s._rencana).map(async s => {
+    const kirim = () => api('POST', '/api/siswa/ujian/selesai', { sesiId: state.sesiId, nis: s.nis, deviceId: deviceIdFor(s.nis) }, s.token);
+    const ketukKedua = gandaSet.has(s.nis) ? kirim() : null;
+    const h = await panggilDenganCobaUlang(kirim, { maks: 3, berhasil: r => r.ok && typeof r.data?.nilai === 'number' });
+    if (ketukKedua) { try { await ketukKedua; } catch (e) { /* diabaikan */ } }
+    s._hasilSubmit = h;
+    state.submitTimestamps[s.nis] = Date.now();
+    return h;
+  }));
+  const durasiSubmit = performance.now() - tSubmit;
+  if (hsSubmit.some(h => h.kodeKhusus === 'BELUM_MINIMAL_WAKTU')) v.blokirMinSubmit = true;
+  v.submit = {
+    jumlah: hsSubmit.length, ganda: gandaSet.size,
+    pertamaGagal: hsSubmit.filter(h => !h.berhasilPertama).length,
+    akhirGagal: hsSubmit.filter(h => !h.berhasilAkhir).length,
+    lat: ringkasLatensi(hsSubmit.map(h => h.pertama.latency)),
+    totalMs: ringkasLatensi(hsSubmit.map(h => h.totalMs)),
+    durasiMs: durasiSubmit, lagMs: hentikanPantauLag(lagSubmit),
+  };
+  log(`Submit serentak: ${v.submit.jumlah} siswa, gagal pertama ${v.submit.pertamaGagal}, gagal akhir ${v.submit.akhirGagal}, P95 ${v.submit.lat.p95.toFixed(0)}ms, total ${(durasiSubmit / 1000).toFixed(1)}s`, v.submit.akhirGagal === 0 ? 'ok' : 'err');
+
+  // Siswa cadangan (dipakai fase lain) submit dengan cara lama agar fase berikutnya tetap berjalan seperti biasa.
+  const { batchSize, delayBetweenBatches } = getSpeedConfig();
+  await runBatched(siswaCadangan.filter(s => s._rencana), async (s) => {
+    const r = await api('POST', '/api/siswa/ujian/selesai', { sesiId: state.sesiId, nis: s.nis, deviceId: deviceIdFor(s.nis) }, s.token);
+    state.submitTimestamps[s.nis] = Date.now();
+    return r;
+  }, { batchSize, delayBetweenBatches });
+
+  v.lagMaks = Math.max(v.login?.lagMs || 0, v.masuk?.lagMs || 0, v.sync?.lagMs || 0, v.submit?.lagMs || 0);
+  log(`${B.length} siswa sengaja TIDAK submit: sesi akan ditutup paksa oleh pengawas di fase 6m, lalu nilai mereka diverifikasi.`, 'info');
+}
+
+// Ambil SEMUA baris nilai untuk kelas testing (dengan paging).
+async function ambilSemuaNilaiKelas(v) {
+  const baris = []; let total = null;
+  v.gagalBacaNilai = null;
+  for (let page = 1; page <= 100; page++) {
+    const r = await api('GET', `/api/admin/nilai?mapel_id=${encodeURIComponent(state.mapelId)}&kelas=${encodeURIComponent(state.kelasNama)}&per_page=200&page=${page}`, undefined, state.adminToken);
+    if (!r.ok) { v.gagalBacaNilai = `HTTP ${r.status} ${JSON.stringify(r.data || r.error || '').slice(0, 200)}`; break; }
+    const data = Array.isArray(r.data?.data) ? r.data.data : [];
+    baris.push(...data);
+    if (typeof r.data?.total === 'number') total = r.data.total;
+    if (!data.length || (total !== null && baris.length >= total)) break;
+  }
+  return baris;
+}
+
+async function phaseVerifikasi() {
+  const v = state.verif;
+  if (!v) { log('Verifikasi nilai dilewati: mode ujian lama tidak menyiapkan data yang bisa diverifikasi.', 'warn'); return; }
+  setAction('Verifikasi akhir: mencocokkan nilai yang TERSIMPAN di database dengan nilai yang seharusnya…');
+  const siswaPerNis = {}; state.siswaList.forEach(s => { siswaPerNis[s.nis] = s; });
+  const target = [...v.A.map(nis => ({ nis, grup: 'A' })), ...v.B.map(nis => ({ nis, grup: 'B' }))].filter(t => siswaPerNis[t.nis]?._rencana);
+
+  let hilang = [], duplikat = [], salah = [], nolSalah = [], bedaRespons = [];
+  for (let coba = 0; coba < 3; coba++) {
+    const barisSemua = await ambilSemuaNilaiKelas(v);
+    if (v.gagalBacaNilai) break;
+    const per = {}; barisSemua.forEach(r => { (per[r.nis] = per[r.nis] || []).push(r); });
+    hilang = []; duplikat = []; salah = []; nolSalah = []; bedaRespons = [];
+    for (const t of target) {
+      const rows = per[t.nis] || []; const rc = siswaPerNis[t.nis]._rencana;
+      if (!rows.length) { hilang.push(t); continue; }
+      if (rows.length > 1) duplikat.push({ ...t, jumlah: rows.length });
+      const row = rows[0];
+      const cocok = Number(row.nilai) === rc.nilai && Number(row.benar) === rc.benar && Number(row.total) === rc.total;
+      if (!cocok) {
+        salah.push({ ...t, seharusnya: `${rc.benar}/${rc.total}=${rc.nilai}`, tersimpan: `${row.benar}/${row.total}=${row.nilai}` });
+        if (Number(row.nilai) === 0 && rc.nilai > 0) nolSalah.push(t);
+      }
+      const resp = siswaPerNis[t.nis]._hasilSubmit?.akhir?.data;
+      if (t.grup === 'A' && resp && typeof resp.nilai === 'number' && resp.nilai !== Number(row.nilai)) bedaRespons.push({ ...t, respons: resp.nilai, tersimpan: row.nilai });
+    }
+    if (!hilang.length) break;
+    await sleep(4000); // beri waktu bila ada penulisan tertunda, baru nyatakan hilang
+  }
+  const ha = state.hasilTutupSesi;
+  v.tutup = ha ? {
+    status: ha.status, ok: ha.status === 200, latensiMs: ha.latency,
+    jumlahDinilai: ha.data?.jumlahSiswaDinilaiOtomatis ?? null, diharapkanMin: v.B.length,
+    pesan: ha.data?.message || ha.data?.error || '',
+  } : null;
+  v.nilai = {
+    diperiksa: target.length,
+    hilang: hilang.length, duplikat: duplikat.length, salah: salah.length, nolSalah: nolSalah.length, bedaRespons: bedaRespons.length,
+    hilangA: hilang.filter(t => t.grup === 'A').length, hilangB: hilang.filter(t => t.grup === 'B').length,
+    contoh: [...salah.slice(0, 3).map(x => `${x.nis}(${x.grup}) seharusnya ${x.seharusnya}, tersimpan ${x.tersimpan}`),
+             ...hilang.slice(0, 3).map(x => `${x.nis}(${x.grup}) TIDAK ADA baris nilai`)],
+  };
+  if (v.gagalBacaNilai) { log(`Verifikasi nilai GAGAL dibaca dari server: ${v.gagalBacaNilai}`, 'err'); return; }
+  log(`Verifikasi nilai di database: ${target.length} siswa — hilang ${hilang.length}, salah ${salah.length}, ganda ${duplikat.length}, nol-palsu ${nolSalah.length}`,
+    (hilang.length + salah.length + duplikat.length) === 0 ? 'ok' : 'err');
+  if (hilang.length) recordBugCat(BUG_CATEGORIES.FATAL, `${hilang.length} siswa TIDAK punya nilai di database (A=${v.nilai.hilangA}, B/tutup-paksa=${v.nilai.hilangB})`,
+    `Nilai tidak ditemukan di /api/admin/nilai setelah submit/tutup sesi. Contoh: ${v.nilai.contoh.join('; ')}.`, 'POST /api/siswa/ujian/selesai & /api/guru/mode-pengawas/tutup');
+  if (salah.length) recordBugCat(BUG_CATEGORIES.FATAL, `${salah.length} nilai tersimpan SALAH${nolSalah.length ? ` (${nolSalah.length} di antaranya bernilai 0 padahal harusnya > 0)` : ''}`,
+    `Jawaban yang dikirim punya jumlah benar yang pasti diketahui, namun nilai di database berbeda. Contoh: ${v.nilai.contoh.join('; ')}.`, 'finalisasi_pg_atomik / hitungHasilPenilaian');
+  if (duplikat.length) recordBugCat(BUG_CATEGORIES.RACE_CONDITION, `${duplikat.length} siswa punya LEBIH DARI SATU baris nilai`,
+    'Ketukan ganda pada tombol Selesai menghasilkan baris nilai ganda.', 'POST /api/siswa/ujian/selesai');
+  if (bedaRespons.length) recordBugCat(BUG_CATEGORIES.KONSISTENSI, `${bedaRespons.length} nilai di respons submit ≠ nilai tersimpan`,
+    `Contoh: ${JSON.stringify(bedaRespons.slice(0, 3))}`, 'POST /api/siswa/ujian/selesai');
+  if (v.B.length && (!v.tutup || !v.tutup.ok)) recordBugCat(BUG_CATEGORIES.FATAL, 'Penutupan sesi saat siswa masih aktif tidak berhasil penuh',
+    `Respons penutupan: ${v.tutup ? `HTTP ${v.tutup.status} ${v.tutup.pesan}` : 'tidak tercatat'}.`, 'POST /api/guru/mode-pengawas/tutup');
+}
+
+// ── VONIS: ambang tegas, bukan "jalan dulu" ──
+function hitungVerdict() {
+  const v = state.verif;
+  const vd = { status: 'TIDAK_DIUJI', judul: '', alasan: [], metrik: [], catatan: [] };
+  const catatanTetap = [
+    'Seluruh beban berasal dari SATU tab browser di SATU jaringan. "Serentak" berarti semua request dilepas pada saat yang sama oleh tes; browser membatasi koneksi paralel ke satu server, sehingga di server request bisa tiba sedikit tersebar. Untuk beban lebih kasar, jalankan dari 2–3 komputer sekaligus (masing-masing Run ID sendiri). Tes ini tidak membuktikan perilaku perangkat siswa yang lambat, Wi-Fi sekolah yang padat, atau mode offline/reconnect.',
+    'Hasil hanya berlaku untuk paket Supabase/Vercel, ukuran soal, dan pengaturan yang aktif saat tes. Ulangi bila paket atau pengaturan berubah.',
+    'Soal yang diuji adalah pilihan ganda. Essay dan unggah foto tidak termasuk.',
+    'Tetap lakukan pilot satu kelas dengan perangkat dan jaringan sekolah sebelum ujian sebenarnya.',
+  ];
+  vd.catatan = catatanTetap;
+  if (!v) {
+    vd.status = 'TIDAK_DIUJI'; vd.judul = 'TIDAK ADA VONIS';
+    vd.alasan.push('Mode ujian "Lama" dipakai. Mode itu tidak mengirim submit serentak sungguhan dan tidak memverifikasi nilai di database, sehingga tidak bisa dijadikan dasar kelayakan. Jalankan ulang dengan mode "Terpercaya".');
+    return vd;
+  }
+  const tidakValid = [];
+  if (v.tidakSelesai) tidakValid.push(`Fase ujian tidak selesai: ${v.tidakSelesai}`);
+  if (v.populasiKecil) tidakValid.push(`Siswa yang nilainya diverifikasi terlalu sedikit (< ${AMBANG.minSiswaTerverifikasi}). Naikkan target siswa.`);
+  if (v.blokirMinSubmit) tidakValid.push('Pengaturan "minimal waktu submit" aktif di server sehingga siswa tidak bisa submit lebih awal. Nonaktifkan sementara pengaturan itu (idealnya di lingkungan staging), lalu ulangi.');
+  if (v.tanpaKunci) tidakValid.push('Kunci jawaban tidak bisa diturunkan dari teks soal, jadi nilai yang seharusnya tidak bisa dihitung.');
+  if (v.gagalBacaNilai) tidakValid.push(`Nilai tersimpan tidak bisa dibaca dari server (${v.gagalBacaNilai}).`);
+  if (!v.sync) tidakValid.push('Fase sync berkala tidak berjalan.');
+  if (!v.submit) tidakValid.push('Fase submit serentak tidak berjalan.');
+  if (!v.nilai && !v.gagalBacaNilai) tidakValid.push('Verifikasi nilai di database tidak berjalan.');
+
+  const M = (nama, hasil, batas, lulus) => vd.metrik.push({ nama, hasil, batas, lulus });
+  const pct = (a, b) => (b > 0 ? (a / b) * 100 : 0);
+  const ms = x => `${x.toFixed(0)}ms`;
+  if (v.login) {
+    M('Login serentak penuh — gagal setelah coba ulang', `${v.login.akhirGagal}/${v.login.total}`, '0', v.login.akhirGagal === 0);
+    M('Login serentak penuh — gagal percobaan pertama', `${pct(v.login.pertamaGagal, v.login.total).toFixed(1)}%`, `≤ ${AMBANG.loginGagalPertamaMaksPersen}%`, pct(v.login.pertamaGagal, v.login.total) <= AMBANG.loginGagalPertamaMaksPersen);
+  }
+  if (v.masuk) M('Masuk ujian — gagal setelah coba ulang', `${v.masuk.akhirGagal}/${v.masuk.total}`, '0', v.masuk.akhirGagal === 0);
+  if (v.sync) {
+    M('Sync berkala — gagal setelah coba ulang', `${v.sync.akhirGagal}/${v.sync.panggilan}`, '0', v.sync.akhirGagal === 0);
+    M('Sync berkala — P95 latensi', ms(v.sync.lat.p95), `≤ ${AMBANG.syncP95Ms}ms`, v.sync.lat.p95 <= AMBANG.syncP95Ms);
+  }
+  if (v.bacaUlang) M('Jawaban tersimpan = jawaban dikirim (baca-ulang)', `hilang ${v.bacaUlang.jawabanHilang}, beda ${v.bacaUlang.jawabanBeda}, gagal baca ${v.bacaUlang.gagalBaca}`, '0', (v.bacaUlang.jawabanHilang + v.bacaUlang.jawabanBeda + v.bacaUlang.gagalBaca) === 0);
+  if (v.submit) {
+    M('Submit serentak — gagal setelah coba ulang', `${v.submit.akhirGagal}/${v.submit.jumlah}`, '0', v.submit.akhirGagal === 0);
+    M('Submit serentak — gagal percobaan pertama', `${pct(v.submit.pertamaGagal, v.submit.jumlah).toFixed(1)}%`, `≤ ${AMBANG.submitGagalPertamaMaksPersen}%`, pct(v.submit.pertamaGagal, v.submit.jumlah) <= AMBANG.submitGagalPertamaMaksPersen);
+    M('Submit serentak — P95 latensi', ms(v.submit.lat.p95), `≤ ${AMBANG.submitP95Ms}ms`, v.submit.lat.p95 <= AMBANG.submitP95Ms);
+  }
+  if (v.nilai) {
+    M('Nilai hilang di database', `${v.nilai.hilang}/${v.nilai.diperiksa}`, '0', v.nilai.hilang === 0);
+    M('Nilai salah di database (termasuk nol-palsu)', `${v.nilai.salah}/${v.nilai.diperiksa}`, '0', v.nilai.salah === 0);
+    M('Baris nilai ganda', `${v.nilai.duplikat}`, '0', v.nilai.duplikat === 0);
+    M('Nilai respons submit = nilai tersimpan', `${v.nilai.bedaRespons} beda`, '0', v.nilai.bedaRespons === 0);
+  }
+  if (v.B.length) M('Tutup paksa saat siswa aktif', v.tutup ? `HTTP ${v.tutup.status}, dinilai ${v.tutup.jumlahDinilai ?? '?'} (≥ ${v.tutup.diharapkanMin})` : 'tidak tercatat',
+    'HTTP 200 & semua dinilai', !!(v.tutup && v.tutup.ok && (v.tutup.jumlahDinilai === null || v.tutup.jumlahDinilai >= v.tutup.diharapkanMin)));
+  const kritis = state.bugs.filter(b => (SEVERITY[b.category] || 0) >= 4);
+  M('Bug kritis dari seluruh fase (Fatal/Race/Kebocoran data)', `${kritis.length}`, '0', kritis.length === 0);
+
+  const gagal = vd.metrik.filter(m => !m.lulus);
+  if (tidakValid.length) { vd.status = 'TIDAK_VALID'; vd.judul = 'HASIL TIDAK BISA DIPAKAI SEBAGAI BUKTI'; vd.alasan = tidakValid; }
+  else if (gagal.length) { vd.status = 'BELUM_LAYAK'; vd.judul = 'BELUM LAYAK'; vd.alasan = gagal.map(m => `${m.nama}: ${m.hasil} (batas ${m.batas})`); }
+  else if (v.totalLogin < AMBANG.skalaPenuhMin) { vd.status = 'LULUS_PARSIAL'; vd.judul = `LULUS untuk ${v.totalLogin} siswa — skala penuh belum dibuktikan`; vd.alasan = [`Semua kriteria lolos, tetapi hanya ${v.totalLogin} siswa yang diuji. Ulangi dengan target ≥ ${AMBANG.skalaPenuhMin} untuk skala sekolah.`]; }
+  else { vd.status = 'LAYAK'; vd.judul = `LAYAK untuk ${v.totalLogin} siswa (pada kondisi uji ini)`; vd.alasan = ['Semua kriteria lolos, nilai yang tersimpan cocok dengan nilai yang seharusnya.']; }
+
+  if (v.lagMaks > AMBANG.lagBrowserMaksMs) {
+    vd.catatan.unshift(`Browser penguji sempat macet hingga ${v.lagMaks.toFixed(0)}ms. Latensi yang terukur bisa terlalu pesimis; bila ada kegagalan, ulangi dari komputer yang lebih kuat atau jalankan dari 2–3 komputer.`);
+    if (vd.status === 'BELUM_LAYAK') vd.alasan.push('Kegagalan terjadi saat browser penguji sendiri macet, sehingga penyebabnya belum bisa dipastikan ada di server.');
+  }
+  if (v.catatan?.length) vd.catatan.unshift(...v.catatan);
+  return vd;
+}
+
+function tampilkanVerdict(sudahJadi) {
+  const vd = sudahJadi || hitungVerdict();
+  state.verdict = vd;
+  const warna = { LAYAK: 'var(--green)', LULUS_PARSIAL: 'var(--amber)', BELUM_LAYAK: 'var(--red)', TIDAK_VALID: 'var(--amber)', TIDAK_DIUJI: 'var(--amber)' }[vd.status] || 'var(--amber)';
+  const panel = document.getElementById('verdict-panel');
+  const body = document.getElementById('verdict-body');
+  if (panel && body) {
+    panel.style.display = 'block';
+    const baris = vd.metrik.map(m => `<tr><td>${escapeHtml(m.nama)}</td><td class="num">${escapeHtml(m.hasil)}</td><td class="num">${escapeHtml(m.batas)}</td><td>${m.lulus ? '✅ lulus' : '❌ GAGAL'}</td></tr>`).join('');
+    body.innerHTML = `
+      <div style="border:2px solid ${warna};border-radius:12px;padding:14px 16px;margin-bottom:12px">
+        <div style="font-size:20px;font-weight:800;color:${warna}">${escapeHtml(vd.judul)}</div>
+        <ul style="margin:8px 0 0 18px;padding:0;font-size:12.5px;line-height:1.6">${vd.alasan.map(a => `<li>${escapeHtml(a)}</li>`).join('')}</ul>
+      </div>
+      ${vd.metrik.length ? `<table><thead><tr><th>Kriteria</th><th class="num">Hasil</th><th class="num">Batas</th><th>Status</th></tr></thead><tbody>${baris}</tbody></table>` : ''}
+      <p style="font-size:12px;color:var(--muted);margin:12px 0 4px"><strong>Batasan yang harus Anda ketahui:</strong></p>
+      <ul style="margin:0 0 0 18px;padding:0;font-size:12px;color:var(--muted);line-height:1.6">${vd.catatan.map(c => `<li>${escapeHtml(c)}</li>`).join('')}</ul>`;
+  }
+  log(`VONIS: ${vd.judul}`, vd.status === 'LAYAK' ? 'ok' : vd.status === 'BELUM_LAYAK' ? 'bug' : 'warn');
+  vd.alasan.forEach(a => log(`  • ${a}`, vd.status === 'LAYAK' ? 'ok' : 'warn'));
+  renderStats();
+}
+
 function phaseReport() {
   setAction('Pengujian selesai.');
   setProgress(100, 'Selesai');
@@ -2873,6 +3359,7 @@ function phaseReport() {
     log(`─── Nilai Diverifikasi: ${nilaiBervariasi.length} siswa ─`, 'info');
   }
 
+  tampilkanVerdict();
   log('Jangan lupa jalankan CLEANUP di bagian bawah untuk menghapus data pengujian ini.', 'warn');
   log('═══════════════════════════════════', 'info');
 }
@@ -2895,6 +3382,7 @@ function resetHasilRunSebelumnya() {
     endpointLatencyMap: {}, endpointErrorMap: {}, endpointCallCount: {}, responseSignatures: {},
     slowEndpointsFlagged: new Set(), raceConditionLog: [], tokenLeakageLog: [],
     syncRetryLog: [], scoreConsistencyLog: [], submitTimestamps: {},
+    verif: null, verdict: null, hasilTutupSesi: null, kunciUji: {},
   });
   const tbody = document.getElementById('ramp-tbody');
   if (tbody) tbody.innerHTML = '';
@@ -2946,7 +3434,8 @@ async function runFullTest() {
 
     renderPhaseTrack('exam', doneKeys);
     setProgress(0, '');
-    await phaseExam();
+    if (document.getElementById('cfg-mode-ujian')?.value === 'lama') await phaseExam();
+    else await phaseExamTerpercaya();
     doneKeys.push('exam');
 
     renderPhaseTrack('features', doneKeys);
@@ -2959,6 +3448,11 @@ async function runFullTest() {
     await phaseSmartDetection();
     doneKeys.push('smart');
 
+    renderPhaseTrack('verif', doneKeys);
+    setProgress(0, '');
+    await phaseVerifikasi();
+    doneKeys.push('verif');
+
     renderPhaseTrack('report', doneKeys);
     phaseReport();
     doneKeys.push('report');
@@ -2966,6 +3460,9 @@ async function runFullTest() {
 
   } catch (e) {
     log(`Pengujian dihentikan: ${e.message}`, 'err');
+    tampilkanVerdict({ status: 'TIDAK_VALID', judul: 'HASIL TIDAK BISA DIPAKAI SEBAGAI BUKTI',
+      alasan: [`Pengujian berhenti sebelum selesai: ${e.message}`], metrik: [],
+      catatan: ['Perbaiki penyebab berhenti lalu jalankan ulang dari awal (jalankan Cleanup untuk Run ID ini terlebih dulu).'] });
     const lastPhase = PHASES.find(p => !doneKeys.includes(p.key))?.key;
     renderPhaseTrack(null, doneKeys, lastPhase);
     setAction(`Berhenti: ${e.message}`);
@@ -3275,6 +3772,7 @@ function buildReportData() {
     counts,
     errorEndpoints,
     pembanding,
+    verdict: state.verdict || null,
     sortedCats,
     rampResults,
     slowestEndpoints,
@@ -3289,6 +3787,21 @@ function buildReportMarkdown(d) {
   md += `- **Error:** ${d.totalErrors} (${d.errRate}%)\n`;
   md += `- **Rata-rata Respons:** ${d.avgLatency}ms · **Terlama:** ${d.maxLatency}ms\n`;
   md += `- **Total Bug Ditemukan:** ${d.totalBugs}\n\n`;
+
+  if (d.verdict) {
+    md += `## Vonis Kelayakan: ${d.verdict.judul}\n\n`;
+    d.verdict.alasan.forEach(a => { md += `- ${a}\n`; });
+    md += `\n`;
+    if (d.verdict.metrik.length) {
+      md += `| Kriteria | Hasil | Batas | Status |\n|---|---|---|---|\n`;
+      d.verdict.metrik.forEach(m => { md += `| ${m.nama} | ${m.hasil} | ${m.batas} | ${m.lulus ? 'lulus' : '**GAGAL**'} |\n`; });
+      md += `\n`;
+    }
+    md += `**Batasan:**\n\n`;
+    d.verdict.catatan.forEach(c => { md += `- ${c}\n`; });
+    md += `\n`;
+  }
+
 
   if (d.rampResults.length) {
     md += `## Hasil Per Tahap Beban (Ramp-Up)\n\n`;
@@ -3390,6 +3903,16 @@ function buildReportHtml(d) {
     <strong>Rata-rata Respons:</strong> ${d.avgLatency}ms &nbsp; <strong>Terlama:</strong> ${d.maxLatency}ms<br>
     <strong>Total Bug Ditemukan:</strong> ${d.totalBugs}
   </div>`;
+
+  if (d.verdict) {
+    html += `<h2>Vonis Kelayakan: ${escapeHtmlReport(d.verdict.judul)}</h2><ul>${d.verdict.alasan.map(a => `<li>${escapeHtmlReport(a)}</li>`).join('')}</ul>`;
+    if (d.verdict.metrik.length) {
+      html += `<table><thead><tr><th>Kriteria</th><th>Hasil</th><th>Batas</th><th>Status</th></tr></thead><tbody>`;
+      d.verdict.metrik.forEach(m => { html += `<tr><td>${escapeHtmlReport(m.nama)}</td><td>${escapeHtmlReport(m.hasil)}</td><td>${escapeHtmlReport(m.batas)}</td><td>${m.lulus ? 'lulus' : '<strong>GAGAL</strong>'}</td></tr>`; });
+      html += `</tbody></table>`;
+    }
+    html += `<p><strong>Batasan:</strong></p><ul>${d.verdict.catatan.map(c => `<li>${escapeHtmlReport(c)}</li>`).join('')}</ul>`;
+  }
 
   if (d.rampResults.length) {
     html += `<h2>Hasil Per Tahap Beban (Ramp-Up)</h2><p style="color:#666;font-size:13px">Tahap ini hanya mengukur LOGIN. Masuk ujian (validasi), sync, dan submit diukur terpisah di tabel "Endpoint Paling Lambat" — status AMAN di sini BUKAN berarti ujian serentak lolos.</p><table><thead><tr>
