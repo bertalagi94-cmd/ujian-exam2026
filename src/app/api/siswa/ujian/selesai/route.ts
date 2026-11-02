@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
-import { requireRole } from '@/lib/auth'
+import { requireRoleAktif } from '@/lib/status-akun'
 import { generateId } from '@/lib/utils'
 import { ambilDataSesiUntukPenilaian, hitungHasilPenilaian } from '@/lib/penilaian-ujian'
 import { catatAktivitas } from '@/lib/aktivitas'
@@ -8,7 +8,7 @@ import { klaimkanWaktu } from '@/lib/klaim-offline'
 import { hitungBatasWaktuPg, sudahKedaluwarsa } from '@/lib/deadline-pg'
 
 export async function POST(req: NextRequest) {
-  const auth = requireRole(req, ['SISWA'])
+  const auth = await requireRoleAktif(req, ['SISWA'])
   if ('error' in auth) return auth.error
   const { user } = auth
 
@@ -227,10 +227,16 @@ export async function POST(req: NextRequest) {
   // cache, supaya tidak ada risiko status basi lintas-instance Vercel.
   // Pengaturan batas minimal submit diambil PARALEL dengan cek status sesi
   // supaya tidak menambah round-trip serial di jalur submit.
-  const [{ data: sesiStatusCheck }, { data: pengaturanMinSubmit }] = await Promise.all([
+  const [{ data: sesiStatusCheck, error: errSesiStatus }, { data: pengaturanMinSubmit }] = await Promise.all([
     db.from('sesi_ujian').select('status').eq('id', sesiId).single(),
     db.from('pengaturan').select('key, value').in('key', ['minSubmitAktif', 'minSubmitMenit']),
   ])
+  if (errSesiStatus && errSesiStatus.code !== 'PGRST116') {
+    return NextResponse.json(
+      { error: 'Server sedang sibuk saat memeriksa sesi. Jawaban Anda aman, silakan coba lagi sebentar lagi.', sementara: true },
+      { status: 503 }
+    )
+  }
   if (!sesiStatusCheck) {
     return NextResponse.json({ error: 'Sesi tidak ditemukan' }, { status: 404 })
   }
@@ -308,8 +314,18 @@ export async function POST(req: NextRequest) {
 
   // Jawaban siswa ini TETAP harus di-query per-siswa (berbeda untuk tiap
   // siswa, tidak bisa di-cache bersama).
-  const { data: jawabanSiswa } = await db
+  const { data: jawabanSiswa, error: errJawabanSiswa } = await db
     .from('jawaban').select('soal_id, jawaban').eq('sesi_id', sesiId).eq('nis', nis)
+  // Gagal membaca jawaban = JANGAN menilai. Kalau dilanjutkan, jawabanSiswa
+  // null menghasilkan nilai 0 yang tersimpan permanen. 503 + sementara:true
+  // membuat outbox client mencoba lagi otomatis.
+  if (errJawabanSiswa) {
+    console.error('[selesai] gagal membaca jawaban siswa:', errJawabanSiswa.message)
+    return NextResponse.json(
+      { error: 'Server sedang sibuk saat membaca jawaban Anda. Jawaban aman, silakan coba lagi sebentar lagi.', sementara: true },
+      { status: 503 }
+    )
+  }
 
   // Hitung nilai — kunciMap sudah didapat dari cache di atas, tidak perlu
   // query soal lagi di sini.

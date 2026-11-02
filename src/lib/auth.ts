@@ -35,7 +35,7 @@ const SECRET: string = getValidatedSecret()
 // NONAKTIF atas permintaan pemilik aplikasi — password saat ini dibiarkan.
 // Ubah ke true untuk mengaktifkan lagi; fitur reset password & halaman
 // ganti password tetap berfungsi normal.
-export const WAJIB_GANTI_PASSWORD_AKTIF = false
+export const WAJIB_GANTI_PASSWORD_AKTIF = true
 
 export interface JWTPayload {
   username: string
@@ -67,7 +67,7 @@ export interface JWTPayload {
 }
 
 export function signToken(payload: Omit<JWTPayload, 'iat' | 'exp'>): string {
-  return jwt.sign(payload, SECRET, { expiresIn: '10h' })
+  return jwt.sign(payload, SECRET, { expiresIn: '10h', algorithm: 'HS256' })
 }
 
 // Batas keras umur token "Lihat sebagai". Bukan untuk UX normal (admin
@@ -78,7 +78,7 @@ export const VIEW_AS_MAX_SECONDS = 2 * 60 * 60
 export function signViewAsToken(
   payload: Omit<JWTPayload, 'iat' | 'exp' | 'viewAs'>
 ): string {
-  return jwt.sign({ ...payload, viewAs: true }, SECRET, { expiresIn: VIEW_AS_MAX_SECONDS })
+  return jwt.sign({ ...payload, viewAs: true }, SECRET, { expiresIn: VIEW_AS_MAX_SECONDS, algorithm: 'HS256' })
 }
 
 // Khusus untuk mencatat AKHIR sesi "Lihat sebagai" ke log audit: token yang
@@ -86,7 +86,7 @@ export function signViewAsToken(
 // memang token viewAs. JANGAN dipakai untuk otorisasi endpoint lain.
 export function verifyViewAsTokenAllowExpired(token: string): JWTPayload | null {
   try {
-    const p = jwt.verify(token, SECRET, { ignoreExpiration: true }) as JWTPayload
+    const p = jwt.verify(token, SECRET, { ignoreExpiration: true, algorithms: ['HS256'] }) as JWTPayload
     return p.viewAs === true && p.impersonatorUsername ? p : null
   } catch {
     return null
@@ -95,7 +95,7 @@ export function verifyViewAsTokenAllowExpired(token: string): JWTPayload | null 
 
 export function verifyToken(token: string): JWTPayload | null {
   try {
-    return jwt.verify(token, SECRET) as JWTPayload
+    return jwt.verify(token, SECRET, { algorithms: ['HS256'] }) as JWTPayload
   } catch {
     return null
   }

@@ -64,7 +64,15 @@ export async function POST(req: NextRequest) {
   // mengecek status sesi — siswa tetap bisa sync jawaban walau sesi sudah
   // ditutup pengawas (status SELESAI). Ditemukan otomatis oleh load test
   // (skenario "sync setelah sesi ditutup seharusnya ditolak").
-  const { data: sesi } = await db.from('sesi_ujian').select('status, paket_soal_id, durasi, waktu_selesai').eq('id', sesiId).single()
+  const { data: sesi, error: sesiError } = await db.from('sesi_ujian').select('status, paket_soal_id, durasi, waktu_selesai').eq('id', sesiId).single()
+  // Galat database sesaat (bukan "baris tidak ada") harus 503 supaya outbox
+  // client mencoba lagi, bukan 404 yang membuat paket ditandai GAGAL permanen.
+  if (sesiError && sesiError.code !== 'PGRST116') {
+    return NextResponse.json(
+      { error: 'Gagal memeriksa status sesi. Jawaban tetap aman dan akan dicoba lagi otomatis.' },
+      { status: 503 }
+    )
+  }
   if (!sesi) return NextResponse.json({ error: 'Sesi tidak ditemukan' }, { status: 404 })
   // Sesi SELESAI tidak lagi langsung ditolak: jawaban offline yang terbukti
   // dibuat sebelum batas waktu siswa tetap diterima dalam jendela terbatas
@@ -387,6 +395,25 @@ export async function POST(req: NextRequest) {
             { error: 'Sesi ujian Anda sedang aktif di perangkat lain. Jawaban tidak bisa disimpan dari perangkat ini.' },
             { status: 409 }
           )
+        case 'SUDAH_SUBMIT': {
+          // Siswa sudah submit sendiri; jawaban susulan tidak diterima. Dibalas
+          // sebagai "sudah ditangani" (accepted:false + revisi klien) supaya
+          // outbox client tidak menandai paket GAGAL kalau /selesai sebelumnya
+          // sebenarnya sudah berhasil tapi responsnya hilang.
+          const { count: cntSudahSubmit } = await db
+            .from('jawaban').select('*', { count: 'exact', head: true })
+            .eq('sesi_id', sesiId).eq('nis', user.nis!)
+          catatAktivitas(
+            db, user.nis!, 'SYNC_TERLAMBAT',
+            `Jawaban susulan ditolak (sesi ${sesiId}): siswa sudah submit sendiri. ${records.length} jawaban dari client diabaikan.`
+          )
+          return NextResponse.json({
+            message: 'Ujian sudah diselesaikan; jawaban susulan tidak diterima.',
+            totalSynced: Math.max(cntSudahSubmit ?? 0, records.length),
+            acked: records.map(r => ({ soal_id: r.soal_id, jawaban: r.jawaban, revisi: r.revisi, accepted: false })),
+            ditolakSudahSubmit: true,
+          })
+        }
         default:
           return NextResponse.json(
             { error: 'Gagal menyimpan jawaban (respons tidak dikenali). Akan dicoba lagi otomatis.' },

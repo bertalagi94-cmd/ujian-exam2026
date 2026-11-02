@@ -231,10 +231,20 @@ export async function POST(req: NextRequest) {
     const kunciAkun = username.trim().includes('@') ? username.trim().toLowerCase() : username.trim()
 
     // Query users dan siswa BERSAMAAN
-    const [{ data: user }, { data: siswa }] = await Promise.all([
+    const [{ data: user, error: errUser }, { data: siswa, error: errSiswa }] = await Promise.all([
       supabase.from('users').select('username, password_hash, nama, role, yayasan_id, is_tester').eq('username', kunciAkun).eq('status', 'AKTIF').single(),
       supabase.from('siswa').select('nis, password_hash, nama, kelas, yayasan_id, is_tester').eq('nis', username.trim()).eq('status', 'AKTIF').single(),
     ])
+
+    // Galat database (bukan "akun tidak ada" = PGRST116) jangan dibaca sebagai
+    // login gagal: bisa membakar jatah percobaan dan memblokir IP sekolah saat
+    // Supabase bermasalah sesaat.
+    const galatDb = (e: { code?: string } | null) => !!e && e.code !== 'PGRST116'
+    if (galatDb(errUser) || galatDb(errSiswa)) {
+      console.error('Login: galat database saat mencari akun:', errUser?.message ?? errSiswa?.message)
+      resetRateLimit(ip, String(username).trim()) // kembalikan jatah percobaan yang sudah terpakai
+      return NextResponse.json({ error: 'Server sedang sibuk. Coba lagi beberapa saat.' }, { status: 503 })
+    }
 
     const yayasanAkun: string | null = user
       ? (user.yayasan_id ?? YAYASAN_AWAL_ID)

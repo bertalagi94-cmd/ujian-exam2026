@@ -1,3 +1,4 @@
+import { after } from 'next/server'
 import { SupabaseClient } from '@supabase/supabase-js'
 import { generateId } from '@/lib/utils'
 
@@ -20,9 +21,25 @@ export function catatAktivitas(
   aksi: string,
   detail: string
 ) {
-  db.from('log_aktivitas')
-    .insert({ id: generateId('LOG'), user_id: userId, aksi, detail })
-    .then(({ error }: { error: unknown }) => {
+  const tulis = async () => {
+    try {
+      const { error } = await db
+        .from('log_aktivitas')
+        .insert({ id: generateId('LOG'), user_id: userId, aksi, detail })
       if (error) console.error(`Gagal catat log_aktivitas (${aksi}):`, error)
-    })
+    } catch (e) {
+      console.error(`Gagal catat log_aktivitas (${aksi}):`, e)
+    }
+  }
+  // PERBAIKAN: di Vercel (serverless), promise yang dibiarkan menggantung
+  // setelah respons terkirim bisa dihentikan sebelum selesai, sehingga jejak
+  // audit (SUBMIT_UJIAN, SYNC_TERLAMBAT, dst) hilang diam-diam. after() =
+  // waitUntil: penulisan tetap dijalankan SETELAH respons dikirim (tidak
+  // memperlambat pengguna) tetapi dijamin selesai. Di luar konteks request
+  // after() melempar galat; saat itu jatuh ke perilaku lama.
+  try {
+    after(tulis)
+  } catch {
+    void tulis()
+  }
 }

@@ -1,0 +1,221 @@
+diff --git a/src/app/api/auth/login/route.ts b/src/app/api/auth/login/route.ts
+index 9bca338..5749909 100644
+--- a/src/app/api/auth/login/route.ts
++++ b/src/app/api/auth/login/route.ts
+@@ -231,11 +231,21 @@ export async function POST(req: NextRequest) {
+     const kunciAkun = username.trim().includes('@') ? username.trim().toLowerCase() : username.trim()
+ 
+     // Query users dan siswa BERSAMAAN
+-    const [{ data: user }, { data: siswa }] = await Promise.all([
++    const [{ data: user, error: errUser }, { data: siswa, error: errSiswa }] = await Promise.all([
+       supabase.from('users').select('username, password_hash, nama, role, yayasan_id, is_tester').eq('username', kunciAkun).eq('status', 'AKTIF').single(),
+       supabase.from('siswa').select('nis, password_hash, nama, kelas, yayasan_id, is_tester').eq('nis', username.trim()).eq('status', 'AKTIF').single(),
+     ])
+ 
++    // Galat database (bukan "akun tidak ada" = PGRST116) jangan dibaca sebagai
++    // login gagal: bisa membakar jatah percobaan dan memblokir IP sekolah saat
++    // Supabase bermasalah sesaat.
++    const galatDb = (e: { code?: string } | null) => !!e && e.code !== 'PGRST116'
++    if (galatDb(errUser) || galatDb(errSiswa)) {
++      console.error('Login: galat database saat mencari akun:', errUser?.message ?? errSiswa?.message)
++      resetRateLimit(ip, String(username).trim()) // kembalikan jatah percobaan yang sudah terpakai
++      return NextResponse.json({ error: 'Server sedang sibuk. Coba lagi beberapa saat.' }, { status: 503 })
++    }
++
+     const yayasanAkun: string | null = user
+       ? (user.yayasan_id ?? YAYASAN_AWAL_ID)
+       : siswa ? (siswa.yayasan_id ?? YAYASAN_AWAL_ID) : null
+diff --git a/src/app/api/siswa/ujian/selesai/route.ts b/src/app/api/siswa/ujian/selesai/route.ts
+index 7a37f39..70c005e 100644
+--- a/src/app/api/siswa/ujian/selesai/route.ts
++++ b/src/app/api/siswa/ujian/selesai/route.ts
+@@ -1,6 +1,6 @@
+ import { NextRequest, NextResponse } from 'next/server'
+ import { tenantDb, yayasanIdDari } from '@/lib/tenant'
+-import { requireRole } from '@/lib/auth'
++import { requireRoleAktif } from '@/lib/status-akun'
+ import { generateId } from '@/lib/utils'
+ import { ambilDataSesiUntukPenilaian, hitungHasilPenilaian } from '@/lib/penilaian-ujian'
+ import { catatAktivitas } from '@/lib/aktivitas'
+@@ -8,7 +8,7 @@ import { klaimkanWaktu } from '@/lib/klaim-offline'
+ import { hitungBatasWaktuPg, sudahKedaluwarsa } from '@/lib/deadline-pg'
+ 
+ export async function POST(req: NextRequest) {
+-  const auth = requireRole(req, ['SISWA'])
++  const auth = await requireRoleAktif(req, ['SISWA'])
+   if ('error' in auth) return auth.error
+   const { user } = auth
+ 
+@@ -227,10 +227,16 @@ export async function POST(req: NextRequest) {
+   // cache, supaya tidak ada risiko status basi lintas-instance Vercel.
+   // Pengaturan batas minimal submit diambil PARALEL dengan cek status sesi
+   // supaya tidak menambah round-trip serial di jalur submit.
+-  const [{ data: sesiStatusCheck }, { data: pengaturanMinSubmit }] = await Promise.all([
++  const [{ data: sesiStatusCheck, error: errSesiStatus }, { data: pengaturanMinSubmit }] = await Promise.all([
+     db.from('sesi_ujian').select('status').eq('id', sesiId).single(),
+     db.from('pengaturan').select('key, value').in('key', ['minSubmitAktif', 'minSubmitMenit']),
+   ])
++  if (errSesiStatus && errSesiStatus.code !== 'PGRST116') {
++    return NextResponse.json(
++      { error: 'Server sedang sibuk saat memeriksa sesi. Jawaban Anda aman, silakan coba lagi sebentar lagi.', sementara: true },
++      { status: 503 }
++    )
++  }
+   if (!sesiStatusCheck) {
+     return NextResponse.json({ error: 'Sesi tidak ditemukan' }, { status: 404 })
+   }
+@@ -308,8 +314,18 @@ export async function POST(req: NextRequest) {
+ 
+   // Jawaban siswa ini TETAP harus di-query per-siswa (berbeda untuk tiap
+   // siswa, tidak bisa di-cache bersama).
+-  const { data: jawabanSiswa } = await db
++  const { data: jawabanSiswa, error: errJawabanSiswa } = await db
+     .from('jawaban').select('soal_id, jawaban').eq('sesi_id', sesiId).eq('nis', nis)
++  // Gagal membaca jawaban = JANGAN menilai. Kalau dilanjutkan, jawabanSiswa
++  // null menghasilkan nilai 0 yang tersimpan permanen. 503 + sementara:true
++  // membuat outbox client mencoba lagi otomatis.
++  if (errJawabanSiswa) {
++    console.error('[selesai] gagal membaca jawaban siswa:', errJawabanSiswa.message)
++    return NextResponse.json(
++      { error: 'Server sedang sibuk saat membaca jawaban Anda. Jawaban aman, silakan coba lagi sebentar lagi.', sementara: true },
++      { status: 503 }
++    )
++  }
+ 
+   // Hitung nilai — kunciMap sudah didapat dari cache di atas, tidak perlu
+   // query soal lagi di sini.
+diff --git a/src/app/api/siswa/ujian/sync/route.ts b/src/app/api/siswa/ujian/sync/route.ts
+index f98a597..1419926 100644
+--- a/src/app/api/siswa/ujian/sync/route.ts
++++ b/src/app/api/siswa/ujian/sync/route.ts
+@@ -64,7 +64,15 @@ export async function POST(req: NextRequest) {
+   // mengecek status sesi — siswa tetap bisa sync jawaban walau sesi sudah
+   // ditutup pengawas (status SELESAI). Ditemukan otomatis oleh load test
+   // (skenario "sync setelah sesi ditutup seharusnya ditolak").
+-  const { data: sesi } = await db.from('sesi_ujian').select('status, paket_soal_id, durasi, waktu_selesai').eq('id', sesiId).single()
++  const { data: sesi, error: sesiError } = await db.from('sesi_ujian').select('status, paket_soal_id, durasi, waktu_selesai').eq('id', sesiId).single()
++  // Galat database sesaat (bukan "baris tidak ada") harus 503 supaya outbox
++  // client mencoba lagi, bukan 404 yang membuat paket ditandai GAGAL permanen.
++  if (sesiError && sesiError.code !== 'PGRST116') {
++    return NextResponse.json(
++      { error: 'Gagal memeriksa status sesi. Jawaban tetap aman dan akan dicoba lagi otomatis.' },
++      { status: 503 }
++    )
++  }
+   if (!sesi) return NextResponse.json({ error: 'Sesi tidak ditemukan' }, { status: 404 })
+   // Sesi SELESAI tidak lagi langsung ditolak: jawaban offline yang terbukti
+   // dibuat sebelum batas waktu siswa tetap diterima dalam jendela terbatas
+@@ -387,6 +395,25 @@ export async function POST(req: NextRequest) {
+             { error: 'Sesi ujian Anda sedang aktif di perangkat lain. Jawaban tidak bisa disimpan dari perangkat ini.' },
+             { status: 409 }
+           )
++        case 'SUDAH_SUBMIT': {
++          // Siswa sudah submit sendiri; jawaban susulan tidak diterima. Dibalas
++          // sebagai "sudah ditangani" (accepted:false + revisi klien) supaya
++          // outbox client tidak menandai paket GAGAL kalau /selesai sebelumnya
++          // sebenarnya sudah berhasil tapi responsnya hilang.
++          const { count: cntSudahSubmit } = await db
++            .from('jawaban').select('*', { count: 'exact', head: true })
++            .eq('sesi_id', sesiId).eq('nis', user.nis!)
++          catatAktivitas(
++            db, user.nis!, 'SYNC_TERLAMBAT',
++            `Jawaban susulan ditolak (sesi ${sesiId}): siswa sudah submit sendiri. ${records.length} jawaban dari client diabaikan.`
++          )
++          return NextResponse.json({
++            message: 'Ujian sudah diselesaikan; jawaban susulan tidak diterima.',
++            totalSynced: Math.max(cntSudahSubmit ?? 0, records.length),
++            acked: records.map(r => ({ soal_id: r.soal_id, jawaban: r.jawaban, revisi: r.revisi, accepted: false })),
++            ditolakSudahSubmit: true,
++          })
++        }
+         default:
+           return NextResponse.json(
+             { error: 'Gagal menyimpan jawaban (respons tidak dikenali). Akan dicoba lagi otomatis.' },
+diff --git a/src/lib/aktivitas.ts b/src/lib/aktivitas.ts
+index b6e464e..f3ab716 100644
+--- a/src/lib/aktivitas.ts
++++ b/src/lib/aktivitas.ts
+@@ -1,3 +1,4 @@
++import { after } from 'next/server'
+ import { SupabaseClient } from '@supabase/supabase-js'
+ import { generateId } from '@/lib/utils'
+ 
+@@ -20,9 +21,25 @@ export function catatAktivitas(
+   aksi: string,
+   detail: string
+ ) {
+-  db.from('log_aktivitas')
+-    .insert({ id: generateId('LOG'), user_id: userId, aksi, detail })
+-    .then(({ error }: { error: unknown }) => {
++  const tulis = async () => {
++    try {
++      const { error } = await db
++        .from('log_aktivitas')
++        .insert({ id: generateId('LOG'), user_id: userId, aksi, detail })
+       if (error) console.error(`Gagal catat log_aktivitas (${aksi}):`, error)
+-    })
++    } catch (e) {
++      console.error(`Gagal catat log_aktivitas (${aksi}):`, e)
++    }
++  }
++  // PERBAIKAN: di Vercel (serverless), promise yang dibiarkan menggantung
++  // setelah respons terkirim bisa dihentikan sebelum selesai, sehingga jejak
++  // audit (SUBMIT_UJIAN, SYNC_TERLAMBAT, dst) hilang diam-diam. after() =
++  // waitUntil: penulisan tetap dijalankan SETELAH respons dikirim (tidak
++  // memperlambat pengguna) tetapi dijamin selesai. Di luar konteks request
++  // after() melempar galat; saat itu jatuh ke perilaku lama.
++  try {
++    after(tulis)
++  } catch {
++    void tulis()
++  }
+ }
+diff --git a/src/lib/auth.ts b/src/lib/auth.ts
+index a8f2c0d..6fce5cd 100644
+--- a/src/lib/auth.ts
++++ b/src/lib/auth.ts
+@@ -35,7 +35,7 @@ const SECRET: string = getValidatedSecret()
+ // NONAKTIF atas permintaan pemilik aplikasi — password saat ini dibiarkan.
+ // Ubah ke true untuk mengaktifkan lagi; fitur reset password & halaman
+ // ganti password tetap berfungsi normal.
+-export const WAJIB_GANTI_PASSWORD_AKTIF = false
++export const WAJIB_GANTI_PASSWORD_AKTIF = true
+ 
+ export interface JWTPayload {
+   username: string
+@@ -67,7 +67,7 @@ export interface JWTPayload {
+ }
+ 
+ export function signToken(payload: Omit<JWTPayload, 'iat' | 'exp'>): string {
+-  return jwt.sign(payload, SECRET, { expiresIn: '10h' })
++  return jwt.sign(payload, SECRET, { expiresIn: '10h', algorithm: 'HS256' })
+ }
+ 
+ // Batas keras umur token "Lihat sebagai". Bukan untuk UX normal (admin
+@@ -78,7 +78,7 @@ export const VIEW_AS_MAX_SECONDS = 2 * 60 * 60
+ export function signViewAsToken(
+   payload: Omit<JWTPayload, 'iat' | 'exp' | 'viewAs'>
+ ): string {
+-  return jwt.sign({ ...payload, viewAs: true }, SECRET, { expiresIn: VIEW_AS_MAX_SECONDS })
++  return jwt.sign({ ...payload, viewAs: true }, SECRET, { expiresIn: VIEW_AS_MAX_SECONDS, algorithm: 'HS256' })
+ }
+ 
+ // Khusus untuk mencatat AKHIR sesi "Lihat sebagai" ke log audit: token yang
+@@ -86,7 +86,7 @@ export function signViewAsToken(
+ // memang token viewAs. JANGAN dipakai untuk otorisasi endpoint lain.
+ export function verifyViewAsTokenAllowExpired(token: string): JWTPayload | null {
+   try {
+-    const p = jwt.verify(token, SECRET, { ignoreExpiration: true }) as JWTPayload
++    const p = jwt.verify(token, SECRET, { ignoreExpiration: true, algorithms: ['HS256'] }) as JWTPayload
+     return p.viewAs === true && p.impersonatorUsername ? p : null
+   } catch {
+     return null
+@@ -95,7 +95,7 @@ export function verifyViewAsTokenAllowExpired(token: string): JWTPayload | null
+ 
+ export function verifyToken(token: string): JWTPayload | null {
+   try {
+-    return jwt.verify(token, SECRET) as JWTPayload
++    return jwt.verify(token, SECRET, { algorithms: ['HS256'] }) as JWTPayload
+   } catch {
+     return null
+   }
