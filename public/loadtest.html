@@ -309,8 +309,26 @@
     </div>
     <div class="row" style="margin-top:10px">
       <div class="field">
-        <label>Jumlah soal di paket test</label>
-        <input id="cfg-soal-count" type="number" value="200" min="1" max="2000" />
+        <label>Jumlah soal di paket test (samakan dengan ujian sungguhan)</label>
+        <input id="cfg-soal-count" type="number" value="50" min="1" max="2000" />
+      </div>
+      <div class="field">
+        <label>Durasi ujian (menit) — waktu mengerjakan sungguhan</label>
+        <input id="cfg-durasi-ujian" type="number" value="30" min="5" max="240" />
+      </div>
+      <div class="field">
+        <label>Pola siswa mengerjakan</label>
+        <select id="cfg-pola-kerja">
+          <option value="sungguhan" selected>Seperti ujian sungguhan — jawab satu per satu, sync & heartbeat seperti aplikasi asli, selesai bertahap + gelombang akhir</option>
+          <option value="serentak">Serentak ekstrem — semua sync & submit pada detik yang sama (skenario terburuk, bukan kondisi nyata)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Jendela jam jadwal</label>
+        <select id="cfg-jendela-jadwal">
+          <option value="realistis" selected>Realistis — jam mulai/selesai mengikuti jam sekolah sekarang</option>
+          <option value="sehari">Sehari penuh (00:00–23:59)</option>
+        </select>
       </div>
       <div class="field">
         <label>Target siswa maksimum (ramp-up)</label>
@@ -648,6 +666,8 @@ const state = {
   kepsekToken: null,
   guruLainUsername: null,
   guruLainToken: null,
+  zonaOffsetJam: null,   // offset jam zona waktu SEKOLAH (diambil dari server, bukan ditebak)
+  zonaNama: null,
   baselineSiswaAktif: null,
   runId: null,
   kelasNama: null,
@@ -853,6 +873,84 @@ async function api(method, path, body, token) {
   }
 
   return { ok: res.ok, status: res.status, data: json, latency };
+}
+
+// ---------- Zona waktu & tanggal SEKOLAH ----------
+// Server menentukan "hari ini" menurut zona waktu SEKOLAH (provinsi di menu
+// Pengaturan), bukan UTC dan bukan zona browser penguji — lihat
+// tanggalHariIni() di src/lib/pengaturan-waktu.ts. Jadwal bertanggal "kemarin"
+// ditolak server. Dulu loadtest memakai new Date().toISOString() (UTC) sehingga
+// pada dini hari WITA/WIB tanggalnya mundur sehari dan tes berhenti.
+// Sekarang offset zona DIAMBIL DARI SERVER (GET /api/guru/jadwal-mapel), jadi
+// benar untuk WIB/WITA/WIT dan jam berapa pun tes dijalankan.
+const OFFSET_ZONA_CADANGAN_JAM = 7; // sama dengan fallback server (WIB) bila provinsi belum diisi
+
+async function ambilZonaSekolah(token) {
+  try {
+    const r = await api('GET', '/api/guru/jadwal-mapel', undefined, token);
+    const z = r.data?.zonaWaktu;
+    if (r.ok && z && typeof z.utcOffsetJam === 'number') {
+      return { offset: z.utcOffsetJam, nama: z.zona || `UTC+${z.utcOffsetJam}`, hariIniServer: r.data?.hariIni || null };
+    }
+  } catch (e) { /* jatuh ke null di bawah */ }
+  return null;
+}
+
+function tanggalPadaZona(offsetJam, nowMs = Date.now()) {
+  return new Date(nowMs + offsetJam * 3600 * 1000).toISOString().slice(0, 10);
+}
+function jamPadaZona(offsetJam, nowMs) {
+  return new Date(nowMs + offsetJam * 3600 * 1000).toISOString().slice(11, 16);
+}
+
+// Tanggal "hari ini" menurut zona sekolah (offset dari state, atau dari argumen).
+function tanggalSekolah(offsetJam) {
+  const off = (typeof offsetJam === 'number') ? offsetJam
+    : (typeof state.zonaOffsetJam === 'number' ? state.zonaOffsetJam : OFFSET_ZONA_CADANGAN_JAM);
+  return tanggalPadaZona(off);
+}
+
+// Pastikan zona sekolah sudah diketahui untuk run ini. Aman dipanggil berulang.
+async function pastikanZonaSekolah(token) {
+  if (typeof state.zonaOffsetJam === 'number') return state.zonaOffsetJam;
+  const z = await ambilZonaSekolah(token);
+  if (z) {
+    state.zonaOffsetJam = z.offset; state.zonaNama = z.nama;
+    const lokal = tanggalPadaZona(z.offset);
+    log(`Zona waktu sekolah dari server: ${z.nama} (UTC+${z.offset}). Tanggal sekolah sekarang: ${lokal}${z.hariIniServer ? ` (server: ${z.hariIniServer})` : ''}`,
+      z.hariIniServer && z.hariIniServer !== lokal ? 'warn' : 'ok');
+    return z.offset;
+  }
+  state.zonaOffsetJam = OFFSET_ZONA_CADANGAN_JAM; state.zonaNama = 'WIB (cadangan)';
+  log('Zona waktu sekolah TIDAK bisa diambil dari server — memakai WIB (UTC+7) seperti fallback server. Bila sekolah di WITA/WIT, jadwal bisa salah tanggal pada jam 23.00–24.00 WIB.', 'warn');
+  return state.zonaOffsetJam;
+}
+
+// Jendela jam jadwal yang menyerupai ujian sungguhan: mulai sedikit sebelum
+// sekarang, selesai setelah durasi ujian + cadangan untuk fase persiapan tes.
+// Bila jendela melewati tengah malam (atau tes dijalankan dekat tengah malam),
+// jatuh ke 00:00–23:59 supaya tanggal tetap satu hari.
+function jendelaJadwalSekolah(offsetJam, durasiMenit, mode) {
+  const penuh = { jam_mulai: '00:00', jam_selesai: '23:59', penuh: true };
+  if (mode === 'sehari') return penuh;
+  const now = Date.now();
+  const mulaiMs = now - 10 * 60000;
+  const selesaiMs = now + (durasiMenit + 120) * 60000; // 120 mnt cadangan: setup, ramp login, fase lain
+  const tgl = tanggalPadaZona(offsetJam, now);
+  // Melewati tengah malam: klem ke batas hari yang sama (server menyimpan jadwal per tanggal).
+  const jamMulai = tanggalPadaZona(offsetJam, mulaiMs) < tgl ? '00:00' : jamPadaZona(offsetJam, mulaiMs);
+  const jamSelesai = tanggalPadaZona(offsetJam, selesaiMs) > tgl ? '23:59' : jamPadaZona(offsetJam, selesaiMs);
+  return { jam_mulai: jamMulai, jam_selesai: jamSelesai, penuh: false };
+}
+
+// Server menolak (409) dua jadwal dengan kelas ATAU pengawas yang sama pada jam yang
+// bertabrakan di hari yang sama (src/app/api/admin/jadwal/route.ts). Fungsi ini mencari
+// slot jam yang tidak bertabrakan dengan jadwal pertama untuk jadwal kedua (uji sesi ganda).
+function slotJadwalKedua(j1) {
+  if (!j1 || j1.penuh) return null;
+  if (j1.jam_selesai < '23:58') return { jam_mulai: j1.jam_selesai, jam_selesai: '23:59' };
+  if (j1.jam_mulai > '00:01') return { jam_mulai: '00:00', jam_selesai: j1.jam_mulai };
+  return null;
 }
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
@@ -1354,6 +1452,9 @@ async function phaseSetup() {
   }
   state.guruToken = guruLogin.data.token;
 
+  // Zona waktu sekolah dari server (dipakai untuk tanggal & jam jadwal).
+  await pastikanZonaSekolah(state.guruToken);
+
   // Buat mapel testing milik guru testing SENDIRI (bukan menumpang mapel
   // sekolah asli). Ini penting: kalau mapel dipinjam dari guru lain,
   // GET /api/guru/nilai (yang hanya menampilkan mapel berdasarkan
@@ -1453,7 +1554,7 @@ async function phaseSetup() {
 // FASE 2 — GENERATE SOAL (sebanyak yang dikonfigurasi, ke 1 paket testing)
 // =====================================================================
 async function phaseSoal() {
-  const soalCount = parseInt(document.getElementById('cfg-soal-count').value) || 200;
+  const soalCount = parseInt(document.getElementById('cfg-soal-count').value) || 50;
 
   setAction('Membuat paket soal testing…');
   const paketRes = await api('POST', '/api/guru/paket', {
@@ -1542,16 +1643,23 @@ async function phaseApprove() {
   log('Paket soal disetujui', 'ok');
 
   setAction('Membuat jadwal ujian testing…');
-  const today = new Date().toISOString().slice(0, 10);
+  // Tanggal & jam menurut ZONA WAKTU SEKOLAH (bukan UTC) — lihat ambilZonaSekolah().
+  const offZona = await pastikanZonaSekolah(state.guruToken);
+  const today = tanggalSekolah(offZona);
+  const durasiUjian = Math.max(5, cfgNum('cfg-durasi-ujian', 30));
+  const jendela = jendelaJadwalSekolah(offZona, durasiUjian, document.getElementById('cfg-jendela-jadwal')?.value);
+  state.durasiUjianMenit = durasiUjian;
+  state.jendelaJadwal = jendela;
+  log(`Jadwal ujian: ${today} ${jendela.jam_mulai}–${jendela.jam_selesai} (${state.zonaNama}), durasi ${durasiUjian} menit${jendela.penuh ? ' — jendela sehari penuh' : ''}`, 'info');
   const jadwalRes = await api('POST', '/api/admin/jadwal', {
     tanggal: today,
     sesi: 1,
-    jam_mulai: '00:00',
-    jam_selesai: '23:59',
+    jam_mulai: jendela.jam_mulai,
+    jam_selesai: jendela.jam_selesai,
     mapel_id: state.mapelId,
     kelas: state.kelasNama,
     pengawas: state.guruUsername,
-    durasi: 90,
+    durasi: durasiUjian,
   }, state.adminToken);
   if (!jadwalRes.ok) {
     recordBug('Gagal membuat jadwal ujian', JSON.stringify(jadwalRes.data), 'POST /api/admin/jadwal');
@@ -2103,7 +2211,7 @@ async function phaseFeatures() {
 
   // ---------- 6k. Cross-check konsistensi angka antar endpoint ----------
   setAction('Memeriksa konsistensi angka antar endpoint…');
-  const soalCountTarget = parseInt(document.getElementById('cfg-soal-count').value) || 200;
+  const soalCountTarget = parseInt(document.getElementById('cfg-soal-count').value) || 50;
   const dashGuru = await api('GET', '/api/guru/dashboard', undefined, state.guruToken);
   if (dashGuru.ok && typeof dashGuru.data?.totalSoal === 'number' && dashGuru.data.totalSoal !== soalCountTarget) {
     recordBug(
@@ -2486,12 +2594,24 @@ async function phaseSmartDetection() {
   // sesi yang salah dan nilai hilang.
   setAction('Uji race condition: buka sesi ganda serentak…');
   // Buat jadwal kedua dulu (diperlukan untuk uji ini — tidak bisa pakai jadwal yang sudah SELESAI)
-  const today = new Date().toISOString().slice(0, 10);
-  const jadwal2Res = await api('POST', '/api/admin/jadwal', {
-    tanggal: today, sesi: 2, jam_mulai: '00:00', jam_selesai: '23:59',
-    mapel_id: state.mapelId, kelas: state.kelasNama,
-    pengawas: state.guruUsername, durasi: 90,
-  }, state.adminToken);
+  const today = tanggalSekolah(await pastikanZonaSekolah(state.guruToken));
+  // Jadwal kedua memakai kelas & pengawas yang sama dengan jadwal pertama, jadi jamnya HARUS
+  // tidak bertabrakan — kalau tidak, server menolak (409) dan uji ini terlewati diam-diam
+  // (itulah yang terjadi di versi lama, ketika keduanya 00:00–23:59).
+  const slot2 = slotJadwalKedua(state.jendelaJadwal);
+  let jadwal2Res = { ok: false, status: 0, data: { error: 'tidak ada slot jam kosong di hari ini' } };
+  if (slot2) {
+    jadwal2Res = await api('POST', '/api/admin/jadwal', {
+      tanggal: today, sesi: 2, jam_mulai: slot2.jam_mulai, jam_selesai: slot2.jam_selesai,
+      mapel_id: state.mapelId, kelas: state.kelasNama,
+      pengawas: state.guruUsername, durasi: 90,
+    }, state.adminToken);
+  }
+  if (!jadwal2Res.ok) {
+    const alasan = `Uji race condition (buka sesi ganda serentak) DILEWATI: jadwal kedua tidak bisa dibuat (HTTP ${jadwal2Res.status}: ${jadwal2Res.data?.error || 'tanpa pesan'}). Hasil tes ini TIDAK membuktikan ada/tidaknya sesi kembar.`;
+    log(alasan, 'warn');
+    if (state.verif?.catatan) state.verif.catatan.push(alasan);
+  }
   if (jadwal2Res.ok) {
     const jList = await api('GET', `/api/admin/jadwal?kelas=${encodeURIComponent(state.kelasNama)}`, undefined, state.adminToken);
     const jadwal2 = jList.data?.data?.find(j => j.sesi === 2 && j.mapel_id === state.mapelId);
@@ -2933,6 +3053,8 @@ const AMBANG = {
   minSiswaTerverifikasi: 20,        // populasi yang nilainya dicocokkan
   skalaPenuhMin: 450,               // di bawah ini vonis maksimal "LULUS PARSIAL"
   lagBrowserMaksMs: 1000,           // event-loop browser penguji
+  heartbeatP95Ms: 3000,             // cek-sesi saat ujian berjalan
+  heartbeatGagalMaksPersen: 1,
 };
 
 const HURUF_JAWAB = ['A', 'B', 'C', 'D'];
@@ -3011,6 +3133,298 @@ function buatRencanaJawaban(siswa, k) {
   }
   const nilai = total > 0 ? Math.round((benarTarget / total) * 100) : 0;
   return { jawab, benar: benarTarget, total, nilai };
+}
+
+// =====================================================================
+// POLA "SEPERTI UJIAN SUNGGUHAN"
+// ---------------------------------------------------------------------
+// Meniru klien siswa asli (src/app/siswa/ujian/page.tsx), bukan sekadar
+// menembak endpoint:
+//  • Siswa menjawab SATU PER SATU dengan waktu berpikir acak (bukan semua
+//    jawaban dikirim dalam hitungan detik). Sekitar 10% soal "ragu-ragu":
+//    memilih jawaban lain dulu, lalu menggantinya (revisi naik).
+//  • Sync CEPAT: ditunda 2,5 dtk setelah klik terakhir, paling lama 8 dtk.
+//  • Autosync tiap 30 dtk sebagai jaring pengaman.
+//  • Setiap sync mengirim SELURUH jawaban yang sudah ada (kumulatif), lengkap
+//    dengan `revisi` dan `waktuJawabMs` — persis seperti klien asli. (Loadtest
+//    lama hanya mengirim potongan tanpa dua field itu, sehingga beban tulis ke
+//    database jauh lebih ringan dan jalur kode revisi tidak teruji.)
+//  • Heartbeat cek-sesi tiap 10 dtk dan health-check tiap 5 dtk berjalan
+//    SELAMA ujian, bersamaan dengan sync.
+//  • Siswa selesai BERTAHAP: ±60% menekan "Selesai" tersebar di paruh kedua
+//    durasi, ±40% menumpuk di menit-menit terakhir (gelombang akhir). ±10%
+//    mengetuk "Selesai" dua kali. ±8% me-refresh halaman di tengah ujian
+//    (baca ulang jawaban dari server dan dicocokkan).
+//  • Waktu ujian = durasi sungguhan yang Anda isi (bukan 30 detik).
+// =====================================================================
+const KLIEN = {
+  SYNC_CEPAT_DEBOUNCE_MS: 2500,
+  SYNC_CEPAT_MAKS_TUNDA_MS: 8000,
+  AUTOSYNC_MS: 30000,
+  HEARTBEAT_MS: 10000,
+  HEALTH_MS: 5000,
+  MAKS_SYNC_RETRY: 4,
+};
+
+function acakNormal() {
+  let u = 0, w = 0;
+  while (u === 0) u = Math.random();
+  while (w === 0) w = Math.random();
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * w);
+}
+function acakAntara(a, b) { return a + Math.random() * (b - a); }
+
+// Tunggu sampai t0 + offsetMs (jam absolut, tidak menumpuk drift). false = dihentikan pengguna.
+async function tungguSampai(t0, offsetMs) {
+  while (true) {
+    if (state.stopRequested) return false;
+    const sisa = t0 + offsetMs - performance.now();
+    if (sisa <= 0) return true;
+    await sleep(Math.min(sisa, 500));
+  }
+}
+async function tidurBisaStop(ms) { return tungguSampai(performance.now(), ms); }
+
+// Rencana klik satu siswa: urutan jawaban + waktu berpikir + ragu-ragu + refresh.
+function buatJadwalKlik(s, durMs, peran, adaRefresh) {
+  const plan = s._rencana;
+  const n = plan.jawab.length;
+  const akhirMaks = Math.max(0.6 * durMs, durMs - 90000);       // paling lambat menekan "Selesai"
+  let tSelesai;
+  if (peran === 'A') {
+    tSelesai = Math.random() < 0.4
+      ? akhirMaks - acakAntara(0, Math.min(90000, 0.1 * durMs))   // gelombang akhir
+      : acakAntara(0.5 * durMs, Math.max(0.5 * durMs + 1, akhirMaks - 0.05 * durMs));
+  } else {
+    tSelesai = acakAntara(0.45 * durMs, 0.85 * durMs);            // B & cadangan: selesai mengerjakan, tidak menekan Selesai
+  }
+  const review = Math.min(acakAntara(15000, 60000), tSelesai * 0.3); // memeriksa ulang sebelum "Selesai"
+  const tKlikAkhir = Math.max(5000, tSelesai - review);
+  const mulaiAwal = acakAntara(2000, 10000);                        // membaca petunjuk & soal pertama
+  const bobot = plan.jawab.map(() => Math.exp(0.6 * acakNormal())); // waktu berpikir lognormal
+  const jumlah = bobot.reduce((a, b) => a + b, 0) || 1;
+  const ev = [];
+  let t = mulaiAwal;
+  plan.jawab.forEach((j, i) => {
+    t += (bobot[i] / jumlah) * Math.max(1000, tKlikAkhir - mulaiAwal);
+    // Ragu-ragu hanya untuk soal yang bukan 3 terakhir, dan klik pengganti SELALU setelah klik pertama
+    // (jawaban akhir harus yang direncanakan, supaya nilai yang seharusnya tersimpan bisa dihitung pasti).
+    if (i < n - 3 && Math.random() < 0.10) {
+      const lain = HURUF_JAWAB.find(h => h !== j.jawaban);
+      ev.push({ t, soal_id: j.soal_id, jawaban: lain });
+      ev.push({ t: Math.max(t + 1000, Math.min(tKlikAkhir, t + acakAntara(3000, 20000))), soal_id: j.soal_id, jawaban: j.jawaban });
+    } else {
+      ev.push({ t, soal_id: j.soal_id, jawaban: j.jawaban });
+    }
+  });
+  if (adaRefresh) ev.push({ t: acakAntara(0.3, 0.7) * tKlikAkhir, refresh: true });
+  ev.sort((a, b) => a.t - b.t);
+  const klikTerakhir = ev.length ? ev[ev.length - 1].t : tKlikAkhir;
+  return { ev, tSelesai: Math.max(tSelesai, tKlikAkhir, klikTerakhir + 1000), tKlikAkhir };
+}
+
+async function kerjaSatuSiswa(s, peran, ctx) {
+  const { t0, durMs, stat } = ctx;
+  const device = deviceIdFor(s.nis);
+  const adaRefresh = peran === 'A' && (ctx.urutan.get(s.nis) % 12 === 5);   // ±8% siswa
+  const { ev, tSelesai } = buatJadwalKlik(s, durMs, peran, adaRefresh);
+  const lokal = {};                 // soal_id -> { jawaban, revisi, ts }
+  let timerCepat = null, mulaiTunda = 0, antrean = Promise.resolve();
+
+  const kirimSync = async () => {
+    const entries = Object.entries(lokal);
+    if (!entries.length) return;
+    const body = {
+      sesiId: state.sesiId,
+      jawaban: entries.map(([soal_id, o]) => ({ soal_id, jawaban: o.jawaban, revisi: o.revisi, waktuJawabMs: o.ts })),
+      deviceId: device,
+    };
+    const h = await panggilDenganCobaUlang(() => api('POST', '/api/siswa/ujian/sync', body, s.token), { maks: KLIEN.MAKS_SYNC_RETRY - 1 });
+    stat.syncTotal++; stat.syncLat.push(h.pertama.latency); stat.syncEntri += entries.length;
+    if (!h.berhasilPertama) stat.syncPertamaGagal++;
+    if (!h.berhasilAkhir) {
+      stat.syncAkhirGagal++; s._syncGagal = true;
+      if (stat.contohSyncGagal.length < 3) stat.contohSyncGagal.push(`${s.nis}: HTTP ${h.akhir?.status ?? '?'} ${(h.akhir?.data?.error || h.akhir?.error || '').toString().slice(0, 80)}`);
+    } else {
+      const d = h.akhir.data?.ditolakTerlambat;
+      if (typeof d === 'number' && d > 0) stat.ditolakTerlambat += d;
+      const ditolak = (h.akhir.data?.acked || []).filter(a => a && a.accepted === false).length;
+      if (ditolak > 0) stat.revisiDitolak += ditolak;
+    }
+  };
+  const antreanSync = () => { antrean = antrean.then(kirimSync).catch(() => {}); return antrean; };
+  const jadwalkanSyncCepat = () => {
+    const now = performance.now();
+    if (!mulaiTunda) mulaiTunda = now;
+    const sisaMaks = Math.max(0, KLIEN.SYNC_CEPAT_MAKS_TUNDA_MS - (now - mulaiTunda));
+    if (timerCepat) clearTimeout(timerCepat);
+    timerCepat = setTimeout(() => { timerCepat = null; mulaiTunda = 0; antreanSync(); }, Math.min(KLIEN.SYNC_CEPAT_DEBOUNCE_MS, sisaMaks));
+  };
+  const flush = async () => {
+    if (timerCepat) { clearTimeout(timerCepat); timerCepat = null; mulaiTunda = 0; }
+    await antreanSync();
+  };
+
+  // Baca ulang dari server (seperti siswa refresh halaman) lalu cocokkan dengan yang ada di perangkat.
+  const bacaBanding = async () => {
+    const h = await panggilDenganCobaUlang(
+      () => api('GET', `/api/siswa/ujian/sync?sesiId=${encodeURIComponent(state.sesiId)}&deviceId=${encodeURIComponent(device)}`, undefined, s.token),
+      { maks: 2, berhasil: r => r.ok && Array.isArray(r.data?.jawaban) });
+    if (!h.berhasilAkhir) { stat.gagalBaca++; return; }
+    stat.diperiksa++;
+    const tersimpan = {};
+    h.akhir.data.jawaban.forEach(j => { tersimpan[j.soal_id] = j.jawaban; });
+    let hilang = 0, beda = 0;
+    for (const [soal_id, o] of Object.entries(lokal)) {
+      if (tersimpan[soal_id] === undefined) hilang++;
+      else if (String(tersimpan[soal_id]).trim().toUpperCase() !== o.jawaban) beda++;
+    }
+    if (hilang || beda) {
+      stat.jawabanHilang += hilang; stat.jawabanBeda += beda; stat.siswaBermasalah.add(s.nis);
+      if (stat.contohBaca.length < 3) stat.contohBaca.push(`${s.nis}: hilang=${hilang}, beda=${beda}`);
+    }
+  };
+
+  const berhenti = () => (peran === 'A' ? !!s._hbStop : ctx.semuaASelesai);
+  const loopHeartbeat = async () => {
+    if (!(await tidurBisaStop(Math.random() * KLIEN.HEARTBEAT_MS))) return;
+    while (!state.stopRequested && !berhenti()) {
+      const r = await api('GET', `/api/siswa/ujian/cek-sesi?sesiId=${encodeURIComponent(state.sesiId)}&deviceId=${encodeURIComponent(device)}`, undefined, s.token)
+        .catch(e => ({ ok: false, status: 0, error: e.message }));
+      stat.hbTotal++;
+      if (typeof r.latency === 'number') stat.hbLat.push(r.latency);
+      if (!r.ok) stat.hbGagal++;
+      else if (r.data?.diambil_alih_device_lain) stat.hbTakeover++;
+      else if (r.data?.sesi_status === 'SELESAI') stat.hbSelesaiDini++;
+      if (!(await tidurBisaStop(KLIEN.HEARTBEAT_MS))) return;
+    }
+  };
+  const loopHealth = async () => {
+    if (!(await tidurBisaStop(Math.random() * KLIEN.HEALTH_MS))) return;
+    while (!state.stopRequested && !berhenti()) {
+      const r = await api('GET', '/api/siswa/ujian/health').catch(e => ({ ok: false, status: 0, error: e.message }));
+      stat.healthTotal++;
+      if (typeof r.latency === 'number') stat.healthLat.push(r.latency);
+      if (!r.ok) stat.healthGagal++;
+      if (!(await tidurBisaStop(KLIEN.HEALTH_MS))) return;
+    }
+  };
+
+  await sleep(Math.random() * 3000); // perangkat berbeda mulai dengan selisih beberapa detik
+  ctx.latar.push(loopHeartbeat(), loopHealth());
+  const idAuto = setInterval(() => { antreanSync(); }, KLIEN.AUTOSYNC_MS);
+  try {
+    for (const e of ev) {
+      if (!(await tungguSampai(t0, e.t))) return;
+      if (e.refresh) { await flush(); await bacaBanding(); stat.refresh++; continue; }
+      const lama = lokal[e.soal_id];
+      lokal[e.soal_id] = { jawaban: e.jawaban, revisi: (lama?.revisi ?? 0) + 1, ts: Date.now() };
+      stat.klik++;
+      jadwalkanSyncCepat();
+    }
+    await flush();
+    await bacaBanding();
+    if (!(await tungguSampai(t0, tSelesai))) return;   // memeriksa jawaban sebelum menekan "Selesai"
+    if (peran === 'A') {
+      await flush();                                    // tombol "Selesai" memicu sync terakhir
+      const kirim = () => api('POST', '/api/siswa/ujian/selesai', { sesiId: state.sesiId, nis: s.nis, deviceId: device }, s.token);
+      const ketukKedua = ctx.gandaSet.has(s.nis) ? kirim() : null;
+      const h = await panggilDenganCobaUlang(kirim, { maks: 3, berhasil: r => r.ok && typeof r.data?.nilai === 'number' });
+      if (ketukKedua) { try { await ketukKedua; } catch (err) { /* diabaikan */ } }
+      s._hasilSubmit = h;
+      state.submitTimestamps[s.nis] = Date.now();
+      stat.submitWaktu.push(performance.now() - t0);
+      stat.submitSelesai++;
+    }
+  } finally {
+    clearInterval(idAuto);
+    if (timerCepat) clearTimeout(timerCepat);
+    if (peran === 'A') s._hbStop = true;
+  }
+}
+
+async function kerjaSungguhan({ A, B, siswaCadangan, v }) {
+  const menit = Math.max(1, state.durasiUjianMenit || cfgNum('cfg-durasi-ujian', 30));
+  const durMs = menit * 60000;
+  const pesertaA = A.filter(s => s._rencana);
+  const lain = [...B, ...siswaCadangan].filter(s => s._rencana);
+  const stat = {
+    klik: 0, refresh: 0,
+    syncTotal: 0, syncPertamaGagal: 0, syncAkhirGagal: 0, syncEntri: 0, syncLat: [], contohSyncGagal: [],
+    ditolakTerlambat: 0, revisiDitolak: 0,
+    hbTotal: 0, hbGagal: 0, hbTakeover: 0, hbSelesaiDini: 0, hbLat: [],
+    healthTotal: 0, healthGagal: 0, healthLat: [],
+    diperiksa: 0, gagalBaca: 0, jawabanHilang: 0, jawabanBeda: 0, siswaBermasalah: new Set(), contohBaca: [],
+    submitSelesai: 0, submitWaktu: [],
+  };
+  const urutan = new Map(); [...pesertaA, ...lain].forEach((s, i) => urutan.set(s.nis, i));
+  const ctx = {
+    t0: performance.now(), durMs, stat, urutan, semuaASelesai: false, latar: [],
+    gandaSet: new Set(pesertaA.filter((_, i) => i % 10 === 0).map(s => s.nis)),
+  };
+  log(`Ujian SUNGGUHAN dimulai: ${pesertaA.length} siswa akan menekan "Selesai" bertahap, ${lain.length} lainnya (ditutup paksa/cadangan) mengerjakan tanpa menekan "Selesai". Durasi ${menit} menit — tes ini akan berjalan selama itu.`, 'info');
+  const lag = mulaiPantauLag();
+  const uiTimer = setInterval(() => {
+    const el = performance.now() - ctx.t0;
+    setProgress(Math.min(99, (el / durMs) * 100), `Menit ${(el / 60000).toFixed(1)} / ${menit}`);
+    setAction(`Ujian berjalan — menit ${(el / 60000).toFixed(1)}/${menit}: ${stat.submitSelesai}/${pesertaA.length} selesai · sync ${stat.syncTotal} (gagal ${stat.syncAkhirGagal}) · heartbeat ${stat.hbTotal} (gagal ${stat.hbGagal})`);
+  }, 1000);
+
+  try {
+    const aFlow = pesertaA.map(s => kerjaSatuSiswa(s, 'A', ctx).catch(e => { log(`Siswa ${s.nis} error di simulasi: ${e.message}`, 'warn'); }));
+    const lainFlow = lain.map(s => kerjaSatuSiswa(s, 'LAIN', ctx).catch(e => { log(`Siswa ${s.nis} error di simulasi: ${e.message}`, 'warn'); }));
+    await Promise.all(aFlow);
+    ctx.semuaASelesai = true;
+    await Promise.all(lainFlow);
+    await Promise.all(ctx.latar);
+  } finally {
+    clearInterval(uiTimer);
+  }
+  const lagMs = hentikanPantauLag(lag);
+  if (state.stopRequested) { v.tidakSelesai = 'Dihentikan pengguna.'; return; }
+
+  const hs = pesertaA.map(s => s._hasilSubmit).filter(Boolean);
+  const totalWaktu = stat.submitWaktu.length ? Math.max(...stat.submitWaktu) - Math.min(...stat.submitWaktu) : 0;
+  const duaMenitTerakhir = stat.submitWaktu.filter(t => t >= durMs - 150000).length;
+
+  v.pola = 'sungguhan';
+  v.durasiMenit = menit;
+  v.sync = {
+    siklus: 'berkelanjutan', pesertaSync: pesertaA.length + lain.length, panggilan: stat.syncTotal,
+    pertamaGagal: stat.syncPertamaGagal, akhirGagal: stat.syncAkhirGagal, lat: ringkasLatensi(stat.syncLat), lagMs,
+    ditolakTerlambat: stat.ditolakTerlambat, revisiDitolak: stat.revisiDitolak, rataEntri: stat.syncTotal ? stat.syncEntri / stat.syncTotal : 0,
+    totalKlik: stat.klik,
+  };
+  v.heartbeat = {
+    total: stat.hbTotal, gagal: stat.hbGagal, takeover: stat.hbTakeover, selesaiDini: stat.hbSelesaiDini, lat: ringkasLatensi(stat.hbLat),
+    healthTotal: stat.healthTotal, healthGagal: stat.healthGagal, healthLat: ringkasLatensi(stat.healthLat),
+  };
+  v.bacaUlang = {
+    diperiksa: stat.diperiksa, gagalBaca: stat.gagalBaca, siswaBermasalah: stat.siswaBermasalah.size,
+    jawabanHilang: stat.jawabanHilang, jawabanBeda: stat.jawabanBeda, contoh: stat.contohBaca, refresh: stat.refresh,
+  };
+  if (stat.jawabanHilang + stat.jawabanBeda > 0) {
+    recordBugCat(BUG_CATEGORIES.FATAL, `Jawaban siswa HILANG/BERUBAH setelah sync (${stat.siswaBermasalah.size} siswa)`,
+      `Setelah sync sukses (HTTP 200), pembacaan ulang dari server menunjukkan ${stat.jawabanHilang} jawaban hilang dan ${stat.jawabanBeda} berbeda dari yang dikirim. Contoh: ${stat.contohBaca.join('; ')}.`,
+      'POST/GET /api/siswa/ujian/sync');
+  }
+  if (stat.hbTakeover > 0) {
+    recordBugCat(BUG_CATEGORIES.FUNGSIONAL, `Heartbeat salah mendeteksi pengambilalihan perangkat (${stat.hbTakeover}x)`,
+      `Setiap siswa memakai SATU perangkat tetap, tetapi cek-sesi melaporkan "diambil alih perangkat lain" ${stat.hbTakeover} kali. Di ujian sungguhan ini akan menendang siswa yang sah keluar.`,
+      'GET /api/siswa/ujian/cek-sesi');
+  }
+  v.submit = {
+    jumlah: hs.length, ganda: ctx.gandaSet.size,
+    pertamaGagal: hs.filter(h => !h.berhasilPertama).length,
+    akhirGagal: hs.filter(h => !h.berhasilAkhir).length,
+    lat: ringkasLatensi(hs.map(h => h.pertama.latency)),
+    totalMs: ringkasLatensi(hs.map(h => h.totalMs)),
+    durasiMs: totalWaktu, lagMs, gelombangAkhir: duaMenitTerakhir,
+  };
+  log(`Sync: ${stat.syncTotal} panggilan (rata-rata ${v.sync.rataEntri.toFixed(0)} jawaban/sync), gagal akhir ${stat.syncAkhirGagal}, P95 ${v.sync.lat.p95.toFixed(0)}ms`, stat.syncAkhirGagal === 0 ? 'ok' : 'err');
+  log(`Heartbeat: ${stat.hbTotal} panggilan, gagal ${stat.hbGagal}, P95 ${v.heartbeat.lat.p95.toFixed(0)}ms · health: ${stat.healthTotal} panggilan, gagal ${stat.healthGagal}`, stat.hbGagal === 0 ? 'ok' : 'err');
+  log(`Baca-ulang: ${stat.diperiksa} pembacaan (${stat.refresh} refresh tengah ujian), jawaban hilang ${stat.jawabanHilang}, berbeda ${stat.jawabanBeda}`, (stat.jawabanHilang + stat.jawabanBeda + stat.gagalBaca) === 0 ? 'ok' : 'err');
+  log(`Submit: ${hs.length} siswa selesai tersebar ${(totalWaktu / 60000).toFixed(1)} menit (${duaMenitTerakhir} di gelombang akhir), gagal akhir ${v.submit.akhirGagal}, P95 ${v.submit.lat.p95.toFixed(0)}ms`, v.submit.akhirGagal === 0 ? 'ok' : 'err');
 }
 
 async function phaseExamTerpercaya() {
@@ -3100,6 +3514,28 @@ async function phaseExamTerpercaya() {
   const peserta = [...populasi, ...siswaCadangan].filter(s => s.soalList?.length);
   populasi.forEach((s, k) => { if (s.soalList?.length) s._rencana = buatRencanaJawaban(s, k); });
   siswaCadangan.forEach(s => { if (s.soalList?.length) s._rencana = buatRencanaJawaban(s, 3); });
+
+  // ── POLA SEPERTI UJIAN SUNGGUHAN (bawaan) ──
+  // Siswa mengerjakan selama durasi ujian, sync/heartbeat seperti aplikasi asli, selesai bertahap.
+  // Pola "serentak ekstrem" (kode di bawah blok ini) dipertahankan sebagai skenario terburuk.
+  if (document.getElementById('cfg-pola-kerja')?.value !== 'serentak') {
+    await kerjaSungguhan({ A, B, siswaCadangan, v });
+    if (v.tidakSelesai) return;
+    // Siswa cadangan (dipakai fase lain) submit dengan cara lama agar fase berikutnya tetap berjalan seperti biasa.
+    const sp = getSpeedConfig();
+    await runBatched(siswaCadangan.filter(s => s._rencana), async (s) => {
+      const r = await api('POST', '/api/siswa/ujian/selesai', { sesiId: state.sesiId, nis: s.nis, deviceId: deviceIdFor(s.nis) }, s.token);
+      state.submitTimestamps[s.nis] = Date.now();
+      return r;
+    }, { batchSize: sp.batchSize, delayBetweenBatches: sp.delayBetweenBatches });
+    if (v.submit && v.submit.jumlah > 0 && state.submitTimestamps) {
+      if (A.some(x => x._hasilSubmit?.kodeKhusus === 'BELUM_MINIMAL_WAKTU')) v.blokirMinSubmit = true;
+    }
+    v.lagMaks = Math.max(v.login?.lagMs || 0, v.masuk?.lagMs || 0, v.sync?.lagMs || 0, v.submit?.lagMs || 0);
+    log(`${B.length} siswa sengaja TIDAK submit: sesi akan ditutup paksa oleh pengawas di fase 6m, lalu nilai mereka diverifikasi.`, 'info');
+    return;
+  }
+  v.pola = 'serentak';
 
   // ── 3. Sync BERKALA (delta jawaban per siklus, seperti autosave) ──
   if (state.stopRequested) { v.tidakSelesai = 'Dihentikan pengguna.'; return; }
@@ -3280,6 +3716,11 @@ function hitungVerdict() {
     'Tetap lakukan pilot satu kelas dengan perangkat dan jaringan sekolah sebelum ujian sebenarnya.',
   ];
   vd.catatan = catatanTetap;
+  if (v && v.pola === 'sungguhan') {
+    vd.catatan.unshift(`Pola uji: SEPERTI UJIAN SUNGGUHAN — durasi ${v.durasiMenit} menit, ${v.sync?.totalKlik ?? '?'} klik jawaban, sync kumulatif (rata-rata ${(v.sync?.rataEntri ?? 0).toFixed(0)} jawaban/sync) dengan revisi, heartbeat 10 dtk, health-check 5 dtk, siswa selesai bertahap + gelombang akhir. Belum disimulasikan: notifikasi sidebar, gambar pada soal, essay, siswa offline lalu tersambung kembali, dan perangkat/Wi-Fi sekolah yang sebenarnya.`);
+  } else if (v && v.pola === 'serentak') {
+    vd.catatan.unshift('Pola uji: SERENTAK EKSTREM (skenario terburuk, durasi ujian ±30 detik). Ini bukan gambaran ujian sungguhan — jalankan juga pola "Seperti ujian sungguhan" sebelum menyimpulkan kelayakan.');
+  }
   if (!v) {
     vd.status = 'TIDAK_DIUJI'; vd.judul = 'TIDAK ADA VONIS';
     vd.alasan.push('Mode ujian "Lama" dipakai. Mode itu tidak mengirim submit serentak sungguhan dan tidak memverifikasi nilai di database, sehingga tidak bisa dijadikan dasar kelayakan. Jalankan ulang dengan mode "Terpercaya".');
@@ -3306,12 +3747,21 @@ function hitungVerdict() {
   if (v.sync) {
     M('Sync berkala — gagal setelah coba ulang', `${v.sync.akhirGagal}/${v.sync.panggilan}`, '0', v.sync.akhirGagal === 0);
     M('Sync berkala — P95 latensi', ms(v.sync.lat.p95), `≤ ${AMBANG.syncP95Ms}ms`, v.sync.lat.p95 <= AMBANG.syncP95Ms);
+    if (typeof v.sync.ditolakTerlambat === 'number') M('Jawaban ditolak server karena dianggap terlambat', `${v.sync.ditolakTerlambat}`, '0', v.sync.ditolakTerlambat === 0);
+    if (typeof v.sync.revisiDitolak === 'number') M('Revisi jawaban ditolak server', `${v.sync.revisiDitolak}`, '0', v.sync.revisiDitolak === 0);
+  }
+  if (v.heartbeat) {
+    const hbPct = v.heartbeat.total > 0 ? (v.heartbeat.gagal / v.heartbeat.total) * 100 : 0;
+    M('Heartbeat cek-sesi saat ujian — gagal', `${v.heartbeat.gagal}/${v.heartbeat.total} (${hbPct.toFixed(2)}%)`, `≤ ${AMBANG.heartbeatGagalMaksPersen}%`, hbPct <= AMBANG.heartbeatGagalMaksPersen);
+    M('Heartbeat cek-sesi saat ujian — P95 latensi', ms(v.heartbeat.lat.p95), `≤ ${AMBANG.heartbeatP95Ms}ms`, v.heartbeat.lat.p95 <= AMBANG.heartbeatP95Ms);
+    M('Perangkat siswa salah dianggap "diambil alih"', `${v.heartbeat.takeover}`, '0', v.heartbeat.takeover === 0);
   }
   if (v.bacaUlang) M('Jawaban tersimpan = jawaban dikirim (baca-ulang)', `hilang ${v.bacaUlang.jawabanHilang}, beda ${v.bacaUlang.jawabanBeda}, gagal baca ${v.bacaUlang.gagalBaca}`, '0', (v.bacaUlang.jawabanHilang + v.bacaUlang.jawabanBeda + v.bacaUlang.gagalBaca) === 0);
+  const lblSubmit = v.pola === 'sungguhan' ? 'Submit (bertahap + gelombang akhir)' : 'Submit serentak';
   if (v.submit) {
-    M('Submit serentak — gagal setelah coba ulang', `${v.submit.akhirGagal}/${v.submit.jumlah}`, '0', v.submit.akhirGagal === 0);
-    M('Submit serentak — gagal percobaan pertama', `${pct(v.submit.pertamaGagal, v.submit.jumlah).toFixed(1)}%`, `≤ ${AMBANG.submitGagalPertamaMaksPersen}%`, pct(v.submit.pertamaGagal, v.submit.jumlah) <= AMBANG.submitGagalPertamaMaksPersen);
-    M('Submit serentak — P95 latensi', ms(v.submit.lat.p95), `≤ ${AMBANG.submitP95Ms}ms`, v.submit.lat.p95 <= AMBANG.submitP95Ms);
+    M(`${lblSubmit} — gagal setelah coba ulang`, `${v.submit.akhirGagal}/${v.submit.jumlah}`, '0', v.submit.akhirGagal === 0);
+    M(`${lblSubmit} — gagal percobaan pertama`, `${pct(v.submit.pertamaGagal, v.submit.jumlah).toFixed(1)}%`, `≤ ${AMBANG.submitGagalPertamaMaksPersen}%`, pct(v.submit.pertamaGagal, v.submit.jumlah) <= AMBANG.submitGagalPertamaMaksPersen);
+    M(`${lblSubmit} — P95 latensi`, ms(v.submit.lat.p95), `≤ ${AMBANG.submitP95Ms}ms`, v.submit.lat.p95 <= AMBANG.submitP95Ms);
   }
   if (v.nilai) {
     M('Nilai hilang di database', `${v.nilai.hilang}/${v.nilai.diperiksa}`, '0', v.nilai.hilang === 0);
@@ -4207,7 +4657,7 @@ async function mtSetupGroup(runId, idx, soalPerMapel, siswaPerKelas) {
   if (!approveRes.ok) throw new Error(`Kelompok ${idx}: gagal menyetujui paket soal.`);
 
   mtSetStatus(`Kelompok ${idx}: membuat jadwal & membuka sesi ujian…`);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = tanggalSekolah(await pastikanZonaSekolah(guruToken));
   const jadwalRes = await api('POST', '/api/admin/jadwal', {
     tanggal: today, sesi: idx, jam_mulai: '00:00', jam_selesai: '23:59',
     mapel_id: mapelId, kelas: kelasNama, pengawas: guruUsername, durasi: 90,
@@ -4664,8 +5114,11 @@ async function duaSetupData(ctx, cfg) {
   r = await api('POST', '/api/admin/soal', { paket_id: ctx.paketId, action: 'SETUJUI' }, ctx.adminToken);
   if (!r.ok) gagal('Gagal menyetujui paket soal', r, 'POST /api/admin/soal');
 
-  // Tanggal "hari ini" menurut WIB (zona bawaan sekolah); lihat src/lib/pengaturan-waktu.ts.
-  const today = new Date(Date.now() + 7 * 3600 * 1000).toISOString().slice(0, 10);
+  // Tanggal "hari ini" menurut zona waktu yayasan INI (tiap yayasan bisa beda zona;
+  // diambil dari server, bukan ditebak WIB).
+  const zonaCtx = await ambilZonaSekolah(ctx.guruToken);
+  const today = tanggalSekolah(zonaCtx ? zonaCtx.offset : undefined);
+  if (!zonaCtx) L('Zona waktu yayasan tidak bisa diambil dari server — memakai WIB (fallback server).', 'warn');
   r = await api('POST', '/api/admin/jadwal', {
     tanggal: today, sesi: 1, jam_mulai: '00:00', jam_selesai: '23:59',
     mapel_id: ctx.mapelId, kelas: ctx.kelasNama, pengawas: ctx.guruUsername, durasi: 90,
