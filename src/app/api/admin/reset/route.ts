@@ -98,7 +98,7 @@ const CATEGORY_MAP: Record<ResetCategory, string[]> = {
   // adalah FK ke tabel ini, dan di sini users & kelas sudah terhapus lebih dulu.
   // `metrik_sistem` (telemetri sementara) ikut dibersihkan supaya "kembali
   // seperti baru" benar-benar bersih.
-  semua: [...DELETE_ORDER, 'metrik_sistem'],  // guru_sekolah & metrik_sistem dilewati (lihat reset-yayasan.ts)
+  semua: [...DELETE_ORDER, 'metrik_sistem'],  // guru_sekolah & metrik_sistem dilewati (lihat reset-yayasan.ts); admin_kelas & izin_layar_pantau ikut (punya yayasan_id)
 }
 
 // PERBAIKAN (reset per yayasan): route ini dulu memakai createAdminClient()

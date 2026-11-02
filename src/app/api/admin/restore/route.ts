@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
 import { requireRoleAktif } from '@/lib/status-akun'
-import { tolakOperasiSeluruhDatabase } from '@/lib/tenant'
+import { YAYASAN_AWAL_ID, yayasanIdDari } from '@/lib/tenant'
 import { cacheDel, cacheDelPrefix } from '@/lib/cache'
 import {
   BACKUP_BUCKETS,
@@ -9,23 +8,32 @@ import {
   INSERT_ORDER,
   MAX_ASSET_BASE64_CHARS,
   SCHEMA_TABLES,
-  TRUNCATE_TABLES,
-  cekAktivitasUjian,
   cekProsesDataBesarBerjalan,
   isBucketMissingError,
   isKnownBucket,
-  isMissingTableError,
   isSafeStoragePath,
-  KUNCI_PENGATURAN_DILINDUNGI_RESTORE,
-  filterKunciPengaturanDilindungi,
-  listBucketFiles,
   mulaiModeMaintenanceUntukProses,
-  pkOf,
+  onConflictOf,
   removeFilesInChunks,
   selesaiModeMaintenanceUntukProses,
   verifikasiTokenProses,
   type Db,
 } from '@/lib/backup-restore-shared'
+import {
+  KUNCI_PENGATURAN_DIPERTAHANKAN,
+  buatLingkupYayasan,
+  cekAktivitasUjianYayasan,
+  hapusTabelYayasan,
+  type LingkupYayasan,
+} from '@/lib/reset-yayasan'
+import {
+  daftarStorageYayasan,
+  fileStorageMilikYayasan,
+  tabelBackupTidakAman,
+  validasiBarisRestore,
+} from '@/lib/backup-yayasan'
+
+const ON_CONFLICT_PENGATURAN = 'yayasan_id,key'
 
 // =============================================================================
 // RESTORE — API BERTAHAP (dipanggil berulang dari browser, lihat
@@ -64,6 +72,23 @@ import {
 //      kalau menemukan proses sebelumnya yang tidak pernah mencapai `finish`
 //      — lihat src/lib/backup-restore-shared.ts.
 //
+// PER YAYASAN (perubahan ini):
+//   Restore dulu bekerja pada SELURUH database (createAdminClient() polos,
+//   TRUNCATE, upsert tanpa filter) sehingga dikunci saat saklar
+//   MULTI_YAYASAN_ENABLED menyala atau ada lebih dari satu yayasan. Sekarang
+//   semua langkah terkunci ke yayasan si admin yang login (dari token, bukan
+//   dari input), jadi aman dipakai kapan pun:
+//     - start  : file backup harus berasal dari yayasan yang sama (yayasan_id
+//                di file). Backup lama tanpa yayasan_id hanya boleh dipulihkan
+//                ke yayasan awal (YYS_AWAL).
+//     - clear  : hanya baris yayasan ini (tanpa TRUNCATE); tabel anak lewat
+//                daftar sesi/nis/username milik yayasan ini.
+//     - insert : setiap baris divalidasi (yayasan_id, kepemilikan sesi/nis,
+//                dan kunci utama yang tidak boleh sudah dipakai yayasan lain).
+//     - storage: hanya folder/file milik yayasan ini.
+//     - maintenance & penanda proses: per yayasan (tabel pengaturan ber-scope).
+//   Logika ada di src/lib/backup-yayasan.ts dan src/lib/reset-yayasan.ts.
+//
 // PROTOKOL (semua POST JSON, hanya ADMIN):
 //   { action:'start',  force?, allow_incomplete?, meta }  → plan / 409 / 412 / 422
 //   { action:'clear',  table }
@@ -84,49 +109,16 @@ function errMsg(e: unknown): string {
 
 // ── clear ────────────────────────────────────────────────────────────────────
 // Mengembalikan pesan error, atau null kalau sukses / tabel memang tidak ada.
-async function clearTable(db: Db, table: string): Promise<string | null> {
+// Hanya menghapus baris milik yayasan di `ls` (tidak ada TRUNCATE). Folder gambar
+// soal di Storage SENGAJA tidak dihapus di sini (diganti storage-put lalu
+// storage-prune); foto essay milik baris yang dihapus tetap ikut dihapus.
+async function clearTable(ls: LingkupYayasan, table: string): Promise<string | null> {
   if (!SCHEMA_TABLES.has(table)) return null
-
-  try {
-    // Tabel besar → TRUNCATE lewat RPC (cepat, tidak timeout).
-    if (TRUNCATE_TABLES.has(table)) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { error } = await (db as any).rpc('truncate_tabel_besar', { nama_tabel: table })
-      if (!error) return null
-      if (isMissingTableError(error.message)) return null
-      // Fungsi belum diperbarui (migrasi 22 belum jalan) → jatuh ke DELETE biasa.
-      // Untuk tabel kecil/menengah ini tetap benar, hanya lebih lambat.
-      if (!/tidak diizinkan|truncate_tabel_besar/i.test(error.message)) {
-        return `${table}: ${error.message}`
-      }
-    }
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let q: any = db.from(table).delete()
-    if (table === 'users') {
-      // Akun ADMIN sengaja tidak dihapus supaya admin yang sedang login tidak
-      // terkunci di tengah proses.
-      q = q.neq('role', 'ADMIN')
-    } else if (table === 'pengaturan') {
-      // FIX: jangan hapus token/penanda proses restore & flag maintenance —
-      // kalau terhapus, action `insert` berikutnya ditolak (token tidak valid)
-      // dan database tertinggal kosong. Lihat KUNCI_PENGATURAN_DILINDUNGI_RESTORE.
-      q = q.not('key', 'in', filterKunciPengaturanDilindungi())
-    } else {
-      // `NOT (kolom IS NULL)` valid untuk semua tipe kolom PK (TEXT & BIGINT).
-      q = q.not(pkOf(table)[0], 'is', null)
-    }
-    const { error } = await q
-    if (error) {
-      if (isMissingTableError(error.message)) return null
-      return `${table}: ${error.message}`
-    }
-    return null
-  } catch (e) {
-    const msg = errMsg(e)
-    if (isMissingTableError(msg)) return null
-    return `${table}: ${msg}`
-  }
+  return hapusTabelYayasan(ls, table, {
+    termasukSiswa: true,
+    storageSelesai: new Set<string>(),
+    lewatiStorageFolder: true,
+  })
 }
 
 // ── handler tiap action ──────────────────────────────────────────────────────
@@ -134,11 +126,14 @@ interface StartMeta {
   app?: string
   version?: string
   backup_errors?: unknown
+  /** Yayasan asal file backup (format 2.1+). Backup lama tidak memilikinya. */
+  yayasan_id?: unknown
   row_counts?: Record<string, number>
   actual_counts?: Record<string, number>
 }
 
-async function actionStart(db: Db, body: Record<string, unknown>) {
+async function actionStart(ls: LingkupYayasan, body: Record<string, unknown>) {
+  const db = ls.db // terkunci ke yayasan si admin
   const force = body.force === true
   const allowIncomplete = body.allow_incomplete === true
   const meta = (body.meta ?? {}) as StartMeta
@@ -164,6 +159,40 @@ async function actionStart(db: Db, body: Record<string, unknown>) {
     return res(
       { error: 'File backup tidak mengandung data yang dikenali. Pastikan file adalah backup SmartExam yang valid.' },
       400
+    )
+  }
+
+  // 1b. Hanya tabel yang bisa dibatasi ke satu yayasan yang boleh dipulihkan.
+  const tidakAman = tabelBackupTidakAman(tablesInBackup)
+  if (tidakAman) {
+    return res({ error: `Restore dibatalkan: tabel "${tidakAman}" belum bisa dibatasi ke satu yayasan.` }, 500)
+  }
+
+  // 1c. File backup harus berasal dari yayasan ini. Restore memang hanya
+  //     menyentuh yayasan si admin, tapi memulihkan backup yayasan lain ke
+  //     sini akan mengisi yayasan ini dengan data orang lain (atau gagal di
+  //     tengah jalan). Backup lama (sebelum format 2.1) tidak punya penanda
+  //     yayasan; semuanya dibuat saat hanya ada yayasan awal, jadi hanya boleh
+  //     dipulihkan ke yayasan awal. Pemeriksaan per baris tetap dilakukan di
+  //     action `insert`, jadi ini bukan satu-satunya pengaman.
+  if (meta.yayasan_id != null && meta.yayasan_id !== '') {
+    if (meta.yayasan_id !== ls.yayasanId) {
+      return res(
+        {
+          error: `File backup ini milik yayasan lain (${String(meta.yayasan_id)}), bukan yayasan Anda. Restore dibatalkan sebelum menghapus apa pun.`,
+          backup_yayasan_lain: true,
+        },
+        403
+      )
+    }
+  } else if (ls.yayasanId !== YAYASAN_AWAL_ID) {
+    return res(
+      {
+        error:
+          'File backup ini berasal dari versi lama dan tidak mencantumkan yayasan asalnya, sehingga hanya boleh dipulihkan ke yayasan awal. Buat backup baru dari yayasan Anda untuk dipulihkan di sini. Restore dibatalkan sebelum menghapus apa pun.',
+        backup_tanpa_yayasan: true,
+      },
+      403
     )
   }
 
@@ -206,8 +235,9 @@ async function actionStart(db: Db, body: Record<string, unknown>) {
     }
   }
 
-  // 4. Sesi ujian aktif
-  const akt = await cekAktivitasUjian(db)
+  // 4. Sesi ujian aktif — hanya milik yayasan ini (ujian yayasan lain tidak
+  //    memblokir restore Anda dan tidak terpengaruh oleh restore ini).
+  const akt = await cekAktivitasUjianYayasan(ls)
   if (akt.error) return res({ error: `Gagal memeriksa sesi ujian aktif: ${akt.error}` }, 500)
   if ((akt.adaSesi || akt.adaSiswa) && !force) {
     const pesan: string[] = []
@@ -272,7 +302,10 @@ async function actionStart(db: Db, body: Record<string, unknown>) {
   //    action tersebut bisa dipanggil langsung tanpa pernah melalui validasi
   //    di atas sama sekali. Lihat catatan panjang di
   //    backup-restore-shared.ts pada PENGATURAN_KEY_PROSES_TOKEN.
-  const token = await mulaiModeMaintenanceUntukProses(db, 'restore')
+  //    Maintenance & penanda proses disimpan per yayasan (tabel pengaturan
+  //    lewat tenantDb), jadi yayasan lain tidak ikut masuk mode maintenance.
+  //    Target konflik 'yayasan_id,key': kunci utama pengaturan sejak migrasi 43.
+  const token = await mulaiModeMaintenanceUntukProses(db, 'restore', ON_CONFLICT_PENGATURAN)
 
   return res({
     ok: true,
@@ -280,6 +313,7 @@ async function actionStart(db: Db, body: Record<string, unknown>) {
     delete_order: DELETE_ORDER.filter(t => tablesInBackup.includes(t)),
     insert_order: INSERT_ORDER.filter(t => tablesInBackup.includes(t)),
     ada_aktivitas: akt.adaSesi || akt.adaSiswa,
+    yayasan_id: ls.yayasanId,
   })
 }
 
@@ -304,18 +338,18 @@ async function requireProcessToken(db: Db, body: Record<string, unknown>) {
   return null
 }
 
-async function actionClear(db: Db, body: Record<string, unknown>) {
-  const gate = await requireProcessToken(db, body)
+async function actionClear(ls: LingkupYayasan, body: Record<string, unknown>) {
+  const gate = await requireProcessToken(ls.db, body)
   if (gate) return gate
   const table = String(body.table ?? '')
   if (!SCHEMA_TABLES.has(table)) return res({ error: `Tabel "${table}" tidak dikenali` }, 400)
-  const err = await clearTable(db, table)
+  const err = await clearTable(ls, table)
   if (err) return res({ error: err }, 500)
   return res({ ok: true, table })
 }
 
-async function actionInsert(db: Db, body: Record<string, unknown>) {
-  const gate = await requireProcessToken(db, body)
+async function actionInsert(ls: LingkupYayasan, body: Record<string, unknown>) {
+  const gate = await requireProcessToken(ls.db, body)
   if (gate) return gate
   const table = String(body.table ?? '')
   if (!SCHEMA_TABLES.has(table)) return res({ error: `Tabel "${table}" tidak dikenali` }, 400)
@@ -324,26 +358,35 @@ async function actionInsert(db: Db, body: Record<string, unknown>) {
   let rows = body.rows as Record<string, unknown>[]
   // Akun ADMIN tidak dihapus saat clear, jadi jangan di-insert lagi (duplicate key).
   if (table === 'users') rows = rows.filter(r => r?.role !== 'ADMIN')
-  // FIX: kunci pengaturan yang dilindungi tidak boleh ditimpa dari file backup
-  // (lihat KUNCI_PENGATURAN_DILINDUNGI_RESTORE di backup-restore-shared.ts).
+  // FIX: kunci pengaturan yang dilindungi tidak boleh ditimpa dari file backup:
+  // penanda proses & maintenanceAktif (lihat KUNCI_PENGATURAN_DILINDUNGI_RESTORE)
+  // dan kunci maintenance milik Panel Developer (lihat reset-yayasan.ts).
   if (table === 'pengaturan') {
-    rows = rows.filter(r => !KUNCI_PENGATURAN_DILINDUNGI_RESTORE.includes(String(r?.key)))
+    rows = rows.filter(r => !KUNCI_PENGATURAN_DIPERTAHANKAN.includes(String(r?.key)))
   }
   if (rows.length === 0) return res({ ok: true, table, inserted: 0 })
+
+  // Setiap baris harus milik yayasan ini dan tidak boleh menimpa data yayasan
+  // lain (kunci utama id/nis/username masih global). Satu baris menyimpang =
+  // seluruh batch ditolak, tidak ada yang ditulis.
+  const errValidasi = await validasiBarisRestore(ls, table, rows)
+  if (errValidasi) return res({ error: `Gagal insert ${errValidasi}`, ditolak_lintas_yayasan: true }, 403)
 
   // upsert (bukan insert) supaya batch yang dikirim ulang setelah gangguan
   // jaringan — padahal server sudah sempat memprosesnya — tidak gagal
   // "duplicate key". Tabel sudah dikosongkan, jadi hasilnya identik dengan insert.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { error } = await (db as any)
+  // Lewat tenantDb: yayasan_id diisi otomatis dan baris yayasan lain ditolak.
+  const { error } = await (ls.db as any)
     .from(table)
-    .upsert(rows, { onConflict: pkOf(table).join(',') })
+    .upsert(rows, { onConflict: onConflictOf(table) })
 
   if (error) return res({ error: `Gagal insert ${table}: ${error.message}` }, 500)
   return res({ ok: true, table, inserted: rows.length })
 }
 
-async function actionStorageInit(db: Db, body: Record<string, unknown>) {
+async function actionStorageInit(ls: LingkupYayasan, body: Record<string, unknown>) {
+  const db = ls.db
   const gate = await requireProcessToken(db, body)
   if (gate) return gate
   const bucket = String(body.bucket ?? '')
@@ -364,7 +407,8 @@ async function actionStorageInit(db: Db, body: Record<string, unknown>) {
   return res({ ok: true, created: true })
 }
 
-async function actionStoragePut(db: Db, body: Record<string, unknown>) {
+async function actionStoragePut(ls: LingkupYayasan, body: Record<string, unknown>) {
+  const db = ls.db
   const gate = await requireProcessToken(db, body)
   if (gate) return gate
   const bucket = String(body.bucket ?? '')
@@ -372,6 +416,12 @@ async function actionStoragePut(db: Db, body: Record<string, unknown>) {
   const base64 = body.base64
   if (!isKnownBucket(bucket)) return res({ error: 'Bucket tidak dikenali' }, 400)
   if (!isSafeStoragePath(path)) return res({ error: 'Path file tidak valid' }, 400)
+  // Hanya boleh menulis ke folder/file milik yayasan ini (bukan folder yayasan
+  // lain atau logo aplikasi). Foto essay harus dirujuk baris milik yayasan ini
+  // — baris itu sudah di-insert sebelum langkah storage.
+  if (!(await fileStorageMilikYayasan(ls, bucket, path))) {
+    return res({ error: `${bucket}/${path}: bukan file milik yayasan ini, tidak dipulihkan` }, 403)
+  }
   if (typeof base64 !== 'string') return res({ error: 'base64 hilang' }, 400)
   if (base64.length > MAX_ASSET_BASE64_CHARS) {
     return res({ error: `${bucket}/${path}: file terlalu besar untuk dipulihkan lewat aplikasi` }, 413)
@@ -386,7 +436,8 @@ async function actionStoragePut(db: Db, body: Record<string, unknown>) {
   return res({ ok: true })
 }
 
-async function actionStoragePrune(db: Db, body: Record<string, unknown>) {
+async function actionStoragePrune(ls: LingkupYayasan, body: Record<string, unknown>) {
+  const db = ls.db
   const gate = await requireProcessToken(db, body)
   if (gate) return gate
   const bucket = String(body.bucket ?? '')
@@ -394,11 +445,17 @@ async function actionStoragePrune(db: Db, body: Record<string, unknown>) {
   if (!Array.isArray(body.keep)) return res({ error: 'keep harus berupa array' }, 400)
 
   const keep = new Set((body.keep as unknown[]).filter((p): p is string => typeof p === 'string'))
-  const listed = await listBucketFiles(db, bucket)
-  if (listed.bucketMissing) return res({ ok: true, removed: 0 })
-  if (listed.error) return res({ error: listed.error }, 500)
 
-  const stale = listed.paths.filter(p => !keep.has(p))
+  // Hanya file di folder milik yayasan ini (soal & logo) yang dibersihkan.
+  // Foto essay lama sudah ikut terhapus saat tabel jawaban_essay_foto
+  // dikosongkan (action clear), jadi bucket privat tidak perlu dibersihkan lagi.
+  // Bucket dibaca lewat daftarStorageYayasan, bukan listing seluruh bucket,
+  // supaya file yayasan lain tidak pernah terdaftar sebagai "sisa lama".
+  if (bucket !== 'assets') return res({ ok: true, removed: 0 })
+  const daftar = await daftarStorageYayasan(ls)
+  if (daftar.errors.length > 0) return res({ error: daftar.errors[0] }, 500)
+
+  const stale = daftar.folderAssets.filter(p => !keep.has(p))
   if (stale.length > 0) {
     const err = await removeFilesInChunks(db, bucket, stale)
     if (err) return res({ error: err }, 500)
@@ -406,7 +463,8 @@ async function actionStoragePrune(db: Db, body: Record<string, unknown>) {
   return res({ ok: true, removed: stale.length })
 }
 
-async function actionFinish(db: Db, body: Record<string, unknown>) {
+async function actionFinish(ls: LingkupYayasan, body: Record<string, unknown>) {
+  const db = ls.db
   const gate = await requireProcessToken(db, body)
   if (gate) return gate
   const warnings: string[] = []
@@ -427,7 +485,7 @@ async function actionFinish(db: Db, body: Record<string, unknown>) {
   // tercapai (client tidak pernah memanggil `finish`), penanda tetap menyala
   // dengan sengaja — itulah sinyal "restore terputus" untuk percobaan
   // `start` berikutnya (lihat cekProsesDataBesarBerjalan di actionStart).
-  await selesaiModeMaintenanceUntukProses(db)
+  await selesaiModeMaintenanceUntukProses(db, ON_CONFLICT_PENGATURAN)
 
   // In-memory cache (lib/cache.ts) berisi data lama sampai TTL habis.
   cacheDel('admin:dashboard')
@@ -439,8 +497,14 @@ async function actionFinish(db: Db, body: Record<string, unknown>) {
 export async function POST(req: NextRequest) {
   const auth = await requireRoleAktif(req, ['ADMIN'])
   if ('error' in auth) return auth.error
-  const tolak = await tolakOperasiSeluruhDatabase()
-  if (tolak) return tolak
+
+  // Yayasan ditentukan dari token admin yang login, BUKAN dari isi request.
+  let ls: LingkupYayasan
+  try {
+    ls = buatLingkupYayasan(yayasanIdDari(auth.user))
+  } catch (e) {
+    return res({ error: e instanceof Error ? e.message : 'Silakan login ulang.' }, 401)
+  }
 
   const contentType = req.headers.get('content-type') ?? ''
   if (!contentType.includes('application/json')) {
@@ -457,23 +521,22 @@ export async function POST(req: NextRequest) {
     return res({ error: 'Permintaan tidak valid (bukan JSON).' }, 400)
   }
 
-  const db = createAdminClient()
   try {
     switch (body.action) {
       case 'start':
-        return await actionStart(db, body)
+        return await actionStart(ls, body)
       case 'clear':
-        return await actionClear(db, body)
+        return await actionClear(ls, body)
       case 'insert':
-        return await actionInsert(db, body)
+        return await actionInsert(ls, body)
       case 'storage-init':
-        return await actionStorageInit(db, body)
+        return await actionStorageInit(ls, body)
       case 'storage-put':
-        return await actionStoragePut(db, body)
+        return await actionStoragePut(ls, body)
       case 'storage-prune':
-        return await actionStoragePrune(db, body)
+        return await actionStoragePrune(ls, body)
       case 'finish':
-        return await actionFinish(db, body)
+        return await actionFinish(ls, body)
       default:
         return res({ error: 'Action tidak dikenali' }, 400)
     }

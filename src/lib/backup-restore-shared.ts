@@ -40,6 +40,11 @@ export const INSERT_ORDER: string[] = [
   'siswa',
   'users',
   'guru_sekolah',
+  // Punya yayasan_id. admin_kelas punya FK CASCADE ke users & kelas, jadi ikut
+  // terhapus saat users/kelas dikosongkan — tanpa ada di sini, penugasan Admin
+  // Kelas hilang permanen setelah restore. Keduanya setelah users & kelas.
+  'admin_kelas',
+  'izin_layar_pantau',
   'jadwal',
   'paket_soal',
   'soal',
@@ -77,6 +82,23 @@ export const TABLE_PK: Record<string, string[]> = {
   essay_amplop_offline: ['sesi_id', 'nis'],
   // PK gabungan (lihat 29_guru_multi_sekolah.sql) — TIDAK punya kolom `id`.
   guru_sekolah: ['username', 'sekolah_id'],
+  // PK gabungan (lihat 50_admin_kelas.sql) diawali yayasan_id. Di sini hanya
+  // kolom pembeda di dalam satu yayasan, karena semua akses sudah di-scope
+  // yayasan (ORDER BY paginasi backup & hapus bertahap). Target upsert yang
+  // sebenarnya ada di ONCONFLICT_KHUSUS.
+  admin_kelas: ['username', 'kelas_id'],
+}
+
+// Target konflik upsert untuk tabel yang kunci utamanya memuat yayasan_id.
+// Restore per yayasan memakai tenantDb, yang selalu mengisi yayasan_id, jadi
+// konfliknya harus mencakup kolom itu (pengaturan: sejak migrasi 43).
+export const ONCONFLICT_KHUSUS: Record<string, string> = {
+  pengaturan: 'yayasan_id,key',
+  admin_kelas: 'yayasan_id,username,kelas_id',
+}
+
+export function onConflictOf(table: string): string {
+  return ONCONFLICT_KHUSUS[table] ?? pkOf(table).join(',')
 }
 
 export function pkOf(table: string): string[] {
@@ -333,7 +355,10 @@ export async function selesaiModeMaintenanceUntukProses(db: Db, onConflict: stri
 }
 
 // ── Cek aktivitas ujian ──────────────────────────────────────────────────────
-// Dipakai backup, restore, DAN reset. Sebelumnya backup hanya mengecek
+// PERHATIAN: versi GLOBAL (melihat sesi semua yayasan). Backup, restore, dan
+// reset sekarang memakai cekAktivitasUjianYayasan() di reset-yayasan.ts;
+// fungsi ini dipertahankan hanya untuk skrip/operasi tingkat database.
+// Dulu dipakai backup, restore, DAN reset. Sebelumnya backup hanya mengecek
 // sesi_ujian BERJALAN sementara restore/reset juga mengecek siswa_ujian AKTIF,
 // dan error query diabaikan diam-diam (data null dianggap "tidak ada sesi").
 export async function cekAktivitasUjian(

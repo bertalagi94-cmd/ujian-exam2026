@@ -33,7 +33,7 @@ import { KUNCI_MAINTENANCE } from '@/lib/maintenance'
 import { TABEL_PER_YAYASAN, YAYASAN_AWAL_ID, tenantDb } from '@/lib/tenant'
 
 /** Tabel anak yang terikat lewat sesi_id (dan punya kolom nis). */
-const TABEL_ANAK_SESI: ReadonlySet<string> = new Set([
+export const TABEL_ANAK_SESI: ReadonlySet<string> = new Set([
   'siswa_ujian',
   'jawaban',
   'jawaban_essay',
@@ -43,7 +43,7 @@ const TABEL_ANAK_SESI: ReadonlySet<string> = new Set([
 ])
 
 /** Tabel anak yang hanya terikat lewat nis. */
-const TABEL_ANAK_NIS: ReadonlySet<string> = new Set(['log_reset'])
+export const TABEL_ANAK_NIS: ReadonlySet<string> = new Set(['log_reset'])
 
 /**
  * Tabel yang sengaja TIDAK dihapus eksplisit pada reset per yayasan:
@@ -65,7 +65,7 @@ const MAKS_PUTARAN_BATCH = 500
 //  - kunci penanda proses & maintenanceAktif: dipakai reset ini sendiri sampai
 //    selesai, lalu dikembalikan oleh selesaiModeMaintenanceUntukProses().
 //  - kunci maintenance lain (pesan, jadwal): milik Panel Developer.
-const KUNCI_PENGATURAN_DIPERTAHANKAN = [
+export const KUNCI_PENGATURAN_DIPERTAHANKAN = [
   ...new Set<string>([...KUNCI_PENGATURAN_DILINDUNGI_RESTORE, ...KUNCI_MAINTENANCE]),
 ]
 const FILTER_KUNCI_DIPERTAHANKAN = `(${KUNCI_PENGATURAN_DIPERTAHANKAN.join(',')})`
@@ -92,6 +92,10 @@ export interface LingkupYayasan {
   sesiIds(): Promise<string[]>
   /** nis semua siswa milik yayasan ini (di-cache setelah pemanggilan pertama). */
   nisSiswa(): Promise<string[]>
+  /** username semua akun milik yayasan ini (di-cache setelah pemanggilan pertama). */
+  usernames(): Promise<string[]>
+  /** id semua sekolah (jenjang) milik yayasan ini (di-cache setelah pemanggilan pertama). */
+  sekolahIds(): Promise<string[]>
 }
 
 async function ambilKolom(db: Db, tabel: string, kolom: string): Promise<string[]> {
@@ -110,11 +114,15 @@ export function buatLingkupYayasan(yayasanId: string): LingkupYayasan {
   const db = tenantDb(yayasanId)
   let sesi: Promise<string[]> | null = null
   let nis: Promise<string[]> | null = null
+  let usr: Promise<string[]> | null = null
+  let skl: Promise<string[]> | null = null
   return {
     yayasanId,
     db,
     sesiIds: () => (sesi ??= ambilKolom(db, 'sesi_ujian', 'id')),
     nisSiswa: () => (nis ??= ambilKolom(db, 'siswa', 'nis')),
+    usernames: () => (usr ??= ambilKolom(db, 'users', 'username')),
+    sekolahIds: () => (skl ??= ambilKolom(db, 'sekolah', 'id')),
   }
 }
 
@@ -296,14 +304,23 @@ async function hapusTabelBerYayasan(db: Db, tabel: string): Promise<string | nul
 export async function hapusTabelYayasan(
   ls: LingkupYayasan,
   tabel: string,
-  opsi: { termasukSiswa: boolean; storageSelesai: Set<string> }
+  opsi: {
+    termasukSiswa: boolean
+    storageSelesai: Set<string>
+    /**
+     * true = jangan hapus folder gambar soal di Storage. Dipakai Restore, yang
+     * mengunggah file dari backup dulu lalu membuang sisa lama lewat
+     * storage-prune. Foto essay milik baris yang dihapus tetap ikut dihapus.
+     */
+    lewatiStorageFolder?: boolean
+  }
 ): Promise<string | null> {
   // Fail-closed: tabel yang tidak bisa dibatasi ke yayasan ini tidak disentuh.
   if (tabelTidakAman([tabel])) return `${tabel}: tidak dapat dibatasi ke satu yayasan, dilewati`
   if (TABEL_DILEWATI.has(tabel)) return null
 
   try {
-    for (const t of targetStoragePerTabel(ls.yayasanId, tabel)) {
+    for (const t of opsi.lewatiStorageFolder ? [] : targetStoragePerTabel(ls.yayasanId, tabel)) {
       const kunci = `${t.bucket}/${t.prefix}`
       if (opsi.storageSelesai.has(kunci)) continue
       const err = await bersihkanStorage(ls.db, t)

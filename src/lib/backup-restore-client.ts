@@ -17,6 +17,9 @@ export interface AssetRec {
 export interface ParsedBackup {
   version?: string
   app?: string
+  // Format 2.1+: yayasan asal backup. Backup lama tidak punya field ini.
+  yayasan_id?: string
+  yayasan_nama?: string
   exported_at?: string
   errors?: string[]
   row_counts?: Record<string, number>
@@ -162,6 +165,8 @@ async function mapLimit<T>(items: T[], limit: number, fn: (item: T) => Promise<v
 // ── BACKUP ───────────────────────────────────────────────────────────────────
 interface PlanResponse {
   exported_at: string
+  yayasan_id?: string
+  yayasan_nama?: string | null
   page_size: number
   tables: { name: string; count: number }[]
   storage: { buckets: Record<string, { path: string }[]>; errors: string[] }
@@ -270,8 +275,12 @@ export async function runBackup(opts: { force?: boolean; onProgress?: ProgressFn
   // 3. Rakit file JSON tanpa membuat satu string raksasa (pakai Blob parts)
   report(96, 'Menyusun file backup…')
   const header = {
-    version: '2.0',
+    // 2.1 = backup per yayasan (memuat yayasan_id). Restore menolak file milik
+    // yayasan lain. Format 2.0 tetap bisa dibaca (hanya untuk yayasan awal).
+    version: '2.1',
     app: 'SmartExam',
+    yayasan_id: plan.yayasan_id,
+    yayasan_nama: plan.yayasan_nama ?? undefined,
     exported_at: plan.exported_at,
     errors: errors.length > 0 ? errors : undefined,
     warnings: warnings.length > 0 ? warnings : undefined,
@@ -380,6 +389,7 @@ export async function runRestore(
         meta: {
           app: parsed.app,
           version: parsed.version,
+          yayasan_id: parsed.yayasan_id,
           backup_errors: parsed.errors ?? [],
           row_counts: parsed.row_counts,
           actual_counts: parsed.actualCounts,

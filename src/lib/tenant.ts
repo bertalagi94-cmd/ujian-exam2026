@@ -47,65 +47,22 @@ export const TABEL_PER_YAYASAN: ReadonlySet<string> = new Set([
   'admin_kelas',
 ])
 
-/** Saklar keamanan: pendaftaran yayasan baru hanya boleh jalan kalau 'true'. */
+/**
+ * Saklar keamanan: pendaftaran yayasan baru hanya boleh jalan kalau 'true'.
+ * Saklar ini TIDAK memengaruhi Backup/Restore/Reset (semuanya per yayasan).
+ */
 export function multiYayasanAktif(): boolean {
   return process.env.MULTI_YAYASAN_ENABLED === 'true'
 }
 
-/**
- * Operasi yang bekerja pada SELURUH database (backup, restore) belum
- * punya versi per yayasan. Selama saklar multi-yayasan menyala, operasi itu
- * ditolak untuk semua orang supaya admin satu yayasan tidak bisa menghapus
- * atau menimpa data yayasan lain. Pakai fitur backup bawaan Supabase.
- * Mengembalikan Response penolakan, atau null kalau boleh lanjut.
- */
-export function tolakJikaMultiYayasan(): Response | null {
-  if (!multiYayasanAktif()) return null
-  return new Response(
-    JSON.stringify({
-      error:
-        'Fitur ini dinonaktifkan selama mode multi-yayasan menyala karena bekerja pada seluruh database. Gunakan backup bawaan Supabase.',
-    }),
-    { status: 403, headers: { 'Content-Type': 'application/json' } }
-  )
-}
-
-/**
- * Pengaman untuk operasi yang membaca/menimpa SELURUH database (backup dan
- * restore). Berbeda dari tolakJikaMultiYayasan(), pengaman ini TIDAK bergantung
- * pada saklar MULTI_YAYASAN_ENABLED: kalau tabel `yayasan` memuat lebih dari
- * satu baris, operasi ditolak apa pun status saklarnya. Saklar bisa saja
- * dimatikan sementara data yayasan lain masih ada di database yang sama.
- * (Reset TIDAK memakai ini lagi: reset sudah per yayasan, lihat
- * src/lib/reset-yayasan.ts.)
- * Gagal membaca tabel yayasan = ditolak (fail-closed), kecuali tabelnya
- * memang belum ada (instalasi lama yang belum menjalankan migrasi 39).
- */
-export async function tolakOperasiSeluruhDatabase(): Promise<Response | null> {
-  const tolakSaklar = tolakJikaMultiYayasan()
-  if (tolakSaklar) return tolakSaklar
-
-  const { count, error } = await createAdminClient()
-    .from('yayasan')
-    .select('id', { count: 'exact', head: true })
-  if (error) {
-    if (/does not exist|42P01|could not find the table|PGRST205/i.test(error.message)) return null
-    return new Response(
-      JSON.stringify({ error: 'Tidak bisa memastikan jumlah yayasan di database, operasi dibatalkan demi keamanan data. Coba lagi.' }),
-      { status: 503, headers: { 'Content-Type': 'application/json' } }
-    )
-  }
-  if ((count ?? 0) > 1) {
-    return new Response(
-      JSON.stringify({
-        error:
-          'Fitur ini bekerja pada seluruh database, sedangkan database ini memuat lebih dari satu yayasan. Dinonaktifkan supaya data yayasan lain tidak ikut terbaca atau tertimpa. Gunakan backup bawaan Supabase.',
-      }),
-      { status: 403, headers: { 'Content-Type': 'application/json' } }
-    )
-  }
-  return null
-}
+// CATATAN: dulu di sini ada tolakJikaMultiYayasan() dan tolakOperasiSeluruhDatabase()
+// yang menolak (403) Backup/Restore selama saklar MULTI_YAYASAN_ENABLED menyala
+// atau tabel `yayasan` berisi lebih dari satu baris, karena keduanya bekerja
+// pada seluruh database. Keduanya DIHAPUS: Backup, Restore, dan Reset sekarang
+// sama-sama terkunci ke yayasan si admin (dari token) — lihat
+// src/lib/backup-yayasan.ts dan src/lib/reset-yayasan.ts — jadi tidak ada lagi
+// fitur yang bergantung pada saklar ini kecuali pendaftaran yayasan baru dan
+// penolakan token tanpa klaim yayasan.
 
 /**
  * Ambil yayasan dari token. Token yang diterbitkan SEBELUM fitur ini belum

@@ -850,7 +850,7 @@ export default function AdminPengaturanPage() {
                 <span className="font-medium text-slate-900 text-sm">Backup Data</span>
               </div>
               <p className="text-xs text-slate-500">
-                Unduh seluruh data aplikasi (siswa, soal PG &amp; essay, jadwal, nilai, jawaban, pengaturan, serta file logo &amp; gambar soal) ke file JSON. Simpan di tempat aman. Untuk data besar proses ini bisa memakan waktu beberapa menit — jangan tutup halaman.
+                Unduh seluruh data yayasan Anda (siswa, soal PG &amp; essay, jadwal, nilai, jawaban, pengaturan, serta file logo &amp; gambar soal) ke file JSON. Hanya data yayasan Anda yang ikut; data yayasan lain tidak tersentuh. Simpan di tempat aman. Untuk data besar proses ini bisa memakan waktu beberapa menit — jangan tutup halaman.
               </p>
               <button type="button" onClick={() => handleBackup()} disabled={backingUp} className="btn-primary btn-sm w-full justify-center">
                 {backingUp ? <><Spinner size="sm" /> Membuat backup…</> : <><Download className="w-4 h-4" /> Unduh Backup</>}
@@ -864,7 +864,7 @@ export default function AdminPengaturanPage() {
                 <span className="font-medium text-slate-900 text-sm">Restore Data</span>
               </div>
               <p className="text-xs text-slate-500">
-                Pulihkan data dari file backup. <strong className="text-amber-700">Semua data saat ini akan digantikan.</strong> Pastikan Anda telah backup terlebih dahulu.
+                Pulihkan data dari file backup yayasan Anda. <strong className="text-amber-700">Semua data yayasan Anda saat ini akan digantikan</strong> (data yayasan lain tidak terpengaruh). File backup yayasan lain ditolak. Pastikan Anda telah backup terlebih dahulu.
               </p>
               <label className={`btn-sm w-full justify-center cursor-pointer inline-flex items-center gap-1.5 font-medium rounded-lg transition-colors ${restoring ? 'btn-secondary opacity-60 pointer-events-none' : 'bg-amber-500 hover:bg-amber-600 text-white'}`}>
                 {restoring ? <><Spinner size="sm" /> Memulihkan…</> : <><FolderOpen className="w-4 h-4" /> Pilih File Backup</>}
@@ -981,7 +981,7 @@ export default function AdminPengaturanPage() {
         onClose={() => { setConfirmRestore(false); setPendingRestore(null); setPendingRestoreInfo(null) }}
         onConfirm={() => doRestore(false)}
         title="Konfirmasi Restore Data"
-        message={`File: ${pendingRestoreInfo?.name ?? ''} (${pendingRestoreInfo?.size ?? ''}). PERINGATAN: Semua data yang ada saat ini akan digantikan oleh data dari file backup ini. Tindakan ini tidak dapat dibatalkan. Sebelum memulihkan, sistem otomatis mengunduh backup pengaman dari data saat ini — simpan file itu sampai Anda yakin hasil restore sudah benar. Proses bisa memakan waktu beberapa menit; JANGAN menutup atau me-refresh halaman ini sampai selesai. Lanjutkan?`}
+        message={`File: ${pendingRestoreInfo?.name ?? ''} (${pendingRestoreInfo?.size ?? ''}). PERINGATAN: Semua data yayasan Anda yang ada saat ini akan digantikan oleh data dari file backup ini (yayasan lain tidak terpengaruh). Tindakan ini tidak dapat dibatalkan. Sebelum memulihkan, sistem otomatis mengunduh backup pengaman dari data saat ini — simpan file itu sampai Anda yakin hasil restore sudah benar. Proses bisa memakan waktu beberapa menit; JANGAN menutup atau me-refresh halaman ini sampai selesai. Lanjutkan?`}
         confirmLabel="Ya, Pulihkan Sekarang"
         variant="primary"
         loading={restoring}
