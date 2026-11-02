@@ -190,7 +190,7 @@ export const PENGATURAN_KEY_MAINTENANCE_SEBELUM = 'prosesDataBesarMaintenanceSeb
 // perlu memeriksa token ini, cukup mengabaikan nilai kembaliannya.
 export const PENGATURAN_KEY_PROSES_TOKEN = 'prosesDataBesarToken'
 
-const SEMUA_KEY_PROSES = [
+export const SEMUA_KEY_PROSES = [
   PENGATURAN_KEY_PROSES_BERJALAN,
   PENGATURAN_KEY_PROSES_JENIS,
   PENGATURAN_KEY_PROSES_MULAI,
@@ -249,7 +249,14 @@ export async function cekProsesDataBesarBerjalan(db: Db): Promise<StatusProsesBe
  * ke client lewat respons `start`; reset/route.ts boleh mengabaikannya karena
  * tidak mengekspos langkah terpisah yang perlu diverifikasi).
  */
-export async function mulaiModeMaintenanceUntukProses(db: Db, jenis: 'reset' | 'restore'): Promise<string> {
+export async function mulaiModeMaintenanceUntukProses(
+  db: Db,
+  jenis: 'reset' | 'restore',
+  // Target konflik upsert. Pemanggil global (restore) memakai 'key'; pemanggil
+  // yang memakai tenantDb (reset per yayasan) HARUS 'yayasan_id,key' karena
+  // sejak migrasi 43 kunci utama `pengaturan` adalah (yayasan_id, key).
+  onConflict: string = 'key'
+): Promise<string> {
   const { data: existing } = await db
     .from('pengaturan')
     .select('value')
@@ -267,7 +274,7 @@ export async function mulaiModeMaintenanceUntukProses(db: Db, jenis: 'reset' | '
       { key: PENGATURAN_KEY_MAINTENANCE_AKTIF, value: 'true' },
       { key: PENGATURAN_KEY_PROSES_TOKEN, value: token },
     ],
-    { onConflict: 'key' }
+    { onConflict }
   )
   // Cache pengaturan (dipakai login/route.ts, TTL 60dtk) harus langsung basi
   // di process ini — tanpa ini pengguna lain bisa tetap lolos maintenance
@@ -310,7 +317,7 @@ export async function verifikasiTokenProses(db: Db, jenis: 'reset' | 'restore', 
  * reset/restore gagal di tengah — idempotent, aman dipanggil walau penanda
  * sudah tidak ada.
  */
-export async function selesaiModeMaintenanceUntukProses(db: Db): Promise<void> {
+export async function selesaiModeMaintenanceUntukProses(db: Db, onConflict: string = 'key'): Promise<void> {
   const { data: sebelum } = await db
     .from('pengaturan')
     .select('value')
@@ -319,7 +326,7 @@ export async function selesaiModeMaintenanceUntukProses(db: Db): Promise<void> {
 
   await db.from('pengaturan').upsert(
     [{ key: PENGATURAN_KEY_MAINTENANCE_AKTIF, value: sebelum?.value === 'true' ? 'true' : 'false' }],
-    { onConflict: 'key' }
+    { onConflict }
   )
   await db.from('pengaturan').delete().in('key', SEMUA_KEY_PROSES)
   cacheDelPrefix('pengaturan:')

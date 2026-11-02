@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRoleAktif } from '@/lib/status-akun'
-import { tolakJikaMultiYayasan } from '@/lib/tenant'
+import { tolakOperasiSeluruhDatabase } from '@/lib/tenant'
 import { cacheDel, cacheDelPrefix } from '@/lib/cache'
 import {
   BACKUP_BUCKETS,
@@ -438,9 +438,9 @@ async function actionFinish(db: Db, body: Record<string, unknown>) {
 
 export async function POST(req: NextRequest) {
   const auth = await requireRoleAktif(req, ['ADMIN'])
-  const tolak = tolakJikaMultiYayasan()
-  if (tolak) return tolak
   if ('error' in auth) return auth.error
+  const tolak = await tolakOperasiSeluruhDatabase()
+  if (tolak) return tolak
 
   const contentType = req.headers.get('content-type') ?? ''
   if (!contentType.includes('application/json')) {

@@ -1,21 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase'
 import { requireRoleAktif } from '@/lib/status-akun'
-import { tolakJikaMultiYayasan } from '@/lib/tenant'
+import { yayasanIdDari } from '@/lib/tenant'
 import { cacheDel, cacheDelPrefix } from '@/lib/cache'
 import {
   DELETE_ORDER,
-  TRUNCATE_TABLES,
-  cekAktivitasUjian,
   cekProsesDataBesarBerjalan,
-  isMissingTableError,
-  listBucketFiles,
   mulaiModeMaintenanceUntukProses,
-  pkOf,
-  removeFilesInChunks,
   selesaiModeMaintenanceUntukProses,
-  type Db,
 } from '@/lib/backup-restore-shared'
+import {
+  buatLingkupYayasan,
+  cekAktivitasUjianYayasan,
+  hapusTabelYayasan,
+  muatDaftarId,
+  tabelTidakAman,
+  tabelYangDiproses,
+} from '@/lib/reset-yayasan'
 
 export type ResetCategory =
   | 'jawaban_nilai'
@@ -98,94 +98,28 @@ const CATEGORY_MAP: Record<ResetCategory, string[]> = {
   // adalah FK ke tabel ini, dan di sini users & kelas sudah terhapus lebih dulu.
   // `metrik_sistem` (telemetri sementara) ikut dibersihkan supaya "kembali
   // seperti baru" benar-benar bersih.
-  semua: [...DELETE_ORDER, 'metrik_sistem'],
+  semua: [...DELETE_ORDER, 'metrik_sistem'],  // guru_sekolah & metrik_sistem dilewati (lihat reset-yayasan.ts)
 }
 
-// File fisik di Storage yang berasosiasi dengan tabel. Dibersihkan SEBELUM baris
-// DB-nya dihapus, supaya kalau reset gagal di tengah jalan kita tidak kehilangan
-// jejak URL/path file yang belum sempat terhapus.
-//   - assets/soal/            : gambar soal PG & essay (guru/soal/upload)
-//   - assets/jawaban-essay/   : foto jawaban essay versi LAMA (bucket publik)
-//   - bucket jawaban-essay    : foto jawaban essay versi baru (bucket privat)
-const STORAGE_BY_TABLE: Record<string, { bucket: string; prefix: string }[]> = {
-  jawaban_essay_foto: [
-    { bucket: 'assets', prefix: 'jawaban-essay' },
-    { bucket: 'jawaban-essay', prefix: '' },
-  ],
-  soal: [{ bucket: 'assets', prefix: 'soal' }],
-  soal_essay: [{ bucket: 'assets', prefix: 'soal' }],
-}
-
-async function clearStorage(
-  db: Db,
-  target: { bucket: string; prefix: string }
-): Promise<string | null> {
-  try {
-    const listed = await listBucketFiles(db, target.bucket, target.prefix)
-    if (listed.bucketMissing) return null // bucket tidak ada = tidak ada yang perlu dihapus
-    if (listed.error) return `storage:${listed.error}`
-    if (listed.paths.length === 0) return null
-    const err = await removeFilesInChunks(db, target.bucket, listed.paths)
-    return err ? `storage:${err}` : null
-  } catch (e) {
-    return `storage:${target.bucket}/${target.prefix}: ${e instanceof Error ? e.message : 'error'}`
-  }
-}
-
-async function clearTable(
-  db: Db,
-  table: string,
-  storageDone: Set<string>
-): Promise<string | null> {
-  const targets = STORAGE_BY_TABLE[table]
-  if (targets) {
-    for (const t of targets) {
-      const key = `${t.bucket}/${t.prefix}`
-      if (storageDone.has(key)) continue // soal & soal_essay berbagi folder yang sama
-      const err = await clearStorage(db, t)
-      if (err) return err
-      storageDone.add(key)
-    }
-  }
-
-  try {
-    // Tabel besar → TRUNCATE via RPC (eksekusi di DB, tidak timeout di Vercel)
-    if (TRUNCATE_TABLES.has(table)) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { error } = await (db as any).rpc('truncate_tabel_besar', { nama_tabel: table })
-      if (!error) return null
-      if (isMissingTableError(error.message)) return null
-      // Fungsi lama belum memasukkan tabel ini ke whitelist (migrasi 22 belum
-      // dijalankan) → jatuh ke DELETE biasa alih-alih gagal.
-      if (!/tidak diizinkan/i.test(error.message)) return `${table}: ${error.message}`
-    }
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let q: any = db.from(table).delete()
-    if (table === 'users') {
-      // Jangan hapus akun ADMIN
-      q = q.neq('role', 'ADMIN')
-    } else {
-      q = q.not(pkOf(table)[0], 'is', null)
-    }
-    const { error } = await q
-    if (error) {
-      if (isMissingTableError(error.message)) return null
-      return `${table}: ${error.message}`
-    }
-    return null
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : 'error'
-    if (isMissingTableError(msg)) return null
-    return `${table}: ${msg}`
-  }
-}
-
+// PERBAIKAN (reset per yayasan): route ini dulu memakai createAdminClient()
+// polos + TRUNCATE, sehingga Reset oleh admin satu yayasan menghapus data
+// SEMUA yayasan di database yang sama. Sekarang seluruh penghapusan lewat
+// src/lib/reset-yayasan.ts yang terkunci ke yayasan si admin (dari token),
+// jadi aman dipakai walau MULTI_YAYASAN_ENABLED mati. File Storage yang
+// dibersihkan juga hanya milik yayasan ini.
+//
+// Catatan: akun ADMIN tidak pernah dihapus, dan kunci maintenance milik Panel
+// Developer tidak ikut terhapus oleh kategori "pengaturan"/"semua".
 export async function POST(req: NextRequest) {
   const auth = await requireRoleAktif(req, ['ADMIN'])
-  const tolak = tolakJikaMultiYayasan()
-  if (tolak) return tolak
   if ('error' in auth) return auth.error
+
+  let yayasanId: string
+  try {
+    yayasanId = yayasanIdDari(auth.user)
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : 'Silakan login ulang.' }, { status: 401 })
+  }
 
   let body: { categories: ResetCategory[]; force?: boolean }
   try {
@@ -206,14 +140,47 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `Kategori tidak valid: ${invalid.join(', ')}` }, { status: 400 })
   }
 
-  const db = createAdminClient()
+  const effectiveCategories = categories.includes('semua')
+    ? ['semua' as ResetCategory]
+    : categories
+
+  // Kumpulkan tabel unik. Urutan antar kategori dipertahankan seperti yang
+  // dipilih, tapi setiap tabel hanya diproses sekali.
+  const rencana: string[] = []
+  for (const cat of effectiveCategories) {
+    for (const table of CATEGORY_MAP[cat]) {
+      if (!rencana.includes(table)) rencana.push(table)
+    }
+  }
+  const tablesToDelete = tabelYangDiproses(rencana)
+
+  // Fail-closed: tabel yang tidak bisa dibatasi ke satu yayasan tidak boleh
+  // disentuh sama sekali (mis. tabel baru yang lupa didaftarkan).
+  const tidakAman = tabelTidakAman(tablesToDelete)
+  if (tidakAman) {
+    return NextResponse.json(
+      { error: `Reset dibatalkan: tabel "${tidakAman}" belum bisa dibatasi ke satu yayasan.` },
+      { status: 500 }
+    )
+  }
+
+  const ls = buatLingkupYayasan(yayasanId)
+  const db = ls.db // terkunci ke yayasan si admin
+
+  // Ambil daftar sesi/nis milik yayasan ini SEKARANG, sebelum ada baris yang
+  // dihapus (penghapusan tabel anak bergantung pada daftar ini).
+  const errDaftar = await muatDaftarId(ls, tablesToDelete)
+  if (errDaftar) {
+    return NextResponse.json({ error: `Gagal membaca data yayasan: ${errDaftar}` }, { status: 500 })
+  }
 
   // ── CEK AKTIVITAS SEBELUM RESET ─────────────────────────────────────────
   // Tolak reset jika ada sesi ujian yang sedang berjalan atau siswa yang
-  // sedang aktif mengerjakan. Admin harus konfirmasi paksa (force=true) hanya
-  // jika kondisi sudah diketahui dan tetap ingin dilanjutkan.
+  // sedang aktif mengerjakan DI YAYASAN INI (ujian yayasan lain tidak
+  // dihitung). Admin harus konfirmasi paksa (force=true) hanya jika kondisi
+  // sudah diketahui dan tetap ingin dilanjutkan.
   if (!force) {
-    const akt = await cekAktivitasUjian(db)
+    const akt = await cekAktivitasUjianYayasan(ls)
     if (akt.error) {
       return NextResponse.json({ error: `Gagal memeriksa sesi ujian aktif: ${akt.error}` }, { status: 500 })
     }
@@ -234,15 +201,16 @@ export async function POST(req: NextRequest) {
   // ── FIX (audit brief bagian N): DETEKSI PROSES SEBELUMNYA YANG TERPUTUS ──
   // Kalau penanda "sedang berjalan" masih menyala, reset/restore SEBELUMNYA
   // tidak pernah mencapai tahap akhir (mis. server crash/redeploy di tengah
-  // jalan) — database mungkin dalam kondisi campuran yang tidak konsisten.
-  // Tampilkan peringatan tegas dulu sebelum mengizinkan reset baru menimpa
-  // kondisi itu tanpa admin sadar. `force` yang sama dipakai admin untuk
-  // melewati peringatan ini (konsisten dengan pengecekan aktivitas di atas).
+  // jalan) — data yayasan ini mungkin dalam kondisi campuran yang tidak
+  // konsisten. Tampilkan peringatan tegas dulu sebelum mengizinkan reset baru
+  // menimpa kondisi itu tanpa admin sadar. `force` yang sama dipakai admin
+  // untuk melewati peringatan ini (konsisten dengan pengecekan di atas).
+  // Penanda disimpan per yayasan (tabel pengaturan lewat tenantDb).
   if (!force) {
     const prosesSebelumnya = await cekProsesDataBesarBerjalan(db)
     if (prosesSebelumnya.sedangBerjalan) {
       return NextResponse.json({
-        error: `Proses ${prosesSebelumnya.jenis ?? 'reset/restore'} sebelumnya (dimulai ${prosesSebelumnya.mulaiPada ?? 'waktu tidak diketahui'}) tampak TIDAK PERNAH SELESAI — kemungkinan terputus di tengah jalan (server restart, koneksi putus, dsb). Database mungkin berada dalam kondisi tidak konsisten. Periksa data secara manual dulu sebelum melanjutkan, atau konfirmasi paksa untuk tetap lanjut.`,
+        error: `Proses ${prosesSebelumnya.jenis ?? 'reset/restore'} sebelumnya (dimulai ${prosesSebelumnya.mulaiPada ?? 'waktu tidak diketahui'}) tampak TIDAK PERNAH SELESAI — kemungkinan terputus di tengah jalan (server restart, koneksi putus, dsb). Data mungkin berada dalam kondisi tidak konsisten. Periksa data secara manual dulu sebelum melanjutkan, atau konfirmasi paksa untuk tetap lanjut.`,
         proses_sebelumnya_belum_selesai: true,
         proses_sebelumnya: prosesSebelumnya,
       }, { status: 409 })
@@ -250,33 +218,20 @@ export async function POST(req: NextRequest) {
   }
   // ─────────────────────────────────────────────────────────────────────────
 
-  const effectiveCategories = categories.includes('semua')
-    ? ['semua' as ResetCategory]
-    : categories
-
-  // Kumpulkan tabel unik. Urutan antar kategori dipertahankan seperti yang
-  // dipilih, tapi setiap tabel hanya diproses sekali.
-  const tablesToDelete: string[] = []
-  for (const cat of effectiveCategories) {
-    for (const table of CATEGORY_MAP[cat]) {
-      if (!tablesToDelete.includes(table)) tablesToDelete.push(table)
-    }
-  }
-
-  // ── FIX (audit brief bagian N): MODE MAINTENANCE OTOMATIS SELAMA RESET ──
-  // Sebelumnya reset berjalan tanpa melindungi diri sama sekali — siswa/guru/
-  // kepsek tetap bisa memakai aplikasi SELAGI tabel-tabel sedang dikosongkan,
-  // kecuali admin ingat menyalakan maintenance manual lebih dulu. Sekarang
-  // reset menyalakan sendiri (dan mengembalikan lagi di `finally`, apa pun
-  // hasilnya — sukses, gagal sebagian, atau exception tak terduga).
-  await mulaiModeMaintenanceUntukProses(db, 'reset')
+  // ── MODE MAINTENANCE OTOMATIS SELAMA RESET (khusus yayasan ini) ─────────
+  // Siswa/guru/kepsek yayasan ini tidak boleh memakai aplikasi SELAGI data
+  // sedang dikosongkan. Dinyalakan sendiri di sini dan dikembalikan ke nilai
+  // sebelumnya di `finally`, apa pun hasilnya. Yayasan lain tidak terpengaruh.
+  // Target konflik 'yayasan_id,key': kunci utama pengaturan sejak migrasi 43.
+  await mulaiModeMaintenanceUntukProses(db, 'reset', 'yayasan_id,key')
   try {
     const errors: string[] = []
     const deleted: string[] = []
-    const storageDone = new Set<string>()
+    const storageSelesai = new Set<string>()
+    const termasukSiswa = tablesToDelete.includes('siswa')
 
     for (const table of tablesToDelete) {
-      const err = await clearTable(db, table, storageDone)
+      const err = await hapusTabelYayasan(ls, table, { termasukSiswa, storageSelesai })
       if (err) {
         errors.push(err)
       } else {
@@ -300,13 +255,10 @@ export async function POST(req: NextRequest) {
       errors: errors.length > 0 ? errors : undefined,
     }, { status: errors.length > 0 ? 207 : 200 })
   } finally {
-    // Catatan: kalau kategori yang direset mencakup 'pengaturan' (langsung
-    // atau lewat 'semua'), tabel `pengaturan` — termasuk penanda proses ini
-    // sendiri — sudah ikut terhapus di loop atas (pengaturan sengaja
-    // diproses PALING AKHIR, lihat DELETE_ORDER). Itu bukan masalah:
-    // selesaiModeMaintenanceUntukProses() memakai upsert, jadi baris
-    // `maintenanceAktif` cukup ditulis ulang (default 'false', konsisten
-    // dengan maksud reset kategori 'pengaturan' sendiri: kembali ke default).
-    await selesaiModeMaintenanceUntukProses(db)
+    // Kunci penanda proses & maintenanceAktif sengaja DIKECUALIKAN dari
+    // penghapusan kategori "pengaturan"/"semua" (lihat reset-yayasan.ts), jadi
+    // di sini cukup mengembalikan maintenanceAktif ke nilai sebelum reset dan
+    // membersihkan penanda.
+    await selesaiModeMaintenanceUntukProses(db, 'yayasan_id,key')
   }
 }

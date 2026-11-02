@@ -13,7 +13,7 @@
 5. Semua pengguna login hanya dengan **username/NIS + password**. Yayasan ditentukan dari akun (`users.yayasan_id` / `siswa.yayasan_id`), bukan dari input. Kode Sekolah tidak lagi diketik; server mengirimnya balik saat login dan disimpan di perangkat hanya agar nama/logo sekolah tampil di halaman login berikutnya.
 6. Sebelum disetujui, mencoba login dengan username+password pengajuan menampilkan status ("menunggu" / "ditolak: alasan"). Sekolah yang dinonaktifkan dari panel developer mendapat pesan khusus setelah password terverifikasi.
 
-Persetujuan DITOLAK server selama `MULTI_YAYASAN_ENABLED` mati (tanpa saklar, backup/reset/restore masih terbuka untuk admin yayasan baru).
+Persetujuan DITOLAK server selama `MULTI_YAYASAN_ENABLED` mati. Reset data selalu per yayasan (lihat bawah); backup/restore ditolak bila saklar menyala ATAU database memuat lebih dari satu yayasan.
 
 ## Setup (sekali)
 1. Jalankan `supabase/39_multi_yayasan.sql` di SQL Editor (setelah migrasi 23). Semua data lama otomatis jadi yayasan `YYS_AWAL` (kode `UTAMA`; boleh diganti lewat SQL: `update yayasan set kode='AGRABIL' where id='YYS_AWAL'`).
@@ -44,13 +44,14 @@ Jalankan migrasi dulu, baru deploy kode. Jangan menjalankan SQL atau deploy saat
 
 ### Batasan yang disengaja
 - `username`, `NIS`, dan `kode_sesi` masih unik di seluruh database. Impor NIS milik yayasan lain dilewati ("NIS sudah terdaftar"). Jangan menghapus penjagaan itu sebelum PK diganti `(yayasan_id, ...)`.
-- `admin/backup`, `reset`, `restore` ditolak (403) saat saklar menyala. Backup memakai fitur bawaan Supabase.
+- `admin/backup` dan `restore` bekerja pada seluruh database, jadi ditolak (403) saat saklar menyala ATAU tabel `yayasan` berisi lebih dari satu baris (`tolakOperasiSeluruhDatabase()` di `tenant.ts`), apa pun status saklar. Backup memakai fitur bawaan Supabase.
+- `admin/reset` TIDAK lagi ditolak: ia hanya menghapus data yayasan si admin (`src/lib/reset-yayasan.ts`), baik saklar menyala maupun mati. Tabel tanpa `yayasan_id` (siswa_ujian, jawaban, jawaban_essay*, skor_essay_siswa, essay_amplop_offline, log_reset) dihapus lewat daftar `sesi_id`/`nis` milik yayasan itu; tidak ada TRUNCATE. Storage yang dibersihkan hanya folder soal yayasan itu dan foto essay milik baris yang dihapus. Kunci maintenance milik Panel Developer tidak ikut terhapus. Tabel baru yang tidak punya `yayasan_id` WAJIB didaftarkan di `reset-yayasan.ts`, kalau tidak reset akan menolak menyentuhnya.
 - Cron `reminder-soal` hanya memproses `YYS_AWAL` (nomor WA tujuan hanya satu).
 - `siswa/dipantau` dan `metrik_sistem` global (peta berdasarkan NIS unik; metrik kesehatan server).
 - Stream Layar Pantau mendengarkan perubahan semua yayasan, tetapi hanya sebagai pemicu: data selalu diambil ulang lewat query ber-scope.
 - Panel Developer memakai client global (lintas yayasan) tetapi HANYA membaca metadata (nama, status, jumlah siswa). Akun developer ada di tabel `developer_akun` dan tokennya ditandatangani dengan kunci turunan (`src/lib/developer-auth.ts`), sehingga token developer ditolak di semua rute sekolah dan token sekolah ditolak di rute developer.
 
 ### Yang tersisa
-1. **Uji dua yayasan** (wajib): daftarkan yayasan B, buat kelas bernama sama, lalu dari akun B coba baca/ubah/hapus id milik A (sesi, nis, paket, kelas, jadwal, username). Semua harus 404/403. Hapus kelas di B, pastikan data kelas sama di A utuh. Impor NIS milik A dari B. Simulasi ujian penuh di B. `backup/reset/restore` = 403. Token lama ditolak.
+1. **Uji dua yayasan** (wajib): daftarkan yayasan B, buat kelas bernama sama, lalu dari akun B coba baca/ubah/hapus id milik A (sesi, nis, paket, kelas, jadwal, username). Semua harus 404/403. Hapus kelas di B, pastikan data kelas sama di A utuh. Impor NIS milik A dari B. Simulasi ujian penuh di B. `backup/restore` = 403. Reset dari B hanya menghapus data B (data A utuh). Token lama ditolak.
 2. Setelah uji lulus: hapus `DEFAULT 'YYS_AWAL'` dan `SET NOT NULL` pada `yayasan_id` di semua tabel (cek dulu `grep -an "INSERT INTO" supabase/*.sql`; saat ini nilai, paket_soal, pelanggaran ditangani trigger).
 3. Nyalakan `MULTI_YAYASAN_ENABLED=true`.
