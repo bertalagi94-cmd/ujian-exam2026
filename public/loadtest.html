@@ -553,6 +553,79 @@
     </div>
   </div>
 
+  <!-- ============ UJI 2 YAYASAN BERSAMAAN ============ -->
+  <div class="panel" id="dua-panel">
+    <h2>🏛️ Uji 2 Yayasan Bersamaan (Isolasi &amp; Konkurensi Multi-Tenant)</h2>
+    <p class="sub" style="margin-bottom:12px">
+      Dua yayasan berbeda menjalankan ujian LENGKAP pada waktu yang sama di database yang sama: setup data,
+      login serentak, masuk ujian, sync jawaban, submit serentak, tutup sesi, lalu nilai diverifikasi.
+      Di tengah ujian, tiap yayasan juga mencoba membaca/mengubah/menghapus data milik yayasan lain (harus 403/404),
+      memakai nama kelas yang sama, NIS/username milik yayasan lain, kode sesi &amp; token yayasan lain, dan token yang dipalsukan.
+      Sesuai <code>docs/MULTI_YAYASAN.md</code> → bagian "Yang tersisa: Uji dua yayasan".
+    </p>
+    <div class="banner" style="margin:0 0 14px">
+      ⚠️ <strong>Butuh 2 akun ADMIN dari 2 yayasan yang BERBEDA</strong> (mis. yayasan awal <code>YYS_AWAL</code> dan yayasan kedua).
+      Kedua yayasan harus sudah mengisi <em>Pengaturan → Informasi Sekolah (provinsi/kabupaten)</em>, kalau tidak pembuatan jadwal ditolak.
+      Seluruh data uji ditandai Run ID <code>LT2Y_…</code> dan bisa dibersihkan otomatis. Jalankan di jam sepi.
+    </div>
+    <div class="row">
+      <div class="field"><label>Yayasan A — username admin</label><input id="dua-a-user" value="admin" autocomplete="off" /></div>
+      <div class="field"><label>Yayasan A — password admin</label><input id="dua-a-pass" type="password" autocomplete="off" placeholder="sandi admin yayasan A" /></div>
+      <div class="field"><label>Yayasan B — username admin</label><input id="dua-b-user" value="" autocomplete="off" placeholder="admin yayasan B" /></div>
+      <div class="field"><label>Yayasan B — password admin</label><input id="dua-b-pass" type="password" autocomplete="off" placeholder="sandi admin yayasan B" /></div>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <div class="field">
+        <label>Siswa per yayasan</label>
+        <select id="dua-siswa">
+          <option value="20">20</option>
+          <option value="40" selected>40</option>
+          <option value="60">60</option>
+          <option value="100">100</option>
+          <option value="150">150</option>
+          <option value="200">200</option>
+        </select>
+      </div>
+      <div class="field"><label>Soal per paket (tiap yayasan)</label><input id="dua-soal" type="number" value="20" min="5" max="200" /></div>
+      <div class="field">
+        <label>Nama kelas</label>
+        <select id="dua-kelas-sama">
+          <option value="ya" selected>SAMA di kedua yayasan (uji tabrakan nama)</option>
+          <option value="tidak">Berbeda per yayasan</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Porsi siswa ditutup paksa (%)</label>
+        <select id="dua-porsi-tutup"><option value="0">0</option><option value="20" selected>20</option><option value="30">30</option></select>
+      </div>
+      <div class="field"><label>Siklus sync</label><input id="dua-sync-siklus" type="number" value="3" min="1" max="20" /></div>
+      <div class="field"><label>Jarak antar siklus (detik)</label><input id="dua-sync-interval" type="number" value="4" min="1" max="30" /></div>
+      <div class="field">
+        <label>Bersihkan otomatis setelah selesai</label>
+        <select id="dua-auto-cleanup"><option value="ya" selected>Ya</option><option value="tidak">Tidak (bersihkan manual)</option></select>
+      </div>
+    </div>
+    <div class="row" style="margin-top:14px">
+      <button class="btn-primary" id="btn-dua-start">▶ Mulai Uji 2 Yayasan</button>
+      <button class="btn-ghost" id="btn-dua-stop" disabled>■ Hentikan</button>
+      <button class="btn-ghost" id="btn-dua-md" disabled>⬇ Unduh Hasil (.md)</button>
+    </div>
+    <p class="sub" id="dua-status" style="margin-top:12px"></p>
+    <div id="dua-hasil" style="margin-top:12px"></div>
+
+    <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border)">
+      <h2 style="margin-bottom:10px">🧹 Cleanup Uji 2 Yayasan (manual)</h2>
+      <p class="sub" style="margin-bottom:12px">
+        Hanya perlu bila "Bersihkan otomatis" dimatikan atau tab sempat ditutup. Pakai kredensial admin A &amp; B di atas dan Run ID dasar
+        (contoh: <code>LT2Y_1750500000000</code>). Urutan: yayasan B dulu, lalu cek data yayasan A (kelas bernama sama) masih utuh, baru A.
+      </p>
+      <div class="row">
+        <div class="field"><label>Run ID dasar</label><input id="dua-cleanup-run" placeholder="contoh: LT2Y_1750500000000" /></div>
+        <button class="btn-danger" id="btn-dua-cleanup">🗑 Bersihkan Data Uji 2 Yayasan</button>
+      </div>
+    </div>
+  </div>
+
   <p class="sub" style="text-align:center; margin-top:30px">
     Dibuat untuk pengujian internal sebelum rilis ke sekolah. Jalankan di jam sepi dan pantau dashboard Supabase Anda selama proses berjalan.
   </p>
@@ -4389,6 +4462,937 @@ async function mtConfirmCleanup() {
   }
 }
 
+// =====================================================================
+// UJI 2 YAYASAN BERSAMAAN
+// Dua yayasan (tenant) menjalankan ujian lengkap pada WAKTU YANG SAMA di
+// database yang sama. Tujuan: membuktikan (1) tidak ada data yang bocor atau
+// bisa diubah lintas yayasan, (2) tidak ada tabrakan saat dua yayasan memakai
+// nama kelas yang sama / membuat data serentak, (3) nilai tiap yayasan tetap
+// benar saat beban dua yayasan menumpuk bersamaan.
+// Memakai ulang api(), runBatched(), panggilDenganCobaUlang(), dll. dari
+// atas, tetapi state-nya sendiri (objek `dua`), tidak menyentuh `state` uji
+// beban biasa selain penghitung request, daftar bug, dan state.stopRequested.
+// =====================================================================
+const dua = {
+  running: false, stop: false, runBase: null, tenants: [], cek: [], cfg: null,
+  mulai: null, selesai: null, catatan: [], fase: '', gagalSetup: null,
+};
+const DUA_PASS_GURU = 'LoadTest123!';
+const DUA_KATEGORI_KRITIS = new Set([
+  BUG_CATEGORIES.DATA_LEAK, BUG_CATEGORIES.OTORISASI, BUG_CATEGORIES.FATAL, BUG_CATEGORIES.RACE_CONDITION,
+]);
+
+function duaStatus(t) { const el = document.getElementById('dua-status'); if (el) el.textContent = t; }
+function duaLog(ctx, msg, level = 'info') { log(`🏛️ ${ctx ? `[Yayasan ${ctx.label}] ` : ''}${msg}`, level); }
+function duaCekStop() { if (dua.stop) throw new Error('Dihentikan pengguna.'); }
+function duaIsi(id, def = '') { const el = document.getElementById(id); return el ? el.value : def; }
+
+function duaJwt(token) {
+  try {
+    let p = String(token).split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    while (p.length % 4) p += '=';
+    return JSON.parse(atob(p));
+  } catch { return null; }
+}
+// Token asli milik yayasan X, tetapi klaim yayasanId diganti ke yayasan lain
+// TANPA menandatangani ulang. Server wajib menolak (tanda tangan tidak cocok).
+function duaTamper(token, yayasanIdBaru) {
+  const [h, , s] = String(token).split('.');
+  const obj = duaJwt(token) || {};
+  obj.yayasanId = yayasanIdBaru;
+  const b64 = btoa(JSON.stringify(obj)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return `${h}.${b64}.${s}`;
+}
+
+// ---------- pencatatan hasil pengecekan ----------
+function duaCek(grup, nama, lulus, detail = '', kategori = null, meta = '') {
+  const kritis = !lulus && !!kategori && DUA_KATEGORI_KRITIS.has(kategori);
+  dua.cek.push({ grup, nama, lulus: !!lulus, detail: detail || '', kritis });
+  if (lulus) {
+    log(`✓ [2 Yayasan/${grup}] ${nama}`, 'ok');
+  } else {
+    log(`✗ [2 Yayasan/${grup}] ${nama}${detail ? ' — ' + detail : ''}`, 'err');
+    if (kategori) recordBugCat(kategori, `[2 Yayasan] ${nama}`, detail || 'Pengecekan gagal.', meta);
+  }
+  duaRender();
+  return !!lulus;
+}
+
+// Server HARUS menolak: respons 4xx, valid:false, atau sesi tak ditemukan.
+function duaDitolak(r) {
+  if (!r || r.networkError) return false;
+  if (!r.ok) return r.status < 500;
+  const d = r.data || {};
+  return d.valid === false || d.sesi_status === 'TIDAK_DITEMUKAN';
+}
+function duaProbe(grup, nama, r, meta, kategori = BUG_CATEGORIES.DATA_LEAK) {
+  if (r.networkError) return duaCek(grup, nama, false, `Jaringan gagal: ${r.error}`, BUG_CATEGORIES.BEBAN, meta);
+  if (r.status >= 500) {
+    return duaCek(grup, nama, false,
+      `Server error HTTP ${r.status} pada akses lintas yayasan (seharusnya 403/404 bersih). Body: ${JSON.stringify(r.data).slice(0, 200)}`,
+      BUG_CATEGORIES.HTTP_STATUS, meta);
+  }
+  const ok = duaDitolak(r);
+  return duaCek(grup, nama, ok,
+    ok ? `HTTP ${r.status}` : `Permintaan lintas yayasan DITERIMA (HTTP ${r.status}). Body: ${JSON.stringify(r.data).slice(0, 250)}`,
+    kategori, meta);
+}
+// Respons baca tidak boleh memuat identitas yayasan lain (guru/NIS/mapel/teks soal).
+function duaBocor(r, lain) {
+  if (!r || !r.ok || r.data == null) return false;
+  const s = JSON.stringify(r.data);
+  return s.includes(lain.runId) || s.includes(`[${lain.tag}]`);
+}
+function duaProbeBaca(grup, nama, r, lain, meta) {
+  if (r.networkError) return duaCek(grup, nama, false, `Jaringan gagal: ${r.error}`, BUG_CATEGORIES.BEBAN, meta);
+  if (r.status >= 500) return duaCek(grup, nama, false, `Server error HTTP ${r.status}: ${JSON.stringify(r.data).slice(0, 200)}`, BUG_CATEGORIES.HTTP_STATUS, meta);
+  const bocor = duaBocor(r, lain);
+  return duaCek(grup, nama, !bocor,
+    bocor ? `Respons memuat data milik yayasan ${lain.label} (Run ID ${lain.runId}). Cuplikan: ${JSON.stringify(r.data).slice(0, 250)}` : `HTTP ${r.status}, tanpa data yayasan ${lain.label}`,
+    BUG_CATEGORIES.DATA_LEAK, meta);
+}
+
+// ---------- pembuatan konteks per yayasan ----------
+function duaBuatTenant(label, runBase, cred, cfg) {
+  const runId = `${runBase}_${label}`;
+  return {
+    label, runId, cred, tag: `YYS-${label}`,
+    kelasNama: cfg.kelasSama ? `${runBase}_KLS` : `${runId}_KLS`,
+    guruUsername: `${runId}_guru`, mapelNama: `LOADTEST ${runId}`,
+    adminToken: null, guruToken: null, yayasanId: null, kodeSekolah: null,
+    mapelId: null, kelasId: null, paketId: null, jadwalId: null, sesiId: null, kodeSesi: null,
+    soalDibuat: 0, siswa: [], kunci: {}, soalIds: [], baselineTotal: null,
+    lat: { login: [], masuk: [], sync: [], submit: [] },
+    hit: { loginGagal: 0, masukGagal: 0, syncGagal: 0, submitGagal: 0, dimintaUlang: 0, bocorSoal: 0, tokenSalah: 0 },
+    A: [], B: [], tutup: null, nilai: null, bacaUlang: null, submitRes: null,
+  };
+}
+
+async function duaLoginAdmin(ctx) {
+  const r = await api('POST', '/api/auth/login', { username: ctx.cred.user, password: ctx.cred.pass });
+  if (!r.ok || !r.data?.token) {
+    throw new Error(`Login admin yayasan ${ctx.label} gagal (${r.data?.error || r.error || 'HTTP ' + r.status}). Periksa username/password.`);
+  }
+  if (r.data.role !== 'ADMIN') throw new Error(`Akun yayasan ${ctx.label} berperan "${r.data.role}", bukan ADMIN.`);
+  ctx.adminToken = r.data.token;
+  ctx.kodeSekolah = r.data.kodeSekolah || null;
+  ctx.yayasanId = duaJwt(ctx.adminToken)?.yayasanId || null;
+}
+
+// Setup data satu yayasan: guru, mapel, kelas, paket + soal, approve, jadwal, buka sesi.
+// Dijalankan untuk kedua yayasan SERENTAK (termasuk pembuatan kelas bernama sama).
+async function duaSetupData(ctx, cfg) {
+  const L = (m, lv = 'info') => duaLog(ctx, m, lv);
+  const gagal = (judul, r, meta) => {
+    recordBugCat(BUG_CATEGORIES.FUNGSIONAL, `[2 Yayasan ${ctx.label}] ${judul}`, JSON.stringify(r.data ?? r.error ?? ''), meta);
+    const petunjuk = /lokasi sekolah/i.test(JSON.stringify(r.data || '')) ? ' (lengkapi Pengaturan → Informasi Sekolah untuk yayasan ini)' : '';
+    throw new Error(`Yayasan ${ctx.label}: ${judul}${r.data?.error ? ' — ' + r.data.error : ''}${petunjuk}`);
+  };
+
+  const base = await api('GET', '/api/admin/siswa?per_page=1', undefined, ctx.adminToken);
+  ctx.baselineTotal = typeof base.data?.total === 'number' ? base.data.total : null;
+
+  // Guru
+  let r = await api('POST', '/api/admin/users', {
+    username: ctx.guruUsername, nama: `GURU LOADTEST ${ctx.runId}`, role: 'GURU', password: DUA_PASS_GURU, status: 'AKTIF',
+  }, ctx.adminToken);
+  if (!r.ok) gagal('Gagal membuat guru testing', r, 'POST /api/admin/users');
+  r = await api('POST', '/api/auth/login', { username: ctx.guruUsername, password: DUA_PASS_GURU });
+  if (!r.ok || !r.data?.token) gagal('Guru testing gagal login', r, 'POST /api/auth/login');
+  ctx.guruToken = r.data.token;
+  duaCek('Isolasi', `Token guru ${ctx.label} membawa yayasan yang sama dengan admin ${ctx.label}`,
+    duaJwt(ctx.guruToken)?.yayasanId === ctx.yayasanId,
+    `Admin: ${ctx.yayasanId}, guru: ${duaJwt(ctx.guruToken)?.yayasanId}`, BUG_CATEGORIES.DATA_LEAK, 'POST /api/auth/login');
+  L(`Guru testing dibuat: ${ctx.guruUsername}`, 'ok');
+  duaCekStop();
+
+  // Mapel milik guru testing
+  r = await api('POST', '/api/admin/mapel', { nama: ctx.mapelNama, guru_id: ctx.guruUsername, kelas_list: ctx.kelasNama, jumlah_opsi: 4, kkm: 75 }, ctx.adminToken);
+  if (!r.ok) gagal('Gagal membuat mapel testing', r, 'POST /api/admin/mapel');
+  const mapelList = await api('GET', '/api/admin/mapel', undefined, ctx.adminToken);
+  const mapel = (mapelList.data?.data ?? []).find(m => m.nama === ctx.mapelNama.toUpperCase() && m.guru_id === ctx.guruUsername);
+  if (!mapel) gagal('Mapel testing tidak ditemukan setelah dibuat', mapelList, 'GET /api/admin/mapel');
+  ctx.mapelId = mapel.id;
+  L(`Mapel testing dibuat (${ctx.mapelId})`, 'ok');
+
+  // Siswa pemicu -> baris kelas tercipta -> ambil kelas_id ASLI
+  const seedNis = `${ctx.runId}_SEED`;
+  r = await api('POST', '/api/admin/siswa', { nis: seedNis, nama: `SEED ${ctx.tag}`, kelas: ctx.kelasNama, jenis_kelamin: 'L', status: 'AKTIF' }, ctx.adminToken);
+  if (!r.ok) {
+    if (cfg.kelasSama) {
+      duaCek('Tabrakan', `Yayasan ${ctx.label} bisa membuat kelas bernama sama dengan yayasan lain (${ctx.kelasNama})`, false,
+        `HTTP ${r.status}: ${JSON.stringify(r.data)}. Kemungkinan migrasi 41 (nama kelas unik per yayasan) belum dijalankan, atau terjadi tabrakan saat dua yayasan membuat kelas bersamaan.`,
+        BUG_CATEGORIES.RACE_CONDITION, 'POST /api/admin/siswa');
+    }
+    gagal('Gagal membuat siswa pemicu/kelas testing', r, 'POST /api/admin/siswa');
+  }
+  const kelasList = await api('GET', '/api/admin/kelas', undefined, ctx.adminToken);
+  const sama = (kelasList.data?.data ?? []).filter(k => k.nama === ctx.kelasNama);
+  if (sama.length !== 1) gagal(`Baris kelas testing tidak tepat satu (ditemukan ${sama.length})`, kelasList, 'GET /api/admin/kelas');
+  ctx.kelasId = sama[0].id;
+  L(`Kelas "${ctx.kelasNama}" siap (kelas_id ${ctx.kelasId})`, 'ok');
+  duaCekStop();
+
+  // Paket + soal (teks soal memuat penanda [YYS-x] untuk mendeteksi kebocoran antar yayasan)
+  r = await api('POST', '/api/guru/paket', { mapel_id: ctx.mapelId, kelas_id: ctx.kelasId, acak: 'YA' }, ctx.guruToken);
+  if (!r.ok) gagal('Gagal membuat paket soal', r, 'POST /api/guru/paket');
+  const paketList = await api('GET', '/api/guru/paket', undefined, ctx.guruToken);
+  const paket = (paketList.data?.data ?? []).find(p => p.mapel_id === ctx.mapelId && p.kelas_id === ctx.kelasId);
+  if (!paket) gagal('Paket soal tidak ditemukan setelah dibuat', paketList, 'GET /api/guru/paket');
+  ctx.paketId = paket.id;
+
+  const { batchSize, delayBetweenBatches } = getSpeedConfig();
+  let dibuat = 0;
+  await runBatched(Array.from({ length: cfg.soal }, (_, i) => i + 1), async (i) => {
+    const rr = await api('POST', '/api/guru/soal', {
+      mapel_id: ctx.mapelId, kelas_id: ctx.kelasId, paket_id: ctx.paketId,
+      teks: `[LOADTEST][${ctx.tag}] Soal otomatis nomor ${i} — berapakah hasil dari ${i} + ${i}?`,
+      opsi_a: `${i * 2 - 1}`, opsi_b: `${i * 2}`, opsi_c: `${i * 2 + 1}`, opsi_d: `${i * 2 + 2}`,
+      kunci: HURUF_JAWAB[i % 4], tingkat: 'Sedang', jumlah_opsi: 4, acak: 'YA', status: 'DRAFT',
+    }, ctx.guruToken);
+    if (rr.ok) dibuat++; else recordBugCat(BUG_CATEGORIES.FUNGSIONAL, `[2 Yayasan ${ctx.label}] Gagal membuat soal #${i}`, JSON.stringify(rr.data), 'POST /api/guru/soal');
+    return rr;
+  }, { batchSize, delayBetweenBatches });
+  ctx.soalDibuat = dibuat;
+  L(`${dibuat}/${cfg.soal} soal dibuat`, dibuat === cfg.soal ? 'ok' : 'warn');
+  if (dibuat < Math.max(1, Math.ceil(cfg.soal * 0.95))) throw new Error(`Yayasan ${ctx.label}: hanya ${dibuat}/${cfg.soal} soal berhasil dibuat.`);
+  duaCekStop();
+
+  // Kirim + setujui + jadwal + buka sesi
+  r = await api('POST', `/api/guru/paket/${ctx.paketId}/kirim`, {}, ctx.guruToken);
+  if (!r.ok) gagal('Gagal mengirim paket untuk validasi', r, 'POST /api/guru/paket/[id]/kirim');
+  r = await api('POST', '/api/admin/soal', { paket_id: ctx.paketId, action: 'SETUJUI' }, ctx.adminToken);
+  if (!r.ok) gagal('Gagal menyetujui paket soal', r, 'POST /api/admin/soal');
+
+  // Tanggal "hari ini" menurut WIB (zona bawaan sekolah); lihat src/lib/pengaturan-waktu.ts.
+  const today = new Date(Date.now() + 7 * 3600 * 1000).toISOString().slice(0, 10);
+  r = await api('POST', '/api/admin/jadwal', {
+    tanggal: today, sesi: 1, jam_mulai: '00:00', jam_selesai: '23:59',
+    mapel_id: ctx.mapelId, kelas: ctx.kelasNama, pengawas: ctx.guruUsername, durasi: 90,
+  }, ctx.adminToken);
+  if (!r.ok) gagal('Gagal membuat jadwal ujian', r, 'POST /api/admin/jadwal');
+  const jadwalList = await api('GET', `/api/admin/jadwal?kelas=${encodeURIComponent(ctx.kelasNama)}`, undefined, ctx.adminToken);
+  const jadwal = (jadwalList.data?.data ?? []).filter(j => j.mapel_id === ctx.mapelId && j.kelas === ctx.kelasNama);
+  duaCek('Isolasi', `Daftar jadwal kelas "${ctx.kelasNama}" di yayasan ${ctx.label} hanya berisi jadwal yayasan ini`,
+    (jadwalList.data?.data ?? []).every(j => j.mapel_id === ctx.mapelId),
+    `Jadwal dengan mapel lain ikut tampil: ${JSON.stringify((jadwalList.data?.data ?? []).map(j => j.mapel_id))}`,
+    BUG_CATEGORIES.DATA_LEAK, 'GET /api/admin/jadwal?kelas=');
+  if (jadwal.length !== 1) gagal(`Jadwal testing tidak tepat satu (ditemukan ${jadwal.length})`, jadwalList, 'GET /api/admin/jadwal');
+  ctx.jadwalId = jadwal[0].id;
+
+  r = await api('POST', '/api/guru/mode-pengawas', { jadwalId: ctx.jadwalId }, ctx.guruToken);
+  if (!r.ok || !r.data?.sesiId) gagal('Gagal membuka sesi ujian', r, 'POST /api/guru/mode-pengawas');
+  ctx.sesiId = r.data.sesiId;
+  ctx.kodeSesi = r.data.kodeSesi;
+  L(`Sesi dibuka. Kode sesi: ${ctx.kodeSesi}`, 'ok');
+}
+
+async function duaBuatSiswa(ctx, n) {
+  const { batchSize, delayBetweenBatches } = getSpeedConfig();
+  await runBatched(Array.from({ length: n }, (_, i) => i + 1), async (i) => {
+    const nis = `${ctx.runId}_${String(i).padStart(4, '0')}`;
+    const r = await api('POST', '/api/admin/siswa', {
+      nis, nama: `SISWA ${ctx.tag} ${i}`, kelas: ctx.kelasNama, jenis_kelamin: i % 2 === 0 ? 'LAKI-LAKI' : 'PEREMPUAN',
+    }, ctx.adminToken);
+    if (r.ok) ctx.siswa.push({ nis, password: nis, idx: i, t: ctx });
+    else recordBugCat(BUG_CATEGORIES.FUNGSIONAL, `[2 Yayasan ${ctx.label}] Gagal membuat siswa #${i}`, JSON.stringify(r.data), 'POST /api/admin/siswa');
+    return r;
+  }, { batchSize, delayBetweenBatches });
+  ctx.siswa.sort((a, b) => a.idx - b.idx);
+}
+
+// ---------- rencana jawaban deterministik (nilai yang benar dapat dihitung ulang) ----------
+function duaRencana(s, k) {
+  const soalList = s.soalList || [];
+  const total = soalList.length;
+  const dijawab = Math.floor(total * 0.9);
+  const benarTarget = Math.floor(dijawab * (0.30 + 0.07 * (k % 10)));
+  const jawab = [];
+  for (let i = 0; i < dijawab; i++) {
+    const q = soalList[i];
+    const kunci = s.t.kunci[q.id];
+    const salah = HURUF_JAWAB.find(h => h !== kunci);
+    jawab.push({ soal_id: q.id, jawaban: i < benarTarget ? kunci : salah });
+  }
+  return { jawab, benar: benarTarget, total, nilai: total > 0 ? Math.round((benarTarget / total) * 100) : 0 };
+}
+
+async function duaAmbilNilai(ctx, query) {
+  const baris = []; let total = null; let galat = null;
+  for (let page = 1; page <= 100; page++) {
+    const r = await api('GET', `/api/admin/nilai?${query}&per_page=200&page=${page}`, undefined, ctx.adminToken);
+    if (!r.ok) { galat = `HTTP ${r.status} ${JSON.stringify(r.data || r.error || '').slice(0, 200)}`; break; }
+    const data = Array.isArray(r.data?.data) ? r.data.data : [];
+    baris.push(...data);
+    if (typeof r.data?.total === 'number') total = r.data.total;
+    if (!data.length || (total !== null && baris.length >= total)) break;
+  }
+  return { baris, galat };
+}
+
+// =====================================================================
+// PROBE LINTAS YAYASAN — dijalankan SELAMA ujian berlangsung (bersamaan dengan sync)
+// =====================================================================
+async function duaProbeSatuArah(X, Y) {
+  const g = `Lintas ${X.label}→${Y.label}`;
+  const nisKorban = Y.siswa[0]?.nis;
+  const siswaX = X.siswa.find(s => s.token);
+  const soalY = Y.soalIds[0];
+
+  // ── Baca: daftar milik X tidak boleh memuat data Y ──
+  const bacaAdmin = [
+    ['Daftar akun admin', '/api/admin/users'],
+    ['Daftar mapel admin', '/api/admin/mapel'],
+    ['Daftar jadwal admin', '/api/admin/jadwal'],
+    [`Daftar jadwal kelas bernama sama`, `/api/admin/jadwal?kelas=${encodeURIComponent(X.kelasNama)}`],
+    ['Daftar kelas admin', '/api/admin/kelas'],
+    ['Daftar siswa admin (seluruh yayasan)', '/api/admin/siswa?per_page=500'],
+    ['Daftar siswa kelas bernama sama', `/api/admin/siswa?per_page=500&kelas=${encodeURIComponent(X.kelasNama)}`],
+    [`Cari siswa dengan kata kunci Run ID yayasan ${Y.label}`, `/api/admin/siswa?per_page=50&search=${encodeURIComponent(Y.runId)}`],
+    ['Dashboard admin', '/api/admin/dashboard'],
+    ['Sesi belum ditutup', '/api/admin/sesi-belum-ditutup'],
+    ['Monitoring nilai', '/api/admin/monitoring-nilai'],
+    ['Pelanggaran', '/api/admin/pelanggaran'],
+  ];
+  const bacaGuru = [
+    ['Daftar paket guru', '/api/guru/paket'],
+    ['Daftar soal guru', '/api/guru/soal?per_page=200'],
+    [`Soal dengan mapel_id milik ${Y.label}`, `/api/guru/soal?per_page=200&mapel_id=${encodeURIComponent(Y.mapelId)}`],
+    ['Jadwal pengawasan guru', '/api/guru/jadwal-pengawasan'],
+    ['Dashboard guru', '/api/guru/dashboard'],
+  ];
+  await Promise.all([
+    ...bacaAdmin.map(async ([nama, path]) => duaProbeBaca(g, `${nama} (admin ${X.label}) tidak memuat data ${Y.label}`, await api('GET', path, undefined, X.adminToken), Y, `GET ${path.split('?')[0]}`)),
+    ...bacaGuru.map(async ([nama, path]) => duaProbeBaca(g, `${nama} (guru ${X.label}) tidak memuat data ${Y.label}`, await api('GET', path, undefined, X.guruToken), Y, `GET ${path.split('?')[0]}`)),
+  ]);
+
+  // Hitung siswa di kelas bernama sama: harus hanya milik X.
+  if (X.kelasNama === Y.kelasNama) {
+    const rs = await api('GET', `/api/admin/siswa?per_page=500&kelas=${encodeURIComponent(X.kelasNama)}`, undefined, X.adminToken);
+    const semuaMilikX = (rs.data?.data ?? []).every(s => String(s.nis).startsWith(X.runId + '_'));
+    duaCek(g, `Kelas bernama sama: admin ${X.label} hanya melihat siswanya sendiri`, rs.ok && semuaMilikX,
+      `Ditemukan NIS yang bukan milik ${X.label}: ${(rs.data?.data ?? []).filter(s => !String(s.nis).startsWith(X.runId + '_')).slice(0, 3).map(s => s.nis).join(', ')}`,
+      BUG_CATEGORIES.DATA_LEAK, 'GET /api/admin/siswa?kelas=');
+  }
+  duaCek(g, `ID kelas ${X.label} ≠ ID kelas ${Y.label} (kelas terpisah per yayasan)`, X.kelasId !== Y.kelasId,
+    `Kedua yayasan memakai kelas_id yang sama (${X.kelasId}).`, BUG_CATEGORIES.DATA_LEAK, 'GET /api/admin/kelas');
+
+  // ── Tulis/ubah/hapus: harus ditolak ──
+  const tulis = [];
+  tulis.push(async () => duaProbe(g, `Admin ${X.label} membatalkan persetujuan paket milik ${Y.label}`,
+    await api('POST', '/api/admin/soal', { paket_id: Y.paketId, action: 'BATAL_SETUJUI' }, X.adminToken), 'POST /api/admin/soal', BUG_CATEGORIES.OTORISASI));
+  tulis.push(async () => duaProbe(g, `Admin ${X.label} menghapus jadwal milik ${Y.label}`,
+    await api('DELETE', '/api/admin/jadwal', { id: Y.jadwalId }, X.adminToken), 'DELETE /api/admin/jadwal', BUG_CATEGORIES.OTORISASI));
+  tulis.push(async () => duaProbe(g, `Admin ${X.label} menghapus akun guru milik ${Y.label}`,
+    await api('DELETE', `/api/admin/users/${encodeURIComponent(Y.guruUsername)}`, undefined, X.adminToken), 'DELETE /api/admin/users/[username]', BUG_CATEGORIES.OTORISASI));
+  tulis.push(async () => duaProbe(g, `Admin ${X.label} menghapus kelas milik ${Y.label} lewat kelasId`,
+    await api('DELETE', '/api/admin/kelas', { kelasId: Y.kelasId }, X.adminToken), 'DELETE /api/admin/kelas', BUG_CATEGORIES.OTORISASI));
+  tulis.push(async () => duaProbe(g, `Admin ${X.label} mengganti password akun guru milik ${Y.label}`,
+    await api('PUT', `/api/admin/users/${encodeURIComponent(Y.guruUsername)}`, { password: 'Hijack123!' }, X.adminToken), 'PUT /api/admin/users/[username]', BUG_CATEGORIES.OTORISASI));
+  tulis.push(async () => duaProbe(g, `Guru ${X.label} menutup sesi milik ${Y.label}`,
+    await api('POST', '/api/guru/mode-pengawas/tutup', { sesiId: Y.sesiId }, X.guruToken), 'POST /api/guru/mode-pengawas/tutup', BUG_CATEGORIES.OTORISASI));
+  tulis.push(async () => duaProbe(g, `Guru ${X.label} membuka sesi dari jadwal milik ${Y.label}`,
+    await api('POST', '/api/guru/mode-pengawas', { jadwalId: Y.jadwalId }, X.guruToken), 'POST /api/guru/mode-pengawas', BUG_CATEGORIES.OTORISASI));
+  tulis.push(async () => duaProbe(g, `Guru ${X.label} menghapus paket soal milik ${Y.label}`,
+    await api('DELETE', `/api/guru/paket/${encodeURIComponent(Y.paketId)}`, undefined, X.guruToken), 'DELETE /api/guru/paket/[id]', BUG_CATEGORIES.OTORISASI));
+  if (nisKorban) {
+    tulis.push(async () => duaProbe(g, `Admin ${X.label} membuat siswa dengan NIS milik ${Y.label} (${nisKorban})`,
+      await api('POST', '/api/admin/siswa', { nis: nisKorban, nama: 'HIJACK', kelas: X.kelasNama, jenis_kelamin: 'L', status: 'AKTIF' }, X.adminToken), 'POST /api/admin/siswa', BUG_CATEGORIES.OTORISASI));
+  }
+  tulis.push(async () => duaProbe(g, `Admin ${X.label} membuat akun dengan username milik ${Y.label} (${Y.guruUsername})`,
+    await api('POST', '/api/admin/users', { username: Y.guruUsername, nama: 'HIJACK', role: 'GURU', password: 'Hijack123!', status: 'AKTIF' }, X.adminToken), 'POST /api/admin/users', BUG_CATEGORIES.OTORISASI));
+  // Token dipalsukan: klaim yayasanId diganti, tanda tangan lama dipakai.
+  if (Y.yayasanId) {
+    tulis.push(async () => duaProbe(g, `Token admin ${X.label} dengan klaim yayasan dipalsukan ke ${Y.label} ditolak`,
+      await api('GET', '/api/admin/users', undefined, duaTamper(X.adminToken, Y.yayasanId)), 'GET /api/admin/users (token palsu)', BUG_CATEGORIES.OTORISASI));
+    tulis.push(async () => duaProbe(g, `Token guru ${X.label} dengan klaim yayasan dipalsukan ke ${Y.label} ditolak`,
+      await api('GET', '/api/guru/paket', undefined, duaTamper(X.guruToken, Y.yayasanId)), 'GET /api/guru/paket (token palsu)', BUG_CATEGORIES.OTORISASI));
+  }
+  // Peran: token siswa & guru tidak boleh memanggil endpoint admin.
+  if (siswaX) {
+    tulis.push(async () => duaProbe(g, `Token siswa ${X.label} ditolak di endpoint admin`,
+      await api('GET', '/api/admin/users', undefined, siswaX.token), 'GET /api/admin/users (token siswa)', BUG_CATEGORIES.OTORISASI));
+  }
+  tulis.push(async () => duaProbe(g, `Token guru ${X.label} ditolak di endpoint admin`,
+    await api('GET', '/api/admin/users', undefined, X.guruToken), 'GET /api/admin/users (token guru)', BUG_CATEGORIES.OTORISASI));
+
+  // ── Siswa X terhadap sesi Y ──
+  if (siswaX) {
+    const dev = deviceIdFor(siswaX.nis);
+    tulis.push(async () => duaProbe(g, `Siswa ${X.label} masuk ujian dengan kode sesi milik ${Y.label}`,
+      await api('POST', '/api/siswa/ujian/validasi', { kodeSesi: Y.kodeSesi, nis: siswaX.nis, deviceId: dev }, siswaX.token), 'POST /api/siswa/ujian/validasi'));
+    if (soalY) {
+      tulis.push(async () => duaProbe(g, `Siswa ${X.label} mengirim jawaban ke sesi milik ${Y.label}`,
+        await api('POST', '/api/siswa/ujian/sync', { sesiId: Y.sesiId, jawaban: [{ soal_id: soalY, jawaban: 'A' }], deviceId: dev }, siswaX.token), 'POST /api/siswa/ujian/sync'));
+    }
+    tulis.push(async () => duaProbe(g, `Siswa ${X.label} menyelesaikan (submit) sesi milik ${Y.label}`,
+      await api('POST', '/api/siswa/ujian/selesai', { sesiId: Y.sesiId, nis: siswaX.nis, deviceId: dev }, siswaX.token), 'POST /api/siswa/ujian/selesai'));
+    tulis.push(async () => duaProbe(g, `Siswa ${X.label} membaca jawaban sesi milik ${Y.label}`,
+      await api('GET', `/api/siswa/ujian/sync?sesiId=${encodeURIComponent(Y.sesiId)}&deviceId=${encodeURIComponent(dev)}`, undefined, siswaX.token), 'GET /api/siswa/ujian/sync'));
+    tulis.push(async () => duaProbe(g, `Siswa ${X.label} memantau sesi milik ${Y.label} lewat cek-sesi`,
+      await api('GET', `/api/siswa/ujian/cek-sesi?sesiId=${encodeURIComponent(Y.sesiId)}&deviceId=${encodeURIComponent(dev)}`, undefined, siswaX.token), 'GET /api/siswa/ujian/cek-sesi'));
+  }
+  await Promise.all(tulis.map(f => f().catch(e => duaCek(g, `Probe error: ${e.message}`, false, e.message, BUG_CATEGORIES.FUNGSIONAL, 'probe'))));
+}
+
+// Setelah serangan: data Y harus UTUH (tidak berubah sedikit pun).
+async function duaCekIntegritas(Y) {
+  const g = `Integritas ${Y.label}`;
+  const [lg, cs, ps, js, us, ss] = await Promise.all([
+    api('POST', '/api/auth/login', { username: Y.guruUsername, password: DUA_PASS_GURU }),
+    Y.siswa.find(s => s.token)
+      ? api('GET', `/api/siswa/ujian/cek-sesi?sesiId=${encodeURIComponent(Y.sesiId)}&deviceId=${encodeURIComponent(deviceIdFor(Y.siswa.find(s => s.token).nis))}`, undefined, Y.siswa.find(s => s.token).token)
+      : Promise.resolve(null),
+    api('GET', '/api/guru/paket', undefined, Y.guruToken),
+    api('GET', `/api/admin/jadwal?kelas=${encodeURIComponent(Y.kelasNama)}`, undefined, Y.adminToken),
+    api('GET', '/api/admin/users', undefined, Y.adminToken),
+    Y.siswa[0] ? api('GET', `/api/admin/siswa?per_page=5&search=${encodeURIComponent(Y.siswa[0].nis)}`, undefined, Y.adminToken) : Promise.resolve(null),
+  ]);
+  duaCek(g, `Guru ${Y.label} masih bisa login dengan password aslinya`, lg.ok && !!lg.data?.token,
+    `HTTP ${lg.status}: ${JSON.stringify(lg.data)}. Password/akun guru berubah akibat tindakan yayasan lain.`, BUG_CATEGORIES.OTORISASI, 'POST /api/auth/login');
+  if (cs) duaCek(g, `Sesi ${Y.label} masih BERJALAN setelah serangan`, cs.ok && cs.data?.sesi_status === 'BERJALAN',
+    `Status sesi: ${cs.data?.sesi_status} (HTTP ${cs.status}).`, BUG_CATEGORIES.FATAL, 'GET /api/siswa/ujian/cek-sesi');
+  const paket = (ps.data?.data ?? []).find(p => p.id === Y.paketId);
+  duaCek(g, `Paket soal ${Y.label} masih berstatus DISETUJUI`, !!paket && paket.status === 'DISETUJUI',
+    `Paket ${paket ? 'berstatus ' + paket.status : 'TIDAK ditemukan'}.`, BUG_CATEGORIES.FATAL, 'GET /api/guru/paket');
+  duaCek(g, `Jadwal ${Y.label} masih ada`, (js.data?.data ?? []).some(j => j.id === Y.jadwalId),
+    'Jadwal hilang.', BUG_CATEGORIES.FATAL, 'GET /api/admin/jadwal');
+  duaCek(g, `Akun guru ${Y.label} masih ada`, (us.data?.data ?? []).some(u => u.username === Y.guruUsername),
+    'Akun guru hilang.', BUG_CATEGORIES.FATAL, 'GET /api/admin/users');
+  if (ss) {
+    const baris = (ss.data?.data ?? []).find(s => s.nis === Y.siswa[0].nis);
+    duaCek(g, `Data siswa ${Y.siswa[0].nis} tidak ditimpa yayasan lain`, !!baris && baris.nama === `SISWA ${Y.tag} 1`,
+      `Nama sekarang: ${baris ? baris.nama : 'siswa tidak ditemukan'} (seharusnya SISWA ${Y.tag} 1).`, BUG_CATEGORIES.DATA_LEAK, 'GET /api/admin/siswa');
+  }
+}
+
+// =====================================================================
+// CLEANUP
+// =====================================================================
+async function duaCleanupTenant(ctx) {
+  const L = (m, lv = 'info') => duaLog(ctx, m, lv);
+  if (!ctx.adminToken) { L('Tidak ada sesi admin untuk yayasan ini — cleanup dilewati.', 'info'); return; }
+  if (!ctx.guruToken) {
+    const gl = await api('POST', '/api/auth/login', { username: ctx.guruUsername, password: DUA_PASS_GURU });
+    if (gl.ok) ctx.guruToken = gl.data.token;
+  }
+  if (ctx.guruToken) {
+    // Tutup sesi yang masih berjalan lebih dulu.
+    let sesiId = ctx.sesiId;
+    if (!sesiId) sesiId = await mtFindSesiIdFallback(ctx.guruToken, ctx.kelasNama);
+    if (sesiId) {
+      const t = await api('POST', '/api/guru/mode-pengawas/tutup', { sesiId }, ctx.guruToken);
+      L(t.ok ? 'Sesi ditutup' : `Sesi tidak ditutup (mungkin sudah selesai): ${t.data?.error || t.status}`, t.ok ? 'ok' : 'info');
+    }
+    const pk = await api('GET', '/api/guru/paket', undefined, ctx.guruToken);
+    for (const p of (pk.data?.data ?? [])) {
+      if (p.status === 'DISETUJUI') await api('POST', '/api/admin/soal', { paket_id: p.id, action: 'BATAL_SETUJUI' }, ctx.adminToken);
+      const d = await api('DELETE', `/api/guru/paket/${p.id}`, undefined, ctx.guruToken);
+      L(d.ok ? `Paket ${p.id} dihapus` : `Gagal menghapus paket ${p.id}: ${JSON.stringify(d.data)}`, d.ok ? 'ok' : 'warn');
+    }
+  }
+  const jd = await api('GET', `/api/admin/jadwal?kelas=${encodeURIComponent(ctx.kelasNama)}`, undefined, ctx.adminToken);
+  for (const j of (jd.data?.data ?? [])) {
+    const d = await api('DELETE', '/api/admin/jadwal', { id: j.id }, ctx.adminToken);
+    L(d.ok ? `Jadwal ${j.id} dihapus` : `Gagal menghapus jadwal ${j.id}: ${JSON.stringify(d.data)}`, d.ok ? 'ok' : 'warn');
+  }
+  let kelasId = ctx.kelasId;
+  if (!kelasId) {
+    const kl = await api('GET', '/api/admin/kelas', undefined, ctx.adminToken);
+    kelasId = (kl.data?.data ?? []).find(k => k.nama === ctx.kelasNama)?.id || null;
+  }
+  const dk = await api('DELETE', '/api/admin/kelas', kelasId ? { kelasId } : { nama: ctx.kelasNama }, ctx.adminToken);
+  L(dk.ok ? `Kelas "${ctx.kelasNama}" dan semua siswanya dihapus` : `Kelas tidak dihapus/tidak ada: ${JSON.stringify(dk.data)}`, dk.ok ? 'ok' : 'info');
+  const du = await api('DELETE', `/api/admin/users/${encodeURIComponent(ctx.guruUsername)}`, undefined, ctx.adminToken);
+  L(du.ok ? `Akun guru ${ctx.guruUsername} dihapus` : `Akun guru tidak dihapus/tidak ada: ${JSON.stringify(du.data)}`, du.ok ? 'ok' : 'info');
+}
+
+// Urutan: yayasan B dulu, lalu pastikan data kelas bernama sama milik A UTUH, baru A.
+async function duaCleanupSemua(tenants, { periksaKelasSama, ekspektasiA } = {}) {
+  const [A, B] = tenants;
+  await duaCleanupTenant(B);
+  if (periksaKelasSama && A.adminToken && A.kelasNama === B.kelasNama) {
+    const r = await api('GET', `/api/admin/siswa?per_page=1&kelas=${encodeURIComponent(A.kelasNama)}`, undefined, A.adminToken);
+    const total = r.data?.total;
+    const lulus = r.ok && (ekspektasiA == null ? total > 0 : total === ekspektasiA);
+    duaCek('Cleanup', `Menghapus kelas bernama sama di yayasan ${B.label} TIDAK menghapus kelas/siswa yayasan ${A.label}`, lulus,
+      `Siswa di kelas "${A.kelasNama}" milik ${A.label} sekarang ${total} (seharusnya ${ekspektasiA ?? '> 0'}).`,
+      BUG_CATEGORIES.DATA_LEAK, 'DELETE /api/admin/kelas (hapus_kelas_atomik)');
+  }
+  await duaCleanupTenant(A);
+}
+
+// =====================================================================
+// ALUR UTAMA
+// =====================================================================
+async function runDuaYayasan() {
+  if (dua.running) return;
+  const baseUrl = document.getElementById('cfg-baseurl').value.trim();
+  if (!baseUrl.startsWith('http')) { alert('URL aplikasi tidak valid (lihat panel Konfigurasi).'); return; }
+  const cred = {
+    A: { user: duaIsi('dua-a-user').trim(), pass: duaIsi('dua-a-pass') },
+    B: { user: duaIsi('dua-b-user').trim(), pass: duaIsi('dua-b-pass') },
+  };
+  if (!cred.A.user || !cred.A.pass || !cred.B.user || !cred.B.pass) { alert('Isi username & password admin untuk KEDUA yayasan.'); return; }
+  if (cred.A.user === cred.B.user && cred.A.pass === cred.B.pass) { alert('Akun admin A dan B sama. Pakai dua akun dari dua yayasan yang berbeda.'); return; }
+
+  if (document.getElementById('btn-stop') && !document.getElementById('btn-stop').disabled) {
+    alert('Pengujian beban biasa sedang berjalan. Tunggu selesai atau hentikan dulu sebelum memulai Uji 2 Yayasan.'); return;
+  }
+  const cfg = {
+    siswa: Math.max(10, parseInt(duaIsi('dua-siswa', '40'), 10) || 40),
+    soal: Math.max(5, Math.min(200, parseInt(duaIsi('dua-soal', '20'), 10) || 20)),
+    kelasSama: duaIsi('dua-kelas-sama', 'ya') === 'ya',
+    porsiTutup: parseInt(duaIsi('dua-porsi-tutup', '20'), 10) || 0,
+    siklus: Math.max(1, parseInt(duaIsi('dua-sync-siklus', '3'), 10) || 3),
+    intervalMs: Math.max(1, parseInt(duaIsi('dua-sync-interval', '4'), 10) || 4) * 1000,
+    autoCleanup: duaIsi('dua-auto-cleanup', 'ya') === 'ya',
+  };
+
+  dua.running = true; dua.stop = false; state.stopRequested = false;
+  dua.cek = []; dua.catatan = []; dua.gagalSetup = null; dua.cfg = cfg;
+  dua.mulai = new Date(); dua.selesai = null;
+  dua.runBase = `LT2Y_${Date.now()}`;
+  document.getElementById('dua-cleanup-run').value = dua.runBase;
+  document.getElementById('btn-dua-start').disabled = true;
+  document.getElementById('btn-dua-stop').disabled = false;
+  const btnStartLama = document.getElementById('btn-start');
+  const btnStartSemula = btnStartLama.disabled;
+  btnStartLama.disabled = true; // cegah uji beban biasa berjalan bersamaan (state.stopRequested dipakai bersama)
+  document.getElementById('btn-dua-md').disabled = true;
+  document.getElementById('progress-panel').style.display = 'block';
+  state.baseUrl = baseUrl;
+  dua.tenants = [duaBuatTenant('A', dua.runBase, cred.A, cfg), duaBuatTenant('B', dua.runBase, cred.B, cfg)];
+  const [A, B] = dua.tenants;
+  duaRender();
+  log(`🏛️ Uji 2 Yayasan dimulai. Run ID dasar: ${dua.runBase} (${cfg.siswa} siswa & ${cfg.soal} soal per yayasan, kelas ${cfg.kelasSama ? 'SAMA' : 'berbeda'})`, 'info');
+
+  try {
+    // ── 1. Login admin kedua yayasan & pastikan benar-benar BERBEDA ──
+    dua.fase = 'Login admin'; duaStatus('Login admin kedua yayasan…');
+    await Promise.all([duaLoginAdmin(A), duaLoginAdmin(B)]);
+    if (!A.yayasanId || !B.yayasanId) throw new Error('Token admin tidak memuat klaim yayasanId — server belum memakai token multi-yayasan. Deploy ulang kode terbaru lalu coba lagi.');
+    if (A.yayasanId === B.yayasanId) {
+      throw new Error(`Kedua akun admin berasal dari yayasan YANG SAMA (${A.yayasanId}). Uji 2 yayasan hanya bermakna bila admin A dan B milik yayasan berbeda.`);
+    }
+    duaLog(null, `Yayasan A = ${A.yayasanId}${A.kodeSekolah ? ` (kode ${A.kodeSekolah})` : ''}, Yayasan B = ${B.yayasanId}${B.kodeSekolah ? ` (kode ${B.kodeSekolah})` : ''}`, 'ok');
+    duaCek('Persiapan', 'Admin A dan admin B berasal dari yayasan yang berbeda', true);
+    duaCekStop();
+
+    // ── 2. Setup data kedua yayasan SERENTAK ──
+    dua.fase = 'Setup data'; duaStatus('Setup data kedua yayasan serentak (guru, mapel, kelas, paket, soal, jadwal, sesi)…');
+    const setupRes = await Promise.allSettled([duaSetupData(A, cfg), duaSetupData(B, cfg)]);
+    const galatSetup = setupRes.find(x => x.status === 'rejected');
+    if (galatSetup) throw galatSetup.reason;
+    duaCek('Tabrakan', `Dua yayasan berhasil membuat data serentak${cfg.kelasSama ? ` (nama kelas SAMA "${A.kelasNama}")` : ''}`, true);
+    duaCek('Isolasi', 'Kode sesi kedua yayasan berbeda', A.kodeSesi !== B.kodeSesi, `Kode sesi sama: ${A.kodeSesi}`, BUG_CATEGORIES.RACE_CONDITION, 'POST /api/guru/mode-pengawas');
+    duaCek('Isolasi', 'ID sesi kedua yayasan berbeda', A.sesiId !== B.sesiId, `ID sesi sama: ${A.sesiId}`, BUG_CATEGORIES.RACE_CONDITION, 'POST /api/guru/mode-pengawas');
+    duaCekStop();
+
+    // ── 3. Siswa kedua yayasan dibuat serentak ──
+    dua.fase = 'Membuat siswa'; duaStatus(`Membuat ${cfg.siswa} siswa di masing-masing yayasan (serentak)…`);
+    await Promise.all([duaBuatSiswa(A, cfg.siswa), duaBuatSiswa(B, cfg.siswa)]);
+    for (const t of dua.tenants) {
+      duaLog(t, `${t.siswa.length}/${cfg.siswa} siswa dibuat`, t.siswa.length === cfg.siswa ? 'ok' : 'warn');
+      const kelasTot = await api('GET', `/api/admin/siswa?per_page=1&kelas=${encodeURIComponent(t.kelasNama)}`, undefined, t.adminToken);
+      duaCek('Isolasi', `Jumlah siswa kelas "${t.kelasNama}" di yayasan ${t.label} = siswanya sendiri (${t.siswa.length} + 1 pemicu)`,
+        kelasTot.ok && kelasTot.data?.total === t.siswa.length + 1,
+        `Terbaca ${kelasTot.data?.total}, seharusnya ${t.siswa.length + 1}. Selisih menandakan siswa yayasan lain ikut terhitung (atau gagal dibuat).`,
+        BUG_CATEGORIES.DATA_LEAK, 'GET /api/admin/siswa?kelas=');
+      if (t.baselineTotal !== null) {
+        const sem = await api('GET', '/api/admin/siswa?per_page=1', undefined, t.adminToken);
+        const harap = t.baselineTotal + t.siswa.length + 1;
+        duaCek('Isolasi', `Total siswa yayasan ${t.label} bertambah tepat ${t.siswa.length + 1} (tidak ikut terhitung siswa yayasan lain)`,
+          sem.ok && sem.data?.total === harap,
+          `Sebelum ${t.baselineTotal}, sesudah ${sem.data?.total}, seharusnya ${harap}. (Bila yayasan ini sedang dipakai nyata, selisih kecil bisa wajar.)`,
+          BUG_CATEGORIES.KONSISTENSI, 'GET /api/admin/siswa');
+      }
+    }
+    duaCekStop();
+    const semua = [...A.siswa, ...B.siswa];
+    if (semua.length === 0) throw new Error('Tidak ada siswa yang berhasil dibuat.');
+
+    // ── 4. Login serentak SEMUA siswa kedua yayasan pada detik yang sama ──
+    dua.fase = 'Login serentak'; duaStatus(`Login serentak ${semua.length} siswa dari 2 yayasan…`);
+    const lagLogin = mulaiPantauLag();
+    await Promise.all(semua.map(async s => {
+      const h = await panggilDenganCobaUlang(
+        () => api('POST', '/api/auth/login', { username: s.nis, password: s.password }),
+        { maks: 2, berhasil: r => r.ok && !!r.data?.token });
+      s.t.lat.login.push(h.pertama.latency);
+      if (h.berhasilAkhir) {
+        s.token = h.akhir.data.token;
+        if (duaJwt(s.token)?.yayasanId !== s.t.yayasanId) s.t.hit.tokenSalah++;
+      } else s.t.hit.loginGagal++;
+    }));
+    const lagLoginMs = hentikanPantauLag(lagLogin);
+    for (const t of dua.tenants) {
+      duaCek('Beban', `Login serentak yayasan ${t.label}: semua ${t.siswa.length} siswa berhasil`, t.hit.loginGagal === 0,
+        `${t.hit.loginGagal} siswa gagal login.`, BUG_CATEGORIES.BEBAN, 'POST /api/auth/login');
+      duaCek('Isolasi', `Token siswa yayasan ${t.label} semuanya membawa yayasan ${t.yayasanId}`, t.hit.tokenSalah === 0,
+        `${t.hit.tokenSalah} token siswa membawa yayasan lain.`, BUG_CATEGORIES.DATA_LEAK, 'POST /api/auth/login');
+    }
+    duaCekStop();
+
+    // ── 5. Masuk ujian serentak (tiap siswa memakai kode sesi yayasannya) ──
+    dua.fase = 'Masuk ujian'; duaStatus(`Masuk ujian serentak: ${semua.length} siswa dari 2 yayasan…`);
+    const lagMasuk = mulaiPantauLag();
+    await Promise.all(semua.filter(s => s.token).map(async s => {
+      const h = await panggilDenganCobaUlang(
+        () => api('POST', '/api/siswa/ujian/validasi', { kodeSesi: s.t.kodeSesi, nis: s.nis, deviceId: deviceIdFor(s.nis) }, s.token),
+        { maks: 4, jedaMs: [5000], berhasil: r => r.ok && r.data?.valid === true });
+      s.t.lat.masuk.push(h.pertama.latency);
+      if (h.pertama?.data?.coba_lagi) s.t.hit.dimintaUlang++;
+      if (!h.berhasilAkhir) { s.t.hit.masukGagal++; return; }
+      s.soalList = h.akhir.data.soalList || [];
+      const lain = s.t === A ? B : A;
+      const bocor = s.soalList.filter(q => !String(q.teks).includes(`[${s.t.tag}]`) || String(q.teks).includes(`[${lain.tag}]`)).length;
+      if (bocor) s.t.hit.bocorSoal += bocor;
+      for (const q of s.soalList) {
+        if (s.t.kunci[q.id] === undefined) { s.t.kunci[q.id] = kunciDariTeks(q.teks); s.t.soalIds.push(q.id); }
+      }
+    }));
+    const lagMasukMs = hentikanPantauLag(lagMasuk);
+    for (const t of dua.tenants) {
+      duaCek('Beban', `Masuk ujian serentak yayasan ${t.label}: semua siswa berhasil masuk`, t.hit.masukGagal === 0,
+        `${t.hit.masukGagal} siswa gagal masuk ujian (diminta coba lagi: ${t.hit.dimintaUlang}).`, BUG_CATEGORIES.BEBAN, 'POST /api/siswa/ujian/validasi');
+      duaCek('Isolasi', `Soal yang diterima siswa yayasan ${t.label} semuanya milik yayasan ${t.label}`, t.hit.bocorSoal === 0,
+        `${t.hit.bocorSoal} soal bukan milik yayasan ${t.label} (penanda [${t.tag}] tidak cocok).`, BUG_CATEGORIES.DATA_LEAK, 'POST /api/siswa/ujian/validasi');
+      const panjang = [...new Set(t.siswa.filter(s => s.soalList?.length).map(s => s.soalList.length))];
+      duaCek('Fungsional', `Jumlah soal tiap siswa yayasan ${t.label} sama dengan paket (${t.soalDibuat})`,
+        panjang.length === 1 && panjang[0] === t.soalDibuat, `Jumlah soal yang diterima siswa: ${panjang.join(', ') || 'tidak ada'} (paket ${t.soalDibuat}).`,
+        BUG_CATEGORIES.KONSISTENSI, 'POST /api/siswa/ujian/validasi');
+    }
+    duaCek('Fungsional', 'Kunci jawaban dapat diturunkan dari teks soal', dua.tenants.every(t => Object.values(t.kunci).every(Boolean) && Object.keys(t.kunci).length > 0),
+      'Ada soal tanpa kunci yang dapat dibaca dari teksnya, nilai tidak bisa diverifikasi.', BUG_CATEGORIES.FUNGSIONAL, 'POST /api/siswa/ujian/validasi');
+    duaCekStop();
+
+    // ── 6. Rencana jawaban & pembagian grup (A: submit serentak, B: ditutup paksa) ──
+    for (const t of dua.tenants) {
+      const aktif = t.siswa.filter(s => s.token && s.soalList?.length);
+      const nB = aktif.length >= 10 && cfg.porsiTutup > 0 ? Math.max(1, Math.round(aktif.length * cfg.porsiTutup / 100)) : 0;
+      t.B = nB > 0 ? aktif.slice(aktif.length - nB) : [];
+      t.A = aktif.slice(0, aktif.length - nB);
+      aktif.forEach((s, k) => { s._rencana = duaRencana(s, k); });
+      duaLog(t, `${aktif.length} peserta: ${t.A.length} submit serentak, ${t.B.length} ditutup paksa`, 'info');
+    }
+
+    // ── 7. Sync berkala kedua yayasan BERSAMAAN + serangan lintas yayasan di tengah ujian ──
+    dua.fase = 'Sync + serangan lintas yayasan'; duaStatus('Sync jawaban berkala kedua yayasan sambil mencoba akses lintas yayasan…');
+    const pesertaSync = semua.filter(s => s._rencana);
+    const lagSync = mulaiPantauLag();
+    const syncLoop = async () => {
+      for (let c = 0; c < cfg.siklus; c++) {
+        if (dua.stop) break;
+        const mulaiSiklus = performance.now();
+        await Promise.all(pesertaSync.map(async s => {
+          await sleep(Math.random() * cfg.intervalMs);
+          const tot = s._rencana.jawab.length;
+          const potong = s._rencana.jawab.slice(Math.floor(tot * c / cfg.siklus), Math.floor(tot * (c + 1) / cfg.siklus));
+          if (!potong.length) return;
+          const h = await panggilDenganCobaUlang(
+            () => api('POST', '/api/siswa/ujian/sync', { sesiId: s.t.sesiId, jawaban: potong, deviceId: deviceIdFor(s.nis) }, s.token), { maks: 3 });
+          s.t.lat.sync.push(h.pertama.latency);
+          if (!h.berhasilAkhir) { s.t.hit.syncGagal++; s._syncGagal = true; }
+        }));
+        setProgress(((c + 1) / cfg.siklus) * 100, `Sync siklus ${c + 1}/${cfg.siklus}`);
+        const sisa = cfg.intervalMs - (performance.now() - mulaiSiklus);
+        if (sisa > 0 && c < cfg.siklus - 1) await sleep(sisa);
+      }
+    };
+    await Promise.all([syncLoop(), duaProbeSatuArah(A, B), duaProbeSatuArah(B, A)]);
+    const lagSyncMs = hentikanPantauLag(lagSync);
+    for (const t of dua.tenants) {
+      duaCek('Beban', `Sync berkala yayasan ${t.label}: tidak ada yang gagal permanen`, t.hit.syncGagal === 0,
+        `${t.hit.syncGagal} siswa gagal sync setelah coba ulang.`, BUG_CATEGORIES.BEBAN, 'POST /api/siswa/ujian/sync');
+    }
+    duaCekStop();
+    await Promise.all([duaCekIntegritas(A), duaCekIntegritas(B)]);
+
+    // ── 8. Baca-ulang jawaban tersimpan ──
+    dua.fase = 'Baca ulang jawaban'; duaStatus('Membaca ulang jawaban dari server…');
+    await Promise.all(dua.tenants.map(async t => {
+      let diperiksa = 0, gagalBaca = 0, hilang = 0, beda = 0;
+      await Promise.all(t.siswa.filter(s => s._rencana).map(async s => {
+        const h = await panggilDenganCobaUlang(
+          () => api('GET', `/api/siswa/ujian/sync?sesiId=${encodeURIComponent(t.sesiId)}&deviceId=${encodeURIComponent(deviceIdFor(s.nis))}`, undefined, s.token),
+          { maks: 2, berhasil: r => r.ok && Array.isArray(r.data?.jawaban) });
+        if (!h.berhasilAkhir) { gagalBaca++; return; }
+        diperiksa++;
+        const simpan = {}; h.akhir.data.jawaban.forEach(j => { simpan[j.soal_id] = j.jawaban; });
+        for (const j of s._rencana.jawab) {
+          if (simpan[j.soal_id] === undefined) hilang++;
+          else if (String(simpan[j.soal_id]).trim().toUpperCase() !== j.jawaban) beda++;
+        }
+        const asing = Object.keys(simpan).filter(id => !t.soalIds.includes(id) && !t.soalIds.includes(Number(id))).length;
+        if (asing) beda += asing;
+      }));
+      t.bacaUlang = { diperiksa, gagalBaca, hilang, beda };
+      duaCek('Data', `Jawaban tersimpan yayasan ${t.label} utuh setelah sync (hilang ${hilang}, berbeda ${beda}, gagal baca ${gagalBaca})`,
+        hilang + beda + gagalBaca === 0, `Dari ${diperiksa} siswa: ${hilang} jawaban hilang, ${beda} berbeda/asing, ${gagalBaca} gagal dibaca.`,
+        BUG_CATEGORIES.FATAL, 'POST/GET /api/siswa/ujian/sync');
+    }));
+    duaCekStop();
+
+    // ── 9. SUBMIT serentak kedua yayasan, lalu tutup sesi keduanya bersamaan ──
+    dua.fase = 'Submit serentak'; duaStatus('Submit serentak: siswa dari 2 yayasan menekan "Selesai" pada detik yang sama…');
+    const lagSubmit = mulaiPantauLag();
+    const pesertaSubmit = [...A.A, ...B.A];
+    const ganda = new Set(pesertaSubmit.filter((_, i) => i % 10 === 0).map(s => s.nis));
+    const hasilSubmit = await Promise.all(pesertaSubmit.map(async s => {
+      const kirim = () => api('POST', '/api/siswa/ujian/selesai', { sesiId: s.t.sesiId, nis: s.nis, deviceId: deviceIdFor(s.nis) }, s.token);
+      const kedua = ganda.has(s.nis) ? kirim() : null;
+      const h = await panggilDenganCobaUlang(kirim, { maks: 3, berhasil: r => r.ok && typeof r.data?.nilai === 'number' });
+      if (kedua) { try { await kedua; } catch (e) { /* diabaikan */ } }
+      s._hasilSubmit = h;
+      s.t.lat.submit.push(h.pertama.latency);
+      if (!h.berhasilAkhir) s.t.hit.submitGagal++;
+      return h;
+    }));
+    const lagSubmitMs = hentikanPantauLag(lagSubmit);
+    if (hasilSubmit.some(h => h.kodeKhusus === 'BELUM_MINIMAL_WAKTU')) {
+      dua.catatan.push('Submit ditolak oleh pengaturan "minimal waktu ujian" (BELUM_MINIMAL_WAKTU). Nonaktifkan pengaturan itu di kedua yayasan agar uji nilai bermakna.');
+    }
+    for (const t of dua.tenants) {
+      duaCek('Beban', `Submit serentak yayasan ${t.label}: semua ${t.A.length} siswa berhasil`, t.hit.submitGagal === 0,
+        `${t.hit.submitGagal} submit gagal permanen.`, BUG_CATEGORIES.BEBAN, 'POST /api/siswa/ujian/selesai');
+    }
+    duaCekStop();
+
+    dua.fase = 'Tutup sesi'; duaStatus('Menutup sesi kedua yayasan bersamaan (siswa yang belum submit dinilai otomatis)…');
+    const tutupRes = await Promise.all(dua.tenants.map(t => api('POST', '/api/guru/mode-pengawas/tutup', { sesiId: t.sesiId }, t.guruToken)));
+    dua.tenants.forEach((t, i) => {
+      const r = tutupRes[i];
+      t.tutup = { status: r.status, ok: r.ok, dinilai: r.data?.jumlahSiswaDinilaiOtomatis ?? null, pesan: r.data?.message || r.data?.error || '' };
+      duaCek('Fungsional', `Penutupan sesi yayasan ${t.label} berhasil${t.B.length ? ` (menilai otomatis ${t.B.length} siswa)` : ''}`,
+        r.ok && (!t.B.length || t.tutup.dinilai === null || t.tutup.dinilai >= t.B.length),
+        `HTTP ${r.status}: ${t.tutup.pesan}; dinilai otomatis ${t.tutup.dinilai}, diharapkan ≥ ${t.B.length}.`, BUG_CATEGORIES.FATAL, 'POST /api/guru/mode-pengawas/tutup');
+    });
+    const hentiMs = Math.max(lagLoginMs, lagMasukMs, lagSyncMs, lagSubmitMs);
+    if (hentiMs > 1500) dua.catatan.push(`Browser penguji sempat macet ${(hentiMs / 1000).toFixed(1)} dtk: sebagian latensi mencerminkan penguji, bukan server.`);
+
+    // ── 10. Verifikasi nilai TIAP yayasan di database ──
+    dua.fase = 'Verifikasi nilai'; duaStatus('Memverifikasi nilai kedua yayasan di database…');
+    await Promise.all(dua.tenants.map(async t => {
+      const lain = t === A ? B : A;
+      const target = [...t.A, ...t.B].filter(s => s._rencana);
+      let hilang = [], salah = [], ganda2 = [], asing = [], galat = null;
+      for (let coba = 0; coba < 3; coba++) {
+        const { baris, galat: g } = await duaAmbilNilai(t, `mapel_id=${encodeURIComponent(t.mapelId)}&kelas=${encodeURIComponent(t.kelasNama)}`);
+        galat = g; if (g) break;
+        const per = {}; baris.forEach(b => { (per[b.nis] = per[b.nis] || []).push(b); });
+        hilang = []; salah = []; ganda2 = [];
+        asing = baris.filter(b => !String(b.nis).startsWith(t.runId + '_')).map(b => b.nis);
+        for (const s of target) {
+          const rows = per[s.nis] || [];
+          if (!rows.length) { hilang.push(s.nis); continue; }
+          if (rows.length > 1) ganda2.push(s.nis);
+          const rc = s._rencana; const row = rows[0];
+          if (!(Number(row.nilai) === rc.nilai && Number(row.benar) === rc.benar && Number(row.total) === rc.total)) {
+            salah.push(`${s.nis}: seharusnya ${rc.benar}/${rc.total}=${rc.nilai}, tersimpan ${row.benar}/${row.total}=${row.nilai}`);
+          }
+        }
+        if (!hilang.length) break;
+        await sleep(4000);
+      }
+      t.nilai = { diperiksa: target.length, hilang: hilang.length, salah: salah.length, ganda: ganda2.length, asing: asing.length, galat };
+      if (galat) { duaCek('Data', `Nilai yayasan ${t.label} dapat dibaca dari server`, false, galat, BUG_CATEGORIES.FATAL, 'GET /api/admin/nilai'); return; }
+      duaCek('Data', `Semua ${target.length} nilai yayasan ${t.label} tersimpan (hilang ${hilang.length})`, hilang.length === 0,
+        `Tanpa baris nilai: ${hilang.slice(0, 5).join(', ')}.`, BUG_CATEGORIES.FATAL, 'POST /api/siswa/ujian/selesai & tutup sesi');
+      duaCek('Data', `Nilai yayasan ${t.label} benar sesuai jawaban (salah ${salah.length})`, salah.length === 0,
+        `Contoh: ${salah.slice(0, 3).join('; ')}.`, BUG_CATEGORIES.FATAL, 'finalisasi_pg_atomik / hitungHasilPenilaian');
+      duaCek('Data', `Tidak ada nilai ganda di yayasan ${t.label} (ketukan dobel Selesai)`, ganda2.length === 0,
+        `NIS dengan baris ganda: ${ganda2.slice(0, 5).join(', ')}.`, BUG_CATEGORIES.RACE_CONDITION, 'POST /api/siswa/ujian/selesai');
+      duaCek('Isolasi', `Daftar nilai kelas bernama sama di yayasan ${t.label} tidak memuat siswa yayasan ${lain.label}`, asing.length === 0,
+        `NIS asing: ${asing.slice(0, 5).join(', ')}.`, BUG_CATEGORIES.DATA_LEAK, 'GET /api/admin/nilai');
+    }));
+
+    // Baca nilai lintas yayasan: harus kosong/ditolak.
+    const probeNilai = [];
+    for (const [X, Y] of [[A, B], [B, A]]) {
+      const g = `Lintas ${X.label}→${Y.label}`;
+      probeNilai.push((async () => duaProbeBaca(g, `Nilai dengan mapel_id milik ${Y.label} (admin ${X.label}) tidak memuat data ${Y.label}`,
+        await api('GET', `/api/admin/nilai?mapel_id=${encodeURIComponent(Y.mapelId)}&per_page=200`, undefined, X.adminToken), Y, 'GET /api/admin/nilai'))());
+      probeNilai.push((async () => duaProbeBaca(g, `Nilai kelas bernama sama (admin ${X.label}) tidak memuat data ${Y.label}`,
+        await api('GET', `/api/admin/nilai?kelas=${encodeURIComponent(X.kelasNama)}&per_page=200`, undefined, X.adminToken), Y, 'GET /api/admin/nilai'))());
+      probeNilai.push((async () => duaProbeBaca(g, `Nilai (guru ${X.label}) tidak memuat data ${Y.label}`,
+        await api('GET', '/api/guru/nilai', undefined, X.guruToken), Y, 'GET /api/guru/nilai'))());
+    }
+    await Promise.all(probeNilai);
+
+    // ── 11. Pembanding layanan antar yayasan ──
+    const ra = ringkasLatensi([...A.lat.login, ...A.lat.masuk, ...A.lat.sync, ...A.lat.submit]);
+    const rb = ringkasLatensi([...B.lat.login, ...B.lat.masuk, ...B.lat.sync, ...B.lat.submit]);
+    if (ra.n && rb.n) {
+      const rasio = Math.max(ra.p95, rb.p95) / Math.max(1, Math.min(ra.p95, rb.p95));
+      duaCek('Beban', `Layanan merata: P95 gabungan A ${ra.p95.toFixed(0)}ms vs B ${rb.p95.toFixed(0)}ms (rasio ${rasio.toFixed(1)}×)`,
+        !(rasio > 3 && Math.max(ra.p95, rb.p95) > LATENCY_WARN_MS),
+        'Salah satu yayasan dilayani jauh lebih lambat dari yang lain dengan beban yang sama (indikasi tetangga bising / kunci database / cache bersama).',
+        BUG_CATEGORIES.BEBAN, 'Perbandingan latensi A vs B');
+    }
+  } catch (e) {
+    dua.gagalSetup = e.message;
+    log(`🏛️ Uji 2 Yayasan berhenti: ${e.message}`, 'err');
+    duaStatus(`Berhenti: ${e.message}`);
+  }
+
+  // ── Cleanup ──
+  if (cfgAutoCleanup(dua.cfg) && dua.tenants.some(t => t.adminToken)) {
+    dua.fase = 'Cleanup'; duaStatus('Membersihkan data uji (yayasan B dulu, lalu cek yayasan A utuh)…');
+    try {
+      await duaCleanupSemua(dua.tenants, { periksaKelasSama: dua.cfg.kelasSama && !!dua.tenants[0].kelasId, ekspektasiA: dua.tenants[0].siswa.length ? dua.tenants[0].siswa.length + 1 : null });
+      log('🏛️ Cleanup uji 2 yayasan selesai. Baris nilai/jawaban siswa uji menjadi data yatim (tidak ada endpoint penghapusnya).', 'ok');
+    } catch (e) { log(`🏛️ Cleanup terhenti: ${e.message}`, 'err'); }
+  } else {
+    log(`🏛️ Data uji TIDAK dibersihkan otomatis. Run ID dasar: ${dua.runBase} — pakai tombol Cleanup 2 Yayasan di panel ini.`, 'warn');
+  }
+
+  dua.selesai = new Date(); dua.running = false; dua.fase = 'Selesai';
+  btnStartLama.disabled = btnStartSemula;
+  document.getElementById('btn-dua-start').disabled = false;
+  document.getElementById('btn-dua-stop').disabled = true;
+  document.getElementById('btn-dua-md').disabled = false;
+  renderStats();
+  duaRender();
+  const v = duaVerdict();
+  duaStatus(`Selesai: ${v.judul}`);
+  log(`🏛️ VONIS 2 YAYASAN: ${v.judul}`, v.status === 'AMAN' ? 'ok' : 'bug');
+}
+function cfgAutoCleanup(c) { return !!(c && c.autoCleanup); }
+
+// Cleanup manual (setelah reload / bila auto-cleanup dimatikan).
+async function duaCleanupManual() {
+  const runBase = duaIsi('dua-cleanup-run').trim();
+  if (!/^LT2Y_\d+$/.test(runBase)) { alert('Run ID dasar tidak valid. Contoh: LT2Y_1750500000000'); return; }
+  const baseUrl = document.getElementById('cfg-baseurl').value.trim();
+  const cred = { A: { user: duaIsi('dua-a-user').trim(), pass: duaIsi('dua-a-pass') }, B: { user: duaIsi('dua-b-user').trim(), pass: duaIsi('dua-b-pass') } };
+  if (!cred.A.user || !cred.A.pass || !cred.B.user || !cred.B.pass) { alert('Isi kredensial admin A dan B.'); return; }
+  if (!confirm(`Hapus semua data uji dengan Run ID ${runBase} di yayasan A dan B?`)) return;
+  const btn = document.getElementById('btn-dua-cleanup');
+  btn.disabled = true; btn.textContent = 'Menghapus…';
+  try {
+    state.baseUrl = baseUrl;
+    const A = duaBuatTenant('A', runBase, cred.A, { kelasSama: true });
+    const B = duaBuatTenant('B', runBase, cred.B, { kelasSama: true });
+    // Nama kelas bisa "bersama" atau per-yayasan tergantung pengaturan saat uji; coba keduanya.
+    await Promise.all([duaLoginAdmin(A), duaLoginAdmin(B)]);
+    if (A.yayasanId === B.yayasanId) throw new Error('Admin A dan B berasal dari yayasan yang sama.');
+    for (const variasi of [true, false]) {
+      for (const t of [A, B]) { t.kelasNama = variasi ? `${runBase}_KLS` : `${t.runId}_KLS`; t.kelasId = null; t.sesiId = null; }
+      await duaCleanupSemua([A, B], { periksaKelasSama: false });
+    }
+    log('🏛️ Cleanup manual uji 2 yayasan selesai.', 'ok');
+    alert('Cleanup selesai. Cek log aktivitas untuk detail.');
+  } catch (e) {
+    log(`🏛️ Cleanup manual gagal: ${e.message}`, 'err');
+    alert(`Cleanup gagal: ${e.message}`);
+  } finally {
+    btn.disabled = false; btn.textContent = '🗑 Bersihkan Data Uji 2 Yayasan';
+  }
+}
+
+// =====================================================================
+// VONIS, TAMPILAN & LAPORAN
+// =====================================================================
+function duaVerdict() {
+  const gagal = dua.cek.filter(c => !c.lulus);
+  const kritis = gagal.filter(c => c.kritis);
+  if (dua.gagalSetup && dua.cek.length === 0) return { status: 'TIDAK_VALID', judul: 'UJI TIDAK DAPAT DIJALANKAN', warna: 'var(--amber)', alasan: [dua.gagalSetup] };
+  if (kritis.length) {
+    return { status: 'TIDAK_AMAN', judul: 'TIDAK AMAN — ada kebocoran/kerusakan data lintas yayasan', warna: 'var(--red)',
+      alasan: [`${kritis.length} pengecekan kritis gagal (dari ${dua.cek.length}).`, ...kritis.slice(0, 5).map(c => c.nama), ...(dua.gagalSetup ? [`Uji berhenti: ${dua.gagalSetup}`] : [])] };
+  }
+  if (dua.gagalSetup) {
+    return { status: 'TIDAK_LENGKAP', judul: 'UJI BERHENTI SEBELUM SELESAI — tidak bisa disimpulkan aman', warna: 'var(--amber)',
+      alasan: [dua.gagalSetup, ...(gagal.length ? [`${gagal.length} pengecekan non-kritis gagal.`] : [])] };
+  }
+  if (gagal.length) {
+    return { status: 'ADA_BUG', judul: 'ADA BUG NON-KRITIS — isolasi data aman, tetapi ada masalah beban/fungsi', warna: 'var(--amber)',
+      alasan: [`${gagal.length} dari ${dua.cek.length} pengecekan gagal.`, ...gagal.slice(0, 5).map(c => c.nama)] };
+  }
+  if (dua.catatan.some(c => /BELUM_MINIMAL_WAKTU/.test(c))) {
+    return { status: 'TIDAK_LENGKAP', judul: 'LULUS, tetapi submit diblokir pengaturan minimal waktu — ulangi', warna: 'var(--amber)', alasan: dua.catatan };
+  }
+  return { status: 'AMAN', judul: 'AMAN — semua pengecekan lulus pada skenario ini', warna: 'var(--green)',
+    alasan: [`${dua.cek.length} pengecekan lulus: isolasi data, tabrakan nama, serangan lintas yayasan, ujian serentak, dan nilai.`] };
+}
+
+const DUA_CATATAN_TETAP = [
+  'Seluruh beban berasal dari SATU tab browser di SATU jaringan; tidak membuktikan perilaku perangkat siswa yang lambat, Wi-Fi sekolah padat, atau mode offline.',
+  'Hanya soal pilihan ganda. Essay, unggah foto, backup/restore/reset (harus 403 saat MULTI_YAYASAN_ENABLED=true), dan impor NIS massal tidak diuji di sini.',
+  'Hasil hanya berlaku untuk 2 yayasan, jumlah siswa/soal, dan pengaturan saat uji. Ulangi bila migrasi atau kode multi-yayasan berubah.',
+  'Lulus uji ini = syarat, bukan jaminan, untuk menyalakan MULTI_YAYASAN_ENABLED. NIS, username, dan kode sesi masih unik global (batasan yang disengaja di docs/MULTI_YAYASAN.md).',
+];
+
+function duaRingkasT(t) {
+  const r = (a) => ringkasLatensi(a);
+  const f = (x) => x.n ? `${x.avg.toFixed(0)} / ${x.p95.toFixed(0)} / ${x.max.toFixed(0)}` : '-';
+  return {
+    login: f(r(t.lat.login)), masuk: f(r(t.lat.masuk)), sync: f(r(t.lat.sync)), submit: f(r(t.lat.submit)),
+  };
+}
+
+function duaRender() {
+  const el = document.getElementById('dua-hasil');
+  if (!el) return;
+  if (!dua.cek.length && !dua.tenants.length) { el.innerHTML = ''; return; }
+  const gagal = dua.cek.filter(c => !c.lulus);
+  const lulus = dua.cek.length - gagal.length;
+  let html = '';
+  if (dua.selesai) {
+    const v = duaVerdict();
+    html += `<div style="border:2px solid ${v.warna};border-radius:12px;padding:14px 16px;margin-bottom:12px">
+      <div style="font-size:18px;font-weight:800;color:${v.warna}">${escapeHtml(v.judul)}</div>
+      <ul style="margin:8px 0 0 18px;padding:0;font-size:12.5px;line-height:1.6">${v.alasan.map(a => `<li>${escapeHtml(a)}</li>`).join('')}</ul></div>`;
+  } else {
+    html += `<p class="sub" style="margin:0 0 8px">Fase: <strong>${escapeHtml(dua.fase || '-')}</strong></p>`;
+  }
+  html += `<div class="stat-grid" style="margin:0 0 12px">
+    <div class="stat-box ok"><div class="v">${lulus}</div><div class="l">Pengecekan lulus</div></div>
+    <div class="stat-box ${gagal.length ? 'err' : 'ok'}"><div class="v">${gagal.length}</div><div class="l">Gagal</div></div>
+    <div class="stat-box ${gagal.some(c => c.kritis) ? 'err' : 'ok'}"><div class="v">${gagal.filter(c => c.kritis).length}</div><div class="l">Gagal kritis</div></div>
+  </div>`;
+  const tt = dua.tenants.filter(t => t.siswa.length);
+  if (tt.length) {
+    html += `<table style="margin-bottom:12px"><thead><tr><th>Yayasan</th><th class="num">Siswa</th><th>Login rata²/P95/maks (ms)</th><th>Masuk</th><th>Sync</th><th>Submit</th><th class="num">Nilai OK</th></tr></thead><tbody>` +
+      tt.map(t => { const s = duaRingkasT(t); const n = t.nilai; return `<tr><td>${escapeHtml(t.label)} <code>${escapeHtml(t.yayasanId || '-')}</code></td><td class="num">${t.siswa.length}</td><td>${s.login}</td><td>${s.masuk}</td><td>${s.sync}</td><td>${s.submit}</td><td class="num">${n ? `${n.diperiksa - n.hilang - n.salah}/${n.diperiksa}` : '-'}</td></tr>`; }).join('') + `</tbody></table>`;
+  }
+  if (dua.cek.length) {
+    const urut = [...gagal, ...dua.cek.filter(c => c.lulus)];
+    html += `<details ${gagal.length ? 'open' : ''}><summary>Rincian ${dua.cek.length} pengecekan (gagal ditampilkan lebih dulu)</summary>
+      <table style="margin-top:8px"><thead><tr><th>Status</th><th>Kelompok</th><th>Pengecekan</th><th>Detail</th></tr></thead><tbody>` +
+      urut.map(c => `<tr class="${c.lulus ? '' : 'row-bad'}"><td>${c.lulus ? '✅' : c.kritis ? '🚨' : '❌'}</td><td>${escapeHtml(c.grup)}</td><td>${escapeHtml(c.nama)}</td><td>${escapeHtml((c.lulus ? '' : c.detail).slice(0, 300))}</td></tr>`).join('') +
+      `</tbody></table></details>`;
+  }
+  if (dua.selesai) {
+    html += `<p style="font-size:12px;color:var(--muted);margin:12px 0 4px"><strong>Batasan yang harus Anda ketahui:</strong></p>
+      <ul style="margin:0 0 0 18px;padding:0;font-size:12px;color:var(--muted);line-height:1.6">${[...dua.catatan, ...DUA_CATATAN_TETAP].map(c => `<li>${escapeHtml(c)}</li>`).join('')}</ul>`;
+  }
+  el.innerHTML = html;
+}
+
+function duaMarkdown() {
+  const v = duaVerdict();
+  const gagal = dua.cek.filter(c => !c.lulus);
+  const cfg = dua.cfg || {};
+  let md = `# Laporan Uji 2 Yayasan Bersamaan\n\n`;
+  md += `- Run ID dasar: \`${dua.runBase}\`\n- Mulai: ${dua.mulai?.toISOString() || '-'}\n- Selesai: ${dua.selesai?.toISOString() || '-'}\n`;
+  md += `- Konfigurasi: ${cfg.siswa} siswa & ${cfg.soal} soal per yayasan, kelas ${cfg.kelasSama ? 'SAMA' : 'berbeda'}, ${cfg.siklus} siklus sync, tutup paksa ${cfg.porsiTutup}%\n`;
+  dua.tenants.forEach(t => { md += `- Yayasan ${t.label}: \`${t.yayasanId}\`${t.kodeSekolah ? ` (kode ${t.kodeSekolah})` : ''}\n`; });
+  md += `\n## Vonis: ${v.judul}\n\n${v.alasan.map(a => `- ${a}`).join('\n')}\n\n`;
+  md += `## Ringkasan\n\n- Pengecekan lulus: ${dua.cek.length - gagal.length}/${dua.cek.length}\n- Gagal: ${gagal.length} (kritis: ${gagal.filter(c => c.kritis).length})\n\n`;
+  if (dua.tenants.some(t => t.siswa.length)) {
+    md += `## Latensi per yayasan (rata² / P95 / maks, ms)\n\n| Yayasan | Siswa | Login | Masuk | Sync | Submit | Nilai OK |\n|---|---|---|---|---|---|---|\n`;
+    dua.tenants.filter(t => t.siswa.length).forEach(t => { const s = duaRingkasT(t); const n = t.nilai; md += `| ${t.label} | ${t.siswa.length} | ${s.login} | ${s.masuk} | ${s.sync} | ${s.submit} | ${n ? `${n.diperiksa - n.hilang - n.salah}/${n.diperiksa}` : '-'} |\n`; });
+    md += `\n`;
+  }
+  md += `## Pengecekan yang GAGAL\n\n`;
+  md += gagal.length ? gagal.map(c => `- ${c.kritis ? '🚨 ' : ''}**[${c.grup}]** ${c.nama}\n  - ${c.detail}`).join('\n') : '_Tidak ada._';
+  md += `\n\n## Semua pengecekan\n\n| Status | Kelompok | Pengecekan |\n|---|---|---|\n` + dua.cek.map(c => `| ${c.lulus ? '✅' : '❌'} | ${c.grup} | ${c.nama.replace(/\|/g, '\\|')} |`).join('\n');
+  md += `\n\n## Batasan\n\n` + [...dua.catatan, ...DUA_CATATAN_TETAP].map(c => `- ${c}`).join('\n') + '\n';
+  return md;
+}
+
 // ---------- Event bindings ----------
 document.getElementById('btn-start').addEventListener('click', runFullTest);
 document.getElementById('btn-stop').addEventListener('click', () => {
@@ -4413,6 +5417,16 @@ document.getElementById('btn-mt-confirm-cleanup').addEventListener('click', mtCo
 document.getElementById('btn-mt-cancel-cleanup').addEventListener('click', () => {
   document.getElementById('mt-cleanup-summary').style.display = 'none';
 });
+
+document.getElementById('btn-dua-start').addEventListener('click', runDuaYayasan);
+document.getElementById('btn-dua-stop').addEventListener('click', () => {
+  dua.stop = true; state.stopRequested = true;
+  log('🏛️ Permintaan berhenti diterima — uji 2 yayasan berhenti di titik pemeriksaan berikutnya lalu membersihkan data…', 'warn');
+});
+document.getElementById('btn-dua-md').addEventListener('click', () => {
+  downloadTextFile(`laporan-uji-2-yayasan-${nowFileStamp()}.md`, duaMarkdown(), 'text/markdown;charset=utf-8');
+});
+document.getElementById('btn-dua-cleanup').addEventListener('click', duaCleanupManual);
 
 renderPhaseTrack(null, []);
 
