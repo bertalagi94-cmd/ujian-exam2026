@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRoleAktif } from '@/lib/status-akun'
 import { instrumented } from '@/lib/metrik'
+import { cachedFetch } from '@/lib/cache'
 import { catatAktivitas } from '@/lib/aktivitas'
 import { hitungBatasWaktuPg, sudahKedaluwarsa, saringJawabanTerlambat, GRACE_MS } from '@/lib/deadline-pg'
 import { normalisasiJawabanMasuk, MAKS_JAWABAN_PER_REQUEST } from '@/lib/sync-jawaban-input'
@@ -22,6 +23,48 @@ const JENDELA_JAWABAN_SUSULAN_JAM = 24
 //   false (bawaan) = TETAP diterima (siswa diberi waktu penuh yang jadi haknya)
 //   true           = DITOLAK (hanya jawaban yang dibuat sebelum sesi ditutup)
 const SUSULAN_HANYA_SEBELUM_WAKTU_TUTUP = false
+
+// PERF (hasil load test): daftar soal_id yang sah untuk satu paket dibagi lewat
+// cache memori 60 dtk per instance (cachedFetch juga menggabungkan request yang
+// tiba bersamaan menjadi satu query). Sebelumnya setiap sync menjalankan satu
+// query `soal ... IN (...)` ke database.
+// KEAMANAN DATA: cache hanya dipakai untuk MENERIMA. soal_id yang tidak ada di
+// cache tetap dicek ke database (query segar) sebelum ditolak, jadi soal yang
+// baru ditambahkan ke paket tidak pernah salah ditolak karena cache basi.
+const TTL_SOAL_PAKET_DETIK = 60
+
+async function ambilSoalIdSah(
+  db: ReturnType<typeof tenantDb>,
+  yayasanId: string,
+  paketId: string,
+  soalIdUnik: string[]
+): Promise<{ valid: Set<string> } | { error: string }> {
+  try {
+    const semua = await cachedFetch<Set<string>>(
+      `sync:soal-id-paket:${yayasanId}:${paketId}`,
+      TTL_SOAL_PAKET_DETIK,
+      async () => {
+        const { data, error } = await db.from('soal').select('id').eq('paket_id', paketId)
+        if (error) throw new Error(error.message)
+        return new Set<string>((data ?? []).map((s: { id: string }) => s.id))
+      }
+    )
+    const valid = new Set<string>()
+    const takDikenal: string[] = []
+    for (const id of soalIdUnik) {
+      if (semua.has(id)) valid.add(id)
+      else takDikenal.push(id)
+    }
+    if (takDikenal.length > 0) {
+      const { data, error } = await db.from('soal').select('id').eq('paket_id', paketId).in('id', takDikenal)
+      if (error) return { error: error.message }
+      for (const s of (data ?? []) as { id: string }[]) valid.add(s.id)
+    }
+    return { valid }
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : String(e) }
+  }
+}
 
 // POST /api/siswa/ujian/sync
 // PENTING: setelah upsert, kita selalu hitung ulang jumlah baris jawaban yang
@@ -64,7 +107,20 @@ export async function POST(req: NextRequest) {
   // mengecek status sesi — siswa tetap bisa sync jawaban walau sesi sudah
   // ditutup pengawas (status SELESAI). Ditemukan otomatis oleh load test
   // (skenario "sync setelah sesi ditutup seharusnya ditolak").
-  const { data: sesi, error: sesiError } = await db.from('sesi_ujian').select('status, paket_soal_id, durasi, waktu_selesai').eq('id', sesiId).single()
+  // PERF: dua SELECT ini tidak saling bergantung (sesiId & nis sama-sama dari
+  // request), jadi dijalankan paralel: 1 round-trip, bukan 2. Urutan
+  // pemeriksaan hasilnya di bawah TIDAK berubah.
+  const [
+    { data: sesi, error: sesiError },
+    { data: siswaUjian, error: siswaUjianError },
+  ] = await Promise.all([
+    db.from('sesi_ujian').select('status, paket_soal_id, durasi, waktu_selesai').eq('id', sesiId).single(),
+    db.from('siswa_ujian')
+      .select('status, device_id, waktu_mulai_awal, waktu_mulai, last_heartbeat')
+      .eq('sesi_id', sesiId)
+      .eq('nis', user.nis!)
+      .single(),
+  ])
   // Galat database sesaat (bukan "baris tidak ada") harus 503 supaya outbox
   // client mencoba lagi, bukan 404 yang membuat paket ditandai GAGAL permanen.
   if (sesiError && sesiError.code !== 'PGRST116') {
@@ -90,12 +146,7 @@ export async function POST(req: NextRequest) {
   // (bukan klaim client) tentang kapan terakhir device ini terkonfirmasi
   // online. Lihat penjelasan lengkap di parameter checkpointTerakhirMs di
   // src/lib/deadline-pg.ts.
-  const { data: siswaUjian, error: siswaUjianError } = await db
-    .from('siswa_ujian')
-    .select('status, device_id, waktu_mulai_awal, waktu_mulai, last_heartbeat')
-    .eq('sesi_id', sesiId)
-    .eq('nis', user.nis!)
-    .single()
+  // (siswaUjian sudah diambil paralel dengan sesi di atas.)
 
   // FIX P1 (audit /sync, FAIL-OPEN): sebelumnya hasil null dari query di atas
   // tidak ditolak. Akibatnya user SISWA yang TIDAK terdaftar di sesi ini (tidak
@@ -181,14 +232,9 @@ export async function POST(req: NextRequest) {
 
     let soalIdValid = new Set<string>()
     if (soalIdUnik.length > 0) {
-      const { data: soalSah, error: errSoalSah } = await db
-        .from('soal')
-        .select('id')
-        .eq('paket_id', sesi.paket_soal_id)
-        .in('id', soalIdUnik)
-
-      if (errSoalSah) return NextResponse.json({ error: errSoalSah.message }, { status: 500 })
-      soalIdValid = new Set((soalSah ?? []).map(s => s.id))
+      const hasilSah = await ambilSoalIdSah(db, yayasanIdDari(auth.user), sesi.paket_soal_id, soalIdUnik)
+      if ('error' in hasilSah) return NextResponse.json({ error: hasilSah.error }, { status: 500 })
+      soalIdValid = hasilSah.valid
     }
 
     const jawabanSahPaket = jawaban.filter((j: { soal_id: string }) => soalIdValid.has(j.soal_id))
@@ -539,18 +585,20 @@ export async function GET(req: NextRequest) {
   // (mis. HP lama yang ditinggal siswa) masih bisa terus membaca progres
   // jawaban dari sesi yang sudah ditutup. Disamakan dengan pola guard di POST
   // supaya konsisten.
-  const { data: sesi } = await db.from('sesi_ujian').select('status').eq('id', sesiId).single()
+  // PERF: sesi & siswa_ujian diambil paralel (1 round-trip). Urutan
+  // pemeriksaan (404 -> 409 -> status siswa -> device) tidak berubah.
+  const [{ data: sesi }, { data: siswaUjian }] = await Promise.all([
+    db.from('sesi_ujian').select('status').eq('id', sesiId).single(),
+    db.from('siswa_ujian')
+      .select('status, device_id')
+      .eq('sesi_id', sesiId)
+      .eq('nis', user.nis!)
+      .single(),
+  ])
   if (!sesi) return NextResponse.json({ error: 'Sesi tidak ditemukan' }, { status: 404 })
   if (sesi.status !== 'BERJALAN') {
     return NextResponse.json({ error: 'Sesi ujian sudah ditutup.' }, { status: 409 })
   }
-
-  const { data: siswaUjian } = await db
-    .from('siswa_ujian')
-    .select('status, device_id')
-    .eq('sesi_id', sesiId)
-    .eq('nis', user.nis!)
-    .single()
 
   // FIX BUG (pola lama, pesan tidak dibedakan): lihat catatan yang sama di
   // essay/info/route.ts — RESET bersifat sementara, TERKUNCI permanen. Ini
