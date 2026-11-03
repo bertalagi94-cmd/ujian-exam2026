@@ -13,6 +13,16 @@ import { AntreanPenuhError, buatSemuaAmplopReset } from '@/lib/reset-amplop-serv
 // Kalau lebih tua (device lama sudah lama tidak polling), izinkan takeover.
 const DEVICE_STALE_MS = 2 * 60 * 1000 // 2 menit
 
+// Bentuk baris soal yang dikirim ke siswa (tanpa kunci & pembahasan).
+type SoalValidasi = {
+  id: string; paket_id: string; mapel_id: string; teks: string
+  opsi_a: string | null; opsi_b: string | null; opsi_c: string | null; opsi_d: string | null; opsi_e: string | null
+  jumlah_opsi: number | null
+  gambar_pertanyaan: string | null
+  gambar_opsi_a: string | null; gambar_opsi_b: string | null; gambar_opsi_c: string | null; gambar_opsi_d: string | null; gambar_opsi_e: string | null
+  status: string
+}
+
 // Masuk-ujian serentak bisa mengantre untuk PBKDF2 (lihat reset-amplop-server.ts).
 // Tanpa ini batas bawaan platform (bisa serendah 10 dtk) memutus request yang
 // sebenarnya masih dalam antrean wajar. 30 dtk diizinkan di semua paket Vercel.
@@ -275,17 +285,36 @@ export async function POST(req: NextRequest) {
   //
   // Kalau maksReset menghasilkan 0 (fitur reset memang dimatikan untuk
   // sesi ini), TIDAK diblokir — reset offline memang tidak dibutuhkan.
-  const soalPromise = Promise.resolve(
-    db
-      .from('soal')
-      .select('id, paket_id, mapel_id, teks, opsi_a, opsi_b, opsi_c, opsi_d, opsi_e, jumlah_opsi, gambar_pertanyaan, gambar_opsi_a, gambar_opsi_b, gambar_opsi_c, gambar_opsi_d, gambar_opsi_e, status')
-      .eq('mapel_id', sesi.mapel_id)
-      .eq('status', 'DISETUJUI')
-      .eq('paket_id', paketData.id)
+  // PERF (hasil load test): saat ratusan siswa masuk bersamaan, query soal ini
+  // identik untuk semuanya (paket yang sama). Dibagi lewat cache memori 20 dtk
+  // per instance; cachedFetch juga menggabungkan request serentak jadi satu query.
+  // KEAMANAN DATA: soal paket hanya bisa diubah setelah persetujuan dibatalkan,
+  // dan paket yang tidak lagi DISETUJUI sudah ditolak di atas (paketData null)
+  // sebelum sampai sini. Satu-satunya celah: jendela singkat setelah soal diedit
+  // lalu disetujui ulang -- dibatasi TTL pendek. Siswa yang sudah masuk tidak
+  // terpengaruh (soal dikirim sekali saat masuk).
+  // Hasil kosong / galat DILEMPAR (bukan di-cache) supaya "belum ada soal" tidak
+  // menempel; perilakunya sama seperti sebelumnya (soalList kosong -> valid:false).
+  const TTL_SOAL_PAKET_DETIK = 20
+  const soalPromise: Promise<{ data: SoalValidasi[] | null }> = cachedFetch<SoalValidasi[]>(
+    `validasi:soal-paket:${yayasanIdDari(auth.user)}:${paketData.id}:${sesi.mapel_id}`,
+    TTL_SOAL_PAKET_DETIK,
+    async () => {
+      const { data, error } = await db
+        .from('soal')
+        .select('id, paket_id, mapel_id, teks, opsi_a, opsi_b, opsi_c, opsi_d, opsi_e, jumlah_opsi, gambar_pertanyaan, gambar_opsi_a, gambar_opsi_b, gambar_opsi_c, gambar_opsi_d, gambar_opsi_e, status')
+        .eq('mapel_id', sesi.mapel_id)
+        .eq('status', 'DISETUJUI')
+        .eq('paket_id', paketData.id)
+      if (error || !data || data.length === 0) throw new Error(error?.message ?? 'soal kosong')
+      return data as SoalValidasi[]
+    }
+  ).then(
+    (data) => ({ data }),
+    () => ({ data: null })
   )
-  // Cabang return-awal (antrean penuh / material gagal) tidak menunggu hasilnya;
-  // cegah unhandled rejection kalau ternyata gagal.
-  soalPromise.catch(() => {})
+  // (soalPromise tidak pernah reject -- galat diubah jadi { data: null } di atas,
+  // jadi cabang return-awal yang tidak menunggunya aman dari unhandled rejection.)
 
   let resetMaterial: Awaited<ReturnType<typeof buatSemuaAmplopReset>> = []
   let maksReset = 0

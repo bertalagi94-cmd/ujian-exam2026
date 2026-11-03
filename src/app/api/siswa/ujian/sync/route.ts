@@ -336,6 +336,9 @@ export async function POST(req: NextRequest) {
     }
 
     let acked: { soal_id: string; jawaban: string; revisi: number; accepted: boolean }[] | null = null
+    // PERF: jumlah jawaban siswa dari fungsi database (supabase/57_...sql).
+    // null = fungsi belum dimigrasi / jalur susulan -> pakai query count lama.
+    let jumlahTotalRpc: number | null = null
 
     if (jawabanValid.length > 0) {
       // FIX BUG P1 (merge timestamp client vs server tidak setara): sebelumnya
@@ -396,7 +399,7 @@ export async function POST(req: NextRequest) {
         )
       }
 
-      const hasil = rpcHasil as { hasil?: string; jumlah_berubah?: number; acked?: { out_soal_id: string; out_jawaban: string; out_revisi: number; out_accepted: boolean }[] } | null
+      const hasil = rpcHasil as { hasil?: string; jumlah_berubah?: number; jumlah_total?: number; acked?: { out_soal_id: string; out_jawaban: string; out_revisi: number; out_accepted: boolean }[] } | null
 
       // Race tertutup TEPAT sebelum penulisan: cek awal (di atas) sempat
       // lolos, tapi cek ULANG di dalam transaksi menemukan kondisi sudah
@@ -473,6 +476,9 @@ export async function POST(req: NextRequest) {
         revisi: r.out_revisi,
         accepted: r.out_accepted,
       }))
+      if (typeof hasil?.jumlah_total === 'number' && Number.isFinite(hasil.jumlah_total)) {
+        jumlahTotalRpc = hasil.jumlah_total
+      }
 
       // Jawaban susulan sudah tersimpan -> hitung ulang nilai PG siswa ini.
       // Selalu dijalankan pada jalur susulan (idempoten), bukan hanya kalau ada
@@ -519,16 +525,23 @@ export async function POST(req: NextRequest) {
       // tersimpan dengan revisi yang benar (lihat catatan totalSynced di
       // bawah — verifikasi handleSelesai() sekarang bisa memakai `acked`
       // per-soal, bukan cuma count agregat).
-      const { count, error: countError } = await db
-        .from('jawaban').select('*', { count: 'exact', head: true })
-        .eq('sesi_id', sesiId).eq('nis', user.nis!)
-      if (countError) return NextResponse.json({ error: countError.message }, { status: 500 })
+      // PERF: pakai jumlah_total dari fungsi database kalau ada (satu round-trip
+      // lebih sedikit); kalau tidak ada (belum dimigrasi / jalur susulan),
+      // hitung dengan query seperti sebelumnya.
+      let jumlahTersimpan = jumlahTotalRpc
+      if (jumlahTersimpan === null) {
+        const { count, error: countError } = await db
+          .from('jawaban').select('*', { count: 'exact', head: true })
+          .eq('sesi_id', sesiId).eq('nis', user.nis!)
+        if (countError) return NextResponse.json({ error: countError.message }, { status: 500 })
+        jumlahTersimpan = count ?? 0
+      }
       return NextResponse.json({
         message: `${Array.isArray(jawaban) ? jawaban.length : 0} jawaban diproses`,
         // Jawaban yang ditolak karena terlambat TIDAK punya baris di DB, tapi
         // client membandingkan totalSynced dengan jumlah jawaban lokalnya --
         // hitung sebagai "sudah ditangani" agar submit tidak menunggu selamanya.
-        totalSynced: (count ?? 0) + ditolakTerlambatTanpaBaris,
+        totalSynced: jumlahTersimpan + ditolakTerlambatTanpaBaris,
         acked,
         ...(jumlahDitolakTerlambat > 0 ? { ditolakTerlambat: jumlahDitolakTerlambat } : {}),
       })
