@@ -95,6 +95,65 @@ function SchoolLogo({ size, siteInfo }: { size: 'sm' | 'lg' | 'xl'; siteInfo: Si
   )
 }
 
+// ── Login tahan server penuh ────────────────────────────────────────────────
+// Saat banyak pengguna login bersamaan, server bisa menjawab 503/504 atau
+// terlambat. Daripada menampilkan error lalu meminta pengguna klik ulang
+// (yang justru menambah beban), halaman ini MENCOBA LAGI OTOMATIS dengan jeda
+// acak dan menampilkan pesan yang jelas. Kesalahan pengguna (password salah,
+// akun dikunci, terlalu banyak percobaan, maintenance) TIDAK diulang.
+const LOGIN_TIMEOUT_PER_PERCOBAAN_MS = 28_000
+const LOGIN_TOTAL_MAKS_MS = 90_000
+const LOGIN_INFO_PENUH_MS = 4_000
+const LOGIN_INFO_PANJANG_MS = 20_000
+const PESAN_SERVER_PENUH = 'Mohon bersabar sebentar, server sedang penuh. Login Anda tetap diproses, jangan tutup halaman ini.'
+const PESAN_ANTREAN_PANJANG = 'Antrean masih padat, kami terus mencoba memasukkan Anda. Tidak perlu menekan tombol berulang kali.'
+
+type HasilLogin =
+  | { jenis: 'ok'; data: any }
+  | { jenis: 'gagal'; pesan: string }
+  | { jenis: 'ulang'; tungguMs: number }
+  | { jenis: 'offline' }
+
+async function kirimSatuKaliLogin(
+  form: { username: string; password: string },
+  batal: AbortSignal
+): Promise<HasilLogin> {
+  const ac = new AbortController()
+  const timer = setTimeout(() => ac.abort(), LOGIN_TIMEOUT_PER_PERCOBAAN_MS)
+  const putus = () => ac.abort()
+  batal.addEventListener('abort', putus)
+  try {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(form), signal: ac.signal,
+    })
+    const data = await res.json().catch(() => null)
+    if (res.ok && data) return { jenis: 'ok', data }
+    const sementara = res.status === 502 || res.status === 503 || res.status === 504 || data?.sementara === true
+    if (sementara) {
+      const hint = Number(data?.tungguDetik)
+      return { jenis: 'ulang', tungguMs: Number.isFinite(hint) && hint > 0 ? Math.min(hint, 10) * 1000 : 0 }
+    }
+    if (!data) return { jenis: 'gagal', pesan: 'Terjadi kesalahan server. Silakan coba lagi.' }
+    return { jenis: 'gagal', pesan: data.error || 'Login gagal' }
+  } catch (err) {
+    if (batal.aborted) throw err // dibatalkan sengaja (halaman ditinggalkan)
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return { jenis: 'offline' }
+    // Timeout per percobaan / koneksi putus sesaat saat server padat -> ulangi.
+    return { jenis: 'ulang', tungguMs: 0 }
+  } finally {
+    clearTimeout(timer)
+    batal.removeEventListener('abort', putus)
+  }
+}
+
+const tungguAcak = (ms: number, batal: AbortSignal) =>
+  new Promise<void>((resolve) => {
+    if (batal.aborted) return resolve()
+    const t = setTimeout(resolve, ms)
+    batal.addEventListener('abort', () => { clearTimeout(t); resolve() }, { once: true })
+  })
+
 export default function LoginPage() {
   const router = useRouter()
   const pathname = usePathname()
@@ -144,6 +203,13 @@ export default function LoginPage() {
       .catch(() => {})
   }, [])
   const [loading, setLoading] = useState(false)
+  // Pesan "server sedang penuh" yang tampil kalau login belum selesai setelah
+  // beberapa detik. loadingRef juga dipakai untuk mencegah klik ganda dan
+  // mencegah panel login desktop menutup sendiri saat proses masih berjalan.
+  const [infoServerPenuh, setInfoServerPenuh] = useState('')
+  const loadingRef = useRef(false)
+  const loginAbortRef = useRef<AbortController | null>(null)
+  useEffect(() => () => { loginAbortRef.current?.abort() }, [])
   const [error, setError] = useState('')
   const [siteInfo, setSiteInfo] = useState<SiteInfo>({ namaSekolah: '', kota: '', logoUrl: '' })
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -462,7 +528,12 @@ export default function LoginPage() {
   const resetIdleTimer = () => {
     if (isMobileCheck()) return
     if (idleTimerRef.current) clearTimeout(idleTimerRef.current)
-    idleTimerRef.current = setTimeout(() => { closeDrape() }, 10000)
+    idleTimerRef.current = setTimeout(() => {
+      // Jangan tutup panel selagi login masih diproses (pesan "server penuh"
+      // harus tetap terlihat) -- jadwalkan ulang.
+      if (loadingRef.current) { resetIdleTimer(); return }
+      closeDrape()
+    }, 10000)
   }
   const handleFormActivity = () => { resetIdleTimer() }
   const draped = drapeState === 'open' || drapeState === 'opening'
@@ -567,36 +638,61 @@ export default function LoginPage() {
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault()
+    if (loadingRef.current) return // klik ganda: abaikan, proses sebelumnya masih berjalan
     if (!form.username || !form.password) { setError('Username dan password wajib diisi'); return }
-    setLoading(true); setError('')
+    loadingRef.current = true
+    setLoading(true); setError(''); setInfoServerPenuh('')
+
+    const ac = new AbortController()
+    loginAbortRef.current = ac
+    const timerInfo1 = setTimeout(() => setInfoServerPenuh(PESAN_SERVER_PENUH), LOGIN_INFO_PENUH_MS)
+    const timerInfo2 = setTimeout(() => setInfoServerPenuh(PESAN_ANTREAN_PANJANG), LOGIN_INFO_PANJANG_MS)
+    const mulai = Date.now()
+    const pesanJaringan = 'Tidak ada koneksi internet. Login memerlukan koneksi internet aktif, silakan coba lagi.'
+
     try {
-      const res = await fetch('/api/auth/login', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Login gagal')
-      localStorage.removeItem('admin_token_backup')
-      localStorage.removeItem('admin_user_backup')
-      try { data.kodeSekolah ? localStorage.setItem('kode_sekolah', String(data.kodeSekolah)) : localStorage.removeItem('kode_sekolah') } catch { /* abaikan */ }
-      localStorage.setItem('token', data.token)
-      localStorage.setItem('user', JSON.stringify({ username: data.username, nama: data.nama, role: data.role, nis: data.nis, kelas: data.kelas }))
-      const roleRoutes: Record<string, string> = { ADMIN: '/admin', GURU: '/guru', KEPSEK: '/kepsek', SISWA: '/siswa' }
-      router.push(data.wajibGantiPassword ? '/ganti-password' : (roleRoutes[data.role] ?? '/login'))
-    } catch (err: unknown) {
-      // FIX (pesan teknis "Failed to fetch" saat offline): fetch() browser
-      // melempar TypeError polos dengan message "Failed to fetch" kalau
-      // request tidak sampai ke server sama sekali (tidak ada internet, DNS
-      // gagal, dsb) — beda dari error yang dilempar sengaja lewat throw new
-      // Error(data.error) di atas (itu tetap dipakai apa adanya). Login
-      // memang wajib online, jadi di sini kita cuma perjelas pesannya.
-      const pesanJaringan = 'Tidak ada koneksi internet. Login memerlukan koneksi internet aktif, silakan coba lagi.'
-      if (err instanceof TypeError) {
-        setError(pesanJaringan)
-      } else {
-        setError(err instanceof Error ? err.message : 'Login gagal')
+      let percobaan = 0
+      for (;;) {
+        percobaan++
+        const hasil = await kirimSatuKaliLogin(form, ac.signal)
+
+        if (hasil.jenis === 'ok') {
+          const data = hasil.data
+          localStorage.removeItem('admin_token_backup')
+          localStorage.removeItem('admin_user_backup')
+          try { data.kodeSekolah ? localStorage.setItem('kode_sekolah', String(data.kodeSekolah)) : localStorage.removeItem('kode_sekolah') } catch { /* abaikan */ }
+          localStorage.setItem('token', data.token)
+          localStorage.setItem('user', JSON.stringify({ username: data.username, nama: data.nama, role: data.role, nis: data.nis, kelas: data.kelas }))
+          const roleRoutes: Record<string, string> = { ADMIN: '/admin', GURU: '/guru', KEPSEK: '/kepsek', SISWA: '/siswa' }
+          router.push(data.wajibGantiPassword ? '/ganti-password' : (roleRoutes[data.role] ?? '/login'))
+          return
+        }
+        if (hasil.jenis === 'gagal') { setError(hasil.pesan); return }
+        if (hasil.jenis === 'offline') { setError(pesanJaringan); return }
+
+        // jenis === 'ulang': server sibuk / lambat. Tampilkan pesan lalu coba lagi.
+        setInfoServerPenuh(prev => prev || PESAN_SERVER_PENUH)
+        const sisa = LOGIN_TOTAL_MAKS_MS - (Date.now() - mulai)
+        // Jeda bertambah tiap percobaan + acak 0-1 dtk supaya ratusan pengguna
+        // tidak mengulang di detik yang sama (thundering herd).
+        const jeda = Math.min(Math.max(hasil.tungguMs, 1500 * percobaan), 8000) + Math.random() * 1000
+        if (sisa <= jeda + 2000) {
+          setError('Server masih sangat padat dan belum bisa memproses login Anda. Silakan tunggu beberapa saat, lalu tekan Masuk lagi.')
+          return
+        }
+        await tungguAcak(jeda, ac.signal)
+        if (ac.signal.aborted) return
       }
-    } finally { setLoading(false) }
+    } catch (err: unknown) {
+      if (ac.signal.aborted) return
+      if (err instanceof TypeError) setError(pesanJaringan)
+      else setError(err instanceof Error ? err.message : 'Login gagal')
+    } finally {
+      clearTimeout(timerInfo1); clearTimeout(timerInfo2)
+      loadingRef.current = false
+      setInfoServerPenuh('')
+      setLoading(false)
+    }
   }
 
   const displayName = siteInfo.namaSekolah || 'SmartExam'
@@ -942,6 +1038,11 @@ export default function LoginPage() {
               </div>
 
               <form onSubmit={handleLogin} className="space-y-4">
+                {loading && infoServerPenuh && (
+                  <div role="status" aria-live="polite" className="flex items-start gap-2 p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-sm">
+                    <Info className="w-4 h-4 flex-shrink-0 mt-0.5" /><span>{infoServerPenuh}</span>
+                  </div>
+                )}
                 {error && (
                   <div className="flex items-center gap-2 p-3 rounded-xl bg-red-50 border border-red-200 text-red-600 text-sm">
                     <AlertCircle className="w-4 h-4 flex-shrink-0" /><span>{error}</span>
@@ -977,7 +1078,7 @@ export default function LoginPage() {
                   className="btn-login-drape w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl text-white font-bold text-base mt-2 disabled:opacity-60"
                 >
                   {loading ? (
-                    <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Masuk...</>
+                    <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />{infoServerPenuh ? 'Menunggu server...' : 'Masuk...'}</>
                   ) : (<><Lock className="w-4 h-4 opacity-90" /><span>Login Disini</span><span style={{ fontSize: '16px' }}>▾</span></>)}
                 </button>
               </form>
@@ -1152,7 +1253,12 @@ export default function LoginPage() {
                   </div>
 
                   <form onSubmit={handleLogin} className="space-y-3" onInput={handleFormActivity} onChange={handleFormActivity}>
-                    {error && (
+                    {loading && infoServerPenuh && (
+                  <div role="status" aria-live="polite" className="flex items-start gap-2 p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-sm">
+                    <Info className="w-4 h-4 flex-shrink-0 mt-0.5" /><span>{infoServerPenuh}</span>
+                  </div>
+                )}
+                {error && (
                       <div className="flex items-start gap-2 p-3 rounded-xl bg-red-50 border border-red-200 text-red-600 text-sm">
                         <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" /><span>{error}</span>
                       </div>
@@ -1199,7 +1305,7 @@ export default function LoginPage() {
                       style={{ boxShadow: '0 4px 24px rgba(37,99,235,0.3), 0 0 40px rgba(20,184,166,0.18)' }}
                     >
                       {loading ? (
-                        <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Masuk...</>
+                        <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />{infoServerPenuh ? 'Menunggu server...' : 'Masuk...'}</>
                       ) : 'Masuk'}
                     </button>
                   </form>

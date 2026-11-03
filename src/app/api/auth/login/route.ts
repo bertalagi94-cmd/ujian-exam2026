@@ -3,27 +3,28 @@ import bcrypt from 'bcryptjs'
 import { createAdminClient } from '@/lib/supabase'
 import { signToken, WAJIB_GANTI_PASSWORD_AKTIF } from '@/lib/auth'
 import { cachedFetch, cacheGet, cacheSet, cacheDel } from '@/lib/cache'
-import { generateId } from '@/lib/utils'
 import { instrumented } from '@/lib/metrik'
 import { cariYayasanById, tenantDb, YAYASAN_AWAL_ID } from '@/lib/tenant'
+import {
+  masukGerbang, perkiraanTungguDetik, catatLoginTertunda, denganBatasWaktu,
+  galatSementara, BATAS_QUERY_LOGIN_MS,
+} from '@/lib/login-beban'
 
-// FIX BUG: catat setiap login sukses ke `log_aktivitas` (aksi='LOGIN').
-// Sebelumnya endpoint ini hanya meng-update kolom `last_login` di tabel
-// users/siswa, tapi tidak pernah insert ke `log_aktivitas` — akibatnya
-// panel Monitor Sistem (Aktivitas → "Login Hari Ini" & "Aktivitas 5 Menit
-// Terakhir") selalu menampilkan 0 walau login berhasil, karena query di
-// admin/monitoring/route.ts membaca count dari tabel ini.
-function catatLoginAktivitas(
-  db: ReturnType<typeof createAdminClient>,
-  userId: string,
-  detail: string
-) {
-  db.from('log_aktivitas')
-    .insert({ id: generateId('LOG'), user_id: userId, aksi: 'LOGIN', detail })
-    .then(({ error }: { error: unknown }) => {
-      if (error) console.error('Gagal catat log_aktivitas (LOGIN):', error)
-    })
+// Pencatatan login (last_login + log_aktivitas) sekarang DIGABUNG dan ditulis
+// setelah respons terkirim -- lihat catatLoginTertunda di src/lib/login-beban.ts.
+// Dulu: 2 penulisan fire-and-forget per login (promise menggantung, tidak
+// dijamin selesai di serverless, dan menumpuk saat login serentak).
+
+// Respons "server sibuk" yang AMAN DICOBA ULANG: sementara:true membuat halaman
+// login mengulang otomatis (dengan jeda) sambil menampilkan pesan ke pengguna.
+function responSibuk(pesan: string) {
+  const tunggu = perkiraanTungguDetik()
+  return NextResponse.json(
+    { error: pesan, sementara: true, tungguDetik: tunggu },
+    { status: 503, headers: { 'Retry-After': String(tunggu) } }
+  )
 }
+const PESAN_SIBUK = 'Server sedang penuh. Mohon bersabar sebentar, login Anda akan dicoba lagi otomatis.'
 
 // Pesan error login digeneralisasi agar tidak membocorkan apakah
 // username/NIS terdaftar di sistem (mencegah user enumeration).
@@ -76,6 +77,20 @@ function cekRateLimit(ip: string, username: string): { allowed: boolean; sisaDet
 // terverifikasi; percobaan salah tetap terhitung.
 function resetRateLimit(ip: string, username: string): void {
   cacheDel(kunciPercobaan(ip, username))
+}
+
+// Jatah percobaan dikembalikan 1 kalau login ditolak karena SERVER sibuk (bukan
+// karena password salah). Tanpa ini, percobaan ulang otomatis dari halaman login
+// akan menghabiskan batas 10x/5 menit padahal pengguna tidak salah apa pun.
+// Hanya mengurangi 1 (tidak menghapus seluruh hitungan) supaya percobaan
+// password SALAH sebelumnya tetap terhitung.
+function kembalikanJatah(ip: string, username: string): void {
+  const key = kunciPercobaan(ip, username)
+  const data = cacheGet<{ count: number; firstAt: number }>(key)
+  if (!data) return
+  if (data.count <= 1) { cacheDel(key); return }
+  const sisaDetik = Math.max(Math.ceil((data.firstAt + WINDOW_DETIK * 1000 - Date.now()) / 1000), 1)
+  cacheSet(key, { count: data.count - 1, firstAt: data.firstAt }, sisaDetik)
 }
 
 // ── Batas LOGIN GAGAL per IP (tanpa username) ──────────────────────────────
@@ -173,7 +188,8 @@ async function pesanPengajuan(
     const { data } = await db.from('pengajuan_sekolah')
       .select('status, alasan_tolak, password_hash')
       .eq('username', username).in('status', ['MENUNGGU', 'DITOLAK'])
-      .order('created_at', { ascending: false }).limit(1).maybeSingle()
+      .order('created_at', { ascending: false }).limit(1)
+      .abortSignal(AbortSignal.timeout(BATAS_QUERY_LOGIN_MS)).maybeSingle()
     const cocok = await bcrypt.compare(password, data?.password_hash || DUMMY_HASH)
     if (!data || !cocok) return null
     if (data.status === 'MENUNGGU') return 'Pengajuan aktivasi sekolah Anda masih menunggu persetujuan. Silakan coba lagi nanti.'
@@ -191,6 +207,8 @@ export async function POST(req: NextRequest) {
   // salah, rate limit) tetap dicatat 'ok' (server merespons benar); hanya
   // error 500 atau exception (mis. Supabase down) yang dicatat 'error'.
   return instrumented('login', async () => {
+  let lepasGerbang: (() => void) | null = null
+  let jatah: { ip: string; username: string } | null = null
   try {
     const body = await req.json().catch(() => null)
     const username = typeof body?.username === 'number' ? String(body.username) : body?.username
@@ -219,6 +237,19 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    jatah = { ip, username: String(username).trim() }
+
+    // ── GERBANG ANTREAN ────────────────────────────────────────────────────
+    // Batasi login yang diproses bersamaan per instance. Yang lain MENGANTRE
+    // (tetap diproses, hanya menunggu giliran). Kalau antre terlalu lama
+    // dijawab 503 sementara -> halaman login mengulang otomatis + pesan ke
+    // pengguna. Ini mencegah ratusan query & bcrypt berebut sekaligus.
+    lepasGerbang = await masukGerbang()
+    if (!lepasGerbang) {
+      kembalikanJatah(jatah.ip, jatah.username)
+      return responSibuk(PESAN_SIBUK)
+    }
+
     // ── Yayasan ditentukan dari AKUN, bukan dari input pengguna ───────────
     // Setiap baris users/siswa sudah punya yayasan_id, jadi pengguna tidak
     // perlu mengetik Kode Sekolah. username/NIS unik global, sehingga satu
@@ -232,8 +263,10 @@ export async function POST(req: NextRequest) {
 
     // Query users dan siswa BERSAMAAN
     const [{ data: user, error: errUser }, { data: siswa, error: errSiswa }] = await Promise.all([
-      supabase.from('users').select('username, password_hash, nama, role, yayasan_id, is_tester').eq('username', kunciAkun).eq('status', 'AKTIF').single(),
-      supabase.from('siswa').select('nis, password_hash, nama, kelas, yayasan_id, is_tester').eq('nis', username.trim()).eq('status', 'AKTIF').single(),
+      supabase.from('users').select('username, password_hash, nama, role, yayasan_id, is_tester, last_login').eq('username', kunciAkun).eq('status', 'AKTIF')
+        .abortSignal(AbortSignal.timeout(BATAS_QUERY_LOGIN_MS)).single(),
+      supabase.from('siswa').select('nis, password_hash, nama, kelas, yayasan_id, is_tester, last_login').eq('nis', username.trim()).eq('status', 'AKTIF')
+        .abortSignal(AbortSignal.timeout(BATAS_QUERY_LOGIN_MS)).single(),
     ])
 
     // Galat database (bukan "akun tidak ada" = PGRST116) jangan dibaca sebagai
@@ -242,8 +275,8 @@ export async function POST(req: NextRequest) {
     const galatDb = (e: { code?: string } | null) => !!e && e.code !== 'PGRST116'
     if (galatDb(errUser) || galatDb(errSiswa)) {
       console.error('Login: galat database saat mencari akun:', errUser?.message ?? errSiswa?.message)
-      resetRateLimit(ip, String(username).trim()) // kembalikan jatah percobaan yang sudah terpakai
-      return NextResponse.json({ error: 'Server sedang sibuk. Coba lagi beberapa saat.' }, { status: 503 })
+      kembalikanJatah(ip, String(username).trim()) // kembalikan jatah percobaan yang sudah terpakai
+      return responSibuk(PESAN_SIBUK)
     }
 
     const yayasanAkun: string | null = user
@@ -260,12 +293,12 @@ export async function POST(req: NextRequest) {
     }
     const yayasanTarget: string = yayasanAkun
 
-    const yys = await cariYayasanById(yayasanTarget)
+    const yys = await denganBatasWaktu(cariYayasanById(yayasanTarget), BATAS_QUERY_LOGIN_MS, 'cariYayasan')
     const yayasanAktif = yys?.status === 'AKTIF'
     const PESAN_NONAKTIF = 'Sekolah ini sedang dinonaktifkan. Hubungi administrator aplikasi.'
 
     // Satu cache hit menggantikan 2–3 round-trip ke DB
-    const pengaturan = await getPengaturan(yayasanTarget)
+    const pengaturan = await denganBatasWaktu(getPengaturan(yayasanTarget), BATAS_QUERY_LOGIN_MS, 'getPengaturan')
 
     // Maintenance: pengecekan dilakukan SETELAH password terverifikasi (lihat di
     // bawah). Dulu username non-admin langsung dibalas 503 sebelum password
@@ -290,9 +323,10 @@ export async function POST(req: NextRequest) {
         username: user.username, nama: user.nama, role: user.role, yayasanId: yayasanTarget,
         ...(wajibGantiPassword ? { gantiPassword: true } : {}),
       })
-      supabase.from('users').update({ last_login: new Date().toISOString() }).eq('username', user.username)
-        .then(({ error }) => { if (error) console.error('Gagal update last_login (user):', error) })
-      catatLoginAktivitas(tenantDb(yayasanTarget), user.username, `Login sebagai ${user.role}`)
+      catatLoginTertunda({
+        yayasanId: yayasanTarget, tipe: 'USER', kunci: user.username,
+        lastLoginLama: user.last_login, detail: `Login sebagai ${user.role}`,
+      })
       return NextResponse.json({ token, username: user.username, nama: user.nama, role: user.role, wajibGantiPassword, kodeSekolah: yys?.kode })
     }
 
@@ -307,9 +341,10 @@ export async function POST(req: NextRequest) {
       }
 
       const token = signToken({ username: siswa.nis, nama: siswa.nama, role: 'SISWA', nis: siswa.nis, kelas: siswa.kelas, yayasanId: yayasanTarget })
-      supabase.from('siswa').update({ last_login: new Date().toISOString() }).eq('nis', siswa.nis)
-        .then(({ error }) => { if (error) console.error('Gagal update last_login (siswa):', error) })
-      catatLoginAktivitas(tenantDb(yayasanTarget), siswa.nis, `Login sebagai SISWA (${siswa.nama})`)
+      catatLoginTertunda({
+        yayasanId: yayasanTarget, tipe: 'SISWA', kunci: siswa.nis,
+        lastLoginLama: siswa.last_login, detail: `Login sebagai SISWA (${siswa.nama})`,
+      })
       return NextResponse.json({ token, username: siswa.nis, nama: siswa.nama, role: 'SISWA', nis: siswa.nis, kelas: siswa.kelas, kodeSekolah: yys?.kode })
     }
 
@@ -319,8 +354,18 @@ export async function POST(req: NextRequest) {
     catatGagalIp(ip)
     return NextResponse.json({ error: GENERIC_LOGIN_ERROR }, { status: 401 })
   } catch (err) {
+    // Database lambat/timeout bukan kesalahan pengguna maupun bug: jawab 503
+    // sementara supaya halaman login mengulang otomatis (bukan error 500 final).
+    if (galatSementara(err)) {
+      console.error('Login: database lambat/tidak terjangkau:', err instanceof Error ? err.message.slice(0, 200) : String(err).slice(0, 200))
+      if (jatah) kembalikanJatah(jatah.ip, jatah.username)
+      return responSibuk(PESAN_SIBUK)
+    }
     console.error('Login error:', err)
     return NextResponse.json({ error: 'Terjadi kesalahan server' }, { status: 500 })
+  } finally {
+    // Selalu lepaskan giliran, apa pun hasilnya.
+    lepasGerbang?.()
   }
   })
 }
