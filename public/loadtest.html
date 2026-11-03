@@ -262,11 +262,11 @@
         <span class="dbg-dot">.</span><span class="dbg-dot">.</span><span class="dbg-dot">.</span>
       </div>
       <div class="dbg-duration">
-        <div class="dur-label">⏱ DURASI</div>
+        <div class="dur-label">⏱ TOTAL WAKTU TES</div>
         <div class="dur-value" id="dbg-duration-display">00:00:00</div>
       </div>
     </div>
-    <div class="dbg-sub">⚠ Pengujian sedang berjalan — jangan tutup tab ini</div>
+    <div class="dbg-sub">⚠ Pengujian sedang berjalan — jangan tutup tab ini. Waktu ini = persiapan + durasi ujian + fase sesudahnya, jadi lebih panjang dari durasi ujian yang Anda atur.</div>
   </div>
 
   <header>
@@ -786,6 +786,12 @@ function recordBug(title, detail, meta = '') {
 }
 
 // ---------- Util: HTTP ----------
+// FIX: fetch() tanpa batas waktu bisa menggantung SELAMANYA (koneksi putus
+// diam-diam, tab ditahan browser, laptop tidur). Satu request yang menggantung
+// membuat Promise.all seluruh siswa tidak pernah selesai, sehingga tes
+// "berjalan terus" jauh melewati durasi ujian. Sekarang tiap request dibatasi;
+// lewat batas dianggap error jaringan (status 0) dan ikut jalur coba-ulang.
+const API_TIMEOUT_MS = 120000; // 2 menit: di atas batas fungsi Vercel (maks 60 dtk)
 async function api(method, path, body, token) {
   const url = state.baseUrl.replace(/\/$/, '') + path;
   const headers = { 'Content-Type': 'application/json' };
@@ -799,20 +805,25 @@ async function api(method, path, body, token) {
   state.endpointCallCount[endpointKey] = (state.endpointCallCount[endpointKey] || 0) + 1;
 
   let res, json;
+  const pengendali = new AbortController();
+  const pewaktuBatas = setTimeout(() => pengendali.abort(), API_TIMEOUT_MS);
   try {
     res = await fetch(url, {
       method,
       headers,
       body: body !== undefined ? JSON.stringify(body) : undefined,
+      signal: pengendali.signal,
     });
   } catch (e) {
+    clearTimeout(pewaktuBatas);
     const latency = performance.now() - t0;
     state.totalErrors++;
     state.latencies.push(latency);
     state.endpointErrorMap[endpointKey] = (state.endpointErrorMap[endpointKey] || 0) + 1;
     if (!state.endpointLatencyMap[endpointKey]) state.endpointLatencyMap[endpointKey] = [];
     state.endpointLatencyMap[endpointKey].push(latency);
-    return { ok: false, status: 0, networkError: true, error: e.message, latency };
+    const pesan = e && e.name === 'AbortError' ? `timeout: tidak ada respons dalam ${API_TIMEOUT_MS / 1000} dtk` : e.message;
+    return { ok: false, status: 0, networkError: true, error: pesan, latency };
   }
 
   const latency = performance.now() - t0;
@@ -839,6 +850,7 @@ async function api(method, path, body, token) {
   }
 
   try { json = await res.json(); } catch { json = null; }
+  clearTimeout(pewaktuBatas);
 
   if (!res.ok) {
     state.totalErrors++;
@@ -3178,6 +3190,9 @@ function acakAntara(a, b) { return a + Math.random() * (b - a); }
 async function tungguSampai(t0, offsetMs) {
   while (true) {
     if (state.stopRequested) return false;
+    // Batas keras pola "sungguhan": setelah lewat, semua siswa berhenti menunggu
+    // supaya tes tidak berjalan tanpa akhir (lihat kerjaSungguhan).
+    if (state.batasKeras && performance.now() > state.batasKeras) return false;
     const sisa = t0 + offsetMs - performance.now();
     if (sisa <= 0) return true;
     await sleep(Math.min(sisa, 500));
@@ -3362,7 +3377,12 @@ async function kerjaSungguhan({ A, B, siswaCadangan, v }) {
     t0: performance.now(), durMs, stat, urutan, semuaASelesai: false, latar: [],
     gandaSet: new Set(pesertaA.filter((_, i) => i % 10 === 0).map(s => s.nis)),
   };
-  log(`Ujian SUNGGUHAN dimulai: ${pesertaA.length} siswa akan menekan "Selesai" bertahap, ${lain.length} lainnya (ditutup paksa/cadangan) mengerjakan tanpa menekan "Selesai". Durasi ${menit} menit — tes ini akan berjalan selama itu.`, 'info');
+  // Batas keras: durasi ujian + 10 menit. Siswa yang masih menunggu/mengirim saat
+  // batas ini lewat dihentikan, dan itu dicatat di laporan (bukan menggantung).
+  const BATAS_TAMBAHAN_MS = 10 * 60000;
+  state.batasKeras = ctx.t0 + durMs + BATAS_TAMBAHAN_MS;
+  let batasTerlampaui = false;
+  log(`Ujian SUNGGUHAN dimulai: ${pesertaA.length} siswa akan menekan "Selesai" bertahap, ${lain.length} lainnya (ditutup paksa/cadangan) mengerjakan tanpa menekan "Selesai". Durasi ujian ${menit} menit; fase ini berakhir sekitar menit ${menit} (batas keras menit ${menit + 10}). Waktu persiapan sebelum ini dan fase sesudahnya tidak ikut dihitung di angka ini.`, 'info');
   const lag = mulaiPantauLag();
   const uiTimer = setInterval(() => {
     const el = performance.now() - ctx.t0;
@@ -3379,9 +3399,16 @@ async function kerjaSungguhan({ A, B, siswaCadangan, v }) {
     await Promise.all(ctx.latar);
   } finally {
     clearInterval(uiTimer);
+    batasTerlampaui = !!state.batasKeras && performance.now() > state.batasKeras;
+    state.batasKeras = null;
   }
   const lagMs = hentikanPantauLag(lag);
   if (state.stopRequested) { v.tidakSelesai = 'Dihentikan pengguna.'; return; }
+  if (batasTerlampaui) {
+    const belum = pesertaA.filter(s => !s._hasilSubmit).length;
+    log(`PERINGATAN: fase ujian melewati batas keras (${menit + 10} menit). ${belum} dari ${pesertaA.length} siswa belum selesai dan dihentikan paksa oleh alat tes. Biasanya ini tanda request yang menggantung atau komputer penguji tertidur/tab ditahan browser.`, 'warn');
+    v.catatan.push(`Fase ujian dihentikan paksa oleh batas keras (${menit + 10} menit): ${belum} dari ${pesertaA.length} siswa belum menekan "Selesai". Hasil submit dan verifikasi nilai untuk mereka tidak lengkap. Jangan jadikan hasil ini dasar kelayakan.`);
+  }
 
   const hs = pesertaA.map(s => s._hasilSubmit).filter(Boolean);
   const totalWaktu = stat.submitWaktu.length ? Math.max(...stat.submitWaktu) - Math.min(...stat.submitWaktu) : 0;
