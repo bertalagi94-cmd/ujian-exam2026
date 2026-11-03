@@ -43,12 +43,49 @@ export async function POST(req: NextRequest) {
   // FIX (fitur essay): tambah status_essay ke select supaya kita tahu, di
   // SEMUA jalur (early-return maupun jalur submit baru), apakah siswa ini
   // masih perlu diarahkan ke fase essay sebelum nilai PG-nya boleh dibuka.
-  const { data: siswaUjianCheck, error: siswaUjianError } = await db
-    .from('siswa_ujian')
-    .select('status, waktu_mulai_awal, status_essay, device_id')
-    .eq('sesi_id', sesiId)
-    .eq('nis', nis)
-    .single()
+  //
+  // PERF (hasil load test 3 Nov 2026: submit serentak P95 ~11,8 dtk): dulu jalur
+  // ini menjalankan LIMA round-trip database BERURUTAN sebelum menulis nilai
+  // (siswa_ujian -> nilai -> status sesi + pengaturan -> jawaban -> RPC).
+  // Query-query bacanya tidak saling bergantung (semuanya hanya butuh sesiId &
+  // nis, yang sudah ada dari request), jadi sekarang dikirim SERENTAK: 2
+  // round-trip (baca paralel, lalu RPC finalisasi). HASIL tiap query tetap
+  // DIPERIKSA PERSIS DI URUTAN LAMA (siswa -> device -> data penilaian ->
+  // TERKUNCI/RESET -> sudah submit -> status sesi -> batas waktu -> jawaban),
+  // jadi respons untuk setiap kondisi tidak berubah; yang berubah hanya kapan
+  // query dikirim. Penulisan nilai tetap atomik lewat finalisasi_pg_atomik
+  // yang mengecek ULANG status/device di dalam transaksi.
+  const [
+    { data: siswaUjianCheck, error: siswaUjianError },
+    sesiCacheHasil,
+    { data: nilaiAwal },
+    { data: sesiStatusCheck, error: errSesiStatus },
+    { data: pengaturanMinSubmit },
+    { data: jawabanSiswa, error: errJawabanSiswa },
+  ] = await Promise.all([
+    db
+      .from('siswa_ujian')
+      .select('status, waktu_mulai_awal, status_essay, device_id')
+      .eq('sesi_id', sesiId)
+      .eq('nis', nis)
+      .single(),
+    // Galat diubah jadi nilai (bukan reject) supaya baru diperiksa di posisi
+    // aslinya, setelah cek siswa & device.
+    ambilDataSesiUntukPenilaian(db, sesiId).then(
+      (v) => ({ ok: true as const, v }),
+      (e: unknown) => ({ ok: false as const, e })
+    ),
+    db
+      .from('nilai')
+      .select('id, nilai, grade, benar, total, lulus')
+      .eq('sesi_id', sesiId)
+      .eq('nis', nis)
+      .single(),
+    // Status sesi TIDAK di-cache (lihat penjelasan di bawah): selalu query langsung.
+    db.from('sesi_ujian').select('status').eq('id', sesiId).single(),
+    db.from('pengaturan').select('key, value').in('key', ['minSubmitAktif', 'minSubmitMenit']),
+    db.from('jawaban').select('soal_id, jawaban').eq('sesi_id', sesiId).eq('nis', nis),
+  ])
 
   // FIX BUG P0 (audit): sebelumnya hasil null dari query di atas tidak
   // ditolak, jadi user yang tidak pernah membuka/terdaftar di sesi ini
@@ -94,16 +131,15 @@ export async function POST(req: NextRequest) {
   // jangan lanjut menilai — kunci kosong akan menulis nilai 0 permanen.
   // 503 = galat sementara: klien (ujian-outbox) mencoba lagi otomatis, dan
   // jawaban siswa tetap aman di DB & perangkat.
-  let sesiCache: Awaited<ReturnType<typeof ambilDataSesiUntukPenilaian>>
-  try {
-    sesiCache = await ambilDataSesiUntukPenilaian(db, sesiId)
-  } catch (e) {
+  if (!sesiCacheHasil.ok) {
+    const e = sesiCacheHasil.e
     console.error('[selesai] data penilaian gagal dibaca:', e instanceof Error ? e.message : e)
     return NextResponse.json(
       { error: 'Server sedang sibuk saat menyiapkan penilaian. Jawaban Anda aman, silakan coba lagi sebentar lagi.', sementara: true },
       { status: 503 }
     )
   }
+  const sesiCache = sesiCacheHasil.v
   const kkmUntukEarlyReturn = sesiCache?.kkm ?? 75
 
   // FIX (fitur essay): sesi punya essay kalau info_json.essay_aktif = true
@@ -119,12 +155,8 @@ export async function POST(req: NextRequest) {
     statusEssay === 'SUDAH_KIRIM' || statusEssay === 'TIDAK_MENGERJAKAN'
 
   if (siswaUjianCheck.status === 'TERKUNCI' || siswaUjianCheck.status === 'RESET') {
-    const { data: nilaiSudahAda } = await db
-      .from('nilai')
-      .select('id, nilai, grade, benar, total, lulus')
-      .eq('sesi_id', sesiId)
-      .eq('nis', nis)
-      .single()
+    // (baris nilai sudah dibaca paralel di atas -- query & kolomnya identik)
+    const nilaiSudahAda = nilaiAwal
 
     if (nilaiSudahAda) {
       // FIX (fitur essay): kalau sesi ini punya essay dan siswa belum
@@ -181,12 +213,8 @@ export async function POST(req: NextRequest) {
   }
 
   // Cek dulu apakah sudah pernah submit — early return
-  const { data: nilaiExist } = await db
-    .from('nilai')
-    .select('id, nilai, grade, benar, total, lulus')
-    .eq('sesi_id', sesiId)
-    .eq('nis', nis)
-    .single()
+  // (baris nilai sudah dibaca paralel di atas)
+  const nilaiExist = nilaiAwal
 
   if (nilaiExist) {
     // FIX (fitur essay): sama seperti early-return TERKUNCI/RESET di atas —
@@ -225,12 +253,7 @@ export async function POST(req: NextRequest) {
   // Sesuai catatan di ambilDataSesiUntukPenilaian: status sesi TIDAK di-cache
   // (data di sesiCache murni statis), jadi di-query langsung di sini, tanpa
   // cache, supaya tidak ada risiko status basi lintas-instance Vercel.
-  // Pengaturan batas minimal submit diambil PARALEL dengan cek status sesi
-  // supaya tidak menambah round-trip serial di jalur submit.
-  const [{ data: sesiStatusCheck, error: errSesiStatus }, { data: pengaturanMinSubmit }] = await Promise.all([
-    db.from('sesi_ujian').select('status').eq('id', sesiId).single(),
-    db.from('pengaturan').select('key, value').in('key', ['minSubmitAktif', 'minSubmitMenit']),
-  ])
+  // (status sesi & pengaturan batas minimal submit sudah dibaca paralel di atas)
   if (errSesiStatus && errSesiStatus.code !== 'PGRST116') {
     return NextResponse.json(
       { error: 'Server sedang sibuk saat memeriksa sesi. Jawaban Anda aman, silakan coba lagi sebentar lagi.', sementara: true },
@@ -312,10 +335,8 @@ export async function POST(req: NextRequest) {
   }
   // ─────────────────────────────────────────────────────────────────────────
 
-  // Jawaban siswa ini TETAP harus di-query per-siswa (berbeda untuk tiap
-  // siswa, tidak bisa di-cache bersama).
-  const { data: jawabanSiswa, error: errJawabanSiswa } = await db
-    .from('jawaban').select('soal_id, jawaban').eq('sesi_id', sesiId).eq('nis', nis)
+  // Jawaban siswa ini TETAP di-query per-siswa (berbeda untuk tiap siswa, tidak
+  // bisa di-cache bersama) -- sekarang dibaca paralel di atas, bukan serial di sini.
   // Gagal membaca jawaban = JANGAN menilai. Kalau dilanjutkan, jawabanSiswa
   // null menghasilkan nilai 0 yang tersimpan permanen. 503 + sementara:true
   // membuat outbox client mencoba lagi otomatis.

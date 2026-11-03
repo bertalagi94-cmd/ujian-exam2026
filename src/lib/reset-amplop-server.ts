@@ -49,7 +49,9 @@ function hitungSaltReset(sesiId: string, nis: string, nomor: number): Buffer {
 const derivasiBerjalan = new Map<string, Promise<Buffer>>()
 
 async function ambilKunciReset(sesiId: string, nis: string, nomor: number): Promise<Buffer> {
-  const cacheKey = `reset-amplop-kunci:${sesiId}:${nis}:${nomor}`
+  // Jumlah iterasi ikut di kunci cache: kunci hasil derivasi dengan iterasi lain
+  // tidak boleh dipakai ulang untuk amplop yang mencantumkan `iter` berbeda.
+  const cacheKey = `reset-amplop-kunci:${RESET_PBKDF2_ITERASI}:${sesiId}:${nis}:${nomor}`
   const hit = cacheGet<Buffer>(cacheKey)
   if (hit) return hit
   const berjalan = derivasiBerjalan.get(cacheKey)
@@ -101,7 +103,7 @@ export { AntreanPenuhError }
 /** Apakah kunci R1..R(maks) siswa ini sudah ada di cache (tidak butuh PBKDF2 sama sekali)? */
 function semuaKunciSudahDiCache(sesiId: string, nis: string, maks: number): boolean {
   for (let n = 1; n <= maks; n++) {
-    if (!cacheGet<Buffer>(`reset-amplop-kunci:${sesiId}:${nis}:${n}`)) return false
+    if (!cacheGet<Buffer>(`reset-amplop-kunci:${RESET_PBKDF2_ITERASI}:${sesiId}:${nis}:${n}`)) return false
   }
   return true
 }

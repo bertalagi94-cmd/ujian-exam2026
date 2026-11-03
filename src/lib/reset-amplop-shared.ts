@@ -37,11 +37,22 @@
 export const RESET_AMPLOP_VERSI = 1
 
 /**
- * Iterasi PBKDF2-SHA256. Dipakai nilai yang sama dengan amplop essay supaya
- * biaya komputasi di perangkat siswa (yang bisa saja HP kelas menengah)
- * konsisten dan sudah teruji di produksi.
+ * Iterasi PBKDF2-SHA256 untuk amplop RESET (amplop essay punya konstanta
+ * sendiri di essay-amplop-shared.ts dan TIDAK ikut berubah).
+ *
+ * PERF (load test 3 Nov 2026): dulu 600_000. Diukur ~280 ms CPU per derivasi,
+ * jadi satu siswa masuk ujian (R1..R3) ~0,85 dtk CPU; 500 siswa serentak
+ * ~420 dtk CPU -> antrean panjang & "coba lagi" di /validasi. Diturunkan ke
+ * 200_000 (~87 ms per derivasi, ~0,26 dtk CPU per siswa, ~3x lebih ringan;
+ * HP siswa juga lebih cepat membuka amplop). Keputusan pemilik sistem dengan
+ * pertimbangan: ruang kode reset 32^7 (lihat catatan di atas) dan ancaman yang
+ * dilindungi hanya siswa biasa. Kalau ancaman berubah (ujian berisiko tinggi),
+ * naikkan lagi di sini -- client membaca `iter` dari amplop (maks
+ * RESET_PBKDF2_ITERASI_MAKS_CLIENT), jadi tidak perlu mengubah client.
+ * Amplop yang sudah terlanjur dibuat dengan iterasi lama tetap bisa dibuka
+ * karena `iter` ikut tersimpan di tiap amplop.
  */
-export const RESET_PBKDF2_ITERASI = 600_000
+export const RESET_PBKDF2_ITERASI = 200_000
 
 /** Batas atas iterasi yang mau dijalankan client (jaga-jaga amplop rusak/berbahaya). */
 export const RESET_PBKDF2_ITERASI_MAKS_CLIENT = 2_000_000
