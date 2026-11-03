@@ -25,7 +25,10 @@ async function petaDipantau(db: SupabaseClient<any>): Promise<Record<string, str
       .eq('aksi', 'DIPANTAU_MULAI')
       .gte('created_at', since)
     if (error) {
-      console.error('Gagal baca status dipantau:', error)
+      // Pesan error bisa berupa halaman HTML Cloudflare utuh saat database
+      // tidak terjangkau; dipotong supaya log Vercel tetap terbaca.
+      const pesan = String((error as { message?: unknown }).message ?? error).replace(/\s+/g, ' ').trim()
+      console.error('Gagal baca status dipantau:', pesan.length > 300 ? `${pesan.slice(0, 300)}… (dipotong)` : pesan)
       return {}
     }
     const peta: Record<string, string> = {}

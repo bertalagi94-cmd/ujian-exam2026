@@ -15,6 +15,12 @@
     },
     "src/app/api/admin/users/kredensial/route.ts": {
       "maxDuration": 60
+    },
+    "src/app/api/siswa/ujian/sync/route.ts": {
+      "maxDuration": 30
+    },
+    "src/app/api/siswa/ujian/cek-sesi/route.ts": {
+      "maxDuration": 30
     }
   },
   "crons": [
