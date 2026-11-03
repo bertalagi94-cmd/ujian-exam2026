@@ -1,101 +1,65 @@
-'use client'
+import { NextRequest, NextResponse } from 'next/server'
+import bcrypt from 'bcryptjs'
+import { tenantDb, yayasanIdDari } from '@/lib/tenant'
+import { signToken } from '@/lib/auth'
+import { requireRoleAktif } from '@/lib/status-akun'
 
-import { useEffect, useState } from 'react'
-import { apiRequest } from '@/lib/utils'
+// Ganti password SENDIRI untuk akun staf (ADMIN / GURU / KEPSEK). Siswa memakai
+// /api/siswa/ganti-password. Endpoint ini satu-satunya yang lolos requireRole
+// walau token masih berklaim gantiPassword (password bawaan = username), dan
+// menerbitkan TOKEN BARU tanpa klaim itu supaya pengguna tidak perlu login ulang.
+// Password lama TIDAK diminta (supaya guru yang lupa password lama tetap bisa
+// menggantinya); yang menjadi bukti identitas adalah sesi login yang sah.
+const PANJANG_MIN_PASSWORD = 8
 
-const ROUTES: Record<string, string> = { ADMIN: '/admin', GURU: '/guru', KEPSEK: '/kepsek', SISWA: '/siswa' }
+export async function PUT(req: NextRequest) {
+  const auth = await requireRoleAktif(req, ['ADMIN', 'GURU', 'KEPSEK'], { izinkanWajibGanti: true })
+  if ('error' in auth) return auth.error
+  const { user } = auth
 
-export default function GantiPasswordPage() {
-  const [role, setRole] = useState<string>('')
-  const [lama, setLama] = useState('')
-  const [baru, setBaru] = useState('')
-  const [konfirmasi, setKonfirmasi] = useState('')
-  const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
-  // true hanya bila token membawa klaim wajib-ganti (saklar WAJIB_GANTI_PASSWORD_AKTIF
-  // di lib/auth.ts menyala). Selain itu halaman ini bersifat sukarela.
-  const [wajib, setWajib] = useState(false)
-
-  useEffect(() => {
-    try {
-      const token = localStorage.getItem('token')
-      const user = JSON.parse(localStorage.getItem('user') ?? 'null') as { role?: string } | null
-      if (!token || !user?.role) { window.location.href = '/login'; return }
-      setRole(user.role)
-      try {
-        const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))) as { gantiPassword?: boolean }
-        setWajib(payload?.gantiPassword === true)
-      } catch { /* token tak terbaca -> anggap sukarela */ }
-    } catch {
-      window.location.href = '/login'
-    }
-  }, [])
-
-  const minPanjang = role === 'SISWA' ? 6 : 8
-
-  async function simpan(e: React.FormEvent) {
-    e.preventDefault()
-    setError('')
-    if (baru.length < minPanjang) { setError(`Password baru minimal ${minPanjang} karakter`); return }
-    if (baru !== konfirmasi) { setError('Konfirmasi password tidak sama'); return }
-    setLoading(true)
-    try {
-      const url = role === 'SISWA' ? '/api/siswa/ganti-password' : '/api/akun/ganti-password'
-      const data = await apiRequest<{ token?: string }>(url, {
-        method: 'PUT',
-        body: JSON.stringify({ passwordLama: lama, passwordBaru: baru }),
-      })
-      if (data.token) localStorage.setItem('token', data.token)
-      window.location.href = ROUTES[role] ?? '/login'
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Gagal mengganti password')
-    } finally {
-      setLoading(false)
-    }
+  const body = await req.json().catch(() => null) as { passwordBaru?: unknown } | null
+  const passwordBaru = body?.passwordBaru
+  if (typeof passwordBaru !== 'string' || !passwordBaru) {
+    return NextResponse.json({ error: 'Password baru wajib diisi' }, { status: 400 })
+  }
+  if (passwordBaru.length < PANJANG_MIN_PASSWORD) {
+    return NextResponse.json({ error: `Password baru minimal ${PANJANG_MIN_PASSWORD} karakter` }, { status: 400 })
+  }
+  if (passwordBaru.toLowerCase() === user.username.toLowerCase()) {
+    return NextResponse.json({ error: 'Password baru tidak boleh sama dengan username' }, { status: 400 })
   }
 
-  const input = 'w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500'
+  const db = tenantDb(yayasanIdDari(user))
+  const { data: akun, error: fetchError } = await db
+    .from('users')
+    .select('username, password_hash')
+    .eq('username', user.username)
+    .single()
+  if (fetchError || !akun) {
+    return NextResponse.json({ error: 'Data akun tidak ditemukan' }, { status: 404 })
+  }
 
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-100 p-4">
-      <form onSubmit={simpan} className="w-full max-w-md rounded-2xl bg-white p-6 shadow space-y-4">
-        <div>
-          <h1 className="text-xl font-bold text-gray-900">Ganti Password</h1>
-          <p className="mt-1 text-sm text-gray-600">
-            {wajib
-              ? 'Anda masih memakai password bawaan. Buat password baru sebelum melanjutkan.'
-              : 'Ubah password akun Anda. Ini opsional — Anda boleh kembali tanpa mengubah apa pun.'}
-          </p>
-        </div>
-        <div>
-          <label className="mb-1 block text-sm font-medium text-gray-700">Password lama</label>
-          <input type="password" className={input} value={lama} onChange={e => setLama(e.target.value)} autoComplete="current-password" required />
-        </div>
-        <div>
-          <label className="mb-1 block text-sm font-medium text-gray-700">Password baru (minimal {minPanjang} karakter)</label>
-          <input type="password" className={input} value={baru} onChange={e => setBaru(e.target.value)} autoComplete="new-password" required />
-        </div>
-        <div>
-          <label className="mb-1 block text-sm font-medium text-gray-700">Ulangi password baru</label>
-          <input type="password" className={input} value={konfirmasi} onChange={e => setKonfirmasi(e.target.value)} autoComplete="new-password" required />
-        </div>
-        {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
-        <button type="submit" disabled={loading || !role}
-          className="w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60">
-          {loading ? 'Menyimpan...' : 'Simpan Password'}
-        </button>
-        {wajib ? (
-          <button type="button" className="w-full text-sm text-gray-500 hover:text-gray-700"
-            onClick={() => { localStorage.removeItem('token'); localStorage.removeItem('user'); window.location.href = '/login' }}>
-            Keluar
-          </button>
-        ) : (
-          <button type="button" className="w-full text-sm text-gray-500 hover:text-gray-700"
-            onClick={() => { window.location.href = ROUTES[role] ?? '/login' }}>
-            Kembali
-          </button>
-        )}
-      </form>
-    </div>
-  )
+  // Tanpa meminta password lama, tetap cegah "ganti" ke password yang sama dengan saat ini.
+  const samaDenganSekarang = await bcrypt.compare(passwordBaru, akun.password_hash)
+  if (samaDenganSekarang) {
+    return NextResponse.json({ error: 'Password baru tidak boleh sama dengan password saat ini' }, { status: 400 })
+  }
+
+  const password_hash = await bcrypt.hash(passwordBaru, 10)
+  const { error: updateError } = await db
+    .from('users')
+    .update({ password_hash })
+    .eq('username', akun.username)
+  if (updateError) {
+    return NextResponse.json({ error: 'Gagal menyimpan password baru' }, { status: 500 })
+  }
+
+  // Token baru tanpa klaim gantiPassword.
+  const token = signToken({
+    username: user.username,
+    nama: user.nama,
+    role: user.role,
+    yayasanId: user.yayasanId,
+  })
+  return NextResponse.json({ message: 'Password berhasil diganti', token })
 }
