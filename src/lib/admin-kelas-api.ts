@@ -12,6 +12,8 @@
 //     kepentingan) → diteruskan ke Super Admin / Admin Kelas lain.
 //   - Durasi essay & pengaturan jadwal tetap hak Super Admin (tidak ada di sini).
 //   - Papan kesiapan ujian: hanya BACA, disaring ke kelas wilayah.
+//   - Pantauan ujian (siswa terkunci & sesi bermasalah): hanya BACA. Membuka
+//     kunci dan menutup sesi tetap hak Super Admin / pengawas.
 //   - Reset password siswa: hanya siswa di kelas wilayah (bukan akun tester),
 //     password kembali ke NISN (sama seperti Super Admin), dan SETIAP reset
 //     dicatat di log_aktivitas (aksi ADMIN_KELAS_RESET_PASSWORD).
@@ -23,10 +25,16 @@ import { catatAktivitas } from '@/lib/aktivitas'
 import { ambilSemuaBaris } from '@/lib/ambil-semua'
 import { getRangkumanJadwal } from '@/lib/rangkuman'
 import { rapikanNamaKelas } from '@/lib/kelas-sync'
-import { linkWhatsApp } from '@/lib/pengingat-tutup-sesi'
+import {
+  hitungPeserta, labelJamZona, labelTanggalZona, linkWhatsApp, pesanWhatsAppPengawas, tentukanKondisiSesi,
+} from '@/lib/pengingat-tutup-sesi'
+import { getZonaWaktuSekolah } from '@/lib/pengaturan-waktu'
+import { durasiTotalSesi } from '@/lib/durasi-ujian'
+import { terjemahJenisPelanggaran } from '@/lib/pelanggaran-shared'
 import type { StatusSoal } from '@/lib/soal-status-shared'
 import type {
-  BarisKesiapanKelas, ResponKesiapanKelas, ResponSiswaAdminKelas, SiswaAdminKelas,
+  BarisKesiapanKelas, ResponKesiapanKelas, ResponPantauanKelas, ResponSiswaAdminKelas,
+  SesiPantauan, SiswaAdminKelas, SiswaTerkunciPantauan,
 } from '@/lib/admin-kelas-shared'
 import { getKelasAdminKelas, paketDalamWilayah, type KelasAdminKelas } from '@/lib/admin-kelas'
 import {
@@ -307,4 +315,216 @@ export async function resetPasswordSiswaAdminKelas(req: NextRequest, nis: string
   )
 
   return NextResponse.json({ message: `Password ${siswa.nama} berhasil direset ke NISN` })
+}
+
+
+// ── PANTAUAN UJIAN: SISWA TERKUNCI & SESI BERMASALAH ────────────────────────
+// Hanya baca. Tidak ada aksi ubah data di sini: membuka kunci siswa dan menutup
+// sesi tetap lewat Super Admin / pengawas. Definisi "sesi bermasalah" memakai
+// aturan yang sama dengan pengingat tutup sesi (tentukanKondisiSesi).
+
+const HARI_RIWAYAT_TERKUNCI = 7
+const UKURAN_CHUNK = 200
+
+function potong<T>(arr: T[], ukuran = UKURAN_CHUNK): T[][] {
+  const hasil: T[][] = []
+  for (let i = 0; i < arr.length; i += ukuran) hasil.push(arr.slice(i, i + ukuran))
+  return hasil
+}
+
+/** GET: sesi berjalan + siswa terkunci (7 hari terakhir) untuk kelas wilayah. */
+export async function pantauanAdminKelas(req: NextRequest) {
+  const s = await siapkan(req)
+  if ('error' in s) return s.error
+  const { db, wilayah, yayasanId } = s.ctx
+
+  try {
+    const kunciNama = new Set(wilayah.map(k => rapikanNamaKelas(k.nama)))
+    const idWilayah = new Set(wilayah.map(k => k.id))
+    const dalamWilayah = (kelasSesi: unknown) =>
+      kunciNama.has(rapikanNamaKelas(kelasSesi)) || idWilayah.has(String(kelasSesi ?? ''))
+
+    const zona = await getZonaWaktuSekolah(yayasanId)
+    const sekarang = new Date()
+    const batasRiwayat = new Date(sekarang.getTime() - HARI_RIWAYAT_TERKUNCI * 86_400_000).toISOString()
+
+    // 1) Sesi: yang masih BERJALAN + semua sesi 7 hari terakhir (untuk riwayat terkunci).
+    type BarisSesi = {
+      id: string; jadwal_id: string | null; mapel_id: string; kelas: string; waktu_mulai: string
+      durasi: number | null; status: string; is_darurat: boolean | null; info_json: any
+    }
+    const kolomSesi = 'id, jadwal_id, mapel_id, kelas, waktu_mulai, durasi, status, is_darurat, info_json'
+    const [berjalan, terbaru] = await Promise.all([
+      ambilSemuaBaris<BarisSesi>((dari, sampai) =>
+        db.from('sesi_ujian').select(kolomSesi).eq('status', 'BERJALAN').order('id', { ascending: true }).range(dari, sampai)),
+      ambilSemuaBaris<BarisSesi>((dari, sampai) =>
+        db.from('sesi_ujian').select(kolomSesi).gte('waktu_mulai', batasRiwayat).order('id', { ascending: true }).range(dari, sampai)),
+    ])
+    if (berjalan.error) throw new Error(`Gagal membaca sesi ujian: ${berjalan.error.message}`)
+    if (terbaru.error) throw new Error(`Gagal membaca sesi ujian: ${terbaru.error.message}`)
+
+    const sesiPeta = new Map<string, BarisSesi>()
+    for (const r of [...berjalan.data, ...terbaru.data]) {
+      if (dalamWilayah(r.kelas)) sesiPeta.set(String(r.id), r)
+    }
+    const semuaSesi = [...sesiPeta.values()]
+
+    // 2) Peserta tiap sesi.
+    type BarisPeserta = { sesi_id: string; nis: string; status: string | null; waktu_selesai: string | null }
+    const pesertaPerSesi = new Map<string, BarisPeserta[]>()
+    for (const grup of potong(semuaSesi.map(x => String(x.id)))) {
+      const { data, error } = await ambilSemuaBaris<BarisPeserta>((dari, sampai) =>
+        db.from('siswa_ujian').select('sesi_id, nis, status, waktu_selesai')
+          .in('sesi_id', grup).order('id', { ascending: true }).range(dari, sampai))
+      if (error) throw new Error(`Gagal membaca peserta ujian: ${error.message}`)
+      for (const b of data) {
+        const arr = pesertaPerSesi.get(String(b.sesi_id)) ?? []
+        arr.push(b)
+        pesertaPerSesi.set(String(b.sesi_id), arr)
+      }
+    }
+
+    // 3) Nama mapel, pengawas (hanya untuk sesi BERJALAN).
+    const sesiBerjalan = semuaSesi.filter(x => x.status === 'BERJALAN')
+    const mapelIds = [...new Set(semuaSesi.map(x => x.mapel_id).filter(Boolean))]
+    const jadwalIds = [...new Set(sesiBerjalan.map(x => x.jadwal_id).filter(Boolean))] as string[]
+    const [mapelRes, jadwalRes] = await Promise.all([
+      mapelIds.length ? db.from('mapel').select('id, nama').in('id', mapelIds) : Promise.resolve({ data: [], error: null }),
+      jadwalIds.length ? db.from('jadwal').select('id, pengawas').in('id', jadwalIds) : Promise.resolve({ data: [], error: null }),
+    ])
+    if (mapelRes.error) throw new Error(`Gagal membaca mata pelajaran: ${mapelRes.error.message}`)
+    if (jadwalRes.error) throw new Error(`Gagal membaca jadwal: ${jadwalRes.error.message}`)
+    const namaMapel = new Map<string, string>(((mapelRes.data ?? []) as any[]).map(m => [String(m.id), String(m.nama)]))
+    const pengawasJadwal = new Map<string, string | null>(((jadwalRes.data ?? []) as any[]).map(j => [String(j.id), j.pengawas ?? null]))
+
+    // 4) Sesi berjalan: tentukan kondisi bermasalah.
+    const pengawasSesi = new Map<string, string>()
+    const baris: { sesi: BarisSesi; peserta: ReturnType<typeof hitungPeserta>; jenis: SesiPantauan['jenis_masalah'] }[] = []
+    for (const sesi of sesiBerjalan) {
+      const peserta = hitungPeserta(pesertaPerSesi.get(String(sesi.id)) ?? [])
+      const kondisi = tentukanKondisiSesi({
+        sekarang, utcOffsetJam: zona.utcOffsetJam, waktuMulai: sesi.waktu_mulai,
+        durasiMenit: durasiTotalSesi(sesi.durasi, sesi.info_json), peserta, belumMasuk: null,
+      })
+      const susulanAdmin = !!sesi.info_json?.dibuka_oleh_admin && !!sesi.info_json?.pengawas_susulan
+      const username = susulanAdmin ? sesi.info_json.pengawas_susulan : (sesi.jadwal_id ? pengawasJadwal.get(sesi.jadwal_id) : null)
+      if (username) pengawasSesi.set(String(sesi.id), String(username))
+      baris.push({ sesi, peserta, jenis: kondisi.jenis })
+    }
+
+    const usernamePengawas = [...new Set(baris.filter(b => b.jenis).map(b => pengawasSesi.get(String(b.sesi.id))).filter(Boolean))] as string[]
+    const pengawasData = new Map<string, { nama: string; no_hp: string | null }>()
+    if (usernamePengawas.length > 0) {
+      const { data, error } = await db.from('users').select('username, nama, no_hp').in('username', usernamePengawas)
+      if (error) throw new Error(`Gagal membaca data pengawas: ${error.message}`)
+      for (const u of (data ?? []) as any[]) pengawasData.set(String(u.username), { nama: String(u.nama), no_hp: u.no_hp ?? null })
+    }
+
+    const URUTAN_MASALAH = { KEMARIN: 0, LEWAT_WAKTU: 1, SEMUA_SELESAI: 2 } as const
+    const sesiOut: SesiPantauan[] = baris
+      .map(({ sesi, peserta, jenis }): SesiPantauan => {
+        const username = pengawasSesi.get(String(sesi.id))
+        const pg = username ? pengawasData.get(username) : undefined
+        const mapel = namaMapel.get(String(sesi.mapel_id)) ?? String(sesi.mapel_id ?? '-')
+        const labelTanggal = labelTanggalZona(sesi.waktu_mulai, zona.utcOffsetJam)
+        return {
+          sesi_id: String(sesi.id),
+          nama_mapel: mapel,
+          kelas: String(sesi.kelas),
+          label_tanggal: labelTanggal,
+          label_jam_mulai: labelJamZona(sesi.waktu_mulai, zona.utcOffsetJam),
+          durasi_menit: durasiTotalSesi(sesi.durasi, sesi.info_json) || 90,
+          is_susulan: !!sesi.info_json?.dibuka_oleh_admin || !!sesi.is_darurat,
+          jenis_masalah: jenis,
+          peserta: {
+            aktif: peserta.aktif, reset: peserta.reset, selesai: peserta.selesai,
+            terkunci: peserta.terkunci, total_masuk: peserta.totalMasuk,
+          },
+          pengawas_nama: pg?.nama ?? username ?? null,
+          link_ingatkan: jenis && pg
+            ? linkWhatsApp(pg.no_hp, pesanWhatsAppPengawas({ namaPengawas: pg.nama, namaMapel: mapel, namaKelas: String(sesi.kelas), labelTanggal }))
+            : null,
+        }
+      })
+      .sort((a, b) =>
+        (a.jenis_masalah ? URUTAN_MASALAH[a.jenis_masalah] : 9) - (b.jenis_masalah ? URUTAN_MASALAH[b.jenis_masalah] : 9) ||
+        a.kelas.localeCompare(b.kelas, 'id', { numeric: true }) || a.nama_mapel.localeCompare(b.nama_mapel, 'id')
+      )
+
+    // 5) Siswa terkunci (semua sesi dalam rentang riwayat).
+    const terkunciBaris: { sesi: BarisSesi; nis: string }[] = []
+    for (const sesi of semuaSesi) {
+      for (const p of pesertaPerSesi.get(String(sesi.id)) ?? []) {
+        if (p.status === 'TERKUNCI') terkunciBaris.push({ sesi, nis: String(p.nis) })
+      }
+    }
+
+    const namaSiswa = new Map<string, { nama: string; kelas: string }>()
+    const jumlahPelanggaran = new Map<string, Map<string, number>>() // `${sesi}__${nis}` -> jenis -> jumlah
+    if (terkunciBaris.length > 0) {
+      for (const grup of potong([...new Set(terkunciBaris.map(t => t.nis))])) {
+        const { data, error } = await db.from('siswa').select('nis, nama, kelas').in('nis', grup)
+        if (error) throw new Error(`Gagal membaca data siswa: ${error.message}`)
+        for (const x of (data ?? []) as any[]) namaSiswa.set(String(x.nis), { nama: String(x.nama), kelas: String(x.kelas) })
+      }
+      const kunciTerkunci = new Set(terkunciBaris.map(t => `${t.sesi.id}__${t.nis}`))
+      for (const grup of potong([...new Set(terkunciBaris.map(t => String(t.sesi.id)))])) {
+        const { data, error } = await ambilSemuaBaris<{ sesi_id: string; nis: string; jenis: string | null }>((dari, sampai) =>
+          db.from('pelanggaran').select('sesi_id, nis, jenis').in('sesi_id', grup)
+            .order('id', { ascending: true }).range(dari, sampai))
+        if (error) throw new Error(`Gagal membaca data pelanggaran: ${error.message}`)
+        for (const pl of data) {
+          const k = `${pl.sesi_id}__${pl.nis}`
+          if (!kunciTerkunci.has(k)) continue
+          const m = jumlahPelanggaran.get(k) ?? new Map<string, number>()
+          const jenis = terjemahJenisPelanggaran(String(pl.jenis ?? 'LAINNYA'))
+          m.set(jenis, (m.get(jenis) ?? 0) + 1)
+          jumlahPelanggaran.set(k, m)
+        }
+      }
+    }
+
+    const terkunciOut = terkunciBaris
+      .map(({ sesi, nis }) => {
+        const sw = namaSiswa.get(nis)
+        const rincian = jumlahPelanggaran.get(`${sesi.id}__${nis}`)
+        const urut = rincian ? [...rincian.entries()].sort((a, b) => b[1] - a[1]) : []
+        const item: SiswaTerkunciPantauan = {
+          sesi_id: String(sesi.id),
+          nis,
+          nama: sw?.nama ?? nis,
+          kelas: sw?.kelas ?? String(sesi.kelas),
+          nama_mapel: namaMapel.get(String(sesi.mapel_id)) ?? String(sesi.mapel_id ?? '-'),
+          label_tanggal: labelTanggalZona(sesi.waktu_mulai, zona.utcOffsetJam),
+          sesi_berjalan: sesi.status === 'BERJALAN',
+          jumlah_pelanggaran: urut.reduce((n, [, c]) => n + c, 0),
+          jenis_pelanggaran: urut.slice(0, 3).map(([j]) => j),
+        }
+        return { item, waktu: sesi.waktu_mulai }
+      })
+      .sort((a, b) =>
+        Number(b.item.sesi_berjalan) - Number(a.item.sesi_berjalan) ||
+        b.waktu.localeCompare(a.waktu) ||
+        a.item.kelas.localeCompare(b.item.kelas, 'id', { numeric: true }) ||
+        a.item.nama.localeCompare(b.item.nama, 'id')
+      )
+      .map(x => x.item)
+
+    const respons: ResponPantauanKelas = {
+      kelas: wilayah,
+      sesi: sesiOut,
+      terkunci: terkunciOut,
+      hari_riwayat: HARI_RIWAYAT_TERKUNCI,
+      ringkasan: {
+        sesi_berjalan: sesiOut.length,
+        sesi_bermasalah: sesiOut.filter(x => x.jenis_masalah).length,
+        siswa_terkunci: terkunciOut.length,
+        terkunci_di_sesi_berjalan: terkunciOut.filter(x => x.sesi_berjalan).length,
+      },
+    }
+    return NextResponse.json(respons)
+  } catch (e) {
+    // Fail-closed: gagal membaca tidak boleh tampil sebagai "tidak ada masalah".
+    return NextResponse.json({ error: e instanceof Error ? e.message : 'Gagal memuat pantauan ujian' }, { status: 500 })
+  }
 }

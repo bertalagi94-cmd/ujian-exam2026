@@ -61,3 +61,57 @@ export const LABEL_KESIAPAN: Record<StatusSoal, string> = {
   DITOLAK: 'Ditolak',
   DISETUJUI: 'Disetujui',
 }
+
+// ── Pantauan ujian (siswa terkunci & sesi bermasalah) ───────────────────────
+
+export type JenisMasalahSesi = 'KEMARIN' | 'LEWAT_WAKTU' | 'SEMUA_SELESAI'
+
+export const LABEL_MASALAH_SESI: Record<JenisMasalahSesi, string> = {
+  KEMARIN: 'Belum ditutup sejak kemarin',
+  LEWAT_WAKTU: 'Lewat waktu, belum ditutup',
+  SEMUA_SELESAI: 'Semua siswa selesai, belum ditutup',
+}
+
+export interface SesiPantauan {
+  sesi_id: string
+  nama_mapel: string
+  kelas: string
+  label_tanggal: string
+  label_jam_mulai: string
+  durasi_menit: number
+  is_susulan: boolean
+  /** null = sesi berjalan normal. */
+  jenis_masalah: JenisMasalahSesi | null
+  peserta: { aktif: number; reset: number; selesai: number; terkunci: number; total_masuk: number }
+  pengawas_nama: string | null
+  /** Tautan WhatsApp pengingat ke pengawas; hanya untuk sesi bermasalah dan pengawas ber-HP valid. */
+  link_ingatkan: string | null
+}
+
+export interface SiswaTerkunciPantauan {
+  sesi_id: string
+  nis: string
+  nama: string
+  kelas: string
+  nama_mapel: string
+  label_tanggal: string
+  /** true = sesinya masih berjalan (siswa mungkin sedang menunggu ditangani). */
+  sesi_berjalan: boolean
+  jumlah_pelanggaran: number
+  /** Jenis pelanggaran (sudah diterjemahkan), maksimal 3 teratas. */
+  jenis_pelanggaran: string[]
+}
+
+export interface ResponPantauanKelas {
+  kelas: { id: string; nama: string }[]
+  sesi: SesiPantauan[]
+  terkunci: SiswaTerkunciPantauan[]
+  /** Riwayat siswa terkunci yang ditampilkan (hari ke belakang). */
+  hari_riwayat: number
+  ringkasan: {
+    sesi_berjalan: number
+    sesi_bermasalah: number
+    siswa_terkunci: number
+    terkunci_di_sesi_berjalan: number
+  }
+}
