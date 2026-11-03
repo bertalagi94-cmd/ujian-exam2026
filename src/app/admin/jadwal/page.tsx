@@ -9,6 +9,7 @@ import {
 import { Modal, Confirm, StatusBadge, SearchInput, EmptyState, Spinner, Toast, Pagination } from '@/components/ui'
 import { apiRequest, formatDate } from '@/lib/utils'
 import { Jadwal, Mapel, Kelas, User } from '@/types'
+import type { RangkumanJadwal, ItemKesiapan } from '@/lib/rangkuman'
 import { DURASI_ESSAY_DEFAULT_MENIT, DURASI_ESSAY_MAX_DEFAULT, DURASI_ESSAY_MIN_DEFAULT, labelDurasiTotal } from '@/lib/durasi-ujian'
 
 const PER_PAGE = 20
@@ -331,6 +332,79 @@ function ModalSusulanAdmin({
   )
 }
 
+// ── Rangkuman Kesiapan Ujian ──────────────────────────────────────
+type RangkumanSection = 'siap' | 'status' | 'jadwal' | 'guru'
+type StatusSoalKey = 'DISETUJUI' | 'MENUNGGU' | 'DRAFT' | 'DITOLAK' | 'BELUM_ADA'
+
+// Urutan & warna kartu/filter status soal. Label mengikuti SoalStatusBadge
+// supaya istilah di Rangkuman sama dengan di tabel jadwal.
+const STATUS_RANGKUMAN: { key: StatusSoalKey; label: string; angka: string; kartu: string; chipAktif: string }[] = [
+  { key: 'DISETUJUI', label: 'Soal Siap',            angka: 'text-emerald-700', kartu: 'bg-emerald-50 border-emerald-200', chipAktif: 'bg-emerald-100 border-emerald-300 text-emerald-800' },
+  { key: 'MENUNGGU',  label: 'Menunggu Persetujuan', angka: 'text-amber-700',   kartu: 'bg-amber-50 border-amber-200',     chipAktif: 'bg-amber-100 border-amber-300 text-amber-800' },
+  { key: 'DRAFT',     label: 'Sedang Dibuat',        angka: 'text-blue-700',    kartu: 'bg-blue-50 border-blue-200',       chipAktif: 'bg-blue-100 border-blue-300 text-blue-800' },
+  { key: 'DITOLAK',   label: 'Ditolak',              angka: 'text-red-700',     kartu: 'bg-red-50 border-red-200',         chipAktif: 'bg-red-100 border-red-300 text-red-800' },
+  { key: 'BELUM_ADA', label: 'Belum Ada Soal',       angka: 'text-slate-600',   kartu: 'bg-slate-50 border-slate-200',     chipAktif: 'bg-slate-200 border-slate-300 text-slate-800' },
+]
+
+function cocokCari(item: ItemKesiapan, q: string) {
+  if (!q) return true
+  const t = q.trim().toLowerCase()
+  return (
+    item.nama_mapel.toLowerCase().includes(t) ||
+    item.kelas.toLowerCase().includes(t) ||
+    (item.nama_guru ?? '').toLowerCase().includes(t)
+  )
+}
+
+// Satu baris kombinasi mapel x kelas: nama mapel, kelas, guru, status soal,
+// status jadwal, dan (kalau soal sudah siap & belum terjadwal) tombol Buat Jadwal.
+function BarisKesiapan({ item, onBuat }: { item: ItemKesiapan; onBuat: (item: ItemKesiapan) => void }) {
+  const siapDijadwalkan = item.status_soal === 'DISETUJUI' && !item.sudah_dijadwalkan
+  return (
+    <div className={`flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl border ${
+      siapDijadwalkan ? 'bg-emerald-50/70 border-emerald-200' : 'bg-white border-slate-200'
+    }`}>
+      <div className="min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="font-medium text-slate-800 text-sm">{item.nama_mapel}</span>
+          <span className="text-xs text-slate-600 bg-white border border-slate-200 rounded-full px-2 py-0.5">Kelas {item.kelas}</span>
+        </div>
+        <p className="text-xs text-slate-400 mt-0.5 truncate">Guru: {item.nama_guru ?? '-'}</p>
+      </div>
+      <div className="flex items-center gap-2 flex-shrink-0 flex-wrap justify-end">
+        <SoalStatusBadge status={item.status_soal} />
+        {item.sudah_dijadwalkan ? (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-700">
+            <Calendar className="w-3 h-3" />
+            {item.tanggal_jadwal ? `Terjadwal · ${fmtTglPendek(item.tanggal_jadwal)}` : 'Terjadwal'}
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-500">
+            Belum dijadwalkan
+          </span>
+        )}
+        {siapDijadwalkan && (
+          <button onClick={() => onBuat(item)} className="btn-primary btn-sm flex items-center gap-1">
+            <Plus className="w-3.5 h-3.5" /> Buat Jadwal
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function KosongRangkuman({ pesan, sub }: { pesan: string; sub?: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-10 text-center gap-3">
+      <div className="w-14 h-14 rounded-full bg-emerald-100 flex items-center justify-center">
+        <CheckCircle className="w-7 h-7 text-emerald-600" />
+      </div>
+      <p className="font-semibold text-slate-700">{pesan}</p>
+      {sub && <p className="text-sm text-slate-400 max-w-sm">{sub}</p>}
+    </div>
+  )
+}
+
 interface JadwalCetak {
   id: string; tanggal: string; sesi: number
   jam_mulai: string; jam_selesai: string; durasi: number
@@ -411,29 +485,45 @@ export default function AdminJadwalPage() {
 
   const [rangkumanOpen, setRangkumanOpen] = useState(false)
   const [rangkumanLoading, setRangkumanLoading] = useState(false)
-  const [rangkumanData, setRangkumanData] = useState<{
-    belum_dijadwalkan: { mapel_id: string; nama_mapel: string; kelas: string }[]
-    belum_ada_soal: { mapel_id: string; nama_mapel: string; kelas: string; status_soal: string }[]
-    guru_belum_mengawas: { username: string; nama: string }[]
-  } | null>(null)
-  const [rangkumanSection, setRangkumanSection] = useState<'jadwal' | 'soal' | 'guru'>('jadwal')
+  const [rangkumanData, setRangkumanData] = useState<RangkumanJadwal | null>(null)
+  const [rangkumanSection, setRangkumanSection] = useState<RangkumanSection>('siap')
+  const [rangkumanFilter, setRangkumanFilter] = useState<'SEMUA' | StatusSoalKey>('SEMUA')
+  const [rangkumanCari, setRangkumanCari] = useState('')
+  // true kalau form jadwal dibuka dari tombol "Buat Jadwal" di Rangkuman, supaya
+  // setelah disimpan/dibatalkan admin dikembalikan ke Rangkuman (alur kerja berurutan).
+  const [kembaliKeRangkuman, setKembaliKeRangkuman] = useState(false)
 
-  async function bukaRangkuman() {
+  async function bukaRangkuman(section: RangkumanSection = 'siap') {
     setRangkumanOpen(true)
-    setRangkumanSection('jadwal')
+    setRangkumanSection(section)
+    setRangkumanFilter('SEMUA')
+    setRangkumanCari('')
     setRangkumanLoading(true)
     try {
-      const res = await apiRequest<{
-        belum_dijadwalkan: { mapel_id: string; nama_mapel: string; kelas: string }[]
-        belum_ada_soal: { mapel_id: string; nama_mapel: string; kelas: string; status_soal: string }[]
-        guru_belum_mengawas: { username: string; nama: string }[]
-      }>('/api/admin/jadwal/rangkuman')
+      const res = await apiRequest<RangkumanJadwal>('/api/admin/jadwal/rangkuman')
       setRangkumanData(res)
     } catch (err: unknown) {
       showToast(err instanceof Error ? err.message : 'Gagal memuat rangkuman', 'error')
       setRangkumanOpen(false)
     } finally {
       setRangkumanLoading(false)
+    }
+  }
+
+  // Tombol "Buat Jadwal" di Rangkuman: tutup Rangkuman, buka form tambah dengan
+  // mapel & kelas sudah terisi.
+  function buatJadwalDariRangkuman(item: { mapel_id: string; kelas: string }) {
+    setRangkumanOpen(false)
+    openModal({ mapel_id: item.mapel_id, kelas: item.kelas }, true)
+  }
+
+  // Tutup form jadwal; kalau tadi dibuka dari Rangkuman, kembali ke Rangkuman
+  // (data dimuat ulang sehingga mapel yang baru dijadwalkan langsung hilang dari daftar "siap").
+  function tutupFormJadwal() {
+    setModalOpen(false)
+    if (kembaliKeRangkuman) {
+      setKembaliKeRangkuman(false)
+      bukaRangkuman('siap')
     }
   }
 
@@ -498,7 +588,8 @@ export default function AdminJadwalPage() {
   // Mengganti pola lama yang menulis 4 setState terpisah di setiap tombol,
   // sekaligus mengisi formWatch agar peringatan bentrok langsung akurat
   // saat membuka form Edit (bukan menunggu admin mengubah sesuatu dulu).
-  function openModal(j?: Jadwal) {
+  function openModal(j?: Partial<Jadwal>, dariRangkuman = false) {
+    setKembaliKeRangkuman(dariRangkuman)
     setEditData(j ?? {})
     setSelectedMapelId(j?.mapel_id ?? '')
     setPerluLengkapiPengaturan(false)
@@ -554,7 +645,7 @@ export default function AdminJadwalPage() {
         await apiRequest('/api/admin/jadwal', { method: 'POST', body: JSON.stringify(payload) })
         showToast('Jadwal berhasil ditambahkan')
       }
-      setModalOpen(false)
+      tutupFormJadwal()
       load()
     } catch (err: unknown) {
       const errData = (err as any)?.data
@@ -929,7 +1020,7 @@ export default function AdminJadwalPage() {
           <p className="page-subtitle">{jadwal.length} jadwal terdaftar</p>
         </div>
         <div className="flex gap-2 flex-wrap">
-          <button onClick={bukaRangkuman} className="btn-sm flex items-center gap-1.5 font-medium rounded-xl px-3 py-2 border bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100 transition-colors">
+          <button onClick={() => bukaRangkuman()} className="btn-sm flex items-center gap-1.5 font-medium rounded-xl px-3 py-2 border bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100 transition-colors">
             <BarChart3 className="w-4 h-4" /> Rangkuman
           </button>
           <button onClick={() => setCetakMassalOpen(true)} className="btn-secondary btn-sm">
@@ -1233,11 +1324,11 @@ export default function AdminJadwalPage() {
       </Modal>
 
       {/* Modal Tambah/Edit */}
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)}
+      <Modal open={modalOpen} onClose={tutupFormJadwal}
         title={editData?.id ? 'Edit Jadwal' : 'Tambah Jadwal Baru'}
         footer={
           <>
-            <button onClick={() => setModalOpen(false)} className="btn-secondary" disabled={saving}>Batal</button>
+            <button onClick={tutupFormJadwal} className="btn-secondary" disabled={saving}>Batal</button>
             <button form="jadwal-form" type="submit" className="btn-primary" disabled={saving}>
               {saving ? <Spinner size="sm" /> : (editData?.id ? 'Simpan' : 'Tambah')}
             </button>
@@ -1621,7 +1712,7 @@ export default function AdminJadwalPage() {
         open={rangkumanOpen}
         onClose={() => setRangkumanOpen(false)}
         title="Rangkuman Kesiapan Ujian"
-        size="lg"
+        size="xl"
         footer={
           <button onClick={() => setRangkumanOpen(false)} className="btn-primary">Tutup</button>
         }
@@ -1630,118 +1721,191 @@ export default function AdminJadwalPage() {
           <div className="flex justify-center py-16"><Spinner size="lg" /></div>
         ) : !rangkumanData ? (
           <div className="py-10 text-center text-sm text-slate-400">Gagal memuat data.</div>
-        ) : (
-          <div className="space-y-4">
-            {/* Tabs */}
-            <div className="flex gap-2 flex-wrap">
-              <button
-                onClick={() => setRangkumanSection('jadwal')}
-                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold border transition-colors ${
-                  rangkumanSection === 'jadwal' ? 'bg-amber-100 border-amber-300 text-amber-800' : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100'
-                }`}
-              >
-                <Calendar className="w-3.5 h-3.5" /> Belum Dijadwalkan ({rangkumanData.belum_dijadwalkan.length})
-              </button>
-              <button
-                onClick={() => setRangkumanSection('soal')}
-                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold border transition-colors ${
-                  rangkumanSection === 'soal' ? 'bg-blue-100 border-blue-300 text-blue-800' : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100'
-                }`}
-              >
-                <FileText className="w-3.5 h-3.5" /> Belum Ada Soal ({rangkumanData.belum_ada_soal.length})
-              </button>
-              <button
-                onClick={() => setRangkumanSection('guru')}
-                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold border transition-colors ${
-                  rangkumanSection === 'guru' ? 'bg-purple-100 border-purple-300 text-purple-800' : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100'
-                }`}
-              >
-                <UserX className="w-3.5 h-3.5" /> Guru Belum Mengawas ({rangkumanData.guru_belum_mengawas.length})
-              </button>
+        ) : (() => {
+          const d = rangkumanData
+          const r = d.ringkasan
+          const persenTerjadwal = r.total > 0 ? Math.round((r.sudah_terjadwal / r.total) * 100) : 0
+          const siapList = d.kesiapan.filter(k => k.status_soal === 'DISETUJUI' && !k.sudah_dijadwalkan)
+          const siapTampil = siapList.filter(k => cocokCari(k, rangkumanCari))
+          const statusTampil = d.kesiapan
+            .filter(k => rangkumanFilter === 'SEMUA' || k.status_soal === rangkumanFilter)
+            .filter(k => cocokCari(k, rangkumanCari))
+          const jadwalTampil = d.kesiapan
+            .filter(k => !k.sudah_dijadwalkan)
+            .filter(k => cocokCari(k, rangkumanCari))
+          const belumDijadwalkanCount = r.total - r.sudah_terjadwal
+
+          const tabs: { key: RangkumanSection; label: string; count: number; icon: React.ElementType; aktif: string }[] = [
+            { key: 'siap',   label: 'Siap Dijadwalkan',    count: r.siap_dijadwalkan,        icon: CheckCircle, aktif: 'bg-emerald-100 border-emerald-300 text-emerald-800' },
+            { key: 'status', label: 'Status Soal',         count: r.total,                   icon: FileText,    aktif: 'bg-blue-100 border-blue-300 text-blue-800' },
+            { key: 'jadwal', label: 'Belum Dijadwalkan',   count: belumDijadwalkanCount,     icon: Calendar,    aktif: 'bg-amber-100 border-amber-300 text-amber-800' },
+            { key: 'guru',   label: 'Guru Belum Mengawas', count: d.guru_belum_mengawas.length, icon: UserX,    aktif: 'bg-purple-100 border-purple-300 text-purple-800' },
+          ]
+
+          return (
+            <div className="space-y-4">
+              {/* Ringkasan: fokus utama = berapa yang siap dijadwalkan */}
+              <div className="rounded-2xl border border-slate-200 bg-slate-50/60 p-3 space-y-3">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-800">
+                      {r.siap_dijadwalkan > 0
+                        ? `${r.siap_dijadwalkan} mapel & kelas siap dijadwalkan`
+                        : r.total === 0 ? 'Belum ada data mapel & kelas' : 'Tidak ada lagi yang siap dijadwalkan'}
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      Soal sudah disetujui, tinggal dibuatkan jadwal ujian.
+                    </p>
+                  </div>
+                  {r.siap_dijadwalkan > 0 && rangkumanSection !== 'siap' && (
+                    <button onClick={() => { setRangkumanSection('siap'); setRangkumanCari('') }} className="btn-secondary btn-sm">
+                      Lihat yang siap
+                    </button>
+                  )}
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
+                    <span>Sudah terjadwal: <strong className="text-slate-700">{r.sudah_terjadwal}</strong> dari {r.total}</span>
+                    <span className="font-semibold text-slate-700">{persenTerjadwal}%</span>
+                  </div>
+                  <div className="h-2 rounded-full bg-slate-200 overflow-hidden">
+                    <div className="h-full bg-indigo-500 rounded-full transition-all" style={{ width: `${persenTerjadwal}%` }} />
+                  </div>
+                </div>
+
+                {/* Hitungan per status soal — klik untuk membuka daftarnya */}
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                  {STATUS_RANGKUMAN.map(st => (
+                    <button
+                      key={st.key}
+                      onClick={() => { setRangkumanSection('status'); setRangkumanFilter(st.key); setRangkumanCari('') }}
+                      className={`text-left rounded-xl border px-3 py-2 transition-colors hover:brightness-95 ${st.kartu}`}
+                    >
+                      <p className={`text-xl font-bold leading-tight ${st.angka}`}>{r.per_status[st.key] ?? 0}</p>
+                      <p className="text-[11px] text-slate-500 leading-tight mt-0.5">{st.label}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Tabs */}
+              <div className="flex gap-2 flex-wrap">
+                {tabs.map(t => (
+                  <button
+                    key={t.key}
+                    onClick={() => { setRangkumanSection(t.key); setRangkumanCari('') }}
+                    className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold border transition-colors ${
+                      rangkumanSection === t.key ? t.aktif : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100'
+                    }`}
+                  >
+                    <t.icon className="w-3.5 h-3.5" /> {t.label} ({t.count})
+                  </button>
+                ))}
+              </div>
+
+              {/* Pencarian (untuk tab yang berisi daftar mapel) */}
+              {rangkumanSection !== 'guru' && (
+                <SearchInput value={rangkumanCari} onChange={setRangkumanCari} placeholder="Cari mapel, kelas, atau nama guru..." />
+              )}
+
+              {/* Konten Tab */}
+              <div className="max-h-[26rem] overflow-y-auto pr-0.5">
+                {rangkumanSection === 'siap' && (
+                  siapList.length === 0 ? (
+                    <KosongRangkuman
+                      pesan={r.total === 0 ? 'Belum ada data mapel & kelas' : 'Tidak ada mapel yang menunggu dijadwalkan'}
+                      sub={r.per_status.MENUNGGU > 0
+                        ? `${r.per_status.MENUNGGU} soal masih menunggu persetujuan. Setujui di menu Validasi Soal agar bisa dijadwalkan.`
+                        : 'Semua mapel yang soalnya sudah disetujui sudah memiliki jadwal.'}
+                    />
+                  ) : siapTampil.length === 0 ? (
+                    <p className="py-10 text-center text-sm text-slate-400">Tidak ada hasil untuk &quot;{rangkumanCari}&quot;.</p>
+                  ) : (
+                    <div className="space-y-1.5">
+                      <p className="text-sm text-slate-500 mb-2">
+                        Soal sudah <strong className="text-slate-700">disetujui</strong> dan belum punya jadwal. Klik <strong className="text-slate-700">Buat Jadwal</strong> untuk langsung mengisi formnya.
+                      </p>
+                      {siapTampil.map(item => (
+                        <BarisKesiapan key={`${item.mapel_id}__${item.kelas}`} item={item} onBuat={buatJadwalDariRangkuman} />
+                      ))}
+                    </div>
+                  )
+                )}
+
+                {rangkumanSection === 'status' && (
+                  <div className="space-y-2">
+                    <div className="flex gap-1.5 flex-wrap">
+                      {[{ key: 'SEMUA' as const, label: 'Semua', total: r.total, chipAktif: 'bg-slate-800 border-slate-800 text-white' },
+                        ...STATUS_RANGKUMAN.map(st => ({ key: st.key, label: st.label, total: r.per_status[st.key] ?? 0, chipAktif: st.chipAktif }))
+                      ].map(f => (
+                        <button
+                          key={f.key}
+                          onClick={() => setRangkumanFilter(f.key)}
+                          className={`px-2.5 py-1 rounded-full text-xs font-semibold border transition-colors ${
+                            rangkumanFilter === f.key ? f.chipAktif : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'
+                          }`}
+                        >
+                          {f.label} ({f.total})
+                        </button>
+                      ))}
+                    </div>
+                    {statusTampil.length === 0 ? (
+                      <p className="py-10 text-center text-sm text-slate-400">Tidak ada data untuk filter ini.</p>
+                    ) : (
+                      <div className="space-y-1.5">
+                        {statusTampil.map(item => (
+                          <BarisKesiapan key={`${item.mapel_id}__${item.kelas}`} item={item} onBuat={buatJadwalDariRangkuman} />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {rangkumanSection === 'jadwal' && (
+                  belumDijadwalkanCount === 0 ? (
+                    <KosongRangkuman pesan="Semua mapel & kelas sudah terjadwal!" />
+                  ) : jadwalTampil.length === 0 ? (
+                    <p className="py-10 text-center text-sm text-slate-400">Tidak ada hasil untuk &quot;{rangkumanCari}&quot;.</p>
+                  ) : (
+                    <div className="space-y-1.5">
+                      <p className="text-sm text-slate-500 mb-2">
+                        <strong className="text-slate-700">{belumDijadwalkanCount} kombinasi</strong> mapel &amp; kelas belum memiliki jadwal ujian
+                        (yang soalnya siap ditampilkan paling atas).
+                      </p>
+                      {jadwalTampil.map(item => (
+                        <BarisKesiapan key={`${item.mapel_id}__${item.kelas}`} item={item} onBuat={buatJadwalDariRangkuman} />
+                      ))}
+                    </div>
+                  )
+                )}
+
+                {rangkumanSection === 'guru' && (
+                  d.guru_belum_mengawas.length === 0 ? (
+                    <KosongRangkuman pesan="Semua guru sudah pernah ditugaskan mengawas!" />
+                  ) : (
+                    <div className="space-y-1.5">
+                      <p className="text-sm text-slate-500 mb-2">
+                        <strong className="text-slate-700">{d.guru_belum_mengawas.length} guru</strong> belum pernah mendapat penugasan jadwal mengawas.
+                      </p>
+                      {d.guru_belum_mengawas.map((g, i) => (
+                        <div key={g.username} className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-purple-50 border border-purple-100">
+                          <div className="w-7 h-7 rounded-full bg-purple-100 text-purple-700 text-xs font-bold flex items-center justify-center flex-shrink-0">
+                            {i + 1}
+                          </div>
+                          <div>
+                            <p className="font-medium text-slate-800 text-sm">{g.nama}</p>
+                            <p className="text-xs text-slate-400">{g.username}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )
+                )}
+              </div>
             </div>
-
-            {/* Konten Tab */}
-            <div className="max-h-96 overflow-y-auto">
-              {rangkumanSection === 'jadwal' && (
-                rangkumanData.belum_dijadwalkan.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-10 text-center gap-3">
-                    <div className="w-14 h-14 rounded-full bg-emerald-100 flex items-center justify-center">
-                      <CheckCircle className="w-7 h-7 text-emerald-600" />
-                    </div>
-                    <p className="font-semibold text-slate-700">Semua mapel & kelas sudah terjadwal!</p>
-                  </div>
-                ) : (
-                  <div className="space-y-1.5">
-                    <p className="text-sm text-slate-500 mb-2">
-                      <strong className="text-slate-700">{rangkumanData.belum_dijadwalkan.length} kombinasi</strong> mapel &amp; kelas belum memiliki jadwal ujian.
-                    </p>
-                    {rangkumanData.belum_dijadwalkan.map((item, i) => (
-                      <div key={i} className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl bg-amber-50 border border-amber-100">
-                        <span className="font-medium text-slate-800 text-sm">{item.nama_mapel}</span>
-                        <span className="text-xs text-slate-500 bg-white border border-amber-200 rounded-full px-2 py-0.5">Kelas {item.kelas}</span>
-                      </div>
-                    ))}
-                  </div>
-                )
-              )}
-
-              {rangkumanSection === 'soal' && (
-                rangkumanData.belum_ada_soal.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-10 text-center gap-3">
-                    <div className="w-14 h-14 rounded-full bg-emerald-100 flex items-center justify-center">
-                      <CheckCircle className="w-7 h-7 text-emerald-600" />
-                    </div>
-                    <p className="font-semibold text-slate-700">Semua mapel & kelas sudah punya soal disetujui!</p>
-                  </div>
-                ) : (
-                  <div className="space-y-1.5">
-                    <p className="text-sm text-slate-500 mb-2">
-                      <strong className="text-slate-700">{rangkumanData.belum_ada_soal.length} kombinasi</strong> mapel &amp; kelas belum memiliki soal yang disetujui.
-                    </p>
-                    {rangkumanData.belum_ada_soal.map((item, i) => (
-                      <div key={i} className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-xl bg-blue-50 border border-blue-100">
-                        <div>
-                          <span className="font-medium text-slate-800 text-sm">{item.nama_mapel}</span>
-                          <span className="mx-2 text-slate-300">·</span>
-                          <span className="text-xs text-slate-500">Kelas {item.kelas}</span>
-                        </div>
-                        <SoalStatusBadge status={item.status_soal} />
-                      </div>
-                    ))}
-                  </div>
-                )
-              )}
-
-              {rangkumanSection === 'guru' && (
-                rangkumanData.guru_belum_mengawas.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-10 text-center gap-3">
-                    <div className="w-14 h-14 rounded-full bg-emerald-100 flex items-center justify-center">
-                      <CheckCircle className="w-7 h-7 text-emerald-600" />
-                    </div>
-                    <p className="font-semibold text-slate-700">Semua guru sudah pernah ditugaskan mengawas!</p>
-                  </div>
-                ) : (
-                  <div className="space-y-1.5">
-                    <p className="text-sm text-slate-500 mb-2">
-                      <strong className="text-slate-700">{rangkumanData.guru_belum_mengawas.length} guru</strong> belum pernah mendapat penugasan jadwal mengawas.
-                    </p>
-                    {rangkumanData.guru_belum_mengawas.map((g, i) => (
-                      <div key={i} className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-purple-50 border border-purple-100">
-                        <div className="w-7 h-7 rounded-full bg-purple-100 text-purple-700 text-xs font-bold flex items-center justify-center flex-shrink-0">
-                          {i + 1}
-                        </div>
-                        <div>
-                          <p className="font-medium text-slate-800 text-sm">{g.nama}</p>
-                          <p className="text-xs text-slate-400">{g.username}</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )
-              )}
-            </div>
-          </div>
-        )}
+          )
+        })()}
       </Modal>
 
       {/* Modal Soal Belum Siap */}
