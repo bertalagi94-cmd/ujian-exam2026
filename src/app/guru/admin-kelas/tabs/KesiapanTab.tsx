@@ -8,9 +8,10 @@
 // ditagih. Datanya dari sumber yang sama dengan Rangkuman Jadwal Super Admin
 // (disaring ke kelas wilayah di server), jadi angkanya selalu sama.
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, CalendarCheck, CheckCircle2, Clock, MessageCircle, RefreshCw, ClipboardCheck } from 'lucide-react'
-import { Badge, EmptyState, SearchInput, Spinner, StatCard } from '@/components/ui'
-import { apiRequest } from '@/lib/utils'
+import { AlertTriangle, CalendarCheck, CheckCircle2, ChevronDown, Clock, Download, FileText, MessageCircle, RefreshCw, ClipboardCheck } from 'lucide-react'
+import { Badge, EmptyState, SearchInput, Spinner, StatCard, Toast } from '@/components/ui'
+import { apiRequest, fetchPublik } from '@/lib/utils'
+import { unduhPdfKesiapan } from '@/lib/ekspor-kesiapan-pdf'
 import { LABEL_KESIAPAN, type BarisKesiapanKelas, type ResponKesiapanKelas } from '@/lib/admin-kelas-shared'
 import type { StatusSoal } from '@/lib/soal-status-shared'
 
@@ -25,6 +26,9 @@ const VARIAN_STATUS: Record<StatusSoal, 'green' | 'yellow' | 'red' | 'blue' | 'o
 }
 
 const BATAS_AWAL = 100
+
+// Status yang menunggu tindakan GURU (sama dengan yang ditagih di server).
+const STATUS_BELUM_LENGKAP: ReadonlySet<StatusSoal> = new Set<StatusSoal>(['BELUM_ADA', 'DRAFT', 'DITOLAK'])
 
 // 'YYYY-MM-DD' -> 'DD/MM/YYYY' tanpa lewat objek Date (hindari geser zona waktu).
 function tampilTanggal(t: string | null): string {
@@ -41,6 +45,9 @@ export function KesiapanTab({ onBukaValidasi }: { onBukaValidasi: () => void }) 
   const [filterStatus, setFilterStatus] = useState<FilterStatus>('SEMUA')
   const [cari, setCari] = useState('')
   const [batas, setBatas] = useState(BATAS_AWAL)
+  const [menuPdf, setMenuPdf] = useState(false)
+  const [membuatPdf, setMembuatPdf] = useState(false)
+  const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
 
   const muat = useCallback(async () => {
     setLoading(true)
@@ -74,6 +81,65 @@ export function KesiapanTab({ onBukaValidasi }: { onBukaValidasi: () => void }) 
   }, [respon, filterKelas, filterStatus, cari])
 
   useEffect(() => { setBatas(BATAS_AWAL) }, [filterKelas, filterStatus, cari])
+
+  // Unduh PDF. 'filter' = persis yang tampil di layar; 'belum-lengkap' = hanya
+  // mapel yang soalnya belum dibuat / masih draft / ditolak (untuk diingatkan
+  // di grup guru), tanpa terpengaruh filter di layar.
+  async function unduhPdf(mode: 'filter' | 'belum-lengkap') {
+    if (!respon) return
+    setMenuPdf(false)
+    const baris = mode === 'belum-lengkap'
+      ? respon.data.filter(d => STATUS_BELUM_LENGKAP.has(d.status_soal))
+      : tersaring
+    if (baris.length === 0) {
+      setToast({ msg: 'Tidak ada data untuk dicetak', type: 'error' })
+      return
+    }
+
+    let subjudul: string | undefined
+    if (mode === 'belum-lengkap') {
+      subjudul = 'Daftar soal yang belum lengkap (belum dibuat, masih draft, atau ditolak)'
+    } else {
+      const bagian: string[] = []
+      if (filterKelas !== 'SEMUA') bagian.push(`Kelas ${filterKelas}`)
+      if (filterStatus === 'SIAP_BELUM_JADWAL') bagian.push('Soal siap, belum dijadwalkan')
+      else if (filterStatus !== 'SEMUA') bagian.push(LABEL_KESIAPAN[filterStatus])
+      if (cari.trim()) bagian.push(`Pencarian: "${cari.trim()}"`)
+      subjudul = bagian.length > 0 ? `Filter: ${bagian.join(' | ')}` : undefined
+    }
+
+    setMembuatPdf(true)
+    try {
+      let namaSekolah = ''
+      let logoUrl = ''
+      try {
+        const json = await fetchPublik('/api/public/pengaturan').then(r => r.json())
+        namaSekolah = json?.data?.namaSekolah ?? ''
+        logoUrl = json?.data?.logoUrl || json?.data?.logoAplikasi || ''
+      } catch { /* PDF tetap dibuat tanpa kop sekolah */ }
+
+      let dicetakOleh: string | undefined
+      try {
+        const u = JSON.parse(localStorage.getItem('user') ?? 'null') as { nama?: string } | null
+        dicetakOleh = u?.nama || undefined
+      } catch { /* abaikan */ }
+
+      const namaFile = await unduhPdfKesiapan({
+        data: baris,
+        ringkasan: respon.ringkasan,
+        kelasWilayah: respon.kelas.map(k => k.nama),
+        subjudul,
+        namaSekolah,
+        logoUrl,
+        dicetakOleh,
+      })
+      setToast({ msg: `PDF diunduh: ${namaFile}`, type: 'success' })
+    } catch (e) {
+      setToast({ msg: e instanceof Error ? e.message : 'Gagal membuat PDF', type: 'error' })
+    } finally {
+      setMembuatPdf(false)
+    }
+  }
 
   if (loading && !respon) return <div className="flex justify-center py-16"><Spinner /></div>
   if (galat && !respon) {
@@ -122,9 +188,52 @@ export function KesiapanTab({ onBukaValidasi }: { onBukaValidasi: () => void }) 
           <option value="SIAP_BELUM_JADWAL">Soal siap, belum dijadwalkan ({r.siap_belum_terjadwal})</option>
         </select>
         <SearchInput value={cari} onChange={setCari} placeholder="Cari mapel atau guru..." className="flex-1 min-w-[180px] max-w-xs" />
-        <button onClick={muat} disabled={loading} className="btn-secondary btn-sm ml-auto" title="Muat ulang data">
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Muat ulang
-        </button>
+        <div className="flex items-center gap-2 ml-auto">
+          <div className="relative">
+            <button
+              onClick={() => setMenuPdf(m => !m)}
+              disabled={membuatPdf || respon.data.length === 0}
+              className="btn-primary btn-sm"
+              aria-haspopup="menu"
+              aria-expanded={menuPdf}
+              title="Unduh papan kesiapan sebagai PDF untuk dibagikan ke grup"
+            >
+              {membuatPdf ? <Spinner /> : <Download className="w-4 h-4" />} Unduh PDF <ChevronDown className="w-3.5 h-3.5" />
+            </button>
+            {menuPdf && (
+              <>
+                <div className="fixed inset-0 z-30" onClick={() => setMenuPdf(false)} aria-hidden="true" />
+                <div role="menu" className="absolute right-0 mt-1 w-72 z-40 rounded-xl border border-slate-200 bg-white shadow-card-lg p-1">
+                  <button
+                    role="menuitem"
+                    onClick={() => unduhPdf('belum-lengkap')}
+                    disabled={r.perlu_ditagih === 0}
+                    className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-50 disabled:opacity-50 disabled:hover:bg-transparent"
+                  >
+                    <span className="flex items-center gap-2 text-sm font-medium text-slate-800">
+                      <AlertTriangle className="w-4 h-4 text-red-500" /> Soal belum lengkap ({r.perlu_ditagih})
+                    </span>
+                    <span className="block text-xs text-slate-500 mt-0.5 pl-6">Untuk mengingatkan guru di grup</span>
+                  </button>
+                  <button
+                    role="menuitem"
+                    onClick={() => unduhPdf('filter')}
+                    disabled={tersaring.length === 0}
+                    className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-50 disabled:opacity-50 disabled:hover:bg-transparent"
+                  >
+                    <span className="flex items-center gap-2 text-sm font-medium text-slate-800">
+                      <FileText className="w-4 h-4 text-slate-500" /> Sesuai filter saat ini ({tersaring.length})
+                    </span>
+                    <span className="block text-xs text-slate-500 mt-0.5 pl-6">Persis seperti yang tampil di layar</span>
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+          <button onClick={muat} disabled={loading} className="btn-secondary btn-sm" title="Muat ulang data">
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Muat ulang
+          </button>
+        </div>
       </div>
 
       {tersaring.length === 0 ? (
@@ -189,8 +298,11 @@ export function KesiapanTab({ onBukaValidasi }: { onBukaValidasi: () => void }) 
 
       <p className="text-xs text-slate-400">
         Status dihitung dari paket soal pilihan ganda, sama dengan Rangkuman Jadwal Super Admin. Tombol Tagih membuka WhatsApp
-        dengan pesan siap kirim, dan hanya muncul kalau guru punya nomor HP terdaftar.
+        dengan pesan siap kirim, dan hanya muncul kalau guru punya nomor HP terdaftar. Unduh PDF tidak memuat nomor HP guru, jadi aman
+        dibagikan ke grup.
       </p>
+
+      {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
     </div>
   )
 }
