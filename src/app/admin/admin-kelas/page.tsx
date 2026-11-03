@@ -54,6 +54,23 @@ export default function AdminKelasKelolaPage() {
     setPilih(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n })
   }
 
+  // ── Pilih semua kelas ──
+  // Kelas yang sudah dipegang guru LAIN tidak bisa ikut dipilih (satu kelas = satu Admin Kelas).
+  // Kalau guru ini memegang SEMUA kelas, guru lain otomatis tidak punya kelas yang bisa dipilih.
+  const kelasBisaDipilih = edit ? kelas.filter(k => { const l = pemegang.get(k.id); return !l || l.username === edit.username }) : []
+  const jumlahTerkunci = kelas.length - kelasBisaDipilih.length
+  const semuaBisaTerpilih = kelasBisaDipilih.length > 0 && kelasBisaDipilih.every(k => pilih.has(k.id))
+  const sebagianTerpilih = !semuaBisaTerpilih && kelasBisaDipilih.some(k => pilih.has(k.id))
+  const semuaKelasTerpilih = kelas.length > 0 && kelas.every(k => pilih.has(k.id))
+  function togglePilihSemua() {
+    setPilih(p => {
+      const n = new Set(p)
+      if (semuaBisaTerpilih) kelasBisaDipilih.forEach(k => n.delete(k.id))
+      else kelasBisaDipilih.forEach(k => n.add(k.id))
+      return n
+    })
+  }
+
   async function simpan() {
     if (!edit) return
     setSaving(true)
@@ -113,7 +130,11 @@ export default function AdminKelasKelolaPage() {
                 </div>
                 {g.kelas_ids.length > 0 && (
                   <div className="flex flex-wrap gap-1 mt-1.5">
-                    {g.kelas_ids.map(id => (
+                    {kelas.length > 0 && kelas.every(k => g.kelas_ids.includes(k.id)) ? (
+                      <span className="px-2 py-0.5 rounded-md bg-emerald-100 border border-emerald-300 text-emerald-800 text-xs font-semibold">
+                        Semua kelas ({kelas.length})
+                      </span>
+                    ) : g.kelas_ids.map(id => (
                       <span key={id} className="px-2 py-0.5 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs">
                         Kelas {namaKelas(id)}
                       </span>
@@ -131,6 +152,34 @@ export default function AdminKelasKelolaPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="bg-white rounded-2xl p-6 w-full max-w-md space-y-4 max-h-[85vh] overflow-y-auto">
             <h2 className="font-semibold text-lg">Kelas untuk {edit.nama}</h2>
+            {kelas.length > 0 && (
+              <div className="space-y-1.5">
+                <label className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium ${
+                  kelasBisaDipilih.length === 0 ? 'border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed'
+                  : semuaBisaTerpilih ? 'border-emerald-500 bg-emerald-50 cursor-pointer' : 'border-slate-300 cursor-pointer'}`}>
+                  <input
+                    type="checkbox"
+                    disabled={kelasBisaDipilih.length === 0}
+                    checked={semuaBisaTerpilih}
+                    ref={el => { if (el) el.indeterminate = sebagianTerpilih }}
+                    onChange={togglePilihSemua}
+                  />
+                  Pilih semua kelas ({kelasBisaDipilih.length})
+                </label>
+                {semuaKelasTerpilih ? (
+                  <p className="text-xs text-emerald-700">
+                    Guru ini akan menjadi Admin Kelas untuk <strong>semua {kelas.length} kelas</strong>. Guru lain tidak akan bisa memilih kelas lagi.
+                  </p>
+                ) : jumlahTerkunci > 0 ? (
+                  <p className="text-xs text-amber-700">
+                    {kelasBisaDipilih.length === 0
+                      ? 'Semua kelas sedang dipegang Admin Kelas lain.'
+                      : `${jumlahTerkunci} kelas sedang dipegang Admin Kelas lain dan tidak ikut terpilih.`}{' '}
+                    Lepaskan dulu dari guru tersebut jika ingin menjadikan guru ini Admin Kelas untuk semua kelas.
+                  </p>
+                ) : null}
+              </div>
+            )}
             <div className="grid grid-cols-3 gap-2">
               {kelas.map(k => {
                 const lain = pemegang.get(k.id)
