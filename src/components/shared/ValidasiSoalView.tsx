@@ -40,6 +40,8 @@ interface ValidasiSoalViewProps {
   subjudul?: string
   /** Ditampilkan di bawah judul (mis. daftar kelas wilayah Admin Kelas). */
   info?: React.ReactNode
+  /** Sembunyikan blok judul — dipakai saat halaman induk (tab Admin Kelas) sudah punya judul sendiri. */
+  sembunyikanJudul?: boolean
 }
 
 // Satu-satunya tampilan validasi soal: dipakai halaman Super Admin (/admin/soal)
@@ -49,6 +51,7 @@ export function ValidasiSoalView({
   judul = 'Validasi Soal',
   subjudul = 'Tinjau dan setujui paket soal dari guru',
   info,
+  sembunyikanJudul = false,
 }: ValidasiSoalViewProps) {
   const [jenisSoal, setJenisSoal] = useState<'PG' | 'ESSAY'>('PG')
   const [pakets, setPakets] = useState<CombinedPaket[]>([])
@@ -252,11 +255,13 @@ export function ValidasiSoalView({
     <div className="space-y-6 animate-fade-in">
       {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
 
-      <div>
-        <h1 className="page-title">{judul}</h1>
-        <p className="page-subtitle">{subjudul}</p>
-        {info}
-      </div>
+      {!sembunyikanJudul && (
+        <div>
+          <h1 className="page-title">{judul}</h1>
+          <p className="page-subtitle">{subjudul}</p>
+          {info}
+        </div>
+      )}
 
       {/* Toggle jenis soal — FIX: masing-masing tombol sekarang punya badge
           kecil berisi jumlah paket berstatus MENUNGGU untuk jenis itu, jadi
