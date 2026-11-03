@@ -7,6 +7,11 @@ import { catatAktivitas } from '@/lib/aktivitas'
 import { klaimkanWaktu } from '@/lib/klaim-offline'
 import { hitungBatasWaktuPg, sudahKedaluwarsa } from '@/lib/deadline-pg'
 
+// Submit serentak ratusan siswa bisa memakan beberapa detik (terukur di load test:
+// rata-rata ~4 dtk, terlama ~6,5 dtk). Tanpa ini batas bawaan platform bisa
+// serendah 10 dtk. 30 dtk diizinkan di semua paket Vercel (sama seperti validasi/sync).
+export const maxDuration = 30
+
 export async function POST(req: NextRequest) {
   const auth = await requireRoleAktif(req, ['SISWA'])
   if ('error' in auth) return auth.error

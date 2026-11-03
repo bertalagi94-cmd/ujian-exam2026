@@ -1,5 +1,5 @@
 // app/api/siswa/ujian/validasi/route.ts
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse, after } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRoleAktif } from '@/lib/status-akun'
 import { catatAktivitas } from '@/lib/aktivitas'
@@ -521,7 +521,21 @@ export async function POST(req: NextRequest) {
   // isNewEntry dari SELECT awal yang rentan race (lihat FIX #5 di atas).
   if (benarBenarBaru) {
     catatAktivitas(db, nis, 'MULAI_UJIAN', `Siswa ${user.nama} mulai ujian ${mapel?.nama ?? sesi.mapel_id} (${sesi.kelas})`)
-    db.rpc('increment_jumlah_peserta', { sesi_id_param: sesi.id })
+    // FIX: sebelumnya `db.rpc(...)` dipanggil tanpa await/then. Builder supabase-js
+    // bersifat lazy (request baru dikirim saat di-await), jadi increment ini TIDAK
+    // PERNAH dijalankan dan jumlah_peserta selalu 0. Sekarang dijalankan lewat
+    // after() (setelah respons terkirim, dijamin selesai di Vercel) sehingga
+    // tidak menambah latensi masuk ujian.
+    const sesiIdPeserta = sesi.id
+    const tambahPeserta = async () => {
+      try {
+        const { error } = await db.rpc('increment_jumlah_peserta', { sesi_id_param: sesiIdPeserta })
+        if (error) console.error('[validasi] gagal increment_jumlah_peserta:', error.message)
+      } catch (e) {
+        console.error('[validasi] gagal increment_jumlah_peserta:', e instanceof Error ? e.message : e)
+      }
+    }
+    try { after(tambahPeserta) } catch { void tambahPeserta() }
   }
 
   // ── Tutup race condition login bersamaan ──────────────────────────────────

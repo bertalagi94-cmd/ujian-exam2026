@@ -1809,17 +1809,31 @@ export default function SiswaUjianPage() {
     setLoading(true); setError('')
     try {
       const user = JSON.parse(localStorage.getItem('user') ?? '{}')
-      const res = await apiRequest<{ 
+      // Saat ratusan siswa masuk bersamaan, server bisa menjawab { coba_lagi: true }
+      // (antrean perhitungan penuh). Server menjamin BELUM ada yang ditulis & waktu
+      // ujian belum berjalan pada jawaban itu, jadi aman diulang otomatis dengan jeda
+      // acak (menyebar beban) — siswa tidak perlu menekan tombol berkali-kali.
+      type ResValidasi = {
         valid: boolean
         message?: string
+        coba_lagi?: boolean
         perlu_kode_reset?: boolean
         sesiId?: string
         terkunci_permanen?: boolean
         jumlah_pelanggaran?: number
-      } & SesiInfo>('/api/siswa/ujian/validasi', {
-        method: 'POST',
-        body: JSON.stringify({ kodeSesi: kode.trim().toUpperCase(), nis: user.nis, deviceId: getDeviceId() }),
-      })
+      } & SesiInfo
+      let res!: ResValidasi
+      const MAKS_COBA_OTOMATIS = 8
+      for (let percobaan = 1; ; percobaan++) {
+        res = await apiRequest<ResValidasi>('/api/siswa/ujian/validasi', {
+          method: 'POST',
+          body: JSON.stringify({ kodeSesi: kode.trim().toUpperCase(), nis: user.nis, deviceId: getDeviceId() }),
+        })
+        if (res.valid || !res.coba_lagi || percobaan >= MAKS_COBA_OTOMATIS) break
+        setError('Server sedang ramai karena banyak siswa masuk bersamaan. Mencoba lagi otomatis, mohon tunggu... Waktu ujian belum berjalan.')
+        await new Promise((resolve) => setTimeout(resolve, 2500 + Math.random() * 3500))
+      }
+      setError('')
 
       // Siswa dalam status RESET — perlu kode 7 digit dari pengawas
       if (!res.valid && res.perlu_kode_reset && res.sesiId) {
