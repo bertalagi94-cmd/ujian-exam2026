@@ -12,6 +12,9 @@ export default function GantiPasswordPage() {
   const [konfirmasi, setKonfirmasi] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  // true hanya bila token membawa klaim wajib-ganti (saklar WAJIB_GANTI_PASSWORD_AKTIF
+  // di lib/auth.ts menyala). Selain itu halaman ini bersifat sukarela.
+  const [wajib, setWajib] = useState(false)
 
   useEffect(() => {
     try {
@@ -19,6 +22,10 @@ export default function GantiPasswordPage() {
       const user = JSON.parse(localStorage.getItem('user') ?? 'null') as { role?: string } | null
       if (!token || !user?.role) { window.location.href = '/login'; return }
       setRole(user.role)
+      try {
+        const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))) as { gantiPassword?: boolean }
+        setWajib(payload?.gantiPassword === true)
+      } catch { /* token tak terbaca -> anggap sukarela */ }
     } catch {
       window.location.href = '/login'
     }
@@ -55,7 +62,9 @@ export default function GantiPasswordPage() {
         <div>
           <h1 className="text-xl font-bold text-gray-900">Ganti Password</h1>
           <p className="mt-1 text-sm text-gray-600">
-            Anda masih memakai password bawaan. Buat password baru sebelum melanjutkan.
+            {wajib
+              ? 'Anda masih memakai password bawaan. Buat password baru sebelum melanjutkan.'
+              : 'Ubah password akun Anda. Ini opsional — Anda boleh kembali tanpa mengubah apa pun.'}
           </p>
         </div>
         <div>
@@ -75,10 +84,17 @@ export default function GantiPasswordPage() {
           className="w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60">
           {loading ? 'Menyimpan...' : 'Simpan Password'}
         </button>
-        <button type="button" className="w-full text-sm text-gray-500 hover:text-gray-700"
-          onClick={() => { localStorage.removeItem('token'); localStorage.removeItem('user'); window.location.href = '/login' }}>
-          Keluar
-        </button>
+        {wajib ? (
+          <button type="button" className="w-full text-sm text-gray-500 hover:text-gray-700"
+            onClick={() => { localStorage.removeItem('token'); localStorage.removeItem('user'); window.location.href = '/login' }}>
+            Keluar
+          </button>
+        ) : (
+          <button type="button" className="w-full text-sm text-gray-500 hover:text-gray-700"
+            onClick={() => { window.location.href = ROUTES[role] ?? '/login' }}>
+            Kembali
+          </button>
+        )}
       </form>
     </div>
   )

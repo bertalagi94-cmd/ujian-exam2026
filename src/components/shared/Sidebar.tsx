@@ -7,7 +7,7 @@ import {
   LayoutDashboard, Users, BookOpen, Calendar, ClipboardList,
   BarChart3, Settings, LogOut, Menu, X, ChevronRight, ChevronLeft,
   GraduationCap, School, User, FileText, Eye, ShieldAlert,
-  FileBarChart, CheckSquare, Send, CalendarDays, TrendingUp, Radio, UserCheck
+  FileBarChart, CheckSquare, Send, CalendarDays, TrendingUp, Radio, UserCheck, KeyRound
 } from 'lucide-react'
 import { cn, apiRequest, fetchPublik } from '@/lib/utils'
 import { AuthUser } from '@/types'
@@ -183,6 +183,18 @@ function SidebarContent({ navItems, roleColor, roleLabel, accent, user, siteInfo
             <div className="sidebar-sublabel">{user?.username}</div>
           </div>
         </div>
+        {user?.role !== 'SISWA' && (
+          // Ganti password bersifat opsional (tidak dipaksa saat login). Siswa
+          // mengganti lewat menu "Profil Saya".
+          <Link
+            href="/ganti-password"
+            onClick={onClose}
+            className="nav-link w-full mb-1"
+          >
+            <KeyRound className="w-4 h-4" />
+            <span>Ganti Password</span>
+          </Link>
+        )}
         <button
           onClick={onLogout}
           className="nav-link w-full text-danger-600"

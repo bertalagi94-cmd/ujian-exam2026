@@ -35,7 +35,7 @@ const SECRET: string = getValidatedSecret()
 // NONAKTIF atas permintaan pemilik aplikasi — password saat ini dibiarkan.
 // Ubah ke true untuk mengaktifkan lagi; fitur reset password & halaman
 // ganti password tetap berfungsi normal.
-export const WAJIB_GANTI_PASSWORD_AKTIF = true
+export const WAJIB_GANTI_PASSWORD_AKTIF = false
 
 export interface JWTPayload {
   username: string
