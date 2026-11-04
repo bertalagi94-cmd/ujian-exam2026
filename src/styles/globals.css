@@ -69,6 +69,15 @@
   .btn-sm {
     @apply px-3 py-1.5 text-xs rounded-lg;
   }
+  /* Tombol navigasi "Kembali" / "Ganti Jenis Soal" yang duduk LANGSUNG di
+     atas latar. Saat "Latar Kaca Transparan" aktif, .btn-ghost (tanpa
+     background) hilang di atas foto. Pakai latar putih solid + teks tebal
+     supaya selalu terbaca, senada dengan kartu & tombol Layar Penuh. */
+  .btn-back {
+    @apply btn bg-white text-slate-800 font-bold border border-slate-200
+           shadow-card-md hover:bg-slate-50 hover:border-slate-300
+           focus:ring-slate-400 active:scale-95;
+  }
   .btn-lg {
     @apply px-6 py-3 text-base;
   }

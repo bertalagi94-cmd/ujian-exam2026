@@ -688,7 +688,7 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
             <div className="flex items-center gap-2 mb-1">
-              <button onClick={selesaiBuat} className="btn-ghost btn-sm text-slate-500">
+              <button onClick={selesaiBuat} className="btn-back btn-sm">
                 <ArrowLeft className="w-4 h-4" /> Kembali
               </button>
             </div>
@@ -854,7 +854,7 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
         {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
 
         <div>
-          <button onClick={() => setStep('list')} className="btn-ghost btn-sm text-slate-500 mb-2">
+          <button onClick={() => setStep('list')} className="btn-back btn-sm mb-2">
             <ArrowLeft className="w-4 h-4" /> Kembali
           </button>
           <h1 className="page-title">Buat Soal Baru</h1>
@@ -933,7 +933,7 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
 
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <button onClick={onBack} className="btn-ghost btn-sm text-slate-500 mb-1">
+          <button onClick={onBack} className="btn-back btn-sm mb-1">
             <ArrowLeft className="w-4 h-4" /> Ganti Jenis Soal
           </button>
           <h1 className="page-title">Buat Soal PG</h1>
@@ -1862,7 +1862,7 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
         <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
 
         <div>
-          <button onClick={() => { setStep('list'); setActivePaket(null); setSoalList([]) }} className="btn-ghost btn-sm text-slate-500 mb-1">
+          <button onClick={() => { setStep('list'); setActivePaket(null); setSoalList([]) }} className="btn-back btn-sm mb-1">
             <ArrowLeft className="w-4 h-4" /> Kembali
           </button>
           <h1 className="page-title">Kelola Soal Essay</h1>
@@ -2118,7 +2118,7 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
       <div className="space-y-6 animate-fade-in">
         {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
         <div>
-          <button onClick={() => setStep('list')} className="btn-ghost btn-sm text-slate-500 mb-2">
+          <button onClick={() => setStep('list')} className="btn-back btn-sm mb-2">
             <ArrowLeft className="w-4 h-4" /> Kembali
           </button>
           <h1 className="page-title">Buat Paket Soal Essay</h1>
@@ -2199,7 +2199,7 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
 
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <button onClick={onBack} className="btn-ghost btn-sm text-slate-500 mb-1">
+          <button onClick={onBack} className="btn-back btn-sm mb-1">
             <ArrowLeft className="w-4 h-4" /> Ganti Jenis Soal
           </button>
           <h1 className="page-title">Buat Soal Essay</h1>
@@ -2503,7 +2503,7 @@ function InfoPaketSoalFlow({ onBack }: { onBack: () => void }) {
   return (
     <div className="space-y-6 animate-fade-in">
       <div>
-        <button onClick={onBack} className="btn-ghost btn-sm text-slate-500 mb-1">
+        <button onClick={onBack} className="btn-back btn-sm mb-1">
           <ArrowLeft className="w-4 h-4" /> Ganti Jenis Soal
         </button>
         <h1 className="page-title">Informasi Paket Soal</h1>

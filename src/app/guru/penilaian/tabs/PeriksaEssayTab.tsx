@@ -423,7 +423,7 @@ export function PeriksaEssayTab({
           {/* Tombol kembali ke daftar mata pelajaran */}
           <button
             onClick={() => { setSelectedSesiId(null); setSelectedJadwal(null); setData(null); setExpandedNis(null) }}
-            className="flex items-center gap-1 text-sm font-medium text-brand-600 hover:text-brand-700"
+            className="btn-back btn-sm"
           >
             <ChevronRight className="w-4 h-4 rotate-180" /> Kembali ke Daftar Jawaban Essay
           </button>

@@ -131,7 +131,7 @@ export default function RincianNilaiPage() {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <button onClick={() => router.back()} className="btn-secondary btn-sm">
+      <button onClick={() => router.back()} className="btn-back btn-sm">
         <ChevronLeft className="w-4 h-4" /> Kembali
       </button>
 

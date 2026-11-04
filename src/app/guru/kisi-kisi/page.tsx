@@ -194,7 +194,7 @@ export default function GuruKisiKisiPage() {
         <div className="flex items-center gap-3 mb-6">
           <button
             onClick={selectedKelas ? backToKelasDetail : backToCards}
-            className="btn-ghost btn-sm flex items-center gap-1.5"
+            className="btn-back btn-sm flex items-center gap-1.5"
           >
             <X className="w-4 h-4" /> Kembali
           </button>
@@ -237,7 +237,7 @@ export default function GuruKisiKisiPage() {
         <div className="flex items-center gap-3 mb-3 lg:mb-4">
           <button
             onClick={selectedKelas ? backToKelasDetail : backToCards}
-            className="btn-ghost btn-sm flex items-center gap-1.5"
+            className="btn-back btn-sm flex items-center gap-1.5"
           >
             <X className="w-4 h-4" /> Batal
           </button>
@@ -358,7 +358,7 @@ export default function GuruKisiKisiPage() {
       <div className="max-w-4xl mx-auto">
         {/* Header */}
         <div className="flex items-center gap-3 mb-6">
-          <button onClick={backToCards} className="btn-ghost btn-sm flex items-center gap-1.5">
+          <button onClick={backToCards} className="btn-back btn-sm flex items-center gap-1.5">
             <X className="w-4 h-4" /> Kembali
           </button>
           <div className="flex-1">

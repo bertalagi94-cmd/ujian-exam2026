@@ -39,7 +39,7 @@ export default function SiswaKisiKisiPage() {
         <div className="flex items-center gap-3 mb-6">
           <button
             onClick={() => setSelected(null)}
-            className="btn-ghost btn-sm flex items-center gap-1.5"
+            className="btn-back btn-sm flex items-center gap-1.5"
           >
             <X className="w-4 h-4" /> Kembali
           </button>

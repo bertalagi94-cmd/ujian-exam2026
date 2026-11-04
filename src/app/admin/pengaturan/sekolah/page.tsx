@@ -153,7 +153,7 @@ export default function AdminSekolahPage() {
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <Link href="/admin/pengaturan" className="text-slate-400 hover:text-slate-600 transition-colors">
+            <Link href="/admin/pengaturan" className="btn-back btn-sm !px-2" aria-label="Kembali">
               <ArrowLeft className="w-4 h-4" />
             </Link>
             <h1 className="page-title">Sekolah &amp; Jenjang</h1>
