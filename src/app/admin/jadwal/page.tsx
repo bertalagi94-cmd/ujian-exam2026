@@ -14,6 +14,41 @@ import { DURASI_ESSAY_DEFAULT_MENIT, DURASI_ESSAY_MAX_DEFAULT, DURASI_ESSAY_MIN_
 
 const PER_PAGE = 20
 
+// ── Tampilan daftar mapel di dropdown "Mata Pelajaran" ──────────────────────
+// Dulu teksnya mentah: "MATEMATIKA · Budi (Kelas 7A,7B,7C,7D)" — daftar kelas
+// menempel tanpa spasi, urutan baris tidak menentu (server hanya mengurutkan
+// berdasarkan nama), dan kalau data guru tidak ditemukan yang tampil malah
+// username. Sekarang: diurutkan nama → guru → kelas, kelas dirapikan dan
+// diringkas, format seragam "NAMA — Guru (Kelas …)".
+const BATAS_KELAS_TAMPIL = 4
+const bandingTeks = (a: string, b: string) =>
+  a.localeCompare(b, 'id', { numeric: true, sensitivity: 'base' })
+
+function daftarKelasMapel(m: Mapel): string[] {
+  return (m.kelas_list ?? '')
+    .split(',')
+    .map(k => k.trim())
+    .filter(Boolean)
+    .sort(bandingTeks)
+}
+
+function bandingMapel(a: Mapel, b: Mapel): number {
+  return (
+    bandingTeks(a.nama ?? '', b.nama ?? '') ||
+    bandingTeks(a.nama_guru ?? '', b.nama_guru ?? '') ||
+    bandingTeks(daftarKelasMapel(a).join(','), daftarKelasMapel(b).join(','))
+  )
+}
+
+function labelOpsiMapel(m: Mapel): string {
+  const guru = (m.nama_guru ?? '').trim()
+  const kelas = daftarKelasMapel(m)
+  const tampil = kelas.slice(0, BATAS_KELAS_TAMPIL).join(', ')
+  const sisa = kelas.length - BATAS_KELAS_TAMPIL
+  const teksKelas = kelas.length === 0 ? '' : ` (Kelas ${tampil}${sisa > 0 ? ` +${sisa}` : ''})`
+  return `${(m.nama ?? '').trim()}${guru ? ` — ${guru}` : ''}${teksKelas}`
+}
+
 function fmtTanggal(d: string) {
   if (!d) return ''
   const days = ['Minggu','Senin','Selasa','Rabu','Kamis','Jumat','Sabtu']
@@ -1381,7 +1416,7 @@ export default function AdminJadwalPage() {
                   Saat tambah baru: sembunyikan mapel yang SEMUA kelasnya sudah terjadwal. */}
               {(() => {
                 const isEdit = !!editData?.id
-                return mapelList.map(m => {
+                return [...mapelList].sort(bandingMapel).map(m => {
                   if (!isEdit) {
                     // Cek apakah semua kelas untuk mapel ini sudah memiliki jadwal
                     const kelasMapel = m.kelas_list
@@ -1396,7 +1431,7 @@ export default function AdminJadwalPage() {
                   }
                   return (
                     <option key={m.id} value={m.id}>
-                      {m.nama}{m.nama_guru ? ` · ${m.nama_guru}` : ''}{m.kelas_list ? ` (Kelas ${m.kelas_list})` : ''}
+                      {labelOpsiMapel(m)}
                     </option>
                   )
                 })
