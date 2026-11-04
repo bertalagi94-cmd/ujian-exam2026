@@ -629,6 +629,13 @@ export default function LoginPage() {
       })
       .catch(() => {})
   }, [])
+    // Judul tab mengikuti sekolah yang kodenya tersimpan di perangkat ini,
+  // bukan sekolah pertama di database (yang dipakai layout.tsx di server).
+  useEffect(() => {
+    if (siteInfo.namaSekolah) {
+      document.title = `SmartExam | ${siteInfo.namaSekolah}`
+    }
+  }, [siteInfo.namaSekolah])
 
   useEffect(() => {
     if (showTentang) { document.body.style.overflow = 'hidden' }
