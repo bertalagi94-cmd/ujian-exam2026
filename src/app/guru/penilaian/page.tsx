@@ -21,12 +21,13 @@
 //    tidak 404 — pola yang sama seperti redirect /guru/soal → /guru/paket.
 import { Suspense, useCallback, useEffect, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { CheckSquare, BarChart3, Send, Check, AlertTriangle, CheckCircle2, ClipboardList } from 'lucide-react'
+import { CheckSquare, BarChart3, Send, Check, AlertTriangle, CheckCircle2, ClipboardList, HelpCircle } from 'lucide-react'
 import { EmptyState, Spinner } from '@/components/ui'
 import { apiRequest, cn } from '@/lib/utils'
 import { PeriksaEssayTab } from './tabs/PeriksaEssayTab'
 import { RekapNilaiTab } from './tabs/RekapNilaiTab'
 import { KirimNilaiTab } from './tabs/KirimNilaiTab'
+import { PetunjukPenilaianModal } from './PetunjukPenilaianModal'
 
 type TabKey = 'periksa' | 'rekap' | 'kirim'
 
@@ -351,12 +352,23 @@ function PenilaianContent() {
     return null
   }
 
+  // Satu-satunya tempat penjelasan cara kerja penilaian (rumus, essay, rilis,
+  // kirim ke wali kelas) — lihat PetunjukPenilaianModal.tsx. Tombolnya ada di
+  // judul halaman supaya selalu terlihat di semua tab dan semua keadaan.
+  const [showPetunjuk, setShowPetunjuk] = useState(false)
+
   const judulHalaman = (
-    <div>
-      <h1 className="page-title">Penilaian</h1>
-      <p className="page-subtitle">
-        Periksa jawaban essay, lihat rekapnya, lalu kirim nilai akhir ke wali kelas — dalam satu alur.
-      </p>
+    <div className="flex items-start justify-between gap-3 flex-wrap">
+      <div>
+        <h1 className="page-title">Penilaian</h1>
+        <p className="page-subtitle">
+          Periksa jawaban essay, lihat rekapnya, lalu kirim nilai akhir ke wali kelas — dalam satu alur.
+        </p>
+      </div>
+      <button onClick={() => setShowPetunjuk(true)} className="btn-secondary btn-sm">
+        <HelpCircle className="w-4 h-4" /> Petunjuk Penilaian
+      </button>
+      <PetunjukPenilaianModal open={showPetunjuk} onClose={() => setShowPetunjuk(false)} />
     </div>
   )
 

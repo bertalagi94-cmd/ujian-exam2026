@@ -295,59 +295,10 @@ export function KirimNilaiTab({
         <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />
       )}
 
-      {/* Header */}
-      {/* KEPUTUSAN DESAIN (hapus dualisme tab Rekap Nilai vs Kirim Nilai):
-          tab ini sekarang READ-ONLY untuk nilai — cuma menampilkan &
-          mengonfirmasi kirim. Input/ubah nilai remedial dipindah ke tab
-          Rekap Nilai (tombol pensil per baris di sana). */}
-      <div>
-        <p className="text-sm text-slate-500">
-          Kirim nilai akhir siswa ke wali kelas. Perlu mengubah nilai (remedial)?
-          Buka tab <strong className="text-slate-600">Rekap dan Edit Nilai</strong> — perubahannya
-          langsung terlihat di sini.
-        </p>
-      </div>
-
-      {/* FIX (kejelasan istilah): halaman ini menggabungkan dua AKSI yang
-          beda tujuan (rilis ke SISWA vs kirim ke WALI KELAS) di satu layar —
-          sebelumnya guru harus menyimpulkan sendiri dari konteks. Ditata
-          ulang jadi panduan 2 langkah bernomor, dengan warna yang sama
-          persis dengan warna tombol aslinya di bawah, supaya guru langsung
-          mengenali tombol mana yang dimaksud tanpa perlu menghafal istilah.
-          Ini MURNI tampilan — tidak mengubah alur atau logika apa pun. */}
-      <div className="card-sm bg-white border-slate-200">
-        <p className="text-sm font-semibold text-slate-700 mb-3">
-          Ada 2 tombol penting di halaman ini:
-        </p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div className="flex items-start gap-3 rounded-xl bg-indigo-50 border border-indigo-100 px-4 py-3.5">
-            <div className="w-7 h-7 rounded-full bg-indigo-600 text-white flex items-center justify-center flex-shrink-0 font-bold text-sm">1</div>
-            <div className="min-w-0">
-              <div className="flex items-center gap-1.5 font-semibold text-slate-800 text-sm">
-                <FileText className="w-4 h-4 text-indigo-600 flex-shrink-0" />
-                Rilis Nilai Essay <span className="font-normal text-slate-400">(kalau ada)</span>
-              </div>
-              <p className="text-sm text-slate-600 mt-1 leading-relaxed">
-                Ada di panel ungu di bawah. Tekan ini <strong>dulu</strong> supaya siswa bisa
-                melihat nilai essay-nya sebelum dikirim ke wali kelas.
-              </p>
-            </div>
-          </div>
-          <div className="flex items-start gap-3 rounded-xl bg-emerald-50 border border-emerald-100 px-4 py-3.5">
-            <div className="w-7 h-7 rounded-full bg-emerald-600 text-white flex items-center justify-center flex-shrink-0 font-bold text-sm">2</div>
-            <div className="min-w-0">
-              <div className="flex items-center gap-1.5 font-semibold text-slate-800 text-sm">
-                <Send className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-                Kirim ke Wali Kelas
-              </div>
-              <p className="text-sm text-slate-600 mt-1 leading-relaxed">
-                Tombol hijau paling bawah tiap mapel. Ini yang benar-benar mengirim nilai
-                final siswa ke wali kelas.
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
+      {/* Penjelasan cara kerja tab ini (rilis essay vs kirim ke wali kelas,
+          remedial lewat tab Rekap) ada di tombol "Petunjuk Penilaian" di
+          judul halaman — lihat ../PetunjukPenilaianModal.tsx. Tab ini
+          READ-ONLY untuk nilai: remedial diinput di tab Rekap Nilai. */}
 
       {kelompokList.length === 0 && (
         <div className="card text-center py-16 text-slate-400">
@@ -464,11 +415,6 @@ export function KirimNilaiTab({
                       ditampilkan di tab Rekap Nilai) — angka inilah yang
                       benar-benar dikirim saat tombol "Kirim ke Wali Kelas"
                       ditekan. */}
-                  <p className="text-xs text-slate-400 px-5 pt-1 pb-2">
-                    Kolom <strong className="text-slate-500">Nilai Final</strong> adalah nilai yang
-                    akan dikirim ke wali kelas — sudah termasuk nilai remedial kalau pernah
-                    diinput lewat tab Rekap Nilai.
-                  </p>
                 <div className="overflow-x-auto">
                   <table className="table text-sm w-full">
                     <thead>
@@ -636,9 +582,6 @@ export function KirimNilaiTab({
                               {semuaDirilis ? 'Semua Sudah Dirilis' : 'Rilis Semua ke Siswa'}
                             </button>
                           </div>
-                          <p className="text-xs text-indigo-400 mb-2">
-                            Sama dengan tombol rilis di tab Periksa Jawaban Essay — cukup dari salah satu.
-                          </p>
                           <div className="space-y-1.5">
                             {rowsSesi.map(r => (
                               <div key={r.id} className="flex items-center justify-between gap-2 text-sm bg-white rounded-lg px-3 py-2 border border-indigo-100">

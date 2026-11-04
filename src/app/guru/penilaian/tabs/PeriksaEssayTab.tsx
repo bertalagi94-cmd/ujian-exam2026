@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, Fragment } from 'react'
 import {
   CheckSquare, Calendar, Users, ChevronRight, ChevronDown, FileText, Image as ImageIcon,
-  CheckCircle2, XCircle, Save, Send, AlertTriangle, Clock, HelpCircle,
+  CheckCircle2, XCircle, Save, Send, AlertTriangle, Clock,
 } from 'lucide-react'
 import { Confirm, EmptyState, Spinner, Toast, Badge, Modal } from '@/components/ui'
 import { apiRequest, formatDate, formatDateTime } from '@/lib/utils'
@@ -130,7 +130,6 @@ export function PeriksaEssayTab({
   // dulu sebelum sampai ke tabel input nilai (tujuan utama tab ini). Semua
   // penjelasan itu sekarang dikumpulkan di modal "Petunjuk", dibuka lewat
   // satu tombol kecil, supaya area utama fokus ke ringkasan status + tabel.
-  const [showPetunjuk, setShowPetunjuk] = useState(false)
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => setToast({ msg, type })
 
@@ -485,11 +484,12 @@ export function PeriksaEssayTab({
                     </p>
                   )}
 
-                  {/* UX (declutter): ringkasan bobot + tombol "Petunjuk" saja
-                      yang selalu tampil. Cara menilai, rumus lengkap, dan
-                      catatan-catatan lain dipindah ke modal — lihat state
-                      showPetunjuk. Ini menjaga area di atas tabel siswa tetap
-                      pendek supaya guru cepat sampai ke input nilai. */}
+                  {/* UX (declutter): hanya ringkasan bobot yang selalu tampil.
+                      Cara menilai, rumus lengkap, dan catatan lain ada di
+                      tombol "Petunjuk Penilaian" di judul halaman (lihat
+                      ../PetunjukPenilaianModal.tsx). Ini menjaga area di atas
+                      tabel siswa tetap pendek supaya guru cepat sampai ke
+                      input nilai. */}
                   <div className="flex items-center justify-between flex-wrap gap-2 pt-1">
                     <p className="text-xs text-slate-500">
                       Bobot Nilai Akhir: <strong className="text-slate-700">PG {data.bobotPg}%</strong> + <strong className="text-slate-700">Essay {data.bobotEssay}%</strong>
@@ -511,12 +511,6 @@ export function PeriksaEssayTab({
                         </button>
                       )}
                     </p>
-                    <button
-                      onClick={() => setShowPetunjuk(true)}
-                      className="btn-ghost btn-sm text-brand-600"
-                    >
-                      <HelpCircle className="w-3.5 h-3.5" /> Petunjuk
-                    </button>
                   </div>
                   {data.bobotTerkunci && (
                     <p className="text-xs text-slate-500 flex items-center gap-1">
@@ -984,80 +978,6 @@ export function PeriksaEssayTab({
         </div>
       </Modal>
 
-      {/* Modal Petunjuk — kumpulan penjelasan yang sebelumnya selalu tampil
-          di atas tabel siswa (cara menilai, rumus bobot, mode Digital vs
-          Kertas, cara merilis nilai). Ditambah beberapa keterangan lain
-          sesuai alur kode di tab ini supaya guru tidak perlu menebak-nebak,
-          tanpa memenuhi tampilan utama. */}
-      <Modal
-        open={showPetunjuk}
-        onClose={() => setShowPetunjuk(false)}
-        title="Petunjuk Penilaian Essay"
-        size="sm"
-        footer={
-          <button onClick={() => setShowPetunjuk(false)} className="btn-primary">
-            Mengerti
-          </button>
-        }
-      >
-        <div className="space-y-4 text-sm text-slate-600">
-          <div>
-            <p className="font-semibold text-slate-800 mb-1">Cara memberi skor</p>
-            <p>
-              Beri skor tiap soal essay sesuai bobot maksimalnya (rubrik yang dibuat
-              di menu Buat Soal). Sistem menjumlahkan &amp; mengonversi otomatis skor
-              itu ke skala 0–100 — nilai konversinya langsung terlihat sebagai
-              pratinjau begitu semua soal siswa terisi, sebelum kamu menekan Simpan.
-            </p>
-          </div>
-
-          <div>
-            <p className="font-semibold text-slate-800 mb-1">Rumus Nilai Akhir</p>
-            <p>
-              Bobot ditentukan di awal pembuatan soal{data ? <>: <strong>PG {data.bobotPg}%</strong> + <strong>Essay {data.bobotEssay}%</strong></> : null}.
-              {' '}Nilai Akhir = (PG × {data?.bobotPg ?? 'x'}%) + (Essay × {data?.bobotEssay ?? 'y'}%).
-              Bobot ini bisa diubah lewat tombol "Edit" di sebelah keterangan bobot —
-              perubahannya langsung berlaku ke nilai akhir siswa yang sudah maupun
-              belum dinilai essay-nya.
-            </p>
-          </div>
-
-          <div>
-            <p className="font-semibold text-slate-800 mb-1">Mode Digital vs Kertas</p>
-            <p>
-              Mode <strong>Digital</strong>: jawaban siswa tampil sebagai teks, kolom
-              skor ada langsung di tiap kartu jawaban. Mode <strong>Kertas</strong>:
-              lembar jawaban dikumpulkan manual oleh pengawas ruang ujian dan
-              diserahkan ke kamu — beri skor langsung dari kertas fisiknya, tidak ada
-              foto/unggahan yang perlu dicek di sistem.
-            </p>
-          </div>
-
-          <div>
-            <p className="font-semibold text-slate-800 mb-1">Siswa tidak mengerjakan</p>
-            <p>
-              Kalau ada siswa yang tidak menjawab essay-nya, gunakan tombol "Tidak
-              Mengerjakan" pada baris siswa itu — nilai essay-nya otomatis diberi 0.
-            </p>
-          </div>
-
-          <div>
-            <p className="font-semibold text-slate-800 mb-1">Merilis nilai</p>
-            <p>
-              Nilai bisa dirilis satu per satu ("Rilis ke Siswa Ini") begitu skor
-              seorang siswa disimpan, atau sekaligus untuk semua peserta lewat tombol
-              "Rilis Nilai ke Semua Siswa" — tombol ini aktif setelah seluruh siswa
-              dinilai. Nilai yang sudah dirilis langsung bisa dilihat siswa, dan
-              aksi ini tidak bisa dibatalkan.
-            </p>
-            <p className="text-xs text-slate-400 mt-1">
-              Catatan: tombol rilis sekaligus ini sama persis dengan "Rilis Nilai
-              Essay" di tab Kirim Nilai — cukup lakukan dari salah satu, tidak perlu
-              keduanya.
-            </p>
-          </div>
-        </div>
-      </Modal>
     </div>
   )
 }

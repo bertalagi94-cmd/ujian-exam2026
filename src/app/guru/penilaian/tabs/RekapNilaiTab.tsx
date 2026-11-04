@@ -252,12 +252,6 @@ export function RekapNilaiTab({ onDataChanged }: { onDataChanged?: () => void } 
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <p className="text-sm text-slate-500">Nilai siswa dari mata pelajaran yang Anda ampu</p>
-          <p className="text-xs text-slate-400 mt-0.5">
-            Perlu remedial? Tekan ikon <Pencil className="w-3 h-3 inline" /> di baris siswa untuk input nilai —
-            akan langsung dipakai sebagai Nilai Akhir di sini dan saat dikirim ke wali kelas.
-            Baris berlabel <span className="text-orange-500 font-medium">oranye "Dikembalikan wali kelas"</span> berarti
-            nilai itu sudah bisa diedit lagi dan ditampilkan paling atas.
-          </p>
         </div>
         {mapelList.length > 0 && (
           <button onClick={exportExcel} disabled={exporting} className="btn-secondary btn-sm">
