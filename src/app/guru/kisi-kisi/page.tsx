@@ -234,7 +234,7 @@ export default function GuruKisiKisiPage() {
   if (view === 'form') {
     return (
       <div className="max-w-4xl mx-auto">
-        <div className="flex items-center gap-3 mb-6">
+        <div className="flex items-center gap-3 mb-3 lg:mb-4">
           <button
             onClick={selectedKelas ? backToKelasDetail : backToCards}
             className="btn-ghost btn-sm flex items-center gap-1.5"
@@ -250,8 +250,8 @@ export default function GuruKisiKisiPage() {
           <div className="mb-4 p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm">{error}</div>
         )}
 
-        <div className="card p-6 lg:p-8">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+        <div className="card p-4 lg:p-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1.5">Mata Pelajaran</label>
               {editing ? (
@@ -314,34 +314,37 @@ export default function GuruKisiKisiPage() {
             <textarea
               value={konten}
               onChange={e => setKonten(e.target.value)}
-              className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent resize-y transition-shadow min-h-[360px] lg:min-h-[480px] leading-relaxed"
+              className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent resize-y transition-shadow min-h-[200px] h-[calc(100vh-460px)] leading-relaxed"
               placeholder="Tulis kisi-kisi di sini..."
             />
             <p className="text-xs text-slate-400 mt-1">{konten.length} karakter</p>
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-3 mt-5">
-          <button
-            onClick={() => handleSave('DRAFT')}
-            disabled={saving || sudahAda}
-            className="btn-secondary flex items-center gap-2 disabled:opacity-50"
-          >
-            <Save className="w-4 h-4" />
-            {saving ? 'Menyimpan...' : 'Simpan Draft'}
-          </button>
-          <button
-            onClick={() => handleSave('TERKIRIM')}
-            disabled={saving || sudahAda}
-            className="btn-primary flex items-center gap-2 disabled:opacity-50"
-          >
-            <Send className="w-4 h-4" />
-            {saving ? 'Mengirim...' : 'Kirim ke Siswa'}
-          </button>
+        {/* Bar tombol menempel di bawah layar supaya selalu terlihat tanpa zoom out */}
+        <div className="sticky bottom-0 z-20 -mx-2 px-2 pt-3 pb-3 mt-3 bg-white/90 backdrop-blur border-t border-slate-200 rounded-b-xl">
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              onClick={() => handleSave('DRAFT')}
+              disabled={saving || sudahAda}
+              className="btn-secondary flex items-center gap-2 disabled:opacity-50"
+            >
+              <Save className="w-4 h-4" />
+              {saving ? 'Menyimpan...' : 'Simpan Draft'}
+            </button>
+            <button
+              onClick={() => handleSave('TERKIRIM')}
+              disabled={saving || sudahAda}
+              className="btn-primary flex items-center gap-2 disabled:opacity-50"
+            >
+              <Send className="w-4 h-4" />
+              {saving ? 'Mengirim...' : 'Kirim ke Siswa'}
+            </button>
+            <p className="text-xs text-slate-400 flex-1 min-w-[200px]">
+              Draft hanya terlihat oleh rekan guru, belum tampil ke siswa.
+            </p>
+          </div>
         </div>
-        <p className="text-xs text-slate-400 mt-2">
-          Draft hanya terlihat oleh rekan guru, belum tampil ke siswa.
-        </p>
       </div>
     )
   }
