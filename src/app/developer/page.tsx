@@ -13,6 +13,13 @@ interface Yayasan {
   id: string; kode: string; nama: string; status: 'MENUNGGU' | 'AKTIF' | 'NONAKTIF'
   jumlah_siswa?: number; created_at?: string; maintenance_aktif?: boolean
 }
+interface DampakHapus {
+  yayasan: { id: string; kode: string; nama: string; status: string }
+  jumlah: Record<string, number>
+  aktivitas: { sesiBerjalan: boolean; siswaAktif: boolean; error: string | null }
+  storage: { jumlahFile: number; ukuranByte: number } | null
+  blokir: string | null
+}
 interface Pengajuan {
   id: string; nama_sekolah: string; npsn: string; username: string; no_hp: string | null
   status: 'MENUNGGU' | 'DISETUJUI' | 'DITOLAK'; alasan_tolak: string | null
@@ -211,6 +218,11 @@ export default function DeveloperPage() {
   const [storGagal, setStorGagal] = useState('')
   // Mode maintenance per sekolah (diatur dari sini, bukan lagi dari akun Super Admin).
   const [mt, setMt] = useState<{ y: Yayasan; aktif: boolean; pesan: string; mulai: string; selesai: string; memuat: boolean } | null>(null)
+  // Hapus sekolah permanen (dialog risiko + pratinjau dampak dari server).
+  const [hapus, setHapus] = useState<{
+    y: Yayasan; memuat: boolean; gagal: string; dampak: DampakHapus | null
+    ketik: string; mengerti: boolean; paksa: boolean; proses: boolean
+  } | null>(null)
   const toastId = useRef(0)
 
   const toast = useCallback((tipe: 'ok' | 'err', pesan: string) => {
@@ -325,6 +337,38 @@ export default function DeveloperPage() {
         onOk: kirim,
       })
     } else { kirim() }
+  }
+
+  async function bukaHapus(y: Yayasan) {
+    if (y.status !== 'NONAKTIF') {
+      toast('err', 'Nonaktifkan sekolah ini dulu (tombol Nonaktifkan), baru bisa dihapus.')
+      return
+    }
+    setHapus({ y, memuat: true, gagal: '', dampak: null, ketik: '', mengerti: false, paksa: false, proses: false })
+    try {
+      const r = await api(`/api/developer/yayasan/${y.id}/dampak`)
+      setHapus(h => h && h.y.id === y.id ? { ...h, memuat: false, dampak: r.data } : h)
+    } catch (e) {
+      setHapus(h => h && h.y.id === y.id ? { ...h, memuat: false, gagal: (e as Error).message } : h)
+    }
+  }
+
+  async function jalankanHapus() {
+    if (!hapus) return
+    setHapus({ ...hapus, proses: true })
+    try {
+      const r = await api(`/api/developer/yayasan/${hapus.y.id}`, {
+        method: 'DELETE',
+        body: JSON.stringify({ konfirmasi: hapus.ketik, force: hapus.paksa }),
+      })
+      toast('ok', r.message || 'Sekolah dihapus permanen.')
+      setHapus(null)
+      muat()
+    } catch (e) {
+      toast('err', (e as Error).message)
+      setHapus(h => h ? { ...h, proses: false } : h)
+      muat() // sebagian data mungkin sudah terhapus; segarkan daftar
+    }
   }
 
   const muatMonitor = useCallback(async () => {
@@ -717,7 +761,7 @@ export default function DeveloperPage() {
                           <div className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-cyan-400 transition-all duration-700" style={{ width: `${(siswa / maksSiswa) * 100}%` }} />
                         </div>
                       </div>
-                      <div className="flex items-center justify-between pt-3 border-t border-white/10">
+                      <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-white/10">
                         <span className="text-[11px] text-slate-500">Terdaftar {tgl(y.created_at)}</span>
                         <button onClick={() => bukaMaintenance(y)} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-400/10 hover:bg-amber-400/20 ring-1 ring-amber-400/30 text-amber-300 text-xs font-semibold transition"><Wrench className="w-3.5 h-3.5" />Maintenance</button>
                         {y.id === 'YYS_AWAL'
@@ -725,6 +769,9 @@ export default function DeveloperPage() {
                           : y.status === 'NONAKTIF'
                             ? <button onClick={() => ubahStatus(y, 'AKTIF')} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-400/10 hover:bg-emerald-400/20 ring-1 ring-emerald-400/30 text-emerald-300 text-xs font-semibold transition"><Power className="w-3.5 h-3.5" />Aktifkan</button>
                             : <button onClick={() => ubahStatus(y, 'NONAKTIF')} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 ring-1 ring-rose-400/30 text-rose-300 text-xs font-semibold transition"><Power className="w-3.5 h-3.5" />Nonaktifkan</button>}
+                        {y.id !== 'YYS_AWAL' && (
+                          <button onClick={() => bukaHapus(y)} title="Hapus sekolah permanen" className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600/15 hover:bg-rose-600/30 ring-1 ring-rose-500/40 text-rose-300 text-xs font-semibold transition"><Trash2 className="w-3.5 h-3.5" />Hapus</button>
+                        )}
                       </div>
                     </article>
                   )
@@ -988,6 +1035,111 @@ export default function DeveloperPage() {
           </div>
         </div>
       )}
+
+      {hapus && (() => {
+        const d = hapus.dampak
+        const n = (k: string) => (d?.jumlah[k] ?? 0).toLocaleString('id-ID')
+        const adaUjian = !!d && (d.aktivitas.sesiBerjalan || d.aktivitas.siswaAktif)
+        const kodeCocok = hapus.ketik.trim().toUpperCase() === hapus.y.kode.toUpperCase()
+        const siap = !!d && !d.blokir && !d.aktivitas.error && hapus.mengerti && kodeCocok && (!adaUjian || hapus.paksa) && !hapus.proses
+        return (
+          <div className="fixed inset-0 z-50 grid place-items-center p-4 bg-black/75 backdrop-blur-sm dv-fade-in" onMouseDown={e => { if (e.target === e.currentTarget && !hapus.proses) setHapus(null) }}>
+            <div role="dialog" aria-modal="true" className="dv-kaca-solid w-full max-w-xl rounded-2xl p-6 dv-pop max-h-[92vh] overflow-y-auto" style={{ borderColor: 'rgba(244,63,94,0.45)' }}>
+              <div className="flex items-start gap-4">
+                <div className="w-11 h-11 rounded-xl grid place-items-center shrink-0 ring-1 bg-rose-500/15 ring-rose-400/40 text-rose-300"><Trash2 className="w-5 h-5" /></div>
+                <div className="min-w-0 flex-1">
+                  <h4 className="text-lg font-bold text-white">Hapus sekolah secara permanen</h4>
+                  <p className="text-sm text-slate-300 mt-0.5 font-semibold">{hapus.y.nama}</p>
+                  <p className="text-xs text-slate-500 mt-0.5">Kode Sekolah: <span className="font-mono text-slate-300">{hapus.y.kode}</span></p>
+                </div>
+                <button onClick={() => setHapus(null)} disabled={hapus.proses} className="text-slate-400 hover:text-white"><X className="w-5 h-5" /></button>
+              </div>
+
+              <div className="mt-4 rounded-xl bg-rose-500/10 ring-1 ring-rose-400/40 p-3.5 text-sm text-rose-200 flex gap-2.5">
+                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                <p><b>TIDAK BISA DIBATALKAN.</b> Tidak ada tempat sampah dan tidak ada tombol undo. Setelah dihapus, data hanya bisa dipulihkan dari backup database Supabase milik Anda sendiri (kalau paket Supabase Anda menyediakannya).</p>
+              </div>
+
+              {hapus.memuat && <div className="mt-4 h-40 rounded-xl dv-skel" />}
+              {hapus.gagal && <div className="mt-4 rounded-xl bg-white/5 ring-1 ring-white/10 p-3 text-sm text-rose-300">{hapus.gagal}</div>}
+
+              {d && (
+                <>
+                  {d.blokir && <div className="mt-4 rounded-xl bg-amber-400/10 ring-1 ring-amber-400/40 p-3 text-sm text-amber-200">{d.blokir}</div>}
+
+                  <div className="mt-4">
+                    <p className="text-xs font-bold tracking-wider text-slate-400 uppercase">Yang akan terhapus</p>
+                    <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-2 text-center">
+                      {[
+                        ['Siswa', n('siswa')], ['Akun guru/kepsek/admin', n('users')], ['Kelas', n('kelas')],
+                        ['Mata pelajaran', n('mapel')], ['Jadwal', n('jadwal')], ['Sesi ujian', n('sesi_ujian')],
+                        ['Soal PG', n('soal')], ['Soal essay', n('soal_essay')], ['Nilai', n('nilai')],
+                      ].map(([k, v]) => (
+                        <div key={k} className="rounded-lg bg-white/5 ring-1 ring-white/10 py-2 px-1">
+                          <div className="text-base font-extrabold text-white tabular-nums">{v}</div>
+                          <div className="text-[11px] text-slate-400 leading-tight">{k}</div>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="mt-2 text-xs text-slate-500">
+                      Juga: seluruh jawaban siswa, foto jawaban essay, catatan pelanggaran ({n('pelanggaran')}), log aktivitas ({n('log_aktivitas')}), pengaturan sekolah, dan logo.
+                      {d.storage ? ` File di Storage: ${d.storage.jumlahFile.toLocaleString('id-ID')} file (${fmtUkuran(d.storage.ukuranByte)}).` : ''}
+                    </p>
+                  </div>
+
+                  {adaUjian && (
+                    <div className="mt-4 rounded-xl bg-rose-500/10 ring-1 ring-rose-400/40 p-3 text-sm text-rose-200">
+                      <p className="font-bold">⚠ Ada ujian yang sedang berjalan{d.aktivitas.siswaAktif ? ' dan siswa yang sedang mengerjakan' : ''}.</p>
+                      <p className="mt-1 text-rose-200/80">Jawaban siswa yang belum tersimpan akan hilang dan hasil ujiannya tidak akan ada.</p>
+                      <label className="mt-2 flex items-start gap-2 cursor-pointer">
+                        <input type="checkbox" checked={hapus.paksa} onChange={e => setHapus({ ...hapus, paksa: e.target.checked })} className="mt-0.5 accent-rose-500" />
+                        <span>Tetap hapus walaupun ada ujian berjalan.</span>
+                      </label>
+                    </div>
+                  )}
+                  {d.aktivitas.error && <div className="mt-4 rounded-xl bg-white/5 ring-1 ring-white/10 p-3 text-sm text-rose-300">Gagal memeriksa ujian berjalan: {d.aktivitas.error}</div>}
+
+                  <div className="mt-4">
+                    <p className="text-xs font-bold tracking-wider text-slate-400 uppercase">Risiko dan akibat</p>
+                    <ul className="mt-2 space-y-1.5 text-[13px] text-slate-300 leading-relaxed list-disc pl-5">
+                      <li><b className="text-white">Data hilang selamanya:</b> nilai, jawaban, soal, dan arsip ujian sekolah ini tidak bisa dilihat atau diunduh lagi, termasuk oleh sekolahnya sendiri.</li>
+                      <li><b className="text-white">Tidak ada backup otomatis dari aplikasi.</b> Kalau sekolah masih membutuhkan arsip, aktifkan lagi sekolahnya dan minta Admin sekolah mengunduh Backup (menu Admin) <u>sebelum</u> Anda menghapus.</li>
+                      <li><b className="text-white">Semua akun sekolah terhapus,</b> termasuk akun Admin. Tidak ada yang bisa login lagi dengan akun lama.</li>
+                      <li><b className="text-white">Username dan NIS dibebaskan.</b> Email atau NIS yang sama bisa dipakai pendaftar lain setelahnya.</li>
+                      <li><b className="text-white">Kode Sekolah ({hapus.y.kode}) hilang.</b> Sekolah yang sama harus mengajukan aktivasi dari awal, dan akan menjadi sekolah baru yang kosong.</li>
+                      <li><b className="text-white">Riwayat pengajuan tetap tersimpan</b> di tab Pengajuan, tetapi tidak lagi tertaut ke sekolah ini.</li>
+                      <li><b className="text-white">Bisa terputus di tengah jalan</b> (koneksi atau batas waktu server). Kalau ini terjadi sebagian data sudah terhapus dan sekolah belum hilang dari daftar. Ulangi Hapus sampai berhasil. Selama belum tuntas, jangan diaktifkan lagi.</li>
+                      <li><b className="text-white">Jangan dilakukan saat ada ujian</b> di sekolah ini maupun sekolah lain, supaya server tidak kewalahan.</li>
+                    </ul>
+                  </div>
+
+                  <label className="mt-4 flex items-start gap-2 text-sm text-slate-200 cursor-pointer">
+                    <input type="checkbox" checked={hapus.mengerti} onChange={e => setHapus({ ...hapus, mengerti: e.target.checked })} className="mt-0.5 accent-rose-500" disabled={!!d.blokir} />
+                    <span>Saya sudah membaca semua risiko di atas dan memahami bahwa penghapusan ini permanen.</span>
+                  </label>
+
+                  <label className="mt-3 block">
+                    <span className="text-xs text-slate-400">Ketik Kode Sekolah <span className="font-mono font-bold text-rose-300">{hapus.y.kode}</span> untuk melanjutkan</span>
+                    <input value={hapus.ketik} onChange={e => setHapus({ ...hapus, ketik: e.target.value })} disabled={!!d.blokir || hapus.proses}
+                      autoComplete="off" spellCheck={false} placeholder={hapus.y.kode}
+                      className="mt-1 w-full px-3.5 py-2.5 rounded-xl text-sm font-mono bg-white/5 ring-1 ring-white/10 focus:ring-rose-400/60 outline-none text-slate-100 placeholder:text-slate-600" />
+                  </label>
+                </>
+              )}
+
+              <div className="mt-6 flex justify-end gap-2">
+                <button onClick={() => setHapus(null)} disabled={hapus.proses}
+                  className="px-4 py-2.5 rounded-xl text-sm font-semibold text-slate-300 bg-white/5 hover:bg-white/10 ring-1 ring-white/10 transition disabled:opacity-50">Batal</button>
+                <button onClick={jalankanHapus} disabled={!siap}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold bg-gradient-to-r from-rose-600 to-red-500 text-white shadow-lg transition hover:brightness-110 disabled:opacity-40 disabled:cursor-not-allowed">
+                  {hapus.proses ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                  {hapus.proses ? 'Menghapus… jangan tutup halaman' : 'Hapus permanen'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {dialog && (
         <div className="fixed inset-0 z-50 grid place-items-center p-4 bg-black/70 backdrop-blur-sm dv-fade-in" onMouseDown={e => { if (e.target === e.currentTarget && !proses) setDialog(null) }}>
