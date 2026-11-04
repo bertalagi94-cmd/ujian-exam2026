@@ -409,6 +409,34 @@ export function ModePengawasTab() {
   }
 
 
+  // Suara "siswa terputus dari internet" — dua bip pendek bernada datar
+  // ("tut-tut", 440 Hz, gelombang triangle). Sengaja dibuat sederhana dan
+  // berbeda dari dua suara lain supaya pengawas langsung tahu jenisnya:
+  //   - pelanggaran : siren naik-turun (sawtooth, 500–950 Hz, 0.6 dtk)
+  //   - selesai     : chime dua nada naik (sine, E5 → B5)
+  //   - terputus    : dua bip datar, nada rendah (ini)
+  function playTerputus() {
+    const ctx = getAudioCtx()
+    if (!ctx) return
+    try {
+      const bip = [0, 0.22] // detik: mulai bip pertama dan kedua
+      bip.forEach(mulai => {
+        const osc = ctx.createOscillator()
+        const gain = ctx.createGain()
+        osc.connect(gain); gain.connect(ctx.destination)
+        osc.type = 'triangle'
+        const t0 = ctx.currentTime + mulai
+        osc.frequency.setValueAtTime(440, t0)
+        gain.gain.setValueAtTime(0.001, t0)
+        gain.gain.linearRampToValueAtTime(0.35, t0 + 0.015)
+        gain.gain.setValueAtTime(0.35, t0 + 0.13)
+        gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.16)
+        osc.start(t0); osc.stop(t0 + 0.17)
+      })
+    } catch { /* silent */ }
+  }
+
+
   const muatKodeReset = useCallback(async (sesiId: string, nisPerlu: string[]) => {
     const ada = kodeResetRef.current[sesiId]
     const lengkap = !!ada && nisPerlu.every(nis => !!ada.kodePerNis[nis])
@@ -486,7 +514,7 @@ export function ModePengawasTab() {
         })
       })
       if (baselineSiapRef.current && terputusSekarang.some(t => !terputusDibunyikanRef.current.has(t.key))) {
-        playAlert()
+        playTerputus()
       }
       terputusSekarang.forEach(t => terputusDibunyikanRef.current.add(t.key))
       setTerputusList(terputusSekarang)
