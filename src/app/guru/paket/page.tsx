@@ -466,6 +466,16 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
     if (berhasil) selesaiBuat()
   }
 
+  // Tombol "Kembali": kalau ada soal yang sedang diketik tapi belum disimpan,
+  // tanya dulu supaya ketikan guru tidak hilang diam-diam.
+  function handleKembaliBuat() {
+    const formEl = formRef.current
+    if (formEl && !formSoalMasihKosong(formEl)) {
+      if (!window.confirm('Soal yang sedang diketik belum disimpan. Keluar tanpa menyimpan soal ini?')) return
+    }
+    selesaiBuat()
+  }
+
   // ── Edit soal dari expand list ──
   function openEditSoal(s: SoalWithImg) {
     setEditSoal(s)
@@ -688,7 +698,7 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
             <div className="flex items-center gap-2 mb-1">
-              <button onClick={selesaiBuat} className="btn-back btn-sm">
+              <button onClick={handleKembaliBuat} className="btn-back btn-sm">
                 <ArrowLeft className="w-4 h-4" /> Kembali
               </button>
             </div>
@@ -701,7 +711,7 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
             <button onClick={() => setImporOpen(true)} className="btn-secondary btn-sm" disabled={saving}>
               <FileUp className="w-4 h-4" /> Impor dari Word
             </button>
-            <button onClick={selesaiBuat} className="btn-secondary btn-sm">
+            <button onClick={handleSimpanDanSelesai} className="btn-secondary btn-sm" disabled={saving || !!uploadingImg}>
               <CheckCircle2 className="w-4 h-4" /> Selesai Membuat Soal
             </button>
           </div>
@@ -729,24 +739,36 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
 
         {/* Form tambah soal baru */}
         <div className="card">
-          <div className="flex items-center gap-2 mb-4">
+          <div className="flex items-center gap-2 mb-3">
             <span className="w-8 h-8 rounded-full bg-brand-600 text-white font-bold text-sm flex items-center justify-center flex-shrink-0">
               {soalDibuat.length + 1}
             </span>
             <h2 className="font-semibold text-slate-800">Soal ke-{soalDibuat.length + 1}</h2>
           </div>
 
-          <form ref={formRef} id="soal-buat-form" onSubmit={handleTambahSoal} className="space-y-4">
+          <form ref={formRef} id="soal-buat-form" onSubmit={handleTambahSoal} className="space-y-3">
             <PaletSimbol />
+            {/* Dua kolom di layar lebar: pertanyaan di kiri, pilihan jawaban di
+                kanan, supaya seluruh form + tombol muat tanpa scroll. */}
+            <div className="grid gap-x-8 gap-y-3 lg:grid-cols-2">
+            <div className="space-y-3">
             <div>
               <label className="label">Teks Pertanyaan *</label>
-              <textarea name="teks" className="textarea" rows={3} required placeholder="Tulis pertanyaan di sini..." />
+              <textarea name="teks" className="textarea" rows={5} required placeholder="Tulis pertanyaan di sini..." />
               <div className="mt-2">
                 <ImageUploadButton label="Tambah Gambar Pertanyaan" url={imgPertanyaan}
                   onUrl={setImgPertanyaan} uploadKey="pertanyaan" uploading={uploadingImg} onTrigger={triggerUpload} />
               </div>
             </div>
 
+            <div>
+              <label className="label">Pembahasan (opsional)</label>
+              <textarea name="pembahasan" className="textarea" rows={3} placeholder="Penjelasan jawaban yang benar..." />
+            </div>
+
+            </div>
+
+            <div className="space-y-3">
             {/* Jumlah opsi jawaban SUDAH ditentukan di layar Setup (sebelum
                 soal pertama dibuat) dan berlaku untuk semua soal dalam paket
                 ini — lihat paketJumlahOpsi. Tidak ditanya lagi di sini supaya
@@ -799,12 +821,12 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
               </select>
             </div>
 
-            <div>
-              <label className="label">Pembahasan (opsional)</label>
-              <textarea name="pembahasan" className="textarea" rows={2} placeholder="Penjelasan jawaban yang benar..." />
+            </div>
             </div>
 
-            <div className="flex gap-3 pt-2 flex-wrap">
+            {/* Tombol aksi selalu terlihat (menempel di bawah layar) walau
+                layar pendek, jadi tidak perlu scroll untuk menekannya. */}
+            <div className="sticky bottom-0 z-10 -mx-6 -mb-6 px-6 py-3 flex gap-3 flex-wrap bg-white/95 backdrop-blur border-t border-slate-100 rounded-b-2xl">
               <button type="submit" className="btn-primary" disabled={saving || !!uploadingImg}>
                 {saving ? <Spinner size="sm" /> : <><Plus className="w-4 h-4" /> Tambah & Lanjut ke Soal Berikutnya</>}
               </button>
