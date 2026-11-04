@@ -520,6 +520,7 @@ export function GuruSidebar() {
   const [isWaliKelas, setIsWaliKelas] = useState(false)
   const [hasPengawasan, setHasPengawasan] = useState(false)
   const [isAdminKelas, setIsAdminKelas] = useState(false)
+  const [adaHasilUjian, setAdaHasilUjian] = useState(false)
   const pathname = usePathname()
 
   useEffect(() => {
@@ -536,6 +537,12 @@ export function GuruSidebar() {
 
     apiRequest<{ isAdminKelas?: boolean }>('/api/guru/admin-kelas/saya', { timeoutMs: 8_000 })
       .then(d => { if (d.isAdminKelas) setIsAdminKelas(true) })
+      .catch(() => {})
+
+    // Menu "Analisis Ujian PG" hanya tampil kalau guru ini sudah punya hasil
+    // ujian (minimal satu sesi SELESAI untuk mapel yang diampunya).
+    apiRequest<{ adaSesi?: boolean }>('/api/guru/analisis-ujian?only_kelas=1', { timeoutMs: 8_000 })
+      .then(d => { if (d.adaSesi) setAdaHasilUjian(true) })
       .catch(() => {})
   }, [])
 
@@ -603,9 +610,13 @@ export function GuruSidebar() {
     // Jadwal ujian untuk mapel yang DIAMPU guru ini (bukan tugas pengawasan).
     { label: 'Jadwal Mapel Saya', href: '/guru/jadwal-mapel', icon: CalendarDays },
     { label: 'Penilaian', href: '/guru/penilaian', icon: CheckSquare },
-    // Ikon FileBarChart agar tidak tertukar dengan "Penilaian".
-    { label: 'Analisis Ujian', href: '/guru/analisis-ujian', icon: FileBarChart },
   ]
+
+  // Ikon FileBarChart agar tidak tertukar dengan "Penilaian". Tampil hanya
+  // setelah ada hasil ujian dari mapel guru ini.
+  if (adaHasilUjian) {
+    navItems.push({ label: 'Analisis Ujian PG', href: '/guru/analisis-ujian', icon: FileBarChart })
+  }
 
   // Kelompok "Tugas Tambahan": hanya muncul untuk guru yang memang punya
   // jadwal jaga (pengawas) dan/atau menjadi wali kelas. Kondisi tampil
