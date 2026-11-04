@@ -150,7 +150,6 @@ function SidebarContent({ navItems, roleColor, roleLabel, accent, user, siteInfo
                   background: `linear-gradient(135deg, ${accent}E6, ${accent}CC)`,
                   color: '#ffffff',
                   boxShadow: `0 4px 14px ${accent}40, inset 0 1px 0 rgba(255,255,255,0.25)`,
-                  backdropFilter: 'blur(8px)',
                 } : undefined}
               >
                 <item.icon className="w-4 h-4 flex-shrink-0" />
@@ -173,7 +172,6 @@ function SidebarContent({ navItems, roleColor, roleLabel, accent, user, siteInfo
           style={{
             background: `${accent}14`,
             border: `1px solid ${accent}22`,
-            backdropFilter: 'blur(8px)',
           }}>
           <div className={cn('w-8 h-8 rounded-lg flex items-center justify-center text-white text-xs font-bold', roleColor)}>
             {user?.nama?.charAt(0) ?? 'U'}
@@ -201,7 +199,6 @@ function SidebarContent({ navItems, roleColor, roleLabel, accent, user, siteInfo
           style={{
             background: 'rgba(254,242,242,0.65)',
             border: '1px solid rgba(252,165,165,0.5)',
-            backdropFilter: 'blur(8px)',
           }}
         >
           <LogOut className="w-4 h-4" />
@@ -290,8 +287,6 @@ export function Sidebar({ navItems, role, roleColor, roleLabel, accent = '#0891b
         style={{
           background: 'rgba(255,255,255,0.88)',
           border: `1px solid ${accent}33`,
-          backdropFilter: 'blur(12px)',
-          WebkitBackdropFilter: 'blur(12px)',
           boxShadow: `0 4px 16px ${accent}26, inset 0 1px 0 rgba(255,255,255,0.5)`,
           color: accent,
         }}
@@ -306,8 +301,6 @@ export function Sidebar({ navItems, role, roleColor, roleLabel, accent = '#0891b
           <div className="absolute left-0 top-0 bottom-0 w-64 shadow-card-lg animate-slide-up"
             style={{
               background: `linear-gradient(165deg, ${accent}1F 0%, rgba(255,255,255,0.92) 45%)`,
-              backdropFilter: 'blur(20px)',
-              WebkitBackdropFilter: 'blur(20px)',
             }}
           >
             <button
@@ -316,7 +309,6 @@ export function Sidebar({ navItems, role, roleColor, roleLabel, accent = '#0891b
               style={{
                 background: 'rgba(255,255,255,0.88)',
                 border: `1px solid ${accent}33`,
-                backdropFilter: 'blur(8px)',
                 color: accent,
               }}
             >
@@ -352,8 +344,6 @@ export function Sidebar({ navItems, role, roleColor, roleLabel, accent = '#0891b
         style={{
           width: collapsed ? 0 : 240,
           background: `linear-gradient(165deg, ${accent}14 0%, rgba(255,255,255,0.92) 50%, ${accent}0A 100%)`,
-          backdropFilter: 'blur(20px)',
-          WebkitBackdropFilter: 'blur(20px)',
           borderRight: collapsed ? 'none' : `1px solid ${accent}26`,
           boxShadow: collapsed ? 'none' : `4px 0 24px ${accent}14`,
         }}
@@ -387,8 +377,6 @@ export function Sidebar({ navItems, role, roleColor, roleLabel, accent = '#0891b
           background: 'rgba(255,255,255,0.92)',
           border: `1px solid ${accent}33`,
           borderLeft: collapsed ? `1px solid ${accent}33` : 'none',
-          backdropFilter: 'blur(12px)',
-          WebkitBackdropFilter: 'blur(12px)',
           boxShadow: `2px 2px 10px ${accent}22`,
           color: accent,
         }}

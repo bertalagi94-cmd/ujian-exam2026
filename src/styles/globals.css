@@ -143,25 +143,26 @@
   }
 
   /* Page header — judul & subjudul ini sering duduk LANGSUNG di atas latar
-     (bukan di dalam .card putih), jadi saat efek "Latar Kaca Transparan"
-     aktif, foto blur di belakangnya bisa membuat tulisan kurang kontras.
-     Text-shadow (halo putih tipis) di bawah ini menjaga keterbacaan di
-     kedua kondisi — latar polos maupun latar foto — tanpa mengubah efek
-     transparannya sama sekali. */
+     (bukan di dalam .card putih) dan di atas foto blur saat "Latar Kaca
+     Transparan" aktif. PERBAIKAN TULISAN BURAM: dulu text-shadow memakai
+     halo putih berblur 10–16px, yang membuat huruf tampak berkabut/buram
+     (apalagi di layar resolusi rendah). Sekarang hanya garis putih tipis
+     TANPA blur (blur 0) — tepi huruf tetap tajam, tetap ada pemisah tipis
+     dari latar. Jangan dikembalikan ke halo berblur. */
   .page-title {
     @apply text-2xl font-bold text-slate-900;
-    text-shadow: 0 1px 2px rgba(255, 255, 255, 0.75), 0 1px 16px rgba(255, 255, 255, 0.55);
+    text-shadow: 0 1px 0 rgba(255, 255, 255, 0.6);
   }
   .page-subtitle {
     @apply text-sm text-slate-600 mt-0.5 font-medium;
-    text-shadow: 0 1px 2px rgba(255, 255, 255, 0.85), 0 1px 12px rgba(255, 255, 255, 0.6);
+    text-shadow: 0 1px 0 rgba(255, 255, 255, 0.6);
   }
 
   /* Sama seperti .page-title/.page-subtitle di atas — dipakai untuk judul
      sub-halaman (mis. Kisi-kisi, Kelas X, Jadwal Mengawas) yang juga duduk
      langsung di atas latar, bukan cuma di halaman utama. */
   .subheader-title {
-    text-shadow: 0 1px 2px rgba(255, 255, 255, 0.75), 0 1px 16px rgba(255, 255, 255, 0.55);
+    text-shadow: 0 1px 0 rgba(255, 255, 255, 0.6);
   }
 
   /* FIX KONTRAS — Latar Kaca Transparan (lihat DashboardPhotoBackground.tsx):
@@ -174,7 +175,7 @@
      tanpa mengubah tampilan saat latar polos (efek nyaris tak terlihat). */
   .nav-link-inactive,
   .glass-text {
-    text-shadow: 0 1px 2px rgba(255, 255, 255, 0.7), 0 1px 10px rgba(255, 255, 255, 0.45);
+    text-shadow: 0 1px 0 rgba(255, 255, 255, 0.6);
   }
   /* Dipakai bareng class Tailwind yang sudah ada (bukan pengganti) — cukup
      tempel di teks yang duduk langsung di kaca sidebar/dashboard, tanpa
@@ -184,7 +185,7 @@
   }
   .subheader-subtitle {
     @apply text-slate-600 font-medium;
-    text-shadow: 0 1px 2px rgba(255, 255, 255, 0.85), 0 1px 12px rgba(255, 255, 255, 0.6);
+    text-shadow: 0 1px 0 rgba(255, 255, 255, 0.6);
   }
 
   /* Stat card */

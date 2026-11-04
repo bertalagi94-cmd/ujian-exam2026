@@ -26,7 +26,7 @@ export function TransparentBgToggle({ accent = '#0ea5e9' }: TransparentBgToggleP
       aria-label="Aktifkan latar kaca transparan"
       title={enabled ? 'Matikan efek transparan' : 'Aktifkan efek transparan'}
       onClick={() => setEnabled(!enabled)}
-      className="group inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white/95 backdrop-blur-sm shadow-card-md pl-2 pr-1 py-1 transition-all duration-200 hover:shadow-card-lg"
+      className="group inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white/95 shadow-card-md pl-2 pr-1 py-1 transition-all duration-200 hover:shadow-card-lg"
     >
       <Sparkles
         className="w-3.5 h-3.5 transition-colors duration-200"

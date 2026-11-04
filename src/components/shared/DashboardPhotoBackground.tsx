@@ -36,7 +36,9 @@ export function DashboardPhotoBackground({ tint, active = true }: DashboardPhoto
           backgroundSize: 'cover',
           backgroundPosition: 'center',
           transform: 'scale(1.06)',
-          filter: 'blur(8px) saturate(115%)',
+          // saturate 115% x 150% (dulu 150% dipasang lewat backdrop-filter di lapisan
+          // tint) digabung di sini: hasil warna sama, tanpa backdrop-filter layar penuh.
+          filter: 'blur(8px) saturate(172%)',
         }}
       />
       {/* Tint kaca — tipis, sekadar penanda warna khas role + sedikit
@@ -47,8 +49,6 @@ export function DashboardPhotoBackground({ tint, active = true }: DashboardPhoto
         className="absolute inset-0"
         style={{
           background: `linear-gradient(135deg, ${hexToRgba(tint, 0.4)} 0%, ${hexToRgba(tint, 0.18)} 45%, rgba(255,255,255,0.22) 100%)`,
-          backdropFilter: 'blur(1px) saturate(150%)',
-          WebkitBackdropFilter: 'blur(1px) saturate(150%)',
         }}
       />
     </div>
