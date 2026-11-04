@@ -14,16 +14,13 @@ export async function GET(req: NextRequest) {
   const perPage = parseInt(searchParams.get('per_page') ?? '20')
   const search = searchParams.get('search') ?? ''
   const kelas = searchParams.get('kelas') ?? ''
-  const tester = searchParams.get('tester') === 'true'
 
   let query = db
     .from('siswa')
     .select('*', { count: 'exact' })
     .order('nama')
 
-  // ?tester=true -> tampilkan HANYA akun tester (tab "Akun Tester" di admin).
-  // Default -> tampilkan siswa reguler seperti sebelumnya.
-  query = tester ? query.eq('is_tester', 'YES') : query.neq('is_tester', 'YES')
+  // Fitur Akun Tester sudah dihapus: semua siswa yayasan ini ditampilkan.
 
   // Bersihkan karakter spesial PostgREST (, ( ) % *) supaya nama seperti
   // "Budi, S.Pd" tidak merusak sintaks .or() (sama seperti admin/pelanggaran).

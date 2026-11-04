@@ -995,7 +995,7 @@ export default function DeveloperPage() {
                 <div className="flex items-center justify-between gap-4 p-3 rounded-xl bg-white/5 ring-1 ring-white/10">
                   <div>
                     <p className="text-sm font-semibold text-slate-100">{mt.aktif ? 'Maintenance AKTIF' : 'Maintenance nonaktif'}</p>
-                    <p className="text-xs text-slate-400">Saat aktif, semua pengguna sekolah ini selain Admin dan akun tester tidak bisa login.</p>
+                    <p className="text-xs text-slate-400">Saat aktif, semua pengguna sekolah ini selain Admin tidak bisa login.</p>
                   </div>
                   <button role="switch" aria-checked={mt.aktif} onClick={() => setMt({ ...mt, aktif: !mt.aktif })}
                     className={`relative w-12 h-7 rounded-full shrink-0 transition-colors ${mt.aktif ? 'bg-amber-400' : 'bg-slate-600'}`}>

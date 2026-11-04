@@ -73,16 +73,12 @@ export default function AdminSiswaPage() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [filterKelas, setFilterKelas] = useState('')
-  // Tab "Akun Reguler" / "Akun Tester". Akun tester ditandai is_tester = 'YES'
-  // dan dikecualikan dari maintenance mode (lihat api/auth/login/route.ts).
-  const [accountTab, setAccountTab] = useState<'reguler' | 'tester'>('reguler')
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
   const [modalOpen, setModalOpen] = useState(false)
   const [editData, setEditData] = useState<Partial<Siswa> | null>(null)
   const [kelasMode, setKelasMode] = useState<'pilih' | 'baru'>('pilih')
   const [kelasBaruInput, setKelasBaruInput] = useState('')
-  const [formIsTester, setFormIsTester] = useState(false)
   // Ganti NISN (hanya form edit): nilai input NISN + opsi reset password ke NISN baru.
   const [formNisBaru, setFormNisBaru] = useState('')
   const [formResetPassword, setFormResetPassword] = useState(true)
@@ -123,7 +119,6 @@ export default function AdminSiswaPage() {
         per_page: String(PER_PAGE),
         ...(search && { search }),
         ...(filterKelas && { kelas: filterKelas }),
-        ...(accountTab === 'tester' && { tester: 'true' }),
       })
       const res = await apiRequest<{ data: Siswa[]; total: number }>(`/api/admin/siswa?${params}`)
       setSiswa(res.data)
@@ -134,48 +129,43 @@ export default function AdminSiswaPage() {
     } finally {
       setLoading(false)
     }
-  }, [page, search, filterKelas, accountTab])
+  }, [page, search, filterKelas])
 
   useEffect(() => { load() }, [load])
   useEffect(() => {
     apiRequest<{ data: Kelas[] }>('/api/admin/kelas').then(r => setKelas(r.data))
   }, [])
 
-  // Kartu "Jumlah Siswa per Kelas" harus mengikuti tab yang aktif — dulu
-  // kartunya selalu dihitung dari siswa reguler saja (lihat
-  // /api/admin/kelas), jadi saat tab "Akun Tester" aktif dan diklik, filter
-  // kelas dicocokkan ke siswa reguler yang tidak relevan → hasil kosong.
-  // Sekarang kartu di-refetch dengan ?tester=true saat tab tester aktif.
+  // Kartu "Jumlah Siswa per Kelas" (klik untuk memfilter tabel).
   const [kelasCards, setKelasCards] = useState<Kelas[]>([])
   useEffect(() => {
-    apiRequest<{ data: Kelas[] }>(`/api/admin/kelas${accountTab === 'tester' ? '?tester=true' : ''}`)
+    apiRequest<{ data: Kelas[] }>('/api/admin/kelas')
       .then(r => setKelasCards(r.data))
       .catch(() => setKelasCards([]))
-  }, [accountTab])
+  }, [])
 
-  // Total siswa pada tab aktif TANPA filter kelas/pencarian — dipakai di
+  // Total siswa TANPA filter kelas/pencarian — dipakai di
   // dialog "Reset Password Semua" supaya jumlah yang ditampilkan ke admin
   // selalu sama dengan jumlah yang benar-benar akan direset (`total` di
   // atas bisa lebih kecil kalau admin sedang mengetik di kotak pencarian
   // atau memfilter kelas).
   const [totalTab, setTotalTab] = useState(0)
   useEffect(() => {
-    apiRequest<{ total: number }>(`/api/admin/siswa?page=1&per_page=1${accountTab === 'tester' ? '&tester=true' : ''}`)
+    apiRequest<{ total: number }>('/api/admin/siswa?page=1&per_page=1')
       .then(r => setTotalTab(r.total))
       .catch(() => setTotalTab(0))
-  }, [accountTab, total])
+  }, [total])
 
-  function openAdd() { setEditData({}); setKelasMode('pilih'); setKelasBaruInput(''); setFormIsTester(false); setModalOpen(true) }
-  function openEdit(s: Siswa) { setEditData(s); setKelasMode('pilih'); setKelasBaruInput(''); setFormIsTester(s.is_tester === 'YES'); setFormNisBaru(s.nis); setFormResetPassword(true); setModalOpen(true) }
+  function openAdd() { setEditData({}); setKelasMode('pilih'); setKelasBaruInput(''); setModalOpen(true) }
+  function openEdit(s: Siswa) { setEditData(s); setKelasMode('pilih'); setKelasBaruInput(''); setFormNisBaru(s.nis); setFormResetPassword(true); setModalOpen(true) }
 
   async function handleSave(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     const form = new FormData(e.currentTarget)
     const payload = {
       ...Object.fromEntries(form.entries()),
-      // Hanya kirim saat edit (bukan tambah baru) — kolom checkbox cuma
-      // muncul di form edit.
-      ...(editData?.nis ? { is_tester: formIsTester ? 'YES' : 'NO', reset_password: formResetPassword } : {}),
+      // Hanya kirim saat edit (bukan tambah baru).
+      ...(editData?.nis ? { reset_password: formResetPassword } : {}),
     }
     setSaving(true)
     try {
@@ -224,7 +214,7 @@ export default function AdminSiswaPage() {
     }
   }
 
-  // Reset password SEMUA siswa pada tab yang aktif (reguler/tester) ke
+  // Reset password SEMUA siswa ke
   // NISN masing-masing — tidak mengikuti filter kelas/pencarian yang
   // sedang aktif, lihat komentar di api/admin/siswa/reset-password-semua.
   async function handleResetSemua() {
@@ -232,7 +222,7 @@ export default function AdminSiswaPage() {
     try {
       const res = await apiRequest<{ message: string; jumlah: number }>(
         '/api/admin/siswa/reset-password-semua',
-        { method: 'POST', body: JSON.stringify({ tester: accountTab === 'tester' }) }
+        { method: 'POST', body: JSON.stringify({}) }
       )
       showToast(res.message)
       setResetSemuaOpen(false)
@@ -522,7 +512,7 @@ export default function AdminSiswaPage() {
           <button
             onClick={() => setResetSemuaOpen(true)}
             className="btn-secondary btn-sm"
-            title={`Reset password semua siswa (${accountTab === 'tester' ? 'akun tester' : 'akun reguler'}) ke NISN masing-masing`}
+            title="Reset password semua siswa ke NISN masing-masing"
           >
             <KeyRound className="w-4 h-4" /> Reset Password Semua
           </button>
@@ -531,31 +521,6 @@ export default function AdminSiswaPage() {
           </button>
         </div>
       </div>
-
-      {/* Tab Akun Reguler / Akun Tester */}
-      <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-fit">
-        <button
-          onClick={() => { setAccountTab('reguler'); setPage(1); setFilterKelas('') }}
-          className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-            accountTab === 'reguler' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
-          }`}
-        >
-          Akun Reguler
-        </button>
-        <button
-          onClick={() => { setAccountTab('tester'); setPage(1); setFilterKelas('') }}
-          className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-            accountTab === 'tester' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
-          }`}
-        >
-          🧪 Akun Tester
-        </button>
-      </div>
-      {accountTab === 'tester' && (
-        <div className="alert-info text-xs">
-          Akun tester tetap bisa login walau maintenance mode aktif. Gunakan untuk keperluan pengujian/QA, bukan siswa aktif sehari-hari.
-        </div>
-      )}
 
       {/* Filters */}
       <div className="card py-4 flex gap-3 flex-wrap">
@@ -577,7 +542,7 @@ export default function AdminSiswaPage() {
         </select>
       </div>
 
-      {/* Kartu Jumlah Siswa per Kelas — mengikuti tab aktif (reguler/tester) */}
+      {/* Kartu Jumlah Siswa per Kelas */}
       {kelasCards.length > 0 ? (
         <div className="flex gap-3 flex-wrap">
           {kelasCards.map(k => {
@@ -607,8 +572,6 @@ export default function AdminSiswaPage() {
             )
           })}
         </div>
-      ) : accountTab === 'tester' ? (
-        <p className="text-xs text-slate-400">Belum ada siswa tester di kelas manapun.</p>
       ) : null}
 
       {/* Table */}
@@ -642,9 +605,6 @@ export default function AdminSiswaPage() {
                     <td>
                       <div className="font-medium text-slate-800 flex items-center gap-1.5">
                         {s.nama}
-                        {s.is_tester === 'YES' && (
-                          <span className="badge text-xs bg-purple-100 text-purple-700">🧪 TESTER</span>
-                        )}
                       </div>
                       {s.tempat_lahir && (
                         <div className="text-xs text-slate-400">{s.tempat_lahir}</div>
@@ -827,26 +787,6 @@ export default function AdminSiswaPage() {
           {!editData?.nis && (
             <div className="alert-info text-xs">
               Password default: NISN siswa. Siswa dapat menggantinya setelah login pertama.
-            </div>
-          )}
-
-          {/* Status tester — hanya bisa diubah lewat edit, bukan saat tambah baru */}
-          {editData?.nis && (
-            <div className="rounded-lg border border-purple-200 bg-purple-50/50 px-3 py-2.5">
-              <label className="flex items-start gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  className="mt-0.5"
-                  checked={formIsTester}
-                  onChange={e => setFormIsTester(e.target.checked)}
-                />
-                <span>
-                  <span className="text-sm font-medium text-purple-800">🧪 Jadikan Akun Tester</span>
-                  <p className="text-xs text-purple-600 mt-0.5">
-                    Siswa tester tetap bisa login walau maintenance mode aktif, dan disembunyikan dari daftar &amp; statistik siswa reguler.
-                  </p>
-                </span>
-              </label>
             </div>
           )}
         </form>
@@ -1104,7 +1044,7 @@ export default function AdminSiswaPage() {
         onClose={() => setResetSemuaOpen(false)}
         onConfirm={handleResetSemua}
         title="Reset Password Semua Siswa"
-        message={`Password SEMUA siswa pada tab "${accountTab === 'tester' ? 'Akun Tester' : 'Akun Reguler'}" (${totalTab} siswa, tidak hanya yang sedang difilter/terlihat di halaman ini) akan direset ke NISN masing-masing. Siswa yang password-nya sudah pernah diganti sendiri juga ikut kembali ke NISN. Tindakan ini tidak bisa dibatalkan. Lanjutkan?`}
+        message={`Password SEMUA siswa (${totalTab} siswa, tidak hanya yang sedang difilter/terlihat di halaman ini) akan direset ke NISN masing-masing. Siswa yang password-nya sudah pernah diganti sendiri juga ikut kembali ke NISN. Tindakan ini tidak bisa dibatalkan. Lanjutkan?`}
         confirmLabel="Ya, Reset Semua"
         variant="danger"
         loading={resetSemuaLoading}

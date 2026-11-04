@@ -64,9 +64,6 @@ export default function AdminUsersPage() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [filterRole, setFilterRole] = useState('')
-  // Tab "Akun Reguler" / "Akun Tester". Akun tester ditandai is_tester = 'YES'
-  // dan dikecualikan dari maintenance mode (lihat api/auth/login/route.ts).
-  const [accountTab, setAccountTab] = useState<'reguler' | 'tester'>('reguler')
   const [modalOpen, setModalOpen] = useState(false)
   const [editData, setEditData] = useState<Partial<User> | null>(null)
   const [formRole, setFormRole] = useState<string>('GURU')
@@ -75,7 +72,6 @@ export default function AdminUsersPage() {
   // Guru bisa mengajar di lebih dari satu sekolah/jenjang, jadi dipilih
   // lewat checkbox (multi) — beda dengan Kepsek yang tetap dropdown tunggal.
   const [formSekolahIds, setFormSekolahIds] = useState<string[]>([])
-  const [formIsTester, setFormIsTester] = useState(false)
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [resetId, setResetId] = useState<string | null>(null)
   const [viewAsUser, setViewAsUser] = useState<User | null>(null)
@@ -102,13 +98,13 @@ export default function AdminUsersPage() {
     setLoading(true)
     try {
       const [usersRes, sekolahRes] = await Promise.all([
-        apiRequest<{ data: User[] }>(`/api/admin/users${accountTab === 'tester' ? '?tester=true' : ''}`),
+        apiRequest<{ data: User[] }>('/api/admin/users'),
         apiRequest<{ data: Sekolah[] }>('/api/admin/sekolah'),
       ])
       setUsers(usersRes.data)
       setSekolahList(sekolahRes.data)
     } finally { setLoading(false) }
-  }, [accountTab])
+  }, [])
 
   useEffect(() => { load() }, [load])
   useEffect(() => {
@@ -129,7 +125,6 @@ export default function AdminUsersPage() {
     setFormNip('')
     setFormSekolahId('')
     setFormSekolahIds([])
-    setFormIsTester(false)
     setModalOpen(true)
   }
 
@@ -139,7 +134,6 @@ export default function AdminUsersPage() {
     setFormNip(u.nip ?? '')
     setFormSekolahId(u.sekolah_id ?? '')
     setFormSekolahIds(u.sekolah_ids ?? [])
-    setFormIsTester(u.is_tester === 'YES')
     setModalOpen(true)
   }
 
@@ -157,9 +151,6 @@ export default function AdminUsersPage() {
       // (disimpan di tabel relasi guru_sekolah, lihat migrasi 24).
       sekolah_id: formRole === 'KEPSEK' ? (formSekolahId || null) : null,
       sekolah_ids: formRole === 'GURU' ? formSekolahIds : [],
-      // Hanya kirim saat edit (bukan tambah baru) — kolom checkbox cuma
-      // muncul di form edit.
-      ...(editData?.username ? { is_tester: formIsTester ? 'YES' : 'NO' } : {}),
     }
     setSaving(true)
     try {
@@ -403,31 +394,6 @@ export default function AdminUsersPage() {
         </div>
       </div>
 
-      {/* Tab Akun Reguler / Akun Tester */}
-      <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-fit">
-        <button
-          onClick={() => setAccountTab('reguler')}
-          className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-            accountTab === 'reguler' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
-          }`}
-        >
-          Akun Reguler
-        </button>
-        <button
-          onClick={() => setAccountTab('tester')}
-          className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-            accountTab === 'tester' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
-          }`}
-        >
-          🧪 Akun Tester
-        </button>
-      </div>
-      {accountTab === 'tester' && (
-        <div className="alert-info text-xs">
-          Akun tester tetap bisa login walau maintenance mode aktif. Gunakan untuk keperluan pengujian/QA, bukan akun guru/kepsek aktif sehari-hari.
-        </div>
-      )}
-
       {/* Filter */}
       <div className="card py-3 flex gap-3 flex-wrap items-center">
         <SearchInput value={search} onChange={setSearch} placeholder="Cari nama atau username..." className="flex-1 min-w-[200px]" />
@@ -480,9 +446,6 @@ export default function AdminUsersPage() {
                     <td>
                       <div className="font-medium text-slate-800 flex items-center gap-1.5">
                         {u.nama}
-                        {u.is_tester === 'YES' && (
-                          <span className="badge text-xs bg-purple-100 text-purple-700">🧪 TESTER</span>
-                        )}
                       </div>
                       {u.nip && <div className="text-xs text-slate-400">NIP: {u.nip}</div>}
                     </td>
@@ -729,26 +692,6 @@ export default function AdminUsersPage() {
               <input name="password" type="password" className="input" required placeholder="Password awal" />
             </div>
           )}
-
-          {/* Status tester — hanya bisa diubah lewat edit, bukan saat tambah baru */}
-          {editData?.username && (
-            <div className="rounded-lg border border-purple-200 bg-purple-50/50 px-3 py-2.5">
-              <label className="flex items-start gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  className="mt-0.5"
-                  checked={formIsTester}
-                  onChange={e => setFormIsTester(e.target.checked)}
-                />
-                <span>
-                  <span className="text-sm font-medium text-purple-800">🧪 Jadikan Akun Tester</span>
-                  <p className="text-xs text-purple-600 mt-0.5">
-                    Akun tester tetap bisa login walau maintenance mode aktif, dan disembunyikan dari daftar &amp; statistik pengguna reguler.
-                  </p>
-                </span>
-              </label>
-            </div>
-          )}
         </form>
       </Modal>
 
@@ -851,7 +794,7 @@ export default function AdminUsersPage() {
           <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-amber-800 text-xs leading-relaxed">
             <p className="font-semibold mb-1">File ini berisi password. Perlakukan sebagai rahasia.</p>
             <ul className="list-disc pl-4 space-y-0.5">
-              <li>Akun Admin, akun tester, dan akun nonaktif tidak disertakan.</li>
+              <li>Akun Admin dan akun nonaktif tidak disertakan.</li>
               <li>Yang tertulis hanya <b>password awal</b> (sama dengan username). Akun yang sudah mengganti passwordnya tidak ditampilkan; reset dulu lewat tombol reset di daftar.</li>
               <li>Bagikan ke tiap guru hanya akunnya sendiri. Jangan kirim daftar lengkap ke grup.</li>
             </ul>

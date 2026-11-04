@@ -311,8 +311,8 @@ export async function POST(req: NextRequest) {
       resetRateLimit(ip, String(username).trim())
       if (!yayasanAktif) return NextResponse.json({ error: PESAN_NONAKTIF }, { status: 403 })
 
-      // Diizinkan login saat maintenance: ADMIN atau akun tester (is_tester = 'YES').
-      if (sedangMaintenance && user.role !== 'ADMIN' && user.is_tester !== 'YES') {
+      // Diizinkan login saat maintenance: hanya ADMIN.
+      if (sedangMaintenance && user.role !== 'ADMIN') {
         return NextResponse.json({ error: buildPesanMaintenance(pengaturan) }, { status: 503 })
       }
 
@@ -336,7 +336,7 @@ export async function POST(req: NextRequest) {
       resetRateLimit(ip, String(username).trim())
       if (!yayasanAktif) return NextResponse.json({ error: PESAN_NONAKTIF }, { status: 403 })
 
-      if (sedangMaintenance && siswa.is_tester !== 'YES') {
+      if (sedangMaintenance) {
         return NextResponse.json({ error: buildPesanMaintenance(pengaturan) }, { status: 503 })
       }
 

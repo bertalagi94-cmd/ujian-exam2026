@@ -6,8 +6,7 @@ import { catatAktivitas } from '@/lib/aktivitas'
 
 // POST /api/admin/siswa/reset-password-semua
 //
-// Reset massal: password SEMUA siswa pada satu tab akun (reguler ATAU
-// tester — ditentukan oleh body.tester) dikembalikan ke NISN masing-masing,
+// Reset massal: password SEMUA siswa yayasan ini dikembalikan ke NISN masing-masing,
 // persis seperti reset satu-per-satu di [nis]/reset-password/route.ts.
 // Sengaja TIDAK mengikuti filter kelas/pencarian yang sedang aktif di UI —
 // tombol ini memang untuk mereset SELURUH siswa pada tab tersebut, bukan
@@ -32,17 +31,10 @@ export async function POST(req: NextRequest) {
   const auth = await requireRoleAktif(req, ['ADMIN'])
   if ('error' in auth) return auth.error
 
-  const body = (await req.json().catch(() => ({}))) as { tester?: boolean }
-  const tester = body.tester === true
-
   const db = tenantDb(yayasanIdDari(auth.user))
 
-  // Ambil NIS seluruh siswa pada scope yang diminta — sama persis dengan
-  // filter tab di admin/siswa/route.ts (GET), supaya "reguler"/"tester" di
-  // sini konsisten dengan apa yang admin lihat di tab terkait.
-  let query = db.from('siswa').select('nis')
-  query = tester ? query.eq('is_tester', 'YES') : query.neq('is_tester', 'YES')
-  const { data: rows, error: selectError } = await query
+  // Ambil NIS seluruh siswa yayasan ini (tenantDb membatasi ke yayasan si admin).
+  const { data: rows, error: selectError } = await db.from('siswa').select('nis')
 
   if (selectError) return NextResponse.json({ error: selectError.message }, { status: 500 })
 
@@ -69,14 +61,14 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Audit: aksi admin yang berdampak ke SELURUH siswa pada satu tab wajib
+  // Audit: aksi admin yang berdampak ke SELURUH siswa wajib
   // tercatat (fire-and-forget, tidak memperlambat response — lihat
   // catatAktivitas di src/lib/aktivitas.ts).
   catatAktivitas(
     db,
     auth.user.username,
     'RESET_PASSWORD_MASSAL',
-    `Reset password ${sukses} siswa (${tester ? 'akun tester' : 'akun reguler'}) ke NISN masing-masing`
+    `Reset password ${sukses} siswa ke NISN masing-masing`
   )
 
   if (sukses === 0) {

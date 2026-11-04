@@ -17,22 +17,12 @@ import { cachedFetch, cacheDelPrefix } from '@/lib/cache'
 // /api/admin/dashboard) supaya tidak query ulang tiap kali halaman dibuka.
 // Cache di-invalidate otomatis begitu PUT/DELETE di bawah mengubah data
 // kelas. Logika penghitungan/penggabungan datanya sendiri TIDAK diubah.
-async function fetchKelasData(tester: boolean, semua: boolean, yayasanId: string) {
+async function fetchKelasData(yayasanId: string) {
   const db = tenantDb(yayasanId)
 
-  // 1. Hitung jumlah siswa per kelas. ?all=true -> hitung dari SEMUA siswa
-  // (reguler + tester), dipakai oleh halaman yang butuh daftar kelas lengkap
-  // untuk keperluan penugasan/simulasi (mis. dropdown kelas di Mapel, Jadwal,
-  // Nilai, Paket Soal Guru) — supaya kelas yang seluruh siswanya berstatus
-  // tester tetap muncul dan tidak "hilang" begitu saja.
-  // ?tester=true -> hitung dari siswa tester saja (dipakai kartu kelas di tab
-  // "Akun Tester"). Default (tanpa parameter) -> siswa reguler saja, seperti
-  // sebelumnya.
-  let siswaQuery = db.from('siswa').select('kelas')
-  if (!semua) {
-    siswaQuery = tester ? siswaQuery.eq('is_tester', 'YES') : siswaQuery.neq('is_tester', 'YES')
-  }
-  const { data: siswaData, error: siswaError } = await siswaQuery
+  // 1. Hitung jumlah siswa per kelas dari SEMUA siswa yayasan ini.
+  // (Fitur Akun Tester sudah dihapus; parameter ?all dan ?tester lama diabaikan.)
+  const { data: siswaData, error: siswaError } = await db.from('siswa').select('kelas')
 
   // Dilempar sebagai error biasa (bukan NextResponse) supaya cachedFetch tidak
   // ikut menyimpan hasil gagal ke cache — GET() di bawah yang menangkapnya
@@ -74,18 +64,14 @@ export async function GET(req: NextRequest) {
   if ('error' in auth) return auth.error
 
   const { searchParams } = new URL(req.url)
-  const tester = searchParams.get('tester') === 'true'
-  const semua = searchParams.get('all') === 'true'
 
   try {
-    // Cache 30 dtk per kombinasi parameter (tester/semua) — endpoint ini
-    // dipanggil berulang dari banyak halaman yang jarang butuh data ter-update
-    // detik itu juga. Key mengikutkan tester & semua supaya ketiga variannya
-    // (reguler/tester/all) tidak saling tertimpa di cache.
+    // Cache 30 dtk per yayasan — endpoint ini dipanggil berulang dari banyak
+    // halaman yang jarang butuh data ter-update detik itu juga.
     const result = await cachedFetch(
-      `admin:kelas:${yayasanIdDari(auth.user)}:${tester}:${semua}`,
+      `admin:kelas:${yayasanIdDari(auth.user)}`,
       30,
-      () => fetchKelasData(tester, semua, yayasanIdDari(auth.user))
+      () => fetchKelasData(yayasanIdDari(auth.user))
     )
     return NextResponse.json(result)
   } catch (err) {
