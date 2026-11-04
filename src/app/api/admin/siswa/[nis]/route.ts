@@ -16,7 +16,60 @@ export async function PUT(req: NextRequest, props: RouteContext) {
 
   const db = tenantDb(yayasanIdDari(auth.user))
   const body = await req.json()
-  const { nama, kelas, jenis_kelamin, tempat_lahir, tanggal_lahir, status, is_tester } = body
+  const { nama, kelas, jenis_kelamin, tempat_lahir, tanggal_lahir, status, is_tester, nis_baru, reset_password } = body
+
+  // Ganti NISN (opsional). NISN adalah kunci utama siswa dan tersimpan di banyak
+  // tabel turunan, jadi penggantian dilakukan lewat RPC ganti_nisn_atomik
+  // (supabase/58_ganti_nisn_atomik.sql) yang memperbarui semuanya dalam satu
+  // transaksi. Dijalankan LEBIH DULU: kalau gagal, tidak ada data lain yang disentuh.
+  const nisBaru = typeof nis_baru === 'string' ? nis_baru.trim() : ''
+  let nisFinal = params.nis
+  if (nisBaru && nisBaru !== params.nis) {
+    if (!/^[A-Za-z0-9._-]{1,30}$/.test(nisBaru)) {
+      return NextResponse.json(
+        { error: 'NISN baru hanya boleh berisi huruf, angka, titik, strip, atau garis bawah (maksimal 30 karakter)' },
+        { status: 400 }
+      )
+    }
+
+    // Multi-yayasan: pastikan siswa ini milik yayasan pemanggil (query ber-scope)
+    // sebelum RPC yang tidak ter-scope otomatis dipanggil.
+    const { data: siswaAda, error: siswaErr } = await db
+      .from('siswa')
+      .select('nis')
+      .eq('nis', params.nis)
+      .maybeSingle()
+    if (siswaErr) return NextResponse.json({ error: siswaErr.message }, { status: 500 })
+    if (!siswaAda) return NextResponse.json({ error: 'Siswa tidak ditemukan' }, { status: 404 })
+
+    const { data: rpcHasil, error: rpcError } = await db.rpc('ganti_nisn_atomik', {
+      p_nis_lama: params.nis,
+      p_nis_baru: nisBaru,
+    })
+    if (rpcError) {
+      console.error('[admin/siswa PUT] ganti_nisn_atomik gagal:', rpcError.message)
+      return NextResponse.json(
+        {
+          error: `Gagal mengganti NISN: ${rpcError.message}. Pastikan migrasi supabase/58_ganti_nisn_atomik.sql sudah dijalankan.`,
+        },
+        { status: 500 }
+      )
+    }
+
+    const pesanGagal: Record<string, [string, number]> = {
+      SISWA_TIDAK_ADA: ['Siswa tidak ditemukan', 404],
+      NISN_SUDAH_ADA: ['NISN baru sudah dipakai siswa lain', 409],
+      BENTROK_USERNAME: ['NISN baru bentrok dengan username akun staf', 409],
+      ADA_DATA_YATIM: ['NISN baru masih punya sisa data ujian dari siswa lama yang sudah dihapus. Hubungi developer untuk membersihkannya', 409],
+      NISN_BARU_KOSONG: ['NISN baru tidak boleh kosong', 400],
+    }
+    const hasil = String(rpcHasil?.hasil ?? '')
+    if (hasil !== 'OK') {
+      const [pesan, kode] = pesanGagal[hasil] ?? ['Gagal mengganti NISN', 500]
+      return NextResponse.json({ error: pesan }, { status: kode })
+    }
+    nisFinal = nisBaru
+  }
 
   // is_tester dipakai untuk menandai siswa yang boleh login walau maintenance
   // mode aktif (lihat src/app/api/auth/login/route.ts). Divalidasi di server
@@ -40,9 +93,17 @@ export async function PUT(req: NextRequest, props: RouteContext) {
     }
   }
 
+  // Password default siswa = NISN. Kalau NISN diganti dan admin memilih reset,
+  // password dibuat ulang dari NISN baru (kalau tidak, password lama tetap).
+  const passwordHashBaru =
+    nisFinal !== params.nis && reset_password === true
+      ? await bcrypt.hash(nisFinal, 10)
+      : undefined
+
   const { data, error } = await db
     .from('siswa')
     .update({
+      password_hash: passwordHashBaru,
       nama: nama ? String(nama).toUpperCase() : undefined,
       kelas: kelasFinal,
       jenis_kelamin: jenis_kelamin || null,
@@ -51,10 +112,15 @@ export async function PUT(req: NextRequest, props: RouteContext) {
       status: status || undefined,
       is_tester: is_tester || undefined,
     })
-    .eq('nis', params.nis)
+    .eq('nis', nisFinal)
     .select('nis')
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (error) {
+    // NISN sudah berganti tapi pembaruan field lain gagal: beri tahu jelas supaya
+    // admin tidak mengira ada yang hilang.
+    const awalan = nisFinal !== params.nis ? 'NISN sudah diganti, tetapi data lain gagal disimpan: ' : ''
+    return NextResponse.json({ error: awalan + error.message }, { status: 500 })
+  }
   if (!data || data.length === 0) {
     return NextResponse.json({ error: 'Siswa tidak ditemukan' }, { status: 404 })
   }

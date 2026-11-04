@@ -83,6 +83,9 @@ export default function AdminSiswaPage() {
   const [kelasMode, setKelasMode] = useState<'pilih' | 'baru'>('pilih')
   const [kelasBaruInput, setKelasBaruInput] = useState('')
   const [formIsTester, setFormIsTester] = useState(false)
+  // Ganti NISN (hanya form edit): nilai input NISN + opsi reset password ke NISN baru.
+  const [formNisBaru, setFormNisBaru] = useState('')
+  const [formResetPassword, setFormResetPassword] = useState(true)
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [resetId, setResetId] = useState<string | null>(null)
   // Reset password MASSAL (semua siswa pada tab yang sedang aktif).
@@ -163,7 +166,7 @@ export default function AdminSiswaPage() {
   }, [accountTab, total])
 
   function openAdd() { setEditData({}); setKelasMode('pilih'); setKelasBaruInput(''); setFormIsTester(false); setModalOpen(true) }
-  function openEdit(s: Siswa) { setEditData(s); setKelasMode('pilih'); setKelasBaruInput(''); setFormIsTester(s.is_tester === 'YES'); setModalOpen(true) }
+  function openEdit(s: Siswa) { setEditData(s); setKelasMode('pilih'); setKelasBaruInput(''); setFormIsTester(s.is_tester === 'YES'); setFormNisBaru(s.nis); setFormResetPassword(true); setModalOpen(true) }
 
   async function handleSave(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -172,7 +175,7 @@ export default function AdminSiswaPage() {
       ...Object.fromEntries(form.entries()),
       // Hanya kirim saat edit (bukan tambah baru) — kolom checkbox cuma
       // muncul di form edit.
-      ...(editData?.nis ? { is_tester: formIsTester ? 'YES' : 'NO' } : {}),
+      ...(editData?.nis ? { is_tester: formIsTester ? 'YES' : 'NO', reset_password: formResetPassword } : {}),
     }
     setSaving(true)
     try {
@@ -715,6 +718,35 @@ export default function AdminSiswaPage() {
             <div>
               <label className="label">NISN *</label>
               <input name="nis" className="input" placeholder="Nomor Induk Siswa Nasional (NISN)" required defaultValue={editData?.nis} />
+            </div>
+          )}
+          {editData?.nis && (
+            <div>
+              <label className="label">NISN *</label>
+              <input
+                name="nis_baru"
+                className="input"
+                placeholder="Nomor Induk Siswa Nasional (NISN)"
+                required
+                value={formNisBaru}
+                onChange={e => setFormNisBaru(e.target.value)}
+              />
+              {formNisBaru.trim() !== '' && formNisBaru.trim() !== editData.nis && (
+                <div className="mt-2 space-y-2">
+                  <div className="alert-info text-xs">
+                    NISN akan diganti dari <b>{editData.nis}</b> menjadi <b>{formNisBaru.trim()}</b>. Semua nilai, jawaban, dan riwayat ujian siswa ini ikut dipindahkan. Siswa harus login memakai NISN yang baru. Jangan ubah NISN saat siswa sedang mengerjakan ujian.
+                  </div>
+                  <label className="flex items-start gap-2 cursor-pointer text-xs">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5"
+                      checked={formResetPassword}
+                      onChange={e => setFormResetPassword(e.target.checked)}
+                    />
+                    <span>Reset password menjadi NISN baru (jika tidak dicentang, password lama tetap dipakai)</span>
+                  </label>
+                </div>
+              )}
             </div>
           )}
           <div>
