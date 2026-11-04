@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireRoleAktif } from '@/lib/status-akun'
 import { YAYASAN_AWAL_ID, yayasanIdDari } from '@/lib/tenant'
-import { cacheDel, cacheDelPrefix } from '@/lib/cache'
+import { cacheDelPrefix } from '@/lib/cache'
 import {
   BACKUP_BUCKETS,
   DELETE_ORDER,
@@ -488,7 +488,10 @@ async function actionFinish(ls: LingkupYayasan, body: Record<string, unknown>) {
   await selesaiModeMaintenanceUntukProses(db, ON_CONFLICT_PENGATURAN)
 
   // In-memory cache (lib/cache.ts) berisi data lama sampai TTL habis.
-  cacheDel('admin:dashboard')
+  // Kunci dashboard/laporan memuat id yayasan (admin:dashboard:<id>), jadi harus
+  // dihapus lewat prefix — cacheDel('admin:dashboard') polos tidak cocok apa pun.
+  cacheDelPrefix('admin:dashboard:')
+  cacheDelPrefix('admin:laporan-lengkap:')
   cacheDelPrefix('pengaturan:')
 
   return res({ ok: true, warnings })

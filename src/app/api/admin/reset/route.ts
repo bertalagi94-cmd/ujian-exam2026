@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireRoleAktif } from '@/lib/status-akun'
 import { yayasanIdDari } from '@/lib/tenant'
-import { cacheDel, cacheDelPrefix } from '@/lib/cache'
+import { cacheDelPrefix } from '@/lib/cache'
 import {
   DELETE_ORDER,
   cekProsesDataBesarBerjalan,
@@ -246,7 +246,9 @@ export async function POST(req: NextRequest) {
     // Endpoint dashboard dan beberapa endpoint pengaturan memakai in-memory
     // cache (lib/cache.ts, TTL 30–60 detik). Tanpa ini admin masih melihat
     // data lama sampai TTL habis.
-    cacheDel('admin:dashboard')
+    // Kunci memuat id yayasan (admin:dashboard:<id>) -> hapus lewat prefix.
+    cacheDelPrefix('admin:dashboard:')
+    cacheDelPrefix('admin:laporan-lengkap:')
     if (tablesToDelete.includes('pengaturan')) cacheDelPrefix('pengaturan:')
 
     return NextResponse.json({
