@@ -136,3 +136,32 @@ export async function cekBatasMinSoal(
   const label = opts.jenis === 'pg' ? 'PG' : 'Essay'
   return `Paket ${label} ${mapel.nama} minimal ${cocok.min} soal, saat ini baru ${opts.jumlah}`
 }
+
+/**
+ * Ambil batas minimal soal untuk satu mapel (dipakai form unduh template guru).
+ * Mengembalikan angka kalau fitur batas AKTIF dan mapel masuk salah satu
+ * kelompok; selain itu null (guru bebas mengisi jumlah soal sendiri).
+ */
+export async function ambilBatasMinMapel(
+  db: SupabaseClient,
+  opts: { jenis: JenisSoal; mapelId: string }
+): Promise<number | null> {
+  const { data: pengaturan } = await db
+    .from('pengaturan')
+    .select('value')
+    .eq('key', KUNCI_BATAS_MIN_SOAL)
+    .maybeSingle()
+
+  const cfg = parseBatasMinSoal(pengaturan?.value)
+  if (!cfg.aktif) return null
+
+  const kelompok = cfg[opts.jenis]
+  if (kelompok.length === 0) return null
+
+  const { data: mapel } = await db.from('mapel').select('nama').eq('id', opts.mapelId).maybeSingle()
+  if (!mapel?.nama) return null
+
+  const nama = normNamaMapel(mapel.nama)
+  const cocok = kelompok.find(k => k.mapel.some(m => normNamaMapel(m) === nama))
+  return cocok ? cocok.min : null
+}

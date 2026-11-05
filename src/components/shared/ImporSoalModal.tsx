@@ -26,6 +26,7 @@ import {
 
 const BATAS_UPLOAD_BYTE = 1_900_000 // endpoint upload menolak > 2 MB; sisakan margin
 const BATAS_FILE_WORD_MB = 40
+const BATAS_TEMPLATE_TERKUNCI = 200 // sama dengan BATAS_SOAL_PER_IMPOR; template dikunci tidak boleh melebihi batas impor
 
 export interface ImporSoalHasil {
   jenis: 'pg' | 'essay'
@@ -146,6 +147,10 @@ export function ImporSoalModal(p: Props) {
 
   // Jumlah soal sengaja DIKOSONGKAN: guru wajib mengisinya sendiri sebelum mengunduh.
   const [jumlahTpl, setJumlahTpl] = useState('')
+  // Batas minimal soal untuk mapel ini (ditetapkan admin). Kalau ada, jumlah
+  // tabel di template DIKUNCI sebesar angka itu supaya guru tahu jumlah soal
+  // mapel ini sudah ditentukan. null = tidak dibatasi (guru isi sendiri).
+  const [batasTpl, setBatasTpl] = useState<number | null>(null)
   const [errTpl, setErrTpl] = useState('')
   const jumlahTplRef = useRef<HTMLInputElement>(null)
   const [opsiTpl, setOpsiTpl] = useState<4 | 5>(p.jumlahOpsiPaksa ?? p.jumlahOpsiBawaan ?? 4)
@@ -196,12 +201,32 @@ export function ImporSoalModal(p: Props) {
   }, [p.open, reset])
   useEffect(() => () => { thumbsRef.current.forEach(u => URL.revokeObjectURL(u)) }, [])
 
+  // Ambil batas minimal mapel setiap kali halaman/modal dibuka (PG saja).
+  // Gagal mengambil → tidak dikunci, guru tetap bisa mengisi sendiri.
+  useEffect(() => {
+    if (!p.open || !isPg || !p.mapelId) { setBatasTpl(null); return }
+    let batal = false
+    apiRequest<{ min: number | null }>(`/api/guru/batas-soal?jenis=pg&mapel_id=${encodeURIComponent(p.mapelId)}`)
+      .then(r => {
+        if (batal) return
+        const m = Number(r.min)
+        setBatasTpl(Number.isInteger(m) && m >= 1 ? Math.min(m, BATAS_TEMPLATE_TERKUNCI) : null)
+      })
+      .catch(() => { if (!batal) setBatasTpl(null) })
+    return () => { batal = true }
+  }, [p.open, isPg, p.mapelId])
+
+  // Nilai yang tampil & dipakai: terkunci kalau admin membatasi, bebas kalau tidak.
+  const jumlahTplTampil = batasTpl != null ? String(batasTpl) : jumlahTpl
+
   async function unduhTemplate() {
     // Jumlah soal wajib diisi guru: kosong / bukan angka bulat / di luar 1–100 → beri peringatan.
-    const teks = jumlahTpl.trim()
+    // (Kalau dikunci admin, nilainya sudah pasti benar dan langsung dipakai.)
+    const teks = jumlahTplTampil.trim()
     const angka = Number(teks)
     let pesan = ''
-    if (!teks) pesan = 'Jumlah soal belum diisi. Isi dulu berapa soal yang ingin dibuat (1–100), lalu klik Unduh Template.'
+    if (batasTpl != null) pesan = ''
+    else if (!teks) pesan = 'Jumlah soal belum diisi. Isi dulu berapa soal yang ingin dibuat (1–100), lalu klik Unduh Template.'
     else if (!Number.isInteger(angka) || angka < 1) pesan = 'Jumlah soal harus berupa angka bulat minimal 1.'
     else if (angka > 100) pesan = 'Jumlah soal maksimal 100 per template.'
     if (pesan) {
@@ -504,8 +529,10 @@ export function ImporSoalModal(p: Props) {
             <div>
               <label className="label">Jumlah tabel soal</label>
               <input ref={jumlahTplRef} type="number" min={1} max={100} inputMode="numeric" placeholder="mis. 20"
-                className={`input w-28 ${errTpl ? 'border-red-400 ring-1 ring-red-300' : ''}`}
-                value={jumlahTpl} aria-invalid={!!errTpl}
+                className={`input w-28 ${errTpl ? 'border-red-400 ring-1 ring-red-300' : ''} ${batasTpl != null ? 'bg-slate-100 text-slate-700 cursor-not-allowed' : ''}`}
+                value={jumlahTplTampil} aria-invalid={!!errTpl}
+                readOnly={batasTpl != null} disabled={batasTpl != null}
+                title={batasTpl != null ? `Jumlah soal mapel ini sudah ditetapkan admin: ${batasTpl}` : undefined}
                 onChange={e => { setJumlahTpl(e.target.value); if (errTpl) setErrTpl('') }}
                 onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); void unduhTemplate() } }} />
             </div>
@@ -523,6 +550,12 @@ export function ImporSoalModal(p: Props) {
               {unduhBusy ? <Spinner size="sm" /> : <FileDown className="w-4 h-4" />} Unduh Template (.docx)
             </button>
           </div>
+          {batasTpl != null && (
+            <p className="text-xs text-brand-700 bg-brand-50 border border-brand-200 rounded-lg px-3 py-2">
+              Jumlah soal untuk mapel <b>{p.namaMapel}</b> sudah ditetapkan admin: <b>{batasTpl} soal</b>.
+              Template akan berisi {batasTpl} nomor dan jumlahnya tidak bisa diubah.
+            </p>
+          )}
           {errTpl && (
             <div className="alert-error text-sm flex items-start gap-2" role="alert">
               <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" /> <span>{errTpl}</span>

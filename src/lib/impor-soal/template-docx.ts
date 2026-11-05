@@ -32,7 +32,7 @@ export type JenisTemplate = 'pg' | 'essay'
 
 export interface OpsiTemplate {
   jenis: JenisTemplate
-  /** Jumlah tabel soal kosong yang disediakan (1–100). */
+  /** Jumlah tabel soal kosong yang disediakan (1–200). */
   jumlah: number
   /** Jumlah opsi PG: 4 (A–D) atau 5 (A–E). Diabaikan untuk essay. */
   jumlahOpsi?: 4 | 5
@@ -306,7 +306,7 @@ function blokPetunjuk(jenis: JenisTemplate, jumlahOpsi: 4 | 5): string {
 
 function dokumen(opsi: OpsiTemplate): string {
   _permId = 0
-  const jumlah = Math.max(1, Math.min(100, Math.floor(opsi.jumlah) || 10))
+  const jumlah = Math.max(1, Math.min(200, Math.floor(opsi.jumlah) || 10))
   const jumlahOpsi: 4 | 5 = opsi.jumlahOpsi === 5 ? 5 : 4
   const isPg = opsi.jenis === 'pg'
 
