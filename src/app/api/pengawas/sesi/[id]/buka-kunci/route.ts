@@ -14,7 +14,8 @@ import { catatAktivitas } from '@/lib/aktivitas'
 // ujian yang berjalan; waktu selama terkunci hangus.
 //
 // Yang terjadi:
-//  1. Nilai 0 otomatis akibat penguncian dihapus (supaya siswa bisa masuk).
+//  1. Nilai 0 akibat penguncian dihapus (belum ada nilai PG) atau, bila PG sudah
+//     selesai, nilai PG dihitung ulang dari benar/total asli.
 //  2. siswa_ujian -> AKTIF, reset_terpakai 0, waktu_selesai null.
 //  3. Pelanggaran lama ditandai DIABAIKAN (BUKAN dihapus) -> riwayat tetap
 //     terbaca guru; hitungan level pelanggaran mulai dari awal.
@@ -23,6 +24,7 @@ import { catatAktivitas } from '@/lib/aktivitas'
 // Ditolak (409) bila: sesi tidak berjalan, siswa tidak terkunci, waktu ujian
 // sudah habis, atau nilai asli siswa sudah ikut dinolkan (minta Admin).
 const PREFIX_NILAI_NOL_OTOMATIS = 'Ujian dihentikan otomatis karena pelanggaran'
+const PREFIX_NILAI_NOL_PG = 'Ujian dihentikan karena pelanggaran'
 
 export async function POST(req: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params
@@ -76,22 +78,45 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
 
   // Nilai: hanya nilai 0 otomatis (placeholder) yang boleh dihapus.
   const { data: nilaiRow } = await db
-    .from('nilai').select('id, nilai, dirilis, dikirim_ke_wali, catatan_guru')
+    .from('nilai').select('id, nilai, dirilis, dikirim_ke_wali, catatan_guru, benar, total, kkm')
     .eq('sesi_id', sesiId).eq('nis', nis).maybeSingle()
   let nilaiNolDihapus = false
+  let nilaiDipulihkan = false
   if (nilaiRow) {
-    const placeholder =
-      Number(nilaiRow.nilai) === 0 && !nilaiRow.dirilis && !nilaiRow.dikirim_ke_wali &&
-      String(nilaiRow.catatan_guru ?? '').startsWith(PREFIX_NILAI_NOL_OTOMATIS)
-    if (!placeholder) {
+    const catatan = String(nilaiRow.catatan_guru ?? '')
+    const belumFinal = !nilaiRow.dirilis && !nilaiRow.dikirim_ke_wali
+    const placeholder = Number(nilaiRow.nilai) === 0 && belumFinal && catatan.startsWith(PREFIX_NILAI_NOL_OTOMATIS)
+    // Siswa sudah selesai PG lalu terkunci saat essay: nilai PG-nya dinolkan
+    // oleh sistem, tapi benar/total/kkm asli tetap tersimpan -> bisa dihitung ulang.
+    const pgDinolkan = belumFinal && catatan.startsWith(PREFIX_NILAI_NOL_PG) &&
+      Number(nilaiRow.total) > 0 && nilaiRow.kkm != null
+
+    if (placeholder) {
+      const { error: delErr } = await db.from('nilai').delete().eq('id', nilaiRow.id)
+      if (delErr) return NextResponse.json({ error: 'Gagal membuka kunci. Coba lagi.' }, { status: 500 })
+      nilaiNolDihapus = true
+    } else if (pgDinolkan) {
+      const nilaiPg = Math.round((Number(nilaiRow.benar) / Number(nilaiRow.total)) * 100)
+      const gradePg = nilaiPg >= 90 ? 'A' : nilaiPg >= 80 ? 'B' : nilaiPg >= 70 ? 'C' : nilaiPg >= 60 ? 'D' : 'E'
+      const { error: updNilaiErr } = await db.from('nilai').update({
+        nilai: nilaiPg,
+        grade: gradePg,
+        lulus: nilaiPg >= Number(nilaiRow.kkm),
+        nilai_essay: null,
+        nilai_total: null,
+        catatan_guru: 'Sempat terkunci karena pelanggaran saat fase essay, lalu diizinkan ujian lagi oleh pengawas. Nilai PG dipulihkan dari jawaban asli.',
+      }).eq('id', nilaiRow.id).eq('dikirim_ke_wali', false)
+      if (updNilaiErr) return NextResponse.json({ error: 'Gagal membuka kunci. Coba lagi.' }, { status: 500 })
+      nilaiDipulihkan = true
+    } else {
+      const olehAdmin = catatan.startsWith('Dikunci permanen oleh ADMIN')
       return NextResponse.json(
-        { error: `${siswa.nama} sudah memiliki nilai yang tidak bisa dipulihkan dari sini. Mohon hubungi Admin.` },
+        { error: olehAdmin
+            ? `${siswa.nama} dikunci oleh Admin, jadi hanya Admin yang dapat membukanya.`
+            : `${siswa.nama} sudah memiliki nilai yang tidak bisa dipulihkan dari sini. Mohon hubungi Admin.` },
         { status: 409 }
       )
     }
-    const { error: delErr } = await db.from('nilai').delete().eq('id', nilaiRow.id)
-    if (delErr) return NextResponse.json({ error: 'Gagal membuka kunci. Coba lagi.' }, { status: 500 })
-    nilaiNolDihapus = true
   }
 
   // Salinan pelanggaran untuk riwayat.
@@ -130,7 +155,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
     jumlah_pelanggaran: daftarPel.length,
     rincian_pelanggaran: daftarPel.map(p => ({ jenis: p.jenis, level: p.level, waktu: p.created_at })),
     sisa_detik: sisaDetik,
-    nilai_nol_dihapus: nilaiNolDihapus,
+    nilai_nol_dihapus: nilaiNolDihapus || nilaiDipulihkan,
   })
   if (rwErr) console.error('[buka-kunci] gagal mencatat riwayat:', rwErr.message)
 
