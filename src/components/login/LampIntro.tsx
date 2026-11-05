@@ -31,7 +31,7 @@ const HINT_TEXT = 'Ayo tarik ke bawah talinya biar lampunya nyala 😃'
 const LOADING_TITLE = 'Menyiapkan sistem…'
 const LOADING_SUB = 'Mohon tunggu sebentar'
 const READY_TITLE = 'Sistem Siap 🚀'
-const READY_SUB = 'Selamat datang di EXAMFLOW'
+const READY_SUB = 'Selamat datang di Smart Exam CBT'
 
 function todayKey(): string {
   const d = new Date()
