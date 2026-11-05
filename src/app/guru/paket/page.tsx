@@ -9,6 +9,7 @@ import { Modal, Confirm, StatusBadge, EmptyState, Spinner, Toast, Badge } from '
 import { EssayFlowGuide } from '@/components/shared/EssayFlowGuide'
 import { PaletSimbol } from '@/components/shared/PaletSimbol'
 import { ImporSoalModal, type ImporSoalHasil } from '@/components/shared/ImporSoalModal'
+import { PilihCaraInputModal } from '@/components/shared/PilihCaraInputModal'
 import { ImporSelesaiPopup, type ImporSelesaiInfo } from '@/components/shared/ImporSelesaiPopup'
 import { apiRequest, formatDateTime, generateId } from '@/lib/utils'
 import { PaketSoal, Mapel, Kelas, Soal, PaketEssay, SoalEssay } from '@/types'
@@ -22,8 +23,8 @@ interface SoalWithImg extends Soal {
   gambar_opsi_e?: string
 }
 
-type Step = 'list' | 'setup' | 'buat'
-type EssayStep = 'list' | 'setup' | 'detail'
+type Step = 'list' | 'setup' | 'buat' | 'impor'
+type EssayStep = 'list' | 'setup' | 'detail' | 'impor'
 type Kind = 'choice' | 'pg' | 'essay' | 'info'
 
 const opsiLabels = ['A', 'B', 'C', 'D', 'E']
@@ -127,7 +128,7 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
   const [paketJumlahOpsi, setPaketJumlahOpsi] = useState(4)
 
   // ── Impor soal PG dari file Word (lihat components/shared/ImporSoalModal) ──
-  const [imporOpen, setImporOpen] = useState(false)
+  const [pilihOpen, setPilihOpen] = useState(false) // pop up 2 kartu: manual / impor Word
   const [imporInfo, setImporInfo] = useState<ImporSelesaiInfo | null>(null)
 
   function scrollKeDaftarSoal() {
@@ -286,8 +287,8 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
       // Paket baru, soal pertama belum ada: pakai pilihan guru di layar Setup
       // kalau tidak dikunci, atau default admin kalau dikunci.
       setPaketJumlahOpsi(kunciJumlahOpsi ? globalJumlahOpsi : setupJumlahOpsi)
-      setStep('buat')
       resetSoalForm()
+      setPilihOpen(true) // guru memilih: ketik manual atau impor Word
     } catch (err: unknown) {
       showToast(err instanceof Error ? err.message : 'Gagal membuat paket', 'error')
     } finally { setSaving(false) }
@@ -313,7 +314,7 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
     } else {
       setPaketJumlahOpsi(kunciJumlahOpsi ? globalJumlahOpsi : setupJumlahOpsi)
     }
-    setStep('buat')
+    setPilihOpen(true) // guru memilih: ketik manual atau impor Word
   }
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -685,6 +686,34 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
     ))
   }
 
+  // ── STEP: IMPOR SOAL DARI WORD (halaman) ─────────────────────────
+  if (step === 'impor' && activePaket) {
+    const namaMapel = activePaket.nama_mapel ?? getNamaMapel(activePaket.mapel_id)
+    const namaKelas = activePaket.nama_kelas ?? getNamaKelas(activePaket.kelas_id)
+    return (
+      <ImporSoalModal
+        mode="halaman"
+        open
+        onClose={() => { setStep(activePaket.id ? 'list' : 'setup'); setPilihOpen(true) }}
+        jenis="pg"
+        namaMapel={namaMapel}
+        namaKelas={namaKelas}
+        paketId={activePaket.id}
+        mapelId={activePaket.mapel_id}
+        kelasId={activePaket.kelas_id}
+        acak={activePaket.acak === 'TIDAK' ? 'TIDAK' : 'YA'}
+        jumlahSudahAda={soalDibuat.length}
+        jumlahOpsiPaksa={
+          soalDibuat.length > 0
+            ? (paketJumlahOpsi === 5 ? 5 : 4)
+            : kunciJumlahOpsi ? (globalJumlahOpsi === 5 ? 5 : 4) : null
+        }
+        jumlahOpsiBawaan={paketJumlahOpsi === 5 ? 5 : 4}
+        onSelesai={async h => { await handleImporSelesai(h); setStep('buat') }}
+      />
+    )
+  }
+
   // ── STEP: BUAT SOAL ──────────────────────────────────────────────
   if (step === 'buat' && activePaket) {
     const namaMapel = activePaket.nama_mapel ?? getNamaMapel(activePaket.mapel_id)
@@ -708,33 +737,12 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
             </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            <button onClick={() => setImporOpen(true)} className="btn-secondary btn-sm" disabled={saving}>
-              <FileUp className="w-4 h-4" /> Impor dari Word
-            </button>
             <button onClick={handleSimpanDanSelesai} className="btn-secondary btn-sm" disabled={saving || !!uploadingImg}>
               <CheckCircle2 className="w-4 h-4" /> Selesai Membuat Soal
             </button>
           </div>
         </div>
 
-        <ImporSoalModal
-          open={imporOpen}
-          onClose={() => setImporOpen(false)}
-          jenis="pg"
-          namaMapel={namaMapel}
-          namaKelas={namaKelas}
-          paketId={activePaket.id}
-          mapelId={activePaket.mapel_id}
-          kelasId={activePaket.kelas_id}
-          acak={activePaket.acak === 'TIDAK' ? 'TIDAK' : 'YA'}
-          jumlahOpsiPaksa={
-            soalDibuat.length > 0
-              ? (paketJumlahOpsi === 5 ? 5 : 4)
-              : kunciJumlahOpsi ? (globalJumlahOpsi === 5 ? 5 : 4) : null
-          }
-          jumlahOpsiBawaan={paketJumlahOpsi === 5 ? 5 : 4}
-          onSelesai={handleImporSelesai}
-        />
         <ImporSelesaiPopup info={imporInfo} onTutup={() => setImporInfo(null)} onLihatSoal={scrollKeDaftarSoal} />
 
         {/* Form tambah soal baru */}
@@ -874,6 +882,16 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
     return (
       <div className="space-y-6 animate-fade-in">
         {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
+        <PilihCaraInputModal
+          open={pilihOpen}
+          onClose={() => setPilihOpen(false)}
+          jenis="pg"
+          namaMapel={activePaket ? (activePaket.nama_mapel ?? getNamaMapel(activePaket.mapel_id)) : ''}
+          namaKelas={activePaket ? (activePaket.nama_kelas ?? getNamaKelas(activePaket.kelas_id)) : ''}
+          jumlahSoal={soalDibuat.length}
+          onManual={() => { setPilihOpen(false); setStep('buat') }}
+          onImpor={() => { setPilihOpen(false); setStep('impor') }}
+        />
 
         <div>
           <button onClick={() => setStep('list')} className="btn-back btn-sm mb-2">
@@ -953,6 +971,16 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
       {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
       <input ref={editFileInputRef} type="file" accept="image/*" className="hidden" onChange={handleEditFileChange} />
 
+      <PilihCaraInputModal
+        open={pilihOpen}
+        onClose={() => setPilihOpen(false)}
+        jenis="pg"
+        namaMapel={activePaket ? (activePaket.nama_mapel ?? getNamaMapel(activePaket.mapel_id)) : ''}
+        namaKelas={activePaket ? (activePaket.nama_kelas ?? getNamaKelas(activePaket.kelas_id)) : ''}
+        jumlahSoal={soalDibuat.length}
+        onManual={() => { setPilihOpen(false); setStep('buat') }}
+        onImpor={() => { setPilihOpen(false); setStep('impor') }}
+      />
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <button onClick={onBack} className="btn-back btn-sm mb-1">
@@ -1477,7 +1505,7 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
   const [uploadingImg, setUploadingImg] = useState<string | null>(null)
 
   // ── Impor soal essay dari file Word (lihat components/shared/ImporSoalModal) ──
-  const [imporOpen, setImporOpen] = useState(false)
+  const [pilihOpen, setPilihOpen] = useState(false) // pop up 2 kartu: manual / impor Word
   const [imporInfo, setImporInfo] = useState<ImporSelesaiInfo | null>(null)
 
   function scrollKeDaftarSoal() {
@@ -1617,7 +1645,7 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
         setActivePaket(matched)
         setSoalList([])
         resetSoalForm()
-        setStep('detail')
+        setPilihOpen(true) // guru memilih: ketik manual atau impor Word
       } else {
         setStep('list')
       }
@@ -1631,8 +1659,13 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
     setActivePaket(p)
     setSoalList([])
     resetSoalForm()
-    setStep('detail')
-    await loadSoalPaket(p.id)
+    if (isEditable(p.status)) {
+      await loadSoalPaket(p.id)
+      setPilihOpen(true) // guru memilih: ketik manual atau impor Word
+    } else {
+      setStep('detail')
+      await loadSoalPaket(p.id)
+    }
   }
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -1874,6 +1907,25 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
   }
 
   // ── STEP: DETAIL ─────────────────────────────────────────────────
+  // ── STEP: IMPOR SOAL ESSAY DARI WORD (halaman) ───────────────────
+  if (step === 'impor' && activePaket) {
+    const namaMapel = activePaket.nama_mapel ?? getNamaMapel(activePaket.mapel_id)
+    const namaKelas = activePaket.nama_kelas ?? getNamaKelas(activePaket.kelas_id)
+    return (
+      <ImporSoalModal
+        mode="halaman"
+        open
+        onClose={() => { setStep('list'); setPilihOpen(true) }}
+        jenis="essay"
+        namaMapel={namaMapel}
+        namaKelas={namaKelas}
+        paketId={activePaket.id}
+        jumlahSudahAda={soalList.length}
+        onSelesai={async h => { await handleImporSelesai(h); setStep('detail') }}
+      />
+    )
+  }
+
   if (step === 'detail' && activePaket) {
     const namaMapel = activePaket.nama_mapel ?? getNamaMapel(activePaket.mapel_id)
     const namaKelas = activePaket.nama_kelas ?? getNamaKelas(activePaket.kelas_id)
@@ -1918,25 +1970,6 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
 
         <EssayFlowGuide current="buat-soal" />
 
-        {editable && (
-          <div className="flex justify-end">
-            <button onClick={() => setImporOpen(true)} className="btn-secondary btn-sm" disabled={saving}>
-              <FileUp className="w-4 h-4" /> Impor Soal dari Word
-            </button>
-          </div>
-        )}
-
-        {editable && (
-          <ImporSoalModal
-            open={imporOpen}
-            onClose={() => setImporOpen(false)}
-            jenis="essay"
-            namaMapel={namaMapel}
-            namaKelas={namaKelas}
-            paketId={activePaket.id}
-            onSelesai={handleImporSelesai}
-          />
-        )}
         <ImporSelesaiPopup info={imporInfo} onTutup={() => setImporInfo(null)} onLihatSoal={scrollKeDaftarSoal} />
 
         {!editable && (
@@ -2139,6 +2172,16 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
     return (
       <div className="space-y-6 animate-fade-in">
         {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
+        <PilihCaraInputModal
+          open={pilihOpen}
+          onClose={() => { setPilihOpen(false); if ((step as EssayStep) === 'setup') { setStep('list'); setActivePaket(null) } }}
+          jenis="essay"
+          namaMapel={activePaket ? (activePaket.nama_mapel ?? getNamaMapel(activePaket.mapel_id)) : ''}
+          namaKelas={activePaket ? (activePaket.nama_kelas ?? getNamaKelas(activePaket.kelas_id)) : ''}
+          jumlahSoal={soalList.length}
+          onManual={() => { setPilihOpen(false); setStep('detail') }}
+          onImpor={() => { setPilihOpen(false); setStep('impor') }}
+        />
         <div>
           <button onClick={() => setStep('list')} className="btn-back btn-sm mb-2">
             <ArrowLeft className="w-4 h-4" /> Kembali
@@ -2219,6 +2262,16 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
     <div className="space-y-6 animate-fade-in">
       {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
 
+      <PilihCaraInputModal
+        open={pilihOpen}
+        onClose={() => { setPilihOpen(false); if ((step as EssayStep) === 'setup') { setStep('list'); setActivePaket(null) } }}
+        jenis="essay"
+        namaMapel={activePaket ? (activePaket.nama_mapel ?? getNamaMapel(activePaket.mapel_id)) : ''}
+        namaKelas={activePaket ? (activePaket.nama_kelas ?? getNamaKelas(activePaket.kelas_id)) : ''}
+        jumlahSoal={soalList.length}
+        onManual={() => { setPilihOpen(false); setStep('detail') }}
+        onImpor={() => { setPilihOpen(false); setStep('impor') }}
+      />
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <button onClick={onBack} className="btn-back btn-sm mb-1">

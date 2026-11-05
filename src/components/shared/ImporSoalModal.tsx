@@ -13,7 +13,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  FileDown, FileUp, FileText, AlertTriangle, CheckCircle2, XCircle, ImageOff,
+  FileDown, FileUp, FileText, AlertTriangle, CheckCircle2, XCircle, ImageOff, ArrowLeft, UploadCloud,
 } from 'lucide-react'
 import { Modal, Spinner } from '@/components/ui'
 import { apiRequest, generateId } from '@/lib/utils'
@@ -53,6 +53,10 @@ interface Props {
   /** PG: jumlah opsi bawaan untuk template jika tidak dipaksa. */
   jumlahOpsiBawaan?: 4 | 5
   onSelesai: (hasil: ImporSoalHasil) => void
+  /** 'halaman' = tampil sebagai halaman penuh (bukan pop up). Bawaan: 'modal'. */
+  mode?: 'modal' | 'halaman'
+  /** Jumlah soal yang sudah ada di paket (untuk keterangan "akan ditambahkan"). */
+  jumlahSudahAda?: number
 }
 
 type Hasil = HasilBacaPg | HasilBacaEssay
@@ -439,33 +443,58 @@ export function ImporSoalModal(p: Props) {
 
   const namaJenis = isPg ? 'Pilihan Ganda' : 'Essay'
 
-  return (
-    <Modal
-      open={p.open}
-      onClose={() => { if (!bekerja) p.onClose() }}
-      title={`Impor Soal ${namaJenis} dari Word`}
-      size="xl"
-      footer={
-        <>
+  const tombolFooter = (
+    <>
           <button className="btn-secondary" onClick={p.onClose} disabled={bekerja}>Batal</button>
           <button className="btn-primary" onClick={jalankanImpor} disabled={!bolehImpor}>
             {bekerja ? <><Spinner size="sm" /> {progres || 'Memproses…'}</> : <><FileUp className="w-4 h-4" /> Impor {jumlahValid > 0 ? `${jumlahValid} Soal` : 'Soal'}</>}
           </button>
-        </>
-      }
-    >
+    </>
+  )
+  const isiBody = (
       <div className="space-y-5">
-        <p className="text-sm text-slate-500">
-          {p.namaMapel} · Kelas {p.namaKelas}
-          {isPg && !p.paketId ? ' · paket baru akan dibuat saat impor' : ''}
-        </p>
+        <div className="space-y-2">
+          <p className="text-sm text-slate-500">
+            {p.namaMapel} · Kelas {p.namaKelas}
+            {isPg && !p.paketId ? ' · paket baru akan dibuat saat impor' : ''}
+          </p>
+          {(p.jumlahSudahAda ?? 0) > 0 && (
+            <div className="alert-info text-sm">
+              Paket ini sudah berisi <b>{p.jumlahSudahAda} soal</b>. Soal dari file akan <b>ditambahkan setelahnya</b>; soal yang sama dengan soal yang sudah ada otomatis dilewati.
+            </div>
+          )}
+        </div>
+
+        {/* ── Unggah file (utama) ── */}
+        <div className="rounded-2xl border-2 border-dashed border-brand-300 bg-brand-50/40 p-6 text-center space-y-3">
+          <input ref={inputRef} type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            className="hidden" onChange={pilihFile} />
+          <span className="mx-auto w-14 h-14 rounded-2xl bg-white shadow-sm text-brand-600 flex items-center justify-center">
+            <UploadCloud className="w-7 h-7" />
+          </span>
+          <div>
+            <div className="font-semibold text-slate-800">{namaFile ? 'File siap dibaca' : 'Unggah file Word (.docx) yang sudah diisi'}</div>
+            <p className="text-sm text-slate-500 mt-0.5">Setelah dipilih, hasilnya tampil di bawah sebagai preview sebelum diimpor.</p>
+          </div>
+          <div className="flex items-center justify-center gap-3 flex-wrap">
+            <button className="btn-primary" onClick={() => inputRef.current?.click()} disabled={membaca || bekerja}>
+              <FileText className="w-4 h-4" /> {namaFile ? 'Ganti File' : 'Pilih File .docx'}
+            </button>
+            {namaFile && <span className="text-sm text-slate-600 truncate max-w-xs">{namaFile}</span>}
+            {membaca && <Spinner size="sm" />}
+          </div>
+          {errBaca && (
+            <div className="alert-error text-sm flex items-start gap-2 text-left">
+              <XCircle className="w-4 h-4 mt-0.5 flex-shrink-0" /> <span>{errBaca}</span>
+            </div>
+          )}
+        </div>
 
         {/* ── Langkah 1: template ── */}
-        <div className="rounded-xl border border-slate-200 p-4 space-y-3">
-          <div className="flex items-center gap-2 font-semibold text-slate-800">
-            <span className="w-6 h-6 rounded-full bg-brand-600 text-white text-xs flex items-center justify-center">1</span>
-            Unduh template Word
-          </div>
+        <details className="rounded-xl border border-slate-200 p-4 space-y-3 group">
+          <summary className="cursor-pointer select-none font-semibold text-slate-800 flex items-center gap-2">
+            <FileDown className="w-4 h-4 text-brand-600" /> Belum punya template? Unduh template Word di sini
+          </summary>
           <p className="text-sm text-slate-600">
             Template berisi satu tabel untuk setiap nomor soal. Isi hanya <b>kolom kuning</b>; kolom biru (nama baris) jangan diubah.
             Teks soal dan gambar soal ditulis di <b>sel yang sama</b>: klik di dalam sel Soal, lalu <b>Sisipkan ▸ Gambar</b>
@@ -502,36 +531,13 @@ export function ImporSoalModal(p: Props) {
           {isPg && p.jumlahOpsiPaksa && (
             <p className="text-xs text-slate-500">Paket ini memakai {p.jumlahOpsiPaksa} opsi jawaban, jadi file yang diimpor harus memakai {p.jumlahOpsiPaksa} opsi juga.</p>
           )}
-        </div>
-
-        {/* ── Langkah 2: unggah ── */}
-        <div className="rounded-xl border border-slate-200 p-4 space-y-3">
-          <div className="flex items-center gap-2 font-semibold text-slate-800">
-            <span className="w-6 h-6 rounded-full bg-brand-600 text-white text-xs flex items-center justify-center">2</span>
-            Unggah file yang sudah diisi
-          </div>
-          <input ref={inputRef} type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            className="hidden" onChange={pilihFile} />
-          <div className="flex items-center gap-3 flex-wrap">
-            <button className="btn-secondary" onClick={() => inputRef.current?.click()} disabled={membaca || bekerja}>
-              <FileText className="w-4 h-4" /> {namaFile ? 'Ganti File' : 'Pilih File .docx'}
-            </button>
-            {namaFile && <span className="text-sm text-slate-600 truncate max-w-xs">{namaFile}</span>}
-            {membaca && <Spinner size="sm" />}
-          </div>
-          {errBaca && (
-            <div className="alert-error text-sm flex items-start gap-2">
-              <XCircle className="w-4 h-4 mt-0.5 flex-shrink-0" /> <span>{errBaca}</span>
-            </div>
-          )}
-        </div>
+        </details>
 
         {/* ── Pratinjau ── */}
         {hasil && (
           <div className="space-y-3">
             <div className="flex items-center gap-2 font-semibold text-slate-800">
-              <span className="w-6 h-6 rounded-full bg-brand-600 text-white text-xs flex items-center justify-center">3</span>
-              Periksa hasil baca
+              <CheckCircle2 className="w-4 h-4 text-brand-600" /> Preview hasil baca
             </div>
 
             <div className="text-sm text-slate-600 flex flex-wrap gap-x-4 gap-y-1">
@@ -651,6 +657,41 @@ export function ImporSoalModal(p: Props) {
           </div>
         )}
       </div>
+  )
+
+  if (p.mode === 'halaman') {
+    if (!p.open) return null
+    const kembali = () => {
+      if (bekerja) return
+      if (hasil && !window.confirm('Hasil preview akan hilang. Kembali sekarang?')) return
+      p.onClose()
+    }
+    return (
+      <div className="space-y-5 animate-fade-in">
+        <div>
+          <button onClick={kembali} className="btn-back btn-sm mb-2" disabled={bekerja}>
+            <ArrowLeft className="w-4 h-4" /> Kembali
+          </button>
+          <h1 className="page-title">Impor Soal {namaJenis} dari Word</h1>
+          <p className="page-subtitle">Unggah file, periksa preview, lalu impor ke paket soal.</p>
+        </div>
+        <div className="card">{isiBody}</div>
+        <div className="flex justify-end gap-2 sticky bottom-0 bg-white/90 backdrop-blur border-t border-slate-200 -mx-1 px-1 py-3">
+          {tombolFooter}
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <Modal
+      open={p.open}
+      onClose={() => { if (!bekerja) p.onClose() }}
+      title={`Impor Soal ${namaJenis} dari Word`}
+      size="xl"
+      footer={tombolFooter}
+    >
+      {isiBody}
     </Modal>
   )
 }
