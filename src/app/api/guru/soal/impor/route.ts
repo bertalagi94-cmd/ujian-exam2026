@@ -28,12 +28,17 @@ import { verifikasiKepemilikanMapelKelas, verifikasiKepemilikanPaketSoal } from 
 const MAKS_SOAL = 200
 const HURUF = ['a', 'b', 'c', 'd', 'e'] as const
 
-// Gambar hanya boleh berasal dari endpoint upload soal (bucket assets/soal/).
-function urlGambar(v: unknown): { ok: true; nilai: string | null } | { ok: false } {
+// Gambar hanya boleh berasal dari endpoint upload soal (bucket assets), dan
+// hanya dari folder yayasan si guru sendiri. Lihat api/guru/soal/upload:
+//   • yayasan awal  → assets/soal/<file>
+//   • yayasan lain  → assets/<id-yayasan>/soal/<file>
+// (sebelumnya hanya pola pertama yang diterima, sehingga impor soal bergambar
+// di yayasan lain selalu gagal dengan "URL gambar ... tidak valid").
+function urlGambar(v: unknown, yid: string): { ok: true; nilai: string | null } | { ok: false } {
   if (v === null || v === undefined || v === '') return { ok: true, nilai: null }
-  if (typeof v !== 'string' || v.length > 1000 || !/^https?:\/\//.test(v) || !v.includes('/assets/soal/')) {
-    return { ok: false }
-  }
+  if (typeof v !== 'string' || v.length > 1000 || !/^https?:\/\//.test(v)) return { ok: false }
+  const penanda = yid === 'YYS_AWAL' ? '/assets/soal/' : `/assets/${yid}/soal/`
+  if (!v.includes(penanda)) return { ok: false }
   return { ok: true, nilai: v }
 }
 
@@ -41,7 +46,8 @@ export async function POST(req: NextRequest) {
   const auth = await requireRoleAktif(req, ['GURU'])
   if ('error' in auth) return auth.error
   const { user } = auth
-  const db = tenantDb(yayasanIdDari(auth.user))
+  const yid = yayasanIdDari(auth.user)
+  const db = tenantDb(yid)
 
   let body: Record<string, unknown>
   try {
@@ -134,7 +140,7 @@ export async function POST(req: NextRequest) {
     const s = (raw ?? {}) as Record<string, unknown>
     const label = `Soal ke-${i + 1}`
     const teks = stripHtmlTags(s.teks)
-    const gSoal = urlGambar(s.gambar_pertanyaan)
+    const gSoal = urlGambar(s.gambar_pertanyaan, yid)
     if (!gSoal.ok) { galat.push(`${label}: URL gambar soal tidak valid`); return }
     if (!teks && !gSoal.nilai) { galat.push(`${label}: soal belum diisi (teks atau gambar)`); return }
 
@@ -143,7 +149,7 @@ export async function POST(req: NextRequest) {
     const kurang: string[] = []
     for (const h of HURUF) {
       const t = stripHtmlTags(s[`opsi_${h}`])
-      const g = urlGambar(s[`gambar_opsi_${h}`])
+      const g = urlGambar(s[`gambar_opsi_${h}`], yid)
       if (!g.ok) { galat.push(`${label}: URL gambar opsi ${h.toUpperCase()} tidak valid`); return }
       const dipakai = (opsiWajib as readonly string[]).includes(h)
       opsiTeks[h] = dipakai ? t : ''
