@@ -27,6 +27,12 @@ const MAX_PULL = 46
 const HINT_DELAY_MS = 10000
 const HINT_TEXT = 'Ayo tarik ke bawah talinya biar lampunya nyala 😃'
 
+// Pesan saat cahaya melebar: tahap 1 (memuat) → tahap 2 (siap). Ubah teksnya di sini.
+const LOADING_TITLE = 'Menyiapkan sistem…'
+const LOADING_SUB = 'Mohon tunggu sebentar'
+const READY_TITLE = 'Sistem Siap 🚀'
+const READY_SUB = 'Selamat datang di EXAMFLOW'
+
 function todayKey(): string {
   const d = new Date()
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
@@ -39,6 +45,9 @@ function LampStage({ onDone }: { onDone: () => void }) {
   const floodRef = useRef<HTMLDivElement>(null)
   const hintRef = useRef<HTMLDivElement>(null)
   const hintTextRef = useRef<HTMLSpanElement>(null)
+  const readyRef = useRef<HTMLDivElement>(null)
+  const readyTitleRef = useRef<HTMLDivElement>(null)
+  const readySubRef = useRef<HTMLDivElement>(null)
   const lampRef = useRef<SVGSVGElement>(null)
   const swayRef = useRef<SVGGElement>(null)
   const cordRef = useRef<SVGGElement>(null)
@@ -54,6 +63,9 @@ function LampStage({ onDone }: { onDone: () => void }) {
     const flood = floodRef.current
     const hintEl = hintRef.current
     const hintText = hintTextRef.current
+    const ready = readyRef.current
+    const readyTitle = readyTitleRef.current
+    const readySub = readySubRef.current
     const lamp = lampRef.current
     const sway = swayRef.current
     const cord = cordRef.current
@@ -61,7 +73,8 @@ function LampStage({ onDone }: { onDone: () => void }) {
     const cordEnd = cordEndRef.current
     const lit = litRef.current
     const beam = beamRef.current
-    if (!root || !ambient || !vignette || !flood || !hintEl || !hintText || !lamp ||
+    if (!root || !ambient || !vignette || !flood || !hintEl || !hintText || !ready ||
+        !readyTitle || !readySub || !lamp ||
         !sway || !cord || !cordLine || !cordEnd || !lit || !beam) return
 
     // Tidak jatuh tempo (sudah tampil hari ini, atau navigasi sisi-client ke
@@ -153,6 +166,25 @@ function LampStage({ onDone }: { onDone: () => void }) {
       o.connect(g); g.connect(c.destination)
       o.start(t); o.stop(t + 0.12)
       tick(c, t + 0.06, 2400, 0.22, 0.04)
+    }
+
+    // Dentingan lembut dua nada saat "Sistem Siap" (Web Audio, tanpa file suara)
+    function readyChime() {
+      const c = audio()
+      if (!c) return
+      const t = c.currentTime
+      ;[880, 1318.5].forEach((f, i) => {
+        const o = c.createOscillator()
+        const g = c.createGain()
+        o.type = 'sine'
+        o.frequency.value = f
+        const at = t + i * 0.09
+        g.gain.setValueAtTime(0.0001, at)
+        g.gain.exponentialRampToValueAtTime(0.12, at + 0.02)
+        g.gain.exponentialRampToValueAtTime(0.0001, at + 0.45)
+        o.connect(g); g.connect(c.destination)
+        o.start(at); o.stop(at + 0.5)
+      })
     }
 
     // ── Tali: kembali seperti pegas, atau ditarik otomatis saat diketuk ──
@@ -268,16 +300,29 @@ function LampStage({ onDone }: { onDone: () => void }) {
         anim(lamp!, [{ opacity: 1 }, { opacity: 0 }], { duration: 1200 * K, delay: 900 * K, easing: 'ease-in-out' })
       }, 900 * K)
 
-      // Login muncul saat cahaya hampir menutup layar (tumpang tindih, tanpa jeda).
+      // Pesan status muncul saat cahaya mulai menelan lampu: "Menyiapkan…" → "Sistem Siap 🚀".
+      later(() => {
+        readyTitle!.textContent = LOADING_TITLE
+        readySub!.textContent = LOADING_SUB
+        ready!.classList.add('show')
+      }, 1700 * K)
+      later(() => {
+        readyTitle!.textContent = READY_TITLE
+        readySub!.textContent = READY_SUB
+        ready!.classList.add('done')
+        readyChime()
+      }, 2900 * K)
+
+      // Login muncul setelah pesan "Sistem Siap" sempat terbaca (tumpang tindih, tanpa jeda).
       later(() => {
         unlockBackground()
         root!.style.pointerEvents = 'none' // login sudah bisa disentuh selagi layar memudar
         const a = anim(root!, [{ opacity: 1 }, { opacity: 0 }], { duration: 1200 * K, easing: 'ease-in-out' })
         a.onfinish = finish
-      }, 3100 * K)
+      }, 4100 * K)
 
       // Pengaman: apa pun yang terjadi, layar lampu tidak boleh menggantung.
-      later(finish, (3100 + 1200) * K + 600)
+      later(finish, (4100 + 1200) * K + 600)
     }
 
     // ── Interaksi tali: jari/mouse (drag), ketuk, atau keyboard ──
@@ -416,6 +461,14 @@ function LampStage({ onDone }: { onDone: () => void }) {
       <div ref={vignetteRef} className="lamp-vignette" />
       <div ref={hintRef} className="lamp-hint" role="status"><span ref={hintTextRef} /></div>
       <div ref={floodRef} className="lamp-flood" />
+
+      <div ref={readyRef} className="lamp-ready" role="status" aria-live="polite">
+        <div className="lamp-ready-card">
+          <div ref={readyTitleRef} className="lamp-ready-title" />
+          <div ref={readySubRef} className="lamp-ready-sub" />
+          <div className="lamp-ready-track"><div className="lamp-ready-bar" /></div>
+        </div>
+      </div>
     </div>
   )
 }
