@@ -2534,8 +2534,29 @@ interface InfoPaketRow {
   essay: PaketEssay | null
 }
 
-function gabungkanInfoPaket(pgList: PaketSoal[], essayList: PaketEssay[]): InfoPaketRow[] {
+interface MapelKelasDiampu { mapelId: string; namaMapel: string; kelasId: string; namaKelas: string }
+
+/** Semua pasangan mapel × kelas yang diampu guru (kelas_list berisi NAMA kelas, dipisah koma). */
+function daftarDiampuGuru(mapelGuru: Mapel[], semuaKelas: Kelas[]): MapelKelasDiampu[] {
+  const hasil: MapelKelasDiampu[] = []
+  for (const m of mapelGuru) {
+    const namaKelasDiMapel = (m.kelas_list ?? '').split(',').map(x => x.trim()).filter(Boolean)
+    for (const k of semuaKelas) {
+      if (namaKelasDiMapel.includes(k.nama)) {
+        hasil.push({ mapelId: m.id, namaMapel: m.nama, kelasId: k.id, namaKelas: k.nama })
+      }
+    }
+  }
+  return hasil
+}
+
+function gabungkanInfoPaket(pgList: PaketSoal[], essayList: PaketEssay[], diampu: MapelKelasDiampu[]): InfoPaketRow[] {
   const rows: Record<string, InfoPaketRow> = {}
+  // Dasar: SEMUA mapel+kelas yang diampu guru, walau belum punya paket soal.
+  for (const d of diampu) {
+    const key = `${d.mapelId}_${d.kelasId}`
+    rows[key] = { key, namaMapel: d.namaMapel, namaKelas: d.namaKelas, pg: null, essay: null }
+  }
   for (const p of pgList) {
     const key = `${p.mapel_id}_${p.kelas_id}`
     if (!rows[key]) {
@@ -2551,7 +2572,26 @@ function gabungkanInfoPaket(pgList: PaketSoal[], essayList: PaketEssay[]): InfoP
     rows[key].essay = e
   }
   return Object.values(rows).sort((a, b) =>
-    a.namaMapel.localeCompare(b.namaMapel) || a.namaKelas.localeCompare(b.namaKelas)
+    a.namaMapel.localeCompare(b.namaMapel) || a.namaKelas.localeCompare(b.namaKelas, undefined, { numeric: true })
+  )
+}
+
+/** Satu baris status: badge status + jumlah soal (atau "Belum dibuat" kalau paketnya belum ada). */
+function BarisStatusJenis({ label, paket }: { label: string; paket: PaketSoal | PaketEssay | null }) {
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      <span className="text-xs text-slate-400 w-10 flex-shrink-0">{label}</span>
+      {paket ? (
+        <>
+          <StatusBadge status={paket.status} />
+          <span className="text-xs text-slate-500">
+            {paket.jumlah_soal > 0 ? `${paket.jumlah_soal} soal` : 'belum ada soal'}
+          </span>
+        </>
+      ) : (
+        <span className="text-xs text-slate-400 italic">Belum dibuat</span>
+      )}
+    </div>
   )
 }
 
@@ -2562,13 +2602,19 @@ function InfoPaketSoalFlow({ onBack }: { onBack: () => void }) {
   useEffect(() => {
     let batal = false
     setLoading(true)
+    let guruId = ''
+    try { guruId = JSON.parse(localStorage.getItem('user') ?? '{}').username ?? '' } catch { /* abaikan */ }
     Promise.all([
       apiRequest<{ data: PaketSoal[] }>('/api/guru/paket'),
       apiRequest<{ data: PaketEssay[] }>('/api/guru/paket-essay'),
+      // Daftar mapel yang diampu guru + semua kelas → agar mapel yang belum punya paket tetap tampil.
+      apiRequest<{ data: Mapel[] }>(`/api/admin/mapel?guru_id=${guruId}`).catch(() => ({ data: [] as Mapel[] })),
+      apiRequest<{ data: Kelas[] }>('/api/admin/kelas?all=true').catch(() => ({ data: [] as Kelas[] })),
     ])
-      .then(([pg, essay]) => {
+      .then(([pg, essay, mapelGuru, kelas]) => {
         if (batal) return
-        setRows(gabungkanInfoPaket(pg.data ?? [], essay.data ?? []))
+        const diampu = daftarDiampuGuru(mapelGuru.data ?? [], kelas.data ?? [])
+        setRows(gabungkanInfoPaket(pg.data ?? [], essay.data ?? [], diampu))
       })
       .catch(() => { if (!batal) setRows([]) })
       .finally(() => { if (!batal) setLoading(false) })
@@ -2582,15 +2628,15 @@ function InfoPaketSoalFlow({ onBack }: { onBack: () => void }) {
           <ArrowLeft className="w-4 h-4" /> Ganti Jenis Soal
         </button>
         <h1 className="page-title">Informasi Paket Soal</h1>
-        <p className="page-subtitle">Ringkasan mapel & kelas, status soal, dan kelengkapan PG/Essay</p>
+        <p className="page-subtitle">Semua mapel & kelas yang Anda ampu, beserta status dan jumlah soal PG/Essay</p>
       </div>
 
       {loading ? (
         <div className="flex justify-center py-20"><Spinner size="lg" /></div>
       ) : rows.length === 0 ? (
         <div className="card">
-          <EmptyState icon={Info} title="Belum ada paket soal"
-            description="Buat Soal PG atau Soal Essay terlebih dahulu supaya muncul di ringkasan ini." />
+          <EmptyState icon={Info} title="Belum ada mapel yang diampu"
+            description="Anda belum diberi mata pelajaran. Hubungi admin untuk mengatur mapel dan kelas yang Anda ampu." />
         </div>
       ) : (
         <div className="card p-0 overflow-hidden">
@@ -2612,18 +2658,8 @@ function InfoPaketSoalFlow({ onBack }: { onBack: () => void }) {
                     </td>
                     <td className="py-3 px-4 align-top">
                       <div className="flex flex-col gap-1.5">
-                        {r.pg && (
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs text-slate-400 w-10 flex-shrink-0">PG</span>
-                            <StatusBadge status={r.pg.status} />
-                          </div>
-                        )}
-                        {r.essay && (
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs text-slate-400 w-10 flex-shrink-0">Essay</span>
-                            <StatusBadge status={r.essay.status} />
-                          </div>
-                        )}
+                        <BarisStatusJenis label="PG" paket={r.pg} />
+                        <BarisStatusJenis label="Essay" paket={r.essay} />
                       </div>
                     </td>
                     <td className="py-3 px-4 align-top">
@@ -2631,8 +2667,10 @@ function InfoPaketSoalFlow({ onBack }: { onBack: () => void }) {
                         <Badge variant="green" dot>PG &amp; Essay lengkap</Badge>
                       ) : r.pg ? (
                         <Badge variant="yellow" dot>Hanya PG</Badge>
-                      ) : (
+                      ) : r.essay ? (
                         <Badge variant="yellow" dot>Hanya Essay</Badge>
+                      ) : (
+                        <Badge variant="red" dot>Belum ada soal</Badge>
                       )}
                     </td>
                   </tr>
