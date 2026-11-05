@@ -126,9 +126,9 @@ interface JawabanEssayMap { [soalEssayId: string]: string }
 interface NilaiPgEssay { id?: string; benar: number; total: number; kkm: number; nilai?: number; grade?: string; lulus?: boolean }
 interface HasilAkhir { id?: string; nilai: number; benar: number; total: number; grade: string; lulus: boolean; kkm: number }
 
-// ── Jembatan aplikasi Android (EXAMFLOW) ────────────────────────────────────
+// ── Jembatan aplikasi Android (Smart Exam CBT) ────────────────────────────────────
 // Hanya terdefinisi kalau halaman ini dibuka DI DALAM aplikasi Android
-// (lihat MainActivity.kt di proyek EXAMFLOW) — di browser biasa,
+// (lihat MainActivity.kt di proyek Smart Exam CBT) — di browser biasa,
 // window.AndroidBridge selalu undefined, jadi semua pemanggilan di bawah
 // otomatis aman diabaikan (optional chaining).
 //

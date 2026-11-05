@@ -20,14 +20,14 @@
 
 export const LAMP_KEY = 'lampuLogin:terakhirTampil'
 
-// Layar sambutan "EXAMFLOW" milik halaman login tampil sekali per sesi tab
-// (sessionStorage 'examflow_splash_shown'). Pada hari lampu tampil, urutan
+// Layar sambutan "Smart Exam CBT" milik halaman login tampil sekali per sesi tab
+// (sessionStorage 'smartexam_splash_shown'). Pada hari lampu tampil, urutan
 // yang diminta adalah: lampu → langsung halaman login. Karena itu, saat lampu
 // jatuh tempo, kunci splash ditandai sudah tampil supaya splash tidak muncul
-// setelah lampu. Ubah ke `false` kalau splash EXAMFLOW tetap ingin tampil
+// setelah lampu. Ubah ke `false` kalau splash Smart Exam CBT tetap ingin tampil
 // sesudah lampu. File login/page.tsx tidak disentuh sama sekali.
 export const LAMP_REPLACES_SPLASH = true
-export const SPLASH_SEEN_KEY = 'examflow_splash_shown'
+export const SPLASH_SEEN_KEY = 'smartexam_splash_shown'
 
 export const LAMP_GATE_SCRIPT = `(function(){try{
 var p=location.pathname;if(p.length>1&&p.charAt(p.length-1)==='/')p=p.slice(0,-1);

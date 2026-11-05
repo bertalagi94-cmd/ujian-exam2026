@@ -157,7 +157,7 @@ const tungguAcak = (ms: number, batal: AbortSignal) =>
 export default function LoginPage() {
   const router = useRouter()
   const pathname = usePathname()
-  // ── Welcome splash "EXAMFLOW" ─────────────────────────────────────────
+  // ── Welcome splash "Smart Exam CBT" ─────────────────────────────────────────
   // Tampil sekali di atas segalanya saat aplikasi PERTAMA KALI dijalankan
   // (tab/browser baru dibuka), lalu memudar sendiri (lihat WelcomeSplash.tsx)
   // sebelum form login di baliknya mulai berinteraksi dengan pengguna.
@@ -172,7 +172,7 @@ export default function LoginPage() {
   // pernah tampil. sessionStorage dipilih (bukan localStorage) supaya
   // splash tetap muncul lagi kalau tab/browser ditutup lalu dibuka ulang —
   // itu baru dianggap "menjalankan aplikasi dari awal" yang sesungguhnya.
-  const SPLASH_SEEN_KEY = 'examflow_splash_shown'
+  const SPLASH_SEEN_KEY = 'smartexam_splash_shown'
   const [showSplash, setShowSplash] = useState(() => {
     if (typeof window === 'undefined') return false
     try {

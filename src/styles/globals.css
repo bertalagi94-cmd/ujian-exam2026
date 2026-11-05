@@ -668,30 +668,30 @@
   }
 }
 
-/* ── Welcome Splash "EXAMFLOW" (sebelum halaman login) ───────────────────
+/* ── Welcome Splash "Smart Exam CBT" (sebelum halaman login) ───────────────────
    Tiap huruf punya warna solid sendiri (bukan gradient-clip di elemen
    induk — itu penyebab bug "teks tak kelihatan" versi sebelumnya) yang
    "mekar" bersama drop-shadow warna senada saat huruf itu muncul, lalu
    satu sapuan cahaya (shine) melintas di atas judul, dan progress bar
    tipis mengisi selama sisa waktu splash tampil (5 detik total). */
-.examflow-splash {
-  animation: examflowIn 0.35s ease-out both;
+.smartexam-splash {
+  animation: smartexamIn 0.35s ease-out both;
 }
-.examflow-splash-out {
-  animation: examflowOut 0.6s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+.smartexam-splash-out {
+  animation: smartexamOut 0.6s cubic-bezier(0.4, 0, 0.2, 1) forwards;
   pointer-events: none;
 }
-@keyframes examflowIn {
+@keyframes smartexamIn {
   from { opacity: 0; }
   to   { opacity: 1; }
 }
-@keyframes examflowOut {
+@keyframes smartexamOut {
   0%   { opacity: 1; }
   100% { opacity: 0; }
 }
 
 /* ── Grid nyaris tak terlihat, hanya tekstur halus ── */
-.examflow-grid {
+.smartexam-grid {
   position: absolute;
   inset: -10% -10%;
   background-image:
@@ -703,90 +703,90 @@
 }
 
 /* ── Dua orb cahaya melayang sangat pelan ── */
-.examflow-orb {
+.smartexam-orb {
   position: absolute;
   border-radius: 9999px;
   filter: blur(9vw);
   opacity: 0.35;
   will-change: transform;
 }
-.examflow-orb-1 {
+.smartexam-orb-1 {
   width: 42vw; height: 42vw; top: -16vw; left: -12vw;
   background: radial-gradient(circle, rgba(56,189,248,0.45), transparent 70%);
-  animation: examflowDrift1 16s ease-in-out infinite;
+  animation: smartexamDrift1 16s ease-in-out infinite;
 }
-.examflow-orb-2 {
+.smartexam-orb-2 {
   width: 36vw; height: 36vw; bottom: -14vw; right: -10vw;
   background: radial-gradient(circle, rgba(45,212,191,0.4), transparent 70%);
-  animation: examflowDrift2 20s ease-in-out infinite;
+  animation: smartexamDrift2 20s ease-in-out infinite;
 }
-@keyframes examflowDrift1 {
+@keyframes smartexamDrift1 {
   0%, 100% { transform: translate(0, 0); }
   50%      { transform: translate(2.5vw, 2vw); }
 }
-@keyframes examflowDrift2 {
+@keyframes smartexamDrift2 {
   0%, 100% { transform: translate(0, 0); }
   50%      { transform: translate(-2vw, -2.5vw); }
 }
 
 /* ── Badge ikon dengan cincin cahaya berputar pelan ── */
-@property --examflow-ring-angle {
+@property --smartexam-ring-angle {
   syntax: '<angle>';
   inherits: false;
   initial-value: 0deg;
 }
-.examflow-badge-ring {
+.smartexam-badge-ring {
   position: relative;
   isolation: isolate;
-  animation: examflowBadgeIn 0.5s ease-out both;
+  animation: smartexamBadgeIn 0.5s ease-out both;
 }
-.examflow-badge-ring::before {
+.smartexam-badge-ring::before {
   content: '';
   position: absolute;
   inset: -3px;
   border-radius: inherit;
   padding: 2px;
-  background: conic-gradient(from var(--examflow-ring-angle),
+  background: conic-gradient(from var(--smartexam-ring-angle),
     transparent 0deg, rgba(125,211,252,0.9) 35deg, rgba(45,212,191,0.9) 80deg,
     transparent 130deg, transparent 360deg);
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
-  animation: examflowRingSpin 3s linear infinite;
+  animation: smartexamRingSpin 3s linear infinite;
 }
-.examflow-badge-ring::after {
+.smartexam-badge-ring::after {
   content: '';
   position: absolute;
   inset: 0;
   border-radius: inherit;
   border: 1px solid rgba(148,222,255,0.22);
 }
-@keyframes examflowRingSpin {
-  to { --examflow-ring-angle: 360deg; }
+@keyframes smartexamRingSpin {
+  to { --smartexam-ring-angle: 360deg; }
 }
-@keyframes examflowBadgeIn {
+@keyframes smartexamBadgeIn {
   0%   { opacity: 0; transform: translateY(4px); }
   100% { opacity: 1; transform: translateY(0); }
 }
 
-/* ── Judul "EXAMFLOW": tiap huruf warna solid sendiri (di-set inline via
+/* ── Judul "Smart Exam CBT": tiap huruf warna solid sendiri (di-set inline via
    `color`), muncul satu per satu dengan gerakan halus + blur→fokus, dan
    glow warna senada (drop-shadow currentColor) yang "mekar" bareng
    kemunculannya lalu menetap lembut. ── */
-.examflow-letter {
+.smartexam-letter {
   opacity: 0;
   transform: translateY(16px) scale(0.85);
   filter: blur(5px) drop-shadow(0 0 0 transparent);
-  animation: examflowLetterIn 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation: smartexamLetterIn 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
-@keyframes examflowLetterIn {
+@keyframes smartexamLetterIn {
   0%   { opacity: 0; transform: translateY(16px) scale(0.85); filter: blur(5px) drop-shadow(0 0 0 transparent); }
   55%  { opacity: 1; filter: blur(0) drop-shadow(0 0 14px currentColor); }
   100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0) drop-shadow(0 0 8px currentColor); }
 }
 
 /* ── Sapuan cahaya (shine) sekali lewat di atas judul ── */
-.examflow-shine {
+.smartexam-shine {
   position: absolute;
   inset: -25% -12%;
   display: block;
@@ -795,48 +795,48 @@
   mix-blend-mode: overlay;
   transform: translateX(-140%) skewX(-12deg);
   opacity: 0;
-  animation: examflowShine 0.9s ease-in-out forwards;
+  animation: smartexamShine 0.9s ease-in-out forwards;
 }
-@keyframes examflowShine {
+@keyframes smartexamShine {
   0%   { transform: translateX(-140%) skewX(-12deg); opacity: 0; }
   15%  { opacity: 1; }
   60%  { opacity: 1; }
   100% { transform: translateX(140%) skewX(-12deg); opacity: 0; }
 }
 
-.examflow-subtitle {
+.smartexam-subtitle {
   opacity: 0;
   letter-spacing: 0.16em;
-  animation: examflowSubtitleIn 0.4s ease-out forwards;
+  animation: smartexamSubtitleIn 0.4s ease-out forwards;
 }
-@keyframes examflowSubtitleIn {
+@keyframes smartexamSubtitleIn {
   0%   { opacity: 0; transform: translateY(4px); }
   100% { opacity: 1; transform: translateY(0); }
 }
 
 /* ── Progress bar tipis: mengisi penuh mengikuti sisa waktu tampil splash
    (durasinya di-set dari komponen lewat animationDuration inline). ── */
-.examflow-progress-track {
+.smartexam-progress-track {
   background: rgba(148, 222, 255, 0.14);
 }
-.examflow-progress {
+.smartexam-progress {
   width: 100%;
   transform-origin: left center;
   transform: scaleX(0);
   background: linear-gradient(90deg, #38bdf8, #a78bfa, #2dd4bf);
-  animation-name: examflowProgress;
+  animation-name: smartexamProgress;
   animation-timing-function: linear;
   animation-delay: 0.15s;
   animation-fill-mode: forwards;
 }
-@keyframes examflowProgress {
+@keyframes smartexamProgress {
   to { transform: scaleX(1); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .examflow-splash, .examflow-splash-out, .examflow-orb,
-  .examflow-badge-ring, .examflow-badge-ring::before, .examflow-letter,
-  .examflow-shine, .examflow-subtitle, .examflow-progress {
+  .smartexam-splash, .smartexam-splash-out, .smartexam-orb,
+  .smartexam-badge-ring, .smartexam-badge-ring::before, .smartexam-letter,
+  .smartexam-shine, .smartexam-subtitle, .smartexam-progress {
     animation: none !important;
     opacity: 1 !important;
     transform: none !important;
