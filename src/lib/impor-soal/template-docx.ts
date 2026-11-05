@@ -6,24 +6,25 @@
 // dibuat di browser guru saat tombol "Unduh Template" ditekan.
 //
 // DESAIN TEMPLATE
-//  • SATU TABEL PER NOMOR SOAL. Dengan begitu soal, semua opsi, kunci, dan
-//    gambar-gambarnya selalu satu kesatuan (tidak terpisah antar halaman:
-//    baris dikunci `cantSplit` dan paragraf diberi `keepNext`).
-//  • Tabel dua kolom: kolom kiri = label (No / Soal / A / B / … / Kunci),
-//    kolom kanan = isian guru. Parser (docx-parser.ts) membaca LABEL di
-//    kolom kiri, bukan posisi baris, jadi guru boleh menghapus baris
-//    "Pembahasan" atau menyalin-tempel tabel tanpa merusak impor.
-//  • Gambar: guru cukup klik di dalam sel kanan lalu Sisipkan ▸ Gambar.
-//    Berlaku untuk sel Soal maupun sel Opsi A–E (opsi bergambar). TIDAK ada
-//    tempat khusus gambar: teks soal dan gambar soal ada di sel yang sama.
-//  • Warna sebagai petunjuk visual untuk guru yang kurang terbiasa:
-//    BIASA/biru  = nama baris (jangan diubah), kuning = tempat mengisi,
-//    oranye      = tabel CONTOH (hanya ilustrasi, tidak diimpor).
-//    Warna hanya tampilan; parser tidak memakainya.
-//  • Petunjuk di label (baris kedua, abu-abu kecil) TIDAK ikut terbaca —
-//    parser hanya memakai baris pertama label.
+//  • HALAMAN 1 = petunjuk singkat + satu tabel CONTOH. HALAMAN 2 dst. = tabel
+//    soal untuk diisi guru.
+//  • SATU TABEL PER NOMOR SOAL, dua kolom: kiri = nama baris (No / Soal /
+//    Gambar Soal / A / B / … / Kunci), kanan = isian guru. Parser membaca
+//    LABEL di kolom kiri, bukan posisi baris.
+//  • Gambar soal punya BARIS SENDIRI ("Gambar Soal"), terpisah dari baris
+//    "Soal". Parser tetap menerima gambar yang disisipkan di sel Soal
+//    (file lama), tapi baris Gambar Soal yang diutamakan.
+//  • TERKUNCI: dokumen memakai proteksi penyuntingan Word ("Read only" tanpa
+//    kata sandi) dengan pengecualian (permStart/permEnd) HANYA di sel isian
+//    kuning. Petunjuk, contoh, nomor, dan nama baris tidak bisa diubah atau
+//    dihapus. Tanpa kata sandi: guru yang butuh membukanya cukup klik
+//    Review ▸ Restrict Editing ▸ Stop Protection.
+//  • Warna hanya tampilan: biru = nama baris (terkunci), kuning = tempat
+//    mengisi, oranye = tabel CONTOH (tidak diimpor).
+//  • Petunjuk kecil di bawah nama baris TIDAK ikut terbaca — parser hanya
+//    memakai baris pertama label.
 //  • Tabel dengan "No" berisi kata CONTOH dilewati saat impor, begitu juga
-//    tabel yang seluruh isiannya kosong.
+//    tabel yang seluruhnya kosong.
 
 import JSZip from 'jszip'
 
@@ -87,11 +88,12 @@ function run(text: string, o: RunOpt = {}): string {
   return `<w:r>${rpr ? `<w:rPr>${rpr}</w:rPr>` : ''}<w:t xml:space="preserve">${esc(text)}</w:t></w:r>`
 }
 
-interface ParaOpt { keepNext?: boolean; jc?: 'left' | 'center'; after?: number; before?: number; shade?: string }
+interface ParaOpt { pb?: boolean; keepNext?: boolean; jc?: 'left' | 'center'; after?: number; before?: number; shade?: string }
 
 function para(runs: string, o: ParaOpt = {}): string {
   const ppr =
     (o.keepNext ? '<w:keepNext/>' : '') +
+    (o.pb ? '<w:pageBreakBefore/>' : '') +
     (o.shade ? `<w:shd w:val="clear" w:color="auto" w:fill="${o.shade}"/>` : '') +
     (o.before !== undefined || o.after !== undefined
       ? `<w:spacing w:before="${o.before ?? 0}" w:after="${o.after ?? 0}"/>`
@@ -118,6 +120,11 @@ function tc(width: number, content: string, shade?: string): string {
   )
 }
 
+// Rentang yang BOLEH disunting di dokumen terproteksi (lihat PROTEKSI di bawah).
+let _permId = 0
+const permStart = () => `<w:permStart w:id="${++_permId}" w:edGrp="everyone"/>`
+const permEnd = () => `<w:permEnd w:id="${_permId}"/>`
+
 interface BarisSpec {
   label: string
   petunjuk?: string
@@ -125,13 +132,13 @@ interface BarisSpec {
   isi?: string[]
   /** Paragraf XML siap pakai untuk sel kanan (dipakai tabel CONTOH, mis. berisi gambar). */
   isiParas?: string[]
-  /** Baris nomor: sel kanan memakai warna abu-abu (sudah terisi, tidak perlu diubah). */
+  /** Baris nomor: sel kanan abu-abu, terkunci (tidak perlu diubah). */
   nomor?: boolean
   /** Ini baris terakhir tabel — paragraf tidak diberi keepNext. */
   terakhir?: boolean
 }
 
-function baris(b: BarisSpec, sk: Skema): string {
+function baris(b: BarisSpec, sk: Skema, bisaDisunting: boolean): string {
   const kn = !b.terakhir
   // Paragraf PERTAMA di kolom kiri = nama baris (dibaca parser). Petunjuk di
   // paragraf kedua tidak dibaca parser.
@@ -140,9 +147,21 @@ function baris(b: BarisSpec, sk: Skema): string {
     (b.petunjuk
       ? para(run(b.petunjuk, { i: true, color: sk.hint, sz: 16 }), { keepNext: kn, after: 40 })
       : '')
-  const isiParas = b.isiParas ?? (b.isi && b.isi.length ? b.isi : ['']).map(t =>
+  let isiParas = b.isiParas ?? (b.isi && b.isi.length ? b.isi : ['']).map(t =>
     para(t ? run(t) : '', { keepNext: kn, before: 40, after: 40 })
   )
+  // Hanya sel isian kuning yang dibuka dari proteksi: penanda rentang disisipkan
+  // di paragraf pertama (awal) dan paragraf terakhir (akhir) sel itu.
+  if (bisaDisunting && !b.nomor) {
+    const ps = permStart(), pe = permEnd()
+    const mid = (x: string) => x
+    isiParas = isiParas.map((x, i) => {
+      let y = mid(x)
+      if (i === 0) y = y.replace(/^<w:p>(<w:pPr>.*?<\/w:pPr>)?/, m => m + ps)
+      if (i === isiParas.length - 1) y = y.replace(/<\/w:p>$/, pe + '</w:p>')
+      return y
+    })
+  }
   return (
     '<w:tr><w:trPr><w:cantSplit/></w:trPr>' +
     tc(LEBAR_LABEL, kiri, sk.label) +
@@ -169,160 +188,122 @@ function tabel(rows: string[], sk: Skema): string {
 // paragraf di antaranya akan digabung oleh Word menjadi satu tabel.
 const PEMISAH = para('', { after: 120 })
 
-const HINT_NO = 'nomor otomatis; kolom biru jangan diubah'
-const HINT_SOAL = 'tulis soal DAN sisipkan gambarnya di sel kanan ini (Sisipkan ▸ Gambar)'
+const HINT_NO = 'otomatis, terkunci'
+const HINT_SOAL = 'ketik pertanyaan'
+const HINT_GAMBAR = 'jika ada gambar: Sisipkan ▸ Gambar'
+
+interface ContohPg {
+  soal: string[]                 // paragraf XML
+  gambar: string[]               // paragraf XML (berisi gambar)
+  opsi: Record<string, string[]>
+  kunci: string
+  pembahasan: string[]
+}
+
+const paraContoh = (runs: string) => para(runs, { keepNext: true, before: 40, after: 40 })
 
 function barisSoalPg(nomor: string, jumlahOpsi: 4 | 5, contoh?: ContohPg): string[] {
   const huruf = ['A', 'B', 'C', 'D', 'E'].slice(0, jumlahOpsi)
   const rows: BarisSpec[] = [
     { label: 'No', petunjuk: HINT_NO, isi: [nomor], nomor: true },
     { label: 'Soal', petunjuk: HINT_SOAL, isiParas: contoh?.soal },
+    { label: 'Gambar Soal', petunjuk: HINT_GAMBAR, isiParas: contoh?.gambar },
     ...huruf.map(h => ({
       label: h,
       petunjuk: h === 'A' ? 'teks atau gambar' : undefined,
       isi: contoh?.opsi[h],
     })),
     { label: 'Kunci', petunjuk: `satu huruf ${huruf[0]}–${huruf[huruf.length - 1]}`, isi: contoh ? [contoh.kunci] : undefined },
-    { label: 'Pembahasan', petunjuk: 'boleh dikosongkan', isi: contoh?.pembahasan },
+    { label: 'Pembahasan', petunjuk: 'boleh kosong', isi: contoh?.pembahasan },
   ]
   rows[rows.length - 1].terakhir = true
-  return rows.map(r => baris(r, contoh ? SKEMA_CONTOH : SKEMA_ISI))
+  return rows.map(r => baris(r, contoh ? SKEMA_CONTOH : SKEMA_ISI, !contoh))
 }
-
-interface ContohPg {
-  soal: string[]                 // paragraf XML (teks + gambar + catatan)
-  opsi: Record<string, string[]>
-  kunci: string
-  pembahasan: string[]
-}
-
-// Paragraf contoh: kecil dan sederhana. Catatan oranye menjelaskan bahwa teks
-// dan gambar soal ditulis di SEL YANG SAMA.
-function paraContoh(runs: string): string {
-  return para(runs, { keepNext: true, before: 40, after: 40 })
-}
-const catatanContoh = (t: string) => paraContoh(run(t, { i: true, color: 'C2410C', sz: 18 }))
 
 function dataContohPg(jumlahOpsi: 4 | 5): ContohPg {
   const opsi: Record<string, string[]> = { A: ['2'], B: ['3'], C: ['4'], D: ['5'] }
   if (jumlahOpsi === 5) opsi.E = ['6']
   return {
-    soal: [
-      paraContoh(run('Perhatikan gambar berikut. Berapa banyak sisi bangun datar tersebut?')),
-      paraContoh(RUN_GAMBAR_CONTOH),
-      catatanContoh('Contoh: pertanyaan dan gambar ditulis di sel yang sama (tidak ada tempat terpisah untuk gambar).'),
-    ],
+    soal: [paraContoh(run('Berapa banyak sisi bangun datar pada gambar?'))],
+    gambar: [paraContoh(RUN_GAMBAR_CONTOH)],
     opsi,
     kunci: 'B',
     pembahasan: ['Segitiga memiliki 3 sisi.'],
   }
 }
 
-interface ContohEssay { soal: string[]; bobot: string }
+interface ContohEssay { soal: string[]; gambar: string[]; bobot: string }
 
 function barisSoalEssay(nomor: string, contoh?: ContohEssay): string[] {
   const rows: BarisSpec[] = [
     { label: 'No', petunjuk: HINT_NO, isi: [nomor], nomor: true },
     { label: 'Soal', petunjuk: HINT_SOAL, isiParas: contoh?.soal },
+    { label: 'Gambar Soal', petunjuk: HINT_GAMBAR, isiParas: contoh?.gambar },
     {
       label: 'Bobot',
-      petunjuk: 'skor maksimal soal ini, angka > 0',
+      petunjuk: 'skor maksimal, angka > 0',
       isi: contoh ? [contoh.bobot] : undefined,
       terakhir: true,
     },
   ]
-  return rows.map(r => baris(r, contoh ? SKEMA_CONTOH : SKEMA_ISI))
+  return rows.map(r => baris(r, contoh ? SKEMA_CONTOH : SKEMA_ISI, !contoh))
 }
 
 function dataContohEssay(): ContohEssay {
   return {
-    soal: [
-      paraContoh(run('Perhatikan gambar berikut. Sebutkan nama bangun datar tersebut dan jelaskan cirinya.')),
-      paraContoh(RUN_GAMBAR_CONTOH),
-      catatanContoh('Contoh: pertanyaan dan gambar ditulis di sel yang sama (tidak ada tempat terpisah untuk gambar).'),
-    ],
+    soal: [paraContoh(run('Sebutkan nama bangun datar pada gambar dan jelaskan cirinya.'))],
+    gambar: [paraContoh(RUN_GAMBAR_CONTOH)],
     bobot: '10',
   }
 }
 
-function blokJudul(teks: string, sub: string): string {
-  return (
-    para(run(teks, { b: true, sz: 32, color: WARNA_HEADER }), { jc: 'center', after: 40 }) +
-    para(run(sub, { i: true, color: WARNA_PETUNJUK }), { jc: 'center', after: 200 })
-  )
+function blokJudul(teks: string): string {
+  return para(run(teks, { b: true, sz: 30, color: WARNA_HEADER }), { jc: 'center', after: 120 })
 }
 
 function blokPetunjuk(jenis: JenisTemplate, jumlahOpsi: 4 | 5): string {
   const huruf = jumlahOpsi === 5 ? 'E' : 'D'
-  const langkahPg = [
-    'Satu tabel = satu nomor soal. Kolom BIRU berisi nama baris (No, Soal, A, B, …, Kunci): jangan diubah atau dihapus. Isi hanya kolom KUNING di sebelah kanannya. Nomor soal diurutkan otomatis saat impor, jadi angka di baris No tidak perlu diubah.',
-    'Teks soal: ketik di kolom kuning pada baris Soal.',
-    'Gambar soal (jika ada): masukkan di kolom kuning baris Soal yang SAMA dengan teks soal. Klik di dalam sel itu, lalu Sisipkan ▸ Gambar. Tidak ada tempat terpisah untuk gambar; teks dan gambar boleh bersama dalam satu sel (satu sel = satu gambar).',
-    `Pilihan jawaban: ketik di baris A–${huruf}. Jika jawabannya berupa gambar, sisipkan gambar di sel opsi tersebut dengan cara yang sama.`,
-    'Kunci: isi satu huruf saja (contoh: B).',
-    'Butuh lebih banyak soal? Blok satu tabel beserta garis kosong di bawahnya, Salin (Ctrl+C), lalu Tempel (Ctrl+V) di bagian bawah dokumen.',
-    'Baris Pembahasan boleh dikosongkan atau dihapus. Tabel yang seluruhnya kosong akan dilewati saat impor.',
-  ]
-  const langkahEssay = [
-    'Satu tabel = satu nomor soal. Kolom BIRU berisi nama baris (No, Soal, Bobot): jangan diubah atau dihapus. Isi hanya kolom KUNING di sebelah kanannya. Nomor soal diurutkan otomatis saat impor, jadi angka di baris No tidak perlu diubah.',
-    'Teks soal: ketik di kolom kuning pada baris Soal.',
-    'Gambar soal (jika ada): masukkan di kolom kuning baris Soal yang SAMA dengan teks soal. Klik di dalam sel itu, lalu Sisipkan ▸ Gambar. Tidak ada tempat terpisah untuk gambar; teks dan gambar boleh bersama dalam satu sel (satu soal = satu gambar).',
-    'Bobot = skor maksimal soal tersebut (angka lebih dari 0, mis. 10 atau 20). Total bobot dipakai sebagai patokan penilaian essay.',
-    'Butuh lebih banyak soal? Blok satu tabel beserta garis kosong di bawahnya, Salin (Ctrl+C), lalu Tempel (Ctrl+V) di bagian bawah dokumen.',
-    'Tabel yang seluruhnya kosong akan dilewati saat impor.',
-  ]
-  const umum = [
-    'Gunakan gambar berformat PNG atau JPG (maks. 2 MB per gambar). Gambar hasil tempel dari program lain kadang berformat EMF/WMF dan tidak bisa dibaca — simpan dulu sebagai PNG, lalu sisipkan lewat menu Gambar.',
-    'Simpan file sebagai .docx (bukan .doc), lalu unggah di menu Impor dari Word.',
-  ]
-  const semua = [...(jenis === 'pg' ? langkahPg : langkahEssay), ...umum]
+  const langkah = jenis === 'pg'
+    ? [
+        'Isi hanya kolom KUNING. Nama baris (kolom biru) sudah terkunci.',
+        'Soal: ketik pertanyaan di baris "Soal". Kalau ada gambar, sisipkan di baris "Gambar Soal" (bukan di baris Soal). Tidak ada gambar? Kosongkan.',
+        `Pilihan jawaban: isi baris A–${huruf} (boleh teks atau gambar). Kunci: satu huruf saja, mis. B.`,
+        'Gambar PNG/JPG, maks. 2 MB, satu gambar per baris. Simpan sebagai .docx, lalu unggah di menu Impor dari Word.',
+      ]
+    : [
+        'Isi hanya kolom KUNING. Nama baris (kolom biru) sudah terkunci.',
+        'Soal: ketik pertanyaan di baris "Soal". Kalau ada gambar, sisipkan di baris "Gambar Soal" (bukan di baris Soal). Tidak ada gambar? Kosongkan.',
+        'Bobot: skor maksimal soal itu, angka lebih dari 0 (mis. 10).',
+        'Gambar PNG/JPG, maks. 2 MB, satu gambar per baris. Simpan sebagai .docx, lalu unggah di menu Impor dari Word.',
+      ]
   return (
-    // Kotak peringatan utama
-    para(run('PENTING', { b: true, color: 'FFFFFF', sz: 24 }), { shade: 'B45309', before: 0, after: 0, keepNext: true }) +
+    para(run('CARA PAKAI', { b: true, color: 'FFFFFF', sz: 22 }), { shade: SKEMA_ISI.label, before: 0, after: 0, keepNext: true }) +
+    langkah.map((t, i) =>
+      para(run(`${i + 1}. `, { b: true, sz: 20 }) + run(t, { sz: 20 }), { shade: 'EEF4FF', before: 20, after: 20 })
+    ).join('') +
     para(
-      run('Jangan mengubah kolom ', { b: true }) + run(' BIRU ', { b: true, color: 'FFFFFF', shade: SKEMA_ISI.label }) +
-      run(' (nama baris). Isilah hanya kolom ', { b: true }) + run(' KUNING ', { b: true, shade: SKEMA_ISI.isi }) +
-      run('.', { b: true }),
-      { shade: 'FEF3C7', before: 0, after: 120 }
-    ) +
-    // Legenda warna
-    para(
-      run('Arti warna:  ', { b: true }) +
-      run(' BIRU ', { b: true, color: 'FFFFFF', shade: SKEMA_ISI.label }) + run(' = jangan diubah     ') +
-      run(' KUNING ', { b: true, shade: SKEMA_ISI.isi }) + run(' = tempat mengisi     ') +
-      run(' ORANYE ', { b: true, color: 'FFFFFF', shade: SKEMA_CONTOH.label }) + run(' = hanya contoh, tidak diimpor'),
-      { after: 160 }
-    ) +
-    para(run('Petunjuk pengisian', { b: true, sz: 24 }), { after: 80 }) +
-    semua.map((t, i) => para(run(`${i + 1}. `, { b: true }) + run(t), { after: 60 })).join('') +
-    para('', { after: 120 })
+      run('Warna:  ', { b: true, sz: 18 }) +
+      run(' BIRU ', { b: true, color: 'FFFFFF', shade: SKEMA_ISI.label, sz: 18 }) + run(' terkunci    ', { sz: 18 }) +
+      run(' KUNING ', { b: true, shade: SKEMA_ISI.isi, sz: 18 }) + run(' tempat mengisi    ', { sz: 18 }) +
+      run(' ORANYE ', { b: true, color: 'FFFFFF', shade: SKEMA_CONTOH.label, sz: 18 }) + run(' contoh (tidak diimpor)', { sz: 18 }),
+      { before: 80, after: 60 }
+    )
   )
 }
 
 function dokumen(opsi: OpsiTemplate): string {
+  _permId = 0
   const jumlah = Math.max(1, Math.min(100, Math.floor(opsi.jumlah) || 10))
   const jumlahOpsi: 4 | 5 = opsi.jumlahOpsi === 5 ? 5 : 4
   const isPg = opsi.jenis === 'pg'
 
   const body: string[] = []
-  body.push(
-    blokJudul(
-      isPg ? 'TEMPLATE IMPOR SOAL PILIHAN GANDA' : 'TEMPLATE IMPOR SOAL ESSAY',
-      'SmartExam CBT — isi tabel di bawah, simpan, lalu impor melalui menu Buat Soal'
-    )
-  )
+  // ── HALAMAN 1: petunjuk singkat + contoh ──
+  body.push(blokJudul(isPg ? 'TEMPLATE IMPOR SOAL PILIHAN GANDA' : 'TEMPLATE IMPOR SOAL ESSAY'))
   body.push(blokPetunjuk(opsi.jenis, jumlahOpsi))
-
-  // Contoh pengisian — kata "CONTOH" di kolom No membuat parser melewatinya.
-  // Diberi bingkai oranye tebal + spanduk di atas/bawah supaya jelas ini hanya contoh.
   body.push(
-    para(run('CONTOH SAJA — BUKAN SOAL YANG HARUS DIISI', { b: true, color: 'FFFFFF', sz: 24 }), {
-      shade: SKEMA_CONTOH.label, before: 120, after: 0, keepNext: true,
-    })
-  )
-  body.push(
-    para(run('Tabel bergaris oranye di bawah hanya memperlihatkan cara pengisian. Tidak perlu diisi atau diubah, dan tidak ikut diimpor.', { color: '7C2D12' }), {
-      shade: 'FFEDD5', before: 0, after: 120, keepNext: true,
+    para(run('CONTOH PENGISIAN — tidak perlu diisi, tidak ikut diimpor', { b: true, color: 'FFFFFF', sz: 20 }), {
+      shade: SKEMA_CONTOH.label, before: 60, after: 0, keepNext: true,
     })
   )
   body.push(
@@ -333,13 +314,9 @@ function dokumen(opsi: OpsiTemplate): string {
       SKEMA_CONTOH
     )
   )
-  body.push(
-    para(run('▲ Akhir contoh. Isi soal Anda pada tabel bernomor di bagian "DAFTAR SOAL" di bawah ini.', { b: true, color: '7C2D12' }), {
-      shade: 'FFEDD5', before: 120, after: 120,
-    })
-  )
-  body.push(para(run('DAFTAR SOAL', { b: true, sz: 26, color: WARNA_HEADER }), { before: 240, after: 120, keepNext: true }))
 
+  // ── HALAMAN 2 dst.: tabel soal untuk diisi ──
+  body.push(para(run('DAFTAR SOAL — isi di tabel kuning di bawah ini', { b: true, sz: 26, color: WARNA_HEADER }), { pb: true, before: 0, after: 120, keepNext: true }))
   for (let n = 1; n <= jumlah; n++) {
     body.push(tabel(isPg ? barisSoalPg(String(n), jumlahOpsi) : barisSoalEssay(String(n)), SKEMA_ISI))
     body.push(PEMISAH)
@@ -347,7 +324,7 @@ function dokumen(opsi: OpsiTemplate): string {
 
   const sect =
     '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/>' +
-    '<w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134" w:header="567" w:footer="567" w:gutter="0"/></w:sectPr>'
+    '<w:pgMar w:top="1000" w:right="1134" w:bottom="1000" w:left="1134" w:header="567" w:footer="567" w:gutter="0"/></w:sectPr>'
 
   return (
     '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
@@ -366,8 +343,8 @@ const WP_NS = 'http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDr
 const A_NS = 'http://schemas.openxmlformats.org/drawingml/2006/main'
 const PIC_NS = 'http://schemas.openxmlformats.org/drawingml/2006/picture'
 
-const IMG_W = 260
-const IMG_H = 150
+const IMG_W = 200
+const IMG_H = 105
 
 let _crcTable: Uint32Array | null = null
 function crc32(buf: Uint8Array): number {
@@ -407,7 +384,7 @@ function chunkPng(tipe: string, data: Uint8Array): number[] {
 
 function buatPngContoh(): Uint8Array {
   // Segitiga: titik puncak atas, dua titik alas.
-  const P = [[130, 14], [236, 136], [24, 136]]
+  const P = [[100, 10], [182, 96], [18, 96]]
   const sisi = (ax: number, ay: number, bx: number, by: number, px: number, py: number) =>
     (bx - ax) * (py - ay) - (by - ay) * (px - ax)
   const jarakKeGaris = (ax: number, ay: number, bx: number, by: number, px: number, py: number) =>
@@ -480,6 +457,12 @@ const STYLES =
   '<w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:qFormat/></w:style>' +
   '</w:styles>'
 
+// PROTEKSI: dokumen "read only" tanpa kata sandi. Hanya rentang permStart/permEnd
+// (sel isian kuning) yang bisa disunting; sisanya terkunci.
+const SETTINGS =
+  '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+  `<w:settings xmlns:w="${W_NS}"><w:documentProtection w:edit="readOnly" w:enforcement="1"/></w:settings>`
+
 const CONTENT_TYPES =
   '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
   '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
@@ -488,6 +471,7 @@ const CONTENT_TYPES =
   '<Default Extension="png" ContentType="image/png"/>' +
   '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>' +
   '<Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>' +
+  '<Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/>' +
   '</Types>'
 
 const ROOT_RELS =
@@ -500,19 +484,25 @@ const DOC_RELS =
   '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
   '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
   '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>' +
+  '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" Target="settings.xml"/>' +
   `<Relationship Id="${W_NS_IMG}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/contoh.png"/>` +
   '</Relationships>'
 
-/** Membuat file template .docx sebagai Blob (untuk diunduh di browser). */
-export async function buatTemplateDocx(opsi: OpsiTemplate): Promise<Blob> {
+function bangunZip(opsi: OpsiTemplate): JSZip {
   const zip = new JSZip()
   zip.file('[Content_Types].xml', CONTENT_TYPES)
   zip.file('_rels/.rels', ROOT_RELS)
   zip.file('word/document.xml', dokumen(opsi))
   zip.file('word/styles.xml', STYLES)
+  zip.file('word/settings.xml', SETTINGS)
   zip.file('word/_rels/document.xml.rels', DOC_RELS)
   zip.file('word/media/contoh.png', buatPngContoh())
-  return zip.generateAsync({
+  return zip
+}
+
+/** Membuat file template .docx sebagai Blob (untuk diunduh di browser). */
+export async function buatTemplateDocx(opsi: OpsiTemplate): Promise<Blob> {
+  return bangunZip(opsi).generateAsync({
     type: 'blob',
     mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     compression: 'DEFLATE',
@@ -521,14 +511,7 @@ export async function buatTemplateDocx(opsi: OpsiTemplate): Promise<Blob> {
 
 /** Versi Buffer/Uint8Array — dipakai untuk pengujian di Node. */
 export async function buatTemplateDocxBytes(opsi: OpsiTemplate): Promise<Uint8Array> {
-  const zip = new JSZip()
-  zip.file('[Content_Types].xml', CONTENT_TYPES)
-  zip.file('_rels/.rels', ROOT_RELS)
-  zip.file('word/document.xml', dokumen(opsi))
-  zip.file('word/styles.xml', STYLES)
-  zip.file('word/_rels/document.xml.rels', DOC_RELS)
-  zip.file('word/media/contoh.png', buatPngContoh())
-  return zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE' })
+  return bangunZip(opsi).generateAsync({ type: 'uint8array', compression: 'DEFLATE' })
 }
 
 export function namaFileTemplate(jenis: JenisTemplate): string {

@@ -496,9 +496,9 @@ export function ImporSoalModal(p: Props) {
             <FileDown className="w-4 h-4 text-brand-600" /> Belum punya template? Unduh template Word di sini
           </summary>
           <p className="text-sm text-slate-600">
-            Template berisi satu tabel untuk setiap nomor soal. Isi hanya <b>kolom kuning</b>; kolom biru (nama baris) jangan diubah.
-            Teks soal dan gambar soal ditulis di <b>sel yang sama</b>: klik di dalam sel Soal, lalu <b>Sisipkan ▸ Gambar</b>
-            {isPg ? ' (cara yang sama untuk opsi jawaban bergambar)' : ''}. Tabel oranye di bagian awal hanyalah contoh dan tidak ikut diimpor.
+            Halaman 1 berisi petunjuk singkat dan contoh; tabel soal ada di halaman berikutnya. Isi hanya <b>kolom kuning</b>
+            (bagian lain terkunci). Gambar soal disisipkan di baris <b>Gambar Soal</b>, terpisah dari baris Soal
+            {isPg ? '; opsi jawaban bergambar disisipkan di baris opsinya' : ''}.
           </p>
           <div className="flex flex-wrap items-end gap-3">
             <div>

@@ -433,12 +433,13 @@ function bacaSel(tc: N, ktx: Konteks): IsiSel {
 
 // ───────────────────────── pengenalan label ─────────────────────────
 
-type Label = 'no' | 'soal' | 'kunci' | 'pembahasan' | 'bobot' | HurufOpsi | null
+type Label = 'no' | 'soal' | 'gambar' | 'kunci' | 'pembahasan' | 'bobot' | HurufOpsi | null
 
 function kenaliLabel(teks: string): Label {
   const n = teks.split('\n')[0].toLowerCase().replace(/[^a-z]/g, '')
   if (!n) return null
   if (n === 'no' || n.startsWith('nomor')) return 'no'
+  if (n.startsWith('gambar')) return 'gambar' // "Gambar Soal"
   if (n === 'soal' || n.startsWith('pertanyaan') || n === 'butirsoal') return 'soal'
   if (n.startsWith('kunci') || n === 'jawaban' || n === 'jawabanbenar') return 'kunci'
   if (n.startsWith('pembahasan') || n.startsWith('penjelasan')) return 'pembahasan'
@@ -621,7 +622,11 @@ export async function bacaDocxPg(data: ArrayBuffer | Uint8Array, opsi?: OpsiBaca
     const peringatan: string[] = duplikat.map(d => `Baris "${d.toUpperCase()}" muncul lebih dari sekali; hanya yang pertama dipakai.`)
 
     const selSoal = isi.get('soal')!
-    const gambarSoal = pilihGambar(selSoal, 'Soal', peringatan)
+    // Gambar soal: baris "Gambar Soal" diutamakan; gambar yang disisipkan di sel
+    // Soal (template lama) tetap diterima.
+    const selGambar = isi.get('gambar')
+    if (selGambar?.teks) peringatan.push('Baris Gambar Soal berisi teks; teks itu diabaikan (tulis pertanyaan di baris Soal).')
+    const gambarSoal = pilihGambar(selGambar, 'Gambar Soal', peringatan) ?? pilihGambar(selSoal, 'Soal', peringatan)
     const opsiBaca = {} as Record<HurufOpsi, OpsiTerbaca>
     for (const h of SEMUA_HURUF) {
       const sel = isi.get(h)
@@ -698,7 +703,7 @@ export async function bacaDocxEssay(data: ArrayBuffer | Uint8Array, opsi?: OpsiB
       ringkasan.tabelContoh++
       continue
     }
-    if (kosong(isi.get('soal')) && kosong(isi.get('bobot'))) {
+    if (kosong(isi.get('soal')) && kosong(isi.get('gambar')) && kosong(isi.get('bobot'))) {
       ringkasan.tabelKosong++
       continue
     }
@@ -706,7 +711,9 @@ export async function bacaDocxEssay(data: ArrayBuffer | Uint8Array, opsi?: OpsiB
     const galat: string[] = []
     const peringatan: string[] = duplikat.map(d => `Baris "${d.toUpperCase()}" muncul lebih dari sekali; hanya yang pertama dipakai.`)
     const selSoal = isi.get('soal')!
-    const gambar = pilihGambar(selSoal, 'Soal', peringatan)
+    const selGambar = isi.get('gambar')
+    if (selGambar?.teks) peringatan.push('Baris Gambar Soal berisi teks; teks itu diabaikan (tulis pertanyaan di baris Soal).')
+    const gambar = pilihGambar(selGambar, 'Gambar Soal', peringatan) ?? pilihGambar(selSoal, 'Soal', peringatan)
     if (!selSoal.teks && !gambar) galat.push('Soal belum diisi (teks atau gambar).')
 
     const b = parseBobot(isi.get('bobot')?.teks ?? '')
