@@ -296,6 +296,18 @@ export async function GET(req: NextRequest) {
   // Rekap nilai per siswa per mapel (untuk tabel)
   // PENTING: di halaman wali kelas, hanya tampilkan nilai yang sudah dikirim guru (dikirim_ke_wali = true)
   // Gunakan nilai_edit jika ada (hasil remedial guru), jika tidak gunakan nilai asli
+  // Riwayat "Izinkan ujian lagi" — hanya untuk nilai yang sudah dikirim guru.
+  const sesiDikirim = [...new Set((nilaiList ?? [])
+    .filter((n: { dikirim_ke_wali: boolean; sesi_id: string | null }) => n.dikirim_ke_wali && n.sesi_id)
+    .map((n: { sesi_id: string | null }) => n.sesi_id as string))]
+  const { data: bukaKunciRaw } = sesiDikirim.length
+    ? await db.from('riwayat_buka_kunci')
+        .select('sesi_id, nis, dibuka_oleh, alasan, dibuka_pada, buka_ke, jumlah_pelanggaran, sisa_detik')
+        .in('sesi_id', sesiDikirim)
+        .order('dibuka_pada', { ascending: true })
+    : { data: [] as Record<string, unknown>[] }
+  const bukaKunciList = (bukaKunciRaw ?? []) as { sesi_id: string; nis: string }[]
+
   const nilaiRekap = (siswaList ?? []).map((siswa: { nis: string; nama: string }) => {
     const row: Record<string, unknown> = { nis: siswa.nis, nama: siswa.nama }
     mapelIds.forEach(mapelId => {
@@ -327,6 +339,7 @@ export async function GET(req: NextRequest) {
           lulus: lulusTampil,
           nilai_id: n.id,
           dikembalikan: n.dikembalikan,
+          buka_kunci: bukaKunciList.filter(b => b.nis === siswa.nis && b.sesi_id === (n as { sesi_id?: string }).sesi_id),
         }
       }
     })

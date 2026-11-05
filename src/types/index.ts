@@ -262,6 +262,8 @@ export interface Nilai {
   // ujian, bukan cuma nilai akhirnya.
   pelanggaran?: Pelanggaran[]
   jumlah_pelanggaran?: number
+  // Riwayat "Izinkan ujian lagi" oleh pengawas (migrasi 60).
+  riwayat_buka_kunci?: RiwayatBukaKunci[]
   // FITUR BARU (hapus dualisme tab Rekap Nilai vs Kirim Nilai): "nilai
   // remedial guru" — sebelumnya hanya bisa diinput di tab Kirim Nilai,
   // sekarang diinput langsung di tab Rekap Nilai (lihat RekapNilaiTab).
@@ -327,4 +329,17 @@ export interface ApiResponse<T = unknown> {
   data?: T
   error?: string
   message?: string
+}
+
+// Satu kejadian pengawas membuka kunci permanen siswa (tabel riwayat_buka_kunci).
+export interface RiwayatBukaKunci {
+  id: number
+  sesi_id: string
+  nis: string
+  dibuka_oleh: string
+  alasan: string | null
+  dibuka_pada: string
+  buka_ke: number
+  jumlah_pelanggaran: number
+  sisa_detik: number
 }

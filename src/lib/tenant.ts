@@ -45,6 +45,8 @@ export const TABEL_PER_YAYASAN: ReadonlySet<string> = new Set([
   // Ditambahkan di migrasi 44 (izin akses Layar Pantau untuk guru).
   'izin_layar_pantau',
   'admin_kelas',
+  // Migrasi 60: riwayat pengawas membuka kunci permanen siswa.
+  'riwayat_buka_kunci',
 ])
 
 /**

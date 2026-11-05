@@ -787,6 +787,28 @@ export function ModePengawasTab() {
     }
   }
 
+  // "Izinkan ujian lagi" untuk siswa TERKUNCI permanen (sanksi: hanya sisa waktu).
+  const [bukaKunciTarget, setBukaKunciTarget] = useState<{ sesiId: string; nis: string; nama: string } | null>(null)
+  const [bukaKunciAlasan, setBukaKunciAlasan] = useState('')
+  const [bukaKunciLoading, setBukaKunciLoading] = useState(false)
+  async function handleBukaKunci() {
+    if (!bukaKunciTarget) return
+    setBukaKunciLoading(true)
+    try {
+      const res = await apiRequest(`/api/pengawas/sesi/${bukaKunciTarget.sesiId}/buka-kunci`, {
+        method: 'POST',
+        body: JSON.stringify({ nis: bukaKunciTarget.nis, alasan: bukaKunciAlasan.trim() }),
+      }) as { message?: string }
+      showToast(res?.message ?? 'Siswa diizinkan ujian lagi.', 'success')
+      setBukaKunciTarget(null)
+      setBukaKunciAlasan('')
+      await load(true)
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Gagal membuka kunci siswa', 'error')
+    } finally {
+      setBukaKunciLoading(false)
+    }
+  }
   const [resetPercobaanNis, setResetPercobaanNis] = useState<string | null>(null)
   async function handleResetPercobaanEssay(sesiId: string, nis: string) {
     setResetPercobaanNis(nis)
@@ -1321,6 +1343,15 @@ export function ModePengawasTab() {
                                         🔁 Ganti perangkat{(sw.ganti_perangkat ?? 0) > 1 ? ` ${sw.ganti_perangkat}×` : ''}
                                       </span>
                                     )}
+                                    {sw.status === 'TERKUNCI' && !sw.dari_sesi_lain && (
+                                      <button
+                                        onClick={() => { setBukaKunciAlasan(''); setBukaKunciTarget({ sesiId, nis: sw.nis, nama: sw.nama }) }}
+                                        className="flex-shrink-0 text-xs font-bold px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 text-white"
+                                        title="Izinkan siswa ini melanjutkan ujian dengan sisa waktu yang ada"
+                                      >
+                                        Izinkan ujian lagi
+                                      </button>
+                                    )}
                                     {(sw.status === 'AKTIF' || sw.status === 'RESET') && !sw.dari_sesi_lain && (
                                       <div className="flex-shrink-0 flex items-center gap-1" aria-label="Kode reset">
                                         {Array.from({ length: kodeResetMap[sesiId]?.maksReset ?? 3 }, (_, i) => i + 1).map(n => {
@@ -1586,6 +1617,36 @@ export function ModePengawasTab() {
           </div>
         )
       })()}
+
+      {/* Konfirmasi "Izinkan ujian lagi" */}
+      {bukaKunciTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-5">
+            <h3 className="text-base font-bold text-slate-900 mb-2">Izinkan ujian lagi?</h3>
+            <p className="text-sm text-slate-600 mb-3">
+              <strong>{bukaKunciTarget.nama}</strong> terkunci karena melanggar melebihi batas. Jika diizinkan, siswa
+              melanjutkan ujian dengan <strong>sisa waktu sesuai jadwal ujian</strong>. Waktu selama terkunci tidak
+              diganti (itu sanksinya). Kejadian ini dicatat dan dapat dibaca guru pengampu dan wali kelas.
+            </p>
+            <textarea
+              value={bukaKunciAlasan}
+              onChange={e => setBukaKunciAlasan(e.target.value)}
+              maxLength={300}
+              rows={2}
+              placeholder="Alasan (opsional)"
+              className="w-full text-sm border border-slate-200 rounded-xl px-3 py-2 mb-4"
+            />
+            <div className="flex gap-2">
+              <button onClick={() => setBukaKunciTarget(null)} disabled={bukaKunciLoading} className="flex-1 px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-semibold">
+                Batal
+              </button>
+              <button onClick={handleBukaKunci} disabled={bukaKunciLoading} className="flex-1 px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-sm font-semibold">
+                {bukaKunciLoading ? 'Memproses...' : 'Ya, izinkan'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Kode reset R1/R2/R3 */}
       {kodeTampil && (() => {

@@ -82,6 +82,25 @@ export async function GET(req: NextRequest) {
     pelanggaranMap.get(kunci)!.push(p)
   }
 
+  // Riwayat "Izinkan ujian lagi" (pengawas membuka kunci permanen siswa).
+  type BukaKunciRow = {
+    id: number; sesi_id: string; nis: string; dibuka_oleh: string; alasan: string | null
+    dibuka_pada: string; buka_ke: number; jumlah_pelanggaran: number; sisa_detik: number
+  }
+  const { data: bukaKunciRaw } = sesiIdsNilai.length
+    ? await db
+        .from('riwayat_buka_kunci')
+        .select('id, sesi_id, nis, dibuka_oleh, alasan, dibuka_pada, buka_ke, jumlah_pelanggaran, sisa_detik')
+        .in('sesi_id', sesiIdsNilai)
+        .order('dibuka_pada', { ascending: true })
+    : { data: [] as BukaKunciRow[] }
+  const bukaKunciMap = new Map<string, BukaKunciRow[]>()
+  for (const b of (bukaKunciRaw ?? []) as BukaKunciRow[]) {
+    const k = `${b.sesi_id}__${b.nis}`
+    if (!bukaKunciMap.has(k)) bukaKunciMap.set(k, [])
+    bukaKunciMap.get(k)!.push(b)
+  }
+
   // FITUR BARU (hapus dualisme tab Rekap Nilai vs Kirim Nilai): setiap baris
   // sekarang ikut dilengkapi nilai_final/grade_final/lulus_final/ada_remedial
   // lewat hitungNilaiFinal() — fungsi yang SAMA dipakai oleh
@@ -109,6 +128,7 @@ export async function GET(req: NextRequest) {
       essay_belum_dirilis: essayAktif && r.dirilis !== true,
       pelanggaran: pelanggaranSiswa,
       jumlah_pelanggaran: pelanggaranSiswa.length,
+      riwayat_buka_kunci: bukaKunciMap.get(`${r.sesi_id}__${r.nis}`) ?? [],
       nilai_efektif: nilaiEfektif,
       ada_remedial: adaRemedial,
       nilai_final: nilaiFinal,

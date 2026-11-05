@@ -472,7 +472,7 @@ export function RekapNilaiTab({ onDataChanged }: { onDataChanged?: () => void } 
                         </td>
                         <td className="text-xs text-slate-400">{formatDateTime(n.timestamp)}</td>
                         <td>
-                          {(n.jumlah_pelanggaran ?? 0) > 0 ? (
+                          {(n.jumlah_pelanggaran ?? 0) > 0 || (n.riwayat_buka_kunci ?? []).length > 0 ? (
                             <button
                               type="button"
                               onClick={() => setPelanggaranModal(n)}
@@ -480,6 +480,7 @@ export function RekapNilaiTab({ onDataChanged }: { onDataChanged?: () => void } 
                               title="Lihat riwayat pelanggaran"
                             >
                               <AlertTriangle className="w-3 h-3" /> {n.jumlah_pelanggaran}
+                              {(n.riwayat_buka_kunci ?? []).length > 0 && <span> · 🔓{n.riwayat_buka_kunci!.length}×</span>}
                             </button>
                           ) : (
                             <span className="badge bg-emerald-50 text-emerald-600 text-xs inline-flex items-center gap-1">
@@ -530,6 +531,17 @@ export function RekapNilaiTab({ onDataChanged }: { onDataChanged?: () => void } 
             <p className="text-sm text-slate-500">
               {pelanggaranModal.nama_mapel} · Kelas {pelanggaranModal.kelas} · Ujian {formatDateTime(pelanggaranModal.timestamp)}
             </p>
+            {(pelanggaranModal.riwayat_buka_kunci ?? []).length > 0 && (
+              <div className="border border-amber-200 bg-amber-50 rounded-lg p-3 space-y-2">
+                <p className="text-sm font-semibold text-amber-800">🔓 Pernah terkunci permanen, lalu diizinkan ujian lagi oleh pengawas</p>
+                {pelanggaranModal.riwayat_buka_kunci!.map(b => (
+                  <div key={b.id} className="text-xs text-amber-900">
+                    Ke-{b.buka_ke}: {formatDateTime(b.dibuka_pada)} · pengawas {b.dibuka_oleh} · {b.jumlah_pelanggaran}× pelanggaran · sisa waktu {Math.floor(b.sisa_detik / 60)} menit
+                    {b.alasan ? ` · alasan: ${b.alasan}` : ''}
+                  </div>
+                ))}
+              </div>
+            )}
             {(pelanggaranModal.pelanggaran ?? []).length === 0 ? (
               <p className="text-sm text-slate-400 py-4 text-center">Tidak ada riwayat pelanggaran selama ujian.</p>
             ) : (

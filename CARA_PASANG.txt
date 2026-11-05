@@ -1,0 +1,2 @@
+1. Supabase > SQL Editor: jalankan supabase/60_riwayat_buka_kunci.sql (DULU).
+2. Salin semua file di folder ini ke repo (path sama), commit, push.

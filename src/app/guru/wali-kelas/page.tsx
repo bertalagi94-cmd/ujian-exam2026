@@ -33,10 +33,12 @@ interface MapelInfo {
   adaDikembalikan: boolean
 }
 
+interface BukaKunciInfo { dibuka_oleh: string; alasan: string | null; dibuka_pada: string; buka_ke: number; jumlah_pelanggaran: number; sisa_detik: number }
+
 interface NilaiRow {
   nis: string
   nama: string
-  [mapelId: string]: { nilai: number; grade: string; lulus: boolean; nilai_id: string; dikembalikan: boolean } | string | null
+  [mapelId: string]: { nilai: number; grade: string; lulus: boolean; nilai_id: string; dikembalikan: boolean; buka_kunci?: BukaKunciInfo[] } | string | null
 }
 
 interface WaliKelasData {
@@ -638,7 +640,7 @@ export default function WaliKelasPage() {
                               </td>
                             )
                           }
-                          const obj = v as { nilai: number; grade: string; lulus: boolean; nilai_id: string; dikembalikan: boolean }
+                          const obj = v as { nilai: number; grade: string; lulus: boolean; nilai_id: string; dikembalikan: boolean; buka_kunci?: BukaKunciInfo[] }
                           return (
                             <td key={mp.mapel_id} className="px-2 py-3 text-center">
                               <div className="flex flex-col items-center gap-1">
@@ -649,6 +651,14 @@ export default function WaliKelasPage() {
                                 <span className={`text-xs ${obj.lulus ? 'text-emerald-500' : 'text-red-500'}`}>
                                   {obj.lulus ? '✓ Lulus' : '✗ Tidak'}
                                 </span>
+                                {(obj.buka_kunci ?? []).length > 0 && (
+                                  <span
+                                    className="text-xs text-amber-600 cursor-help"
+                                    title={obj.buka_kunci!.map(b => `Terkunci karena ${b.jumlah_pelanggaran}× pelanggaran, diizinkan ujian lagi oleh pengawas ${b.dibuka_oleh} (${new Date(b.dibuka_pada).toLocaleString('id-ID')}), sisa waktu ${Math.floor(b.sisa_detik / 60)} menit${b.alasan ? '. Alasan: ' + b.alasan : ''}`).join('\n')}
+                                  >
+                                    🔓 Diizinkan ujian lagi {obj.buka_kunci!.length}×
+                                  </span>
+                                )}
                                 {/* Tombol kembalikan nilai */}
                                 {!obj.dikembalikan && (
                                   <button
