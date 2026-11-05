@@ -25,6 +25,7 @@
 import { apiRequest } from '@/lib/utils'
 import { getDeviceId } from '@/lib/device-id'
 import { jalankanBerurutan, EVENT_PICU_ANTREAN } from '@/lib/antrean-kunci'
+import { urutanBerikutnya, urutEntri } from '@/lib/urutan-lokal'
 import {
   resetMaterialPut,
   resetMaterialGet,
@@ -244,6 +245,8 @@ export interface ResetTertunda {
   kode: string
   eventId: string
   dibuatIso: string
+  /** Nomor urut kejadian yang selalu naik (lihat urutan-lokal.ts). Opsional untuk entri lama. */
+  urut?: number
   percobaanTerakhirIso: string | null
   jumlahPercobaan: number
   status: StatusResetTertunda
@@ -272,6 +275,7 @@ export async function antrekanResetOffline(sesiId: string, nis: string, nomor: n
     sesiId, nis, nomor, kode,
     eventId: buatEventId(),
     dibuatIso: new Date().toISOString(),
+    urut: urutanBerikutnya(),
     percobaanTerakhirIso: null,
     jumlahPercobaan: 0,
     status: 'BELUM_TERKIRIM',
@@ -298,7 +302,7 @@ export async function ambilSemuaResetTertunda(nis: string, sesiId?: string): Pro
     return semua
       .filter(e => e.nis === nis && (!sesiId || e.sesiId === sesiId))
       // Urutan nomor NAIK — server hanya menerima R(N) tepat saat gilirannya.
-      .sort((a, b) => a.nomor - b.nomor || a.dibuatIso.localeCompare(b.dibuatIso))
+      .sort((a, b) => a.nomor - b.nomor || urutEntri(a) - urutEntri(b))
   } catch {
     return []
   }

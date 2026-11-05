@@ -45,6 +45,7 @@ import { apiRequest } from '@/lib/utils'
 import { getDeviceId } from '@/lib/device-id'
 import { jalankanBerurutan, EVENT_PICU_ANTREAN } from '@/lib/antrean-kunci'
 import { ambilSemuaResetTertunda } from '@/lib/reset-offline-client'
+import { urutanBerikutnya, urutEntri } from '@/lib/urutan-lokal'
 import {
   pelanggaranQueuePut,
   pelanggaranQueueDelete,
@@ -65,6 +66,12 @@ export interface PelanggaranTertunda {
   jenis: string
   detail: string | null
   dibuatIso: string
+  /**
+   * Nomor urut kejadian yang selalu naik (lihat urutan-lokal.ts). Dipakai untuk
+   * MENGURUTKAN antrean, bukan dibuatIso, karena jam perangkat bisa mundur.
+   * Opsional: entri lama (sebelum patch) tidak punya; dibuatIso jadi cadangan.
+   */
+  urut?: number
   percobaanTerakhirIso: string | null
   jumlahPercobaan: number
   status: StatusPelanggaranTertunda
@@ -157,7 +164,7 @@ export async function ambilSemuaPelanggaranTertunda(nis: string): Promise<Pelang
       }
     }
   }
-  return hasil.sort((a, b) => a.dibuatIso.localeCompare(b.dibuatIso))
+  return hasil.sort((a, b) => urutEntri(a) - urutEntri(b))
 }
 
 /** True kalau status HTTP ini kemungkinan besar sementara (jaringan/server sibuk) — layak diulang otomatis. */
@@ -246,6 +253,7 @@ export async function antrekanPelanggaran(
     jenis,
     detail: detail || null,
     dibuatIso: new Date().toISOString(),
+    urut: urutanBerikutnya(),
     percobaanTerakhirIso: null,
     jumlahPercobaan: 0,
     status: 'BELUM_TERKIRIM',
@@ -263,8 +271,8 @@ export async function antrekanPelanggaran(
       ambilSemuaResetTertunda(nis, sesiId),
     ])
     const adaYangLebihTua =
-      pel.some(e => e.eventId !== entri.eventId && e.status !== 'GAGAL' && e.dibuatIso <= entri.dibuatIso) ||
-      rst.some(e => e.status !== 'GAGAL' && e.dibuatIso <= entri.dibuatIso)
+      pel.some(e => e.eventId !== entri.eventId && e.status !== 'GAGAL' && urutEntri(e) <= urutEntri(entri)) ||
+      rst.some(e => e.status !== 'GAGAL' && urutEntri(e) <= urutEntri(entri))
     if (adaYangLebihTua) {
       try { window.dispatchEvent(new Event(EVENT_PICU_ANTREAN)) } catch { /* abaikan */ }
       return null

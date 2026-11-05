@@ -1,8 +1,9 @@
 // src/lib/antrean-berurutan.ts
 //
 // SATU antrean offline per siswa yang menggabungkan event pelanggaran dan
-// reset offline (R1..R3), dikirim satu per satu menurut waktu kejadian asli
-// (dibuatIso): V1, R1, V2, R2, V3, R3, V4 ...
+// reset offline (R1..R3), dikirim satu per satu menurut URUTAN kejadian asli
+// (field `urut`, nomor naik terus, lihat urutan-lokal.ts; BUKAN jam perangkat
+// karena jam HP bisa dimundurkan saat offline): V1, R1, V2, R2, V3, R3, V4 ...
 //
 // KENAPA: server (catat_pelanggaran_atomik) membuang pelanggaran yang tiba
 // saat status siswa masih RESET (balasan MENUNGGU_RESET), dan menolak R(N)
@@ -25,24 +26,24 @@ import {
   type ResetTertunda,
 } from '@/lib/reset-offline-client'
 import { EVENT_PICU_ANTREAN } from '@/lib/antrean-kunci'
+import { urutEntri } from '@/lib/urutan-lokal'
 
 type EntriGabungan =
-  | { tipe: 'PELANGGARAN'; waktu: string; entri: PelanggaranTertunda }
-  | { tipe: 'RESET'; waktu: string; entri: ResetTertunda }
+  | { tipe: 'PELANGGARAN'; urut: number; entri: PelanggaranTertunda }
+  | { tipe: 'RESET'; urut: number; entri: ResetTertunda }
 
-/** Gabungan entri belum selesai milik satu siswa, urut waktu kejadian. Pada waktu sama, pelanggaran lebih dulu dari reset. */
+/** Gabungan entri belum selesai milik satu siswa, urut kejadian. Pada urut sama, pelanggaran lebih dulu dari reset. */
 export async function ambilAntreanGabungan(nis: string, sesiId?: string): Promise<EntriGabungan[]> {
   const [pel, rst] = await Promise.all([
     ambilSemuaPelanggaranTertunda(nis),
     ambilSemuaResetTertunda(nis, sesiId),
   ])
   const semua: EntriGabungan[] = [
-    ...pel.filter(e => !sesiId || e.sesiId === sesiId).map(e => ({ tipe: 'PELANGGARAN' as const, waktu: e.dibuatIso, entri: e })),
-    ...rst.map(e => ({ tipe: 'RESET' as const, waktu: e.dibuatIso, entri: e })),
+    ...pel.filter(e => !sesiId || e.sesiId === sesiId).map(e => ({ tipe: 'PELANGGARAN' as const, urut: urutEntri(e), entri: e })),
+    ...rst.map(e => ({ tipe: 'RESET' as const, urut: urutEntri(e), entri: e })),
   ]
   return semua.sort((a, b) => {
-    const c = a.waktu.localeCompare(b.waktu)
-    if (c !== 0) return c
+    if (a.urut !== b.urut) return a.urut - b.urut
     if (a.tipe !== b.tipe) return a.tipe === 'PELANGGARAN' ? -1 : 1
     return 0
   })
