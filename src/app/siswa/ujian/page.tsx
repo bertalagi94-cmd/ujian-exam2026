@@ -898,21 +898,27 @@ export default function SiswaUjianPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // ── Minta izin blokir notifikasi saat ujian dimulai ───────────────────────
-  useEffect(() => {
-    if (phase !== 'UJIAN' && phase !== 'ESSAY_INFO' && phase !== 'ESSAY_KERJAKAN') return
-    if (essayInfoBelumSiap) return
-    if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission()
-    }
-  }, [phase, essayInfoBelumSiap])
+  // CATATAN: dulu di sini ada Notification.requestPermission() ("minta izin
+  // blokir notifikasi"). Itu tidak memblokir apa pun (aplikasi tidak pernah
+  // memakai Notification) dan justru memunculkan popup izin browser di tengah
+  // ujian, yang bisa mengeluarkan siswa dari layar penuh -> pelanggaran palsu.
+  // Dihapus.
 
   // ── Masuk fullscreen saat phase UJIAN ─────────────────────────────────────
   useEffect(() => {
     if (phase !== 'UJIAN' && phase !== 'ESSAY_INFO' && phase !== 'ESSAY_KERJAKAN') return
     if (essayInfoBelumSiap) return
     const el = document.documentElement
-    requestFullscreen(el).catch(() => {
+    // Keyboard Lock (Chrome/Edge): tombol Esc tidak lagi langsung keluar dari
+    // layar penuh (harus ditahan ~2 detik). Mengurangi keluar layar penuh tak
+    // sengaja. Browser yang tidak mendukung: diabaikan diam-diam.
+    const kunciEsc = () => {
+      try {
+        const kb = (navigator as unknown as { keyboard?: { lock?: (k: string[]) => Promise<void> } }).keyboard
+        kb?.lock?.(['Escape'])?.catch(() => {})
+      } catch { /* tidak didukung */ }
+    }
+    requestFullscreen(el).then(kunciEsc).catch(() => {
       // FIX: sebelumnya kegagalan di sini dibuang total tanpa jejak apapun.
       // Tidak perlu state terpisah untuk menandai kegagalan — `isFS` (state
       // yang sudah ada, diupdate lewat listener fullscreenchange di bawah)
@@ -937,6 +943,7 @@ export default function SiswaUjianPage() {
     document.addEventListener('mozfullscreenchange', onFSChange)
     document.addEventListener('MSFullscreenChange', onFSChange)
     return () => {
+      try { (navigator as unknown as { keyboard?: { unlock?: () => void } }).keyboard?.unlock?.() } catch { /* abaikan */ }
       document.removeEventListener('fullscreenchange', onFSChange)
       document.removeEventListener('webkitfullscreenchange', onFSChange)
       document.removeEventListener('mozfullscreenchange', onFSChange)
