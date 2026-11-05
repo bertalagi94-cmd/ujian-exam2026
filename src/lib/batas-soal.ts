@@ -17,7 +17,11 @@
 //   {"aktif":true,
 //    "bawaan":{"pg":30,"essay":null},
 //    "pg":[{"min":35,"mapel":["BAHASA INDONESIA"]}], "essay":[]}
-//   → semua mapel PG minimal 30, kecuali BAHASA INDONESIA minimal 35.
+//   → semua mapel PG wajib 30 soal, kecuali BAHASA INDONESIA wajib 35.
+//
+// Angka ini = jumlah soal yang TEPAT per paket: guru tidak bisa menambah di
+// atasnya (cekBatasTambahSoal) dan tidak bisa mengirim di bawah/di atasnya
+// (cekBatasMinSoal). Nama field `min` dipertahankan agar data lama tetap terbaca.
 //
 // Pencocokan memakai NAMA mapel (tanpa beda huruf besar/kecil), karena satu
 // nama mapel bisa punya beberapa baris (per guru/kelas).
@@ -169,9 +173,11 @@ async function bacaBatasMapel(
 }
 
 /**
- * Cek jumlah soal sebuah paket terhadap batas minimal mapelnya.
- * Mengembalikan pesan error (string) kalau KURANG, atau null kalau lolos /
- * fitur mati / mapel tidak punya batas.
+ * Cek jumlah soal sebuah paket SAAT DIKIRIM terhadap jumlah yang ditetapkan
+ * admin untuk mapelnya. Angka admin = jumlah soal yang TEPAT: kurang tidak
+ * boleh, lebih juga tidak boleh (kelebihan harus dihapus dulu).
+ * Mengembalikan pesan error (string), atau null kalau pas / fitur mati /
+ * mapel tidak punya batas.
  * `db` harus tenantDb(...) supaya otomatis terbatas ke yayasan yang login.
  */
 export async function cekBatasMinSoal(
@@ -179,10 +185,36 @@ export async function cekBatasMinSoal(
   opts: { jenis: JenisSoal; mapelId: string; jumlah: number }
 ): Promise<string | null> {
   const { min, namaMapel } = await bacaBatasMapel(db, opts)
-  if (min === null || opts.jumlah >= min) return null
+  if (min === null || opts.jumlah === min) return null
 
   const label = opts.jenis === 'pg' ? 'PG' : 'Essay'
-  return `Paket ${label} ${namaMapel} minimal ${min} soal, saat ini baru ${opts.jumlah}`
+  if (opts.jumlah < min) {
+    return `Paket ${label} ${namaMapel} harus tepat ${min} soal, saat ini baru ${opts.jumlah}`
+  }
+  const lebih = opts.jumlah - min
+  return `Paket ${label} ${namaMapel} harus tepat ${min} soal, saat ini ada ${opts.jumlah} (kelebihan ${lebih}, hapus ${lebih} soal dulu)`
+}
+
+/**
+ * Cek SEBELUM menambah soal (ketik manual atau impor): jumlah soal yang sudah
+ * ada + yang akan ditambah tidak boleh melebihi jumlah yang ditetapkan admin.
+ * Mengembalikan pesan error, atau null kalau masih muat / tidak ada batas.
+ */
+export async function cekBatasTambahSoal(
+  db: SupabaseClient,
+  opts: { jenis: JenisSoal; mapelId: string; sudahAda: number; tambah: number }
+): Promise<string | null> {
+  const { min, namaMapel } = await bacaBatasMapel(db, opts)
+  if (min === null) return null
+  const total = opts.sudahAda + opts.tambah
+  if (total <= min) return null
+
+  const label = opts.jenis === 'pg' ? 'PG' : 'Essay'
+  if (opts.sudahAda >= min) {
+    return `Paket ${label} ${namaMapel} sudah berisi ${opts.sudahAda} soal sesuai ketentuan admin (${min} soal), jadi tidak bisa menambah soal lagi`
+  }
+  const sisa = min - opts.sudahAda
+  return `Ketentuan admin untuk paket ${label} ${namaMapel} adalah tepat ${min} soal. Saat ini sudah ${opts.sudahAda}, jadi hanya bisa menambah ${sisa} soal lagi (diminta ${opts.tambah})`
 }
 
 /**

@@ -22,6 +22,7 @@ import { generateId, stripHtmlTags } from '@/lib/utils'
 import { cekSesiMapelKelasSudahMulai, pesanBankSoalTerkunci } from '@/lib/sesi-kelas'
 import { catatAktivitas } from '@/lib/aktivitas'
 import { validasiKunciOpsi } from '@/lib/validasi-soal'
+import { cekBatasTambahSoal } from '@/lib/batas-soal'
 import { tandaPgDariDb } from '@/lib/impor-soal/duplikat'
 import { verifikasiKepemilikanMapelKelas, verifikasiKepemilikanPaketSoal } from '@/lib/guru-scope'
 
@@ -201,12 +202,14 @@ export async function POST(req: NextRequest) {
   //    paket (atau kembar di dalam file ini). Pratinjau di browser sudah
   //    menandainya; ini jaring pengaman untuk klik ganda / dua tab. ──
   let dilewati = 0
+  let jumlahSudahAda = 0
   if (paketIdBody) {
     const { data: ada, error: errDup } = await db
       .from('soal')
       .select('teks, opsi_a, opsi_b, opsi_c, opsi_d, opsi_e, kunci, gambar_pertanyaan, gambar_opsi_a, gambar_opsi_b, gambar_opsi_c, gambar_opsi_d, gambar_opsi_e')
       .eq('paket_id', paketIdBody)
     if (errDup) return NextResponse.json({ error: errDup.message }, { status: 500 })
+    jumlahSudahAda = (ada ?? []).length
     const sudahAda = new Set<string>()
     for (const r of ada ?? []) {
       const t = tandaPgDariDb(r as Record<string, unknown>, jumlahOpsi)
@@ -228,6 +231,11 @@ export async function POST(req: NextRequest) {
     baris.length = 0
     baris.push(...unik)
   }
+
+  // ── Jumlah soal paket dibatasi admin (tepat N): soal yang sudah ada + yang
+  //    akan diimpor tidak boleh melebihi batas. Dicek SEBELUM paket baru dibuat. ──
+  const melebihi = await cekBatasTambahSoal(db, { jenis: 'pg', mapelId, sudahAda: jumlahSudahAda, tambah: baris.length })
+  if (melebihi) return NextResponse.json({ error: melebihi }, { status: 400 })
 
   // ── Tulis: paket (jika baru) lalu semua soal dalam satu INSERT ──
   let paketId = paketIdBody

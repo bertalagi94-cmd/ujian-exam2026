@@ -15,6 +15,7 @@
 // baris `${key}:${i}` memakai UNIQUE INDEX dari migrasi 13).
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
+import { cekBatasTambahSoal } from '@/lib/batas-soal'
 import { requireRoleAktif } from '@/lib/status-akun'
 import { generateId, stripHtmlTags } from '@/lib/utils'
 import { cekSesiMapelKelasSudahMulai, pesanBankSoalTerkunci } from '@/lib/sesi-kelas'
@@ -147,6 +148,13 @@ export async function POST(req: NextRequest) {
   }
   bersih.length = 0
   bersih.push(...unik)
+
+  // Jumlah soal paket dibatasi admin (tepat N): yang sudah ada + yang diimpor
+  // tidak boleh melebihi batas.
+  const melebihi = await cekBatasTambahSoal(db, {
+    jenis: 'essay', mapelId: paket.mapel_id, sudahAda: (adaEssay ?? []).length, tambah: bersih.length,
+  })
+  if (melebihi) return NextResponse.json({ error: melebihi }, { status: 400 })
 
   const { data: terakhir, error: errUrut } = await db
     .from('soal_essay')

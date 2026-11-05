@@ -13,7 +13,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  FileDown, FileUp, FileText, AlertTriangle, CheckCircle2, XCircle, ImageOff, ArrowLeft, UploadCloud,
+  FileDown, FileUp, FileText, AlertTriangle, CheckCircle2, XCircle, ImageOff, ArrowLeft, UploadCloud, Trash2, Undo2,
 } from 'lucide-react'
 import { Modal, Spinner } from '@/components/ui'
 import { apiRequest, generateId } from '@/lib/utils'
@@ -163,6 +163,8 @@ export function ImporSoalModal(p: Props) {
 
   const [bobotDefault, setBobotDefault] = useState('')
   const [lewati, setLewati] = useState(false)
+  // Nomor soal (urutan di file) yang dibuang guru dari preview; tidak ikut diimpor.
+  const [dihapus, setDihapus] = useState<Set<number>>(new Set())
 
   const [bekerja, setBekerja] = useState(false)
   const [progres, setProgres] = useState('')
@@ -188,6 +190,7 @@ export function ImporSoalModal(p: Props) {
     setProgres('')
     setBobotDefault('')
     setLewati(false)
+    setDihapus(new Set())
     idemRef.current = ''
     if (inputRef.current) inputRef.current.value = ''
   }, [bersihkanThumbs])
@@ -198,9 +201,10 @@ export function ImporSoalModal(p: Props) {
   }, [p.open, reset])
   useEffect(() => () => { thumbsRef.current.forEach(u => URL.revokeObjectURL(u)) }, [])
 
-  // Batas minimal mapel dari admin (kelompok 30 / 35 / bawaan). PG saja:
-  // kalau ada, jumlah tabel di template dikunci sebesar angka itu.
-  const batasMapel = useBatasMinMapel('pg', p.mapelId, p.open && isPg)
+  // Jumlah soal yang ditetapkan admin untuk mapel ini (kelompok 30 / 35 / bawaan).
+  // Angka itu = jumlah TEPAT per paket: template dikunci sebesar angka itu, dan
+  // impor tidak boleh membuat total soal paket melebihinya.
+  const batasMapel = useBatasMinMapel(p.jenis, p.mapelId, p.open)
   const batasTpl = batasMapel == null ? null : Math.min(batasMapel, BATAS_TEMPLATE_TERKUNCI)
 
   // Nilai yang tampil & dipakai: terkunci kalau admin membatasi, bebas kalau tidak.
@@ -307,7 +311,11 @@ export function ImporSoalModal(p: Props) {
   const bobotDefValid = Number.isFinite(bobotDefNum) && bobotDefNum > 0
 
   const sudahDilihat = new Set<string>(tandaAda)
-  const daftarTampil = (hasil?.soal ?? []).map(s => {
+  const semuaItem = (hasil?.soal ?? []).map(s => {
+    // Soal yang dibuang guru dari preview: tidak dihitung, tidak ikut deteksi duplikat.
+    if (dihapus.has(s.urutan)) {
+      return { s, galat: [] as string[], bobotEfektif: null as number | null, duplikat: null as 'paket' | 'file' | null, terhapus: true }
+    }
     const galat = [...s.galat]
     let bobotEfektif: number | null = null
     if (!isPg) {
@@ -334,17 +342,27 @@ export function ImporSoalModal(p: Props) {
         else sudahDilihat.add(tanda)
       }
     }
-    return { s, galat, bobotEfektif, duplikat }
+    return { s, galat, bobotEfektif, duplikat, terhapus: false }
   })
-  const jumlahDuplikat = daftarTampil.filter(d => d.duplikat).length
-  const jumlahValid = daftarTampil.filter(d => d.galat.length === 0 && !d.duplikat).length
+  // Soal duplikat TIDAK ditampilkan (dan tidak dihitung) supaya jelas berapa yang benar-benar bisa diproses.
+  const jumlahDuplikat = semuaItem.filter(d => d.duplikat).length
+  const daftarTampil = semuaItem.filter(d => !d.terhapus && !d.duplikat)
+  const jumlahDihapus = dihapus.size
+  const jumlahValid = daftarTampil.filter(d => d.galat.length === 0).length
   const jumlahBermasalah = daftarTampil.filter(d => d.galat.length > 0).length
   const adaBobotKosong = !isPg && ((hasil?.soal ?? []) as HasilBacaEssay['soal']).some(s => s.bobot === null)
   const melebihiBatas = (hasil?.soal.length ?? 0) > BATAS_SOAL_PER_IMPOR
+
+  // Jumlah soal paket setelah impor vs jumlah tepat yang ditetapkan admin.
+  const sudahAdaJumlah = p.jumlahSudahAda ?? 0
+  const totalSetelah = sudahAdaJumlah + jumlahValid
+  const kelebihanSoal = batasMapel != null ? Math.max(0, totalSetelah - batasMapel) : 0
+  const kekuranganSoal = batasMapel != null ? Math.max(0, batasMapel - totalSetelah) : 0
+
   const bolehImpor =
-    !!hasil && !bekerja && !melebihiBatas && jumlahValid > 0 && (jumlahBermasalah === 0 || lewati)
+    !!hasil && !bekerja && !melebihiBatas && jumlahValid > 0 && kelebihanSoal === 0 && (jumlahBermasalah === 0 || lewati)
   const totalBobot = !isPg
-    ? daftarTampil.filter(d => d.galat.length === 0 && !d.duplikat).reduce((a, d) => a + (d.bobotEfektif ?? 0), 0)
+    ? daftarTampil.filter(d => d.galat.length === 0).reduce((a, d) => a + (d.bobotEfektif ?? 0), 0)
     : 0
 
   async function jalankanImpor() {
@@ -352,7 +370,7 @@ export function ImporSoalModal(p: Props) {
     setBekerja(true)
     setErrImpor('')
     try {
-      const layak = daftarTampil.filter(d => d.galat.length === 0 && !d.duplikat)
+      const layak = daftarTampil.filter(d => d.galat.length === 0)
 
       // 1) Unggah semua gambar yang dipakai (berurutan; nama file di server
       //    memakai Date.now(), jadi upload paralel bisa bentrok).
@@ -563,7 +581,7 @@ export function ImporSoalModal(p: Props) {
             <div className="text-sm text-slate-600 flex flex-wrap gap-x-4 gap-y-1">
               <span><b className="text-emerald-700">{jumlahValid}</b> soal siap diimpor</span>
               {jumlahBermasalah > 0 && <span><b className="text-red-600">{jumlahBermasalah}</b> soal bermasalah</span>}
-              {jumlahDuplikat > 0 && <span><b className="text-amber-600">{jumlahDuplikat}</b> soal duplikat (dilewati)</span>}
+              {jumlahDihapus > 0 && <span><b className="text-slate-700">{jumlahDihapus}</b> soal dibuang dari preview</span>}
               {isPg && <span>Opsi jawaban: {(hasil as HasilBacaPg).jumlahOpsi}</span>}
               {!isPg && jumlahValid > 0 && <span>Total bobot: {totalBobot}</span>}
               {hasil.ringkasan.tabelContoh > 0 && <span>{hasil.ringkasan.tabelContoh} tabel contoh dilewati</span>}
@@ -585,11 +603,39 @@ export function ImporSoalModal(p: Props) {
               </div>
             )}
 
-            {jumlahDuplikat > 0 && jumlahValid === 0 && jumlahBermasalah === 0 && (
+            {jumlahDuplikat > 0 && daftarTampil.length === 0 && jumlahDihapus === 0 && (
               <div className="alert-warning text-sm flex items-start gap-2">
                 <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
                 <span>Semua soal di file ini sudah ada di paket, jadi tidak ada yang perlu diimpor. Mungkin file ini sudah pernah diimpor sebelumnya.</span>
               </div>
+            )}
+
+            {batasMapel != null && (
+              <div className={`rounded-lg border px-3 py-2 text-sm space-y-0.5 ${
+                kelebihanSoal > 0 ? 'border-red-200 bg-red-50 text-red-800'
+                  : kekuranganSoal === 0 ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                  : 'border-amber-200 bg-amber-50 text-amber-800'
+              }`}>
+                <div>
+                  Ketentuan admin: jumlah soal {p.namaMapel} harus tepat <b>{batasMapel}</b>. Di paket sudah ada <b>{sudahAdaJumlah}</b>,
+                  dari file akan masuk <b>{jumlahValid}</b>, total menjadi <b>{totalSetelah}</b> soal.
+                </div>
+                {kelebihanSoal > 0 && (
+                  <div className="font-semibold">
+                    Kelebihan {kelebihanSoal} soal. Hapus {kelebihanSoal} soal dari daftar di bawah (tombol tempat sampah), impor baru bisa dijalankan setelah totalnya tidak melebihi {batasMapel}.
+                  </div>
+                )}
+                {kelebihanSoal === 0 && kekuranganSoal === 0 && <div className="font-semibold">Jumlah soal sudah pas, siap diimpor.</div>}
+                {kelebihanSoal === 0 && kekuranganSoal > 0 && (
+                  <div>Setelah impor paket masih kurang {kekuranganSoal} soal. Paket baru bisa dikirim ke admin setelah jumlahnya pas {batasMapel}.</div>
+                )}
+              </div>
+            )}
+
+            {jumlahDihapus > 0 && (
+              <button type="button" className="btn-secondary btn-sm" onClick={() => setDihapus(new Set())} disabled={bekerja}>
+                <Undo2 className="w-4 h-4" /> Kembalikan {jumlahDihapus} soal yang dibuang
+              </button>
             )}
 
             {adaBobotKosong && (
@@ -601,14 +647,14 @@ export function ImporSoalModal(p: Props) {
             )}
 
             <div className="max-h-[42vh] overflow-y-auto space-y-2 pr-1">
-              {daftarTampil.map(({ s, galat, bobotEfektif, duplikat }) => {
+              {daftarTampil.map(({ s, galat, bobotEfektif }) => {
                 const pg = 'gambarSoal' in s ? (s as HasilBacaPg['soal'][number]) : null
                 const es = !pg ? (s as HasilBacaEssay['soal'][number]) : null
                 const ok = galat.length === 0
                 return (
-                  <div key={s.urutan} className={`rounded-lg border px-3 py-2 text-sm ${duplikat ? 'border-amber-200 bg-amber-50/60 opacity-80' : ok ? 'border-slate-200 bg-white' : 'border-red-200 bg-red-50/60'}`}>
+                  <div key={s.urutan} className={`rounded-lg border px-3 py-2 text-sm ${ok ? 'border-slate-200 bg-white' : 'border-red-200 bg-red-50/60'}`}>
                     <div className="flex items-start gap-2">
-                      <span className={`w-6 h-6 rounded-full text-xs font-bold flex items-center justify-center flex-shrink-0 ${duplikat ? 'bg-amber-100 text-amber-700' : ok ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+                      <span className={`w-6 h-6 rounded-full text-xs font-bold flex items-center justify-center flex-shrink-0 ${ok ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
                         {s.urutan}
                       </span>
                       <div className="flex-1 min-w-0 space-y-1">
@@ -633,15 +679,6 @@ export function ImporSoalModal(p: Props) {
                           {es && <>Bobot: <b>{bobotEfektif ?? '—'}</b></>}
                           {s.nomorDokumen && <> · No. di dokumen: {s.nomorDokumen}</>}
                         </div>
-                        {duplikat && (
-                          <div className="text-xs text-amber-700 flex items-start gap-1">
-                            <AlertTriangle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
-                            {duplikat === 'paket'
-                              ? 'Soal ini sudah ada di paket (teks soal, pilihan jawaban, dan kunci sama persis), jadi tidak akan diimpor lagi.'
-                              : 'Soal ini kembar dengan soal lain di file ini, jadi hanya satu yang diimpor.'}
-                            {(pg?.gambarSoal || es?.gambar || (pg && SEMUA_HURUF.some(h => pg.opsi[h].gambar))) && ' Gambar tidak ikut dibandingkan.'}
-                          </div>
-                        )}
                         {galat.map((g, i) => (
                           <div key={`g${i}`} className="text-xs text-red-700 flex items-start gap-1"><XCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" /> {g}</div>
                         ))}
@@ -649,7 +686,13 @@ export function ImporSoalModal(p: Props) {
                           <div key={`w${i}`} className="text-xs text-amber-700 flex items-start gap-1"><AlertTriangle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" /> {w}</div>
                         ))}
                       </div>
-                      {ok && !duplikat && <CheckCircle2 className="w-4 h-4 text-emerald-500 flex-shrink-0 mt-1" />}
+                      {ok && <CheckCircle2 className="w-4 h-4 text-emerald-500 flex-shrink-0 mt-1" />}
+                      <button type="button" title="Buang soal ini dari preview (tidak ikut diimpor)" aria-label={`Buang soal ${s.urutan}`}
+                        className="p-1 rounded text-slate-400 hover:text-red-600 hover:bg-red-50 flex-shrink-0 disabled:opacity-40"
+                        disabled={bekerja}
+                        onClick={() => setDihapus(prev => new Set(prev).add(s.urutan))}>
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     </div>
                   </div>
                 )

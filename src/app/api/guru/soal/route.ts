@@ -5,6 +5,7 @@ import { generateId, stripHtmlTags } from '@/lib/utils'
 import { cekSesiMapelKelasSudahMulai, pesanBankSoalTerkunci } from '@/lib/sesi-kelas'
 import { catatAktivitas } from '@/lib/aktivitas'
 import { validasiKunciOpsi } from '@/lib/validasi-soal'
+import { cekBatasTambahSoal } from '@/lib/batas-soal'
 import { verifikasiKepemilikanMapelKelas, verifikasiKepemilikanPaketSoal } from '@/lib/guru-scope'
 
 export async function GET(req: NextRequest) {
@@ -95,6 +96,14 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       )
     }
+
+    // Jumlah soal paket dibatasi admin (tepat N): tolak kalau sudah penuh.
+    const { count: sudahAda } = await db
+      .from('soal')
+      .select('*', { count: 'exact', head: true })
+      .eq('paket_id', body.paket_id)
+    const melebihi = await cekBatasTambahSoal(db, { jenis: 'pg', mapelId: body.mapel_id, sudahAda: sudahAda ?? 0, tambah: 1 })
+    if (melebihi) return NextResponse.json({ error: melebihi }, { status: 400 })
   }
 
   // Validasi: teks opsi wajib diisi KECUALI kalau gambar opsi sudah ada.

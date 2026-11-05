@@ -10,6 +10,7 @@ import { EssayFlowGuide } from '@/components/shared/EssayFlowGuide'
 import { PaletSimbol } from '@/components/shared/PaletSimbol'
 import { ImporSoalModal, type ImporSoalHasil } from '@/components/shared/ImporSoalModal'
 import { PilihCaraInputModal } from '@/components/shared/PilihCaraInputModal'
+import { useBatasMinMapel } from '@/lib/use-batas-min-soal'
 import { BatasMinSoalInfo } from '@/components/shared/BatasMinSoalInfo'
 import { ImporSelesaiPopup, type ImporSelesaiInfo } from '@/components/shared/ImporSelesaiPopup'
 import { apiRequest, formatDateTime, generateId } from '@/lib/utils'
@@ -379,8 +380,17 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
   // Inti penyimpanan satu soal dari form "Buat Soal". Dipakai baik oleh
   // tombol "Tambah & Lanjut ke Soal Berikutnya" (submit form) maupun tombol
   // "Simpan dan Selesai" (simpan draft yang sedang diisi lalu keluar).
+  // Jumlah soal yang ditetapkan admin untuk mapel ini = jumlah TEPAT per paket.
+  // Kalau sudah pas, guru tidak bisa menambah soal lagi (server juga menolak).
+  const batasPg = useBatasMinMapel('pg', activePaket?.mapel_id)
+  const penuhPg = batasPg != null && soalDibuat.length >= batasPg
+
   async function simpanSoalDariForm(formEl: HTMLFormElement): Promise<boolean> {
     if (!activePaket) return false
+    if (penuhPg) {
+      showToast(`Jumlah soal sudah pas ${batasPg} sesuai ketentuan admin, tidak bisa menambah soal lagi`, 'error')
+      return false
+    }
     const fd = new FormData(formEl)
     const payload: Record<string, unknown> = Object.fromEntries(fd.entries())
     payload.jumlah_opsi = String(paketJumlahOpsi)
@@ -747,7 +757,16 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
 
         <ImporSelesaiPopup info={imporInfo} onTutup={() => setImporInfo(null)} onLihatSoal={scrollKeDaftarSoal} />
 
-        {/* Form tambah soal baru */}
+        {/* Form tambah soal baru (ditutup kalau jumlah soal sudah pas ketentuan admin) */}
+        {penuhPg ? (
+          <div className="alert-info text-sm flex items-start gap-2">
+            <Lock className="w-4 h-4 mt-0.5 flex-shrink-0" />
+            <span>
+              Jumlah soal sudah pas <b>{batasPg}</b> sesuai ketentuan admin untuk mapel ini, jadi soal tidak bisa ditambah lagi.
+              Soal yang sudah ada masih bisa diubah atau dihapus di daftar di bawah. Tekan <b>Selesai Membuat Soal</b> lalu kirim paket.
+            </span>
+          </div>
+        ) : (
         <div className="card">
           <div className="flex items-center gap-2 mb-3">
             <span className="w-8 h-8 rounded-full bg-brand-600 text-white font-bold text-sm flex items-center justify-center flex-shrink-0">
@@ -846,6 +865,7 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
             </div>
           </form>
         </div>
+        )}
 
         {/* Daftar soal yang sudah dibuat (dengan tombol edit/hapus) */}
         {soalDibuat.length > 0 && (
@@ -891,6 +911,7 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
           namaMapel={activePaket ? (activePaket.nama_mapel ?? getNamaMapel(activePaket.mapel_id)) : ''}
           namaKelas={activePaket ? (activePaket.nama_kelas ?? getNamaKelas(activePaket.kelas_id)) : ''}
           jumlahSoal={soalDibuat.length}
+          batas={batasPg}
           onManual={() => { setPilihOpen(false); setStep('buat') }}
           onImpor={() => { setPilihOpen(false); setStep('impor') }}
         />
@@ -980,6 +1001,7 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
         namaMapel={activePaket ? (activePaket.nama_mapel ?? getNamaMapel(activePaket.mapel_id)) : ''}
         namaKelas={activePaket ? (activePaket.nama_kelas ?? getNamaKelas(activePaket.kelas_id)) : ''}
         jumlahSoal={soalDibuat.length}
+          batas={batasPg}
         onManual={() => { setPilihOpen(false); setStep('buat') }}
         onImpor={() => { setPilihOpen(false); setStep('impor') }}
       />
@@ -1697,9 +1719,17 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
     fileInputRef.current?.click()
   }
 
+  // Jumlah soal yang ditetapkan admin untuk mapel ini = jumlah TEPAT per paket.
+  const batasEssay = useBatasMinMapel('essay', activePaket?.mapel_id)
+  const penuhEssay = batasEssay != null && soalList.length >= batasEssay
+
   async function handleTambahSoal(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     if (!activePaket) return
+    if (penuhEssay) {
+      showToast(`Jumlah soal sudah pas ${batasEssay} sesuai ketentuan admin, tidak bisa menambah soal lagi`, 'error')
+      return
+    }
     const fd = new FormData(e.currentTarget)
     const teks = String(fd.get('teks') ?? '')
     const bobotMaks = Number(fd.get('bobot_maks'))
@@ -1922,6 +1952,7 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
         namaMapel={namaMapel}
         namaKelas={namaKelas}
         paketId={activePaket.id}
+        mapelId={activePaket.mapel_id}
         jumlahSudahAda={soalList.length}
         onSelesai={async h => { await handleImporSelesai(h); setStep('detail') }}
       />
@@ -1982,7 +2013,17 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
           </div>
         )}
 
-        {editable && (
+        {editable && penuhEssay && (
+          <div className="alert-info text-sm flex items-start gap-2">
+            <Lock className="w-4 h-4 mt-0.5 flex-shrink-0" />
+            <span>
+              Jumlah soal sudah pas <b>{batasEssay}</b> sesuai ketentuan admin untuk mapel ini, jadi soal tidak bisa ditambah lagi.
+              Soal yang sudah ada masih bisa diubah atau dihapus di daftar di bawah, lalu kirim paket dari daftar paket.
+            </span>
+          </div>
+        )}
+
+        {editable && !penuhEssay && (
           <div className="card">
             <div className="flex items-center gap-2 mb-4">
               <span className="w-8 h-8 rounded-full bg-emerald-600 text-white font-bold text-sm flex items-center justify-center flex-shrink-0">
@@ -2182,6 +2223,7 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
           namaMapel={activePaket ? (activePaket.nama_mapel ?? getNamaMapel(activePaket.mapel_id)) : ''}
           namaKelas={activePaket ? (activePaket.nama_kelas ?? getNamaKelas(activePaket.kelas_id)) : ''}
           jumlahSoal={soalList.length}
+          batas={batasEssay}
           onManual={() => { setPilihOpen(false); setStep('detail') }}
           onImpor={() => { setPilihOpen(false); setStep('impor') }}
         />
@@ -2272,6 +2314,7 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
         namaMapel={activePaket ? (activePaket.nama_mapel ?? getNamaMapel(activePaket.mapel_id)) : ''}
         namaKelas={activePaket ? (activePaket.nama_kelas ?? getNamaKelas(activePaket.kelas_id)) : ''}
         jumlahSoal={soalList.length}
+          batas={batasEssay}
         onManual={() => { setPilihOpen(false); setStep('detail') }}
         onImpor={() => { setPilihOpen(false); setStep('impor') }}
       />

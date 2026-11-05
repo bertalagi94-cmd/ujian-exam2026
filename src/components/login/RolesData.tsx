@@ -74,7 +74,7 @@ export const ROLES: RoleData[] = [
       {
         title: 'Jumlah Soal Minimal (pilihan)',
         icon: <ClipboardList className="w-4 h-4" />,
-        detail: 'Di Pengaturan ▸ Pengaturan Ujian ada kartu "Batas Minimal Jumlah Soal" (awalnya mati). Fungsinya memastikan paket soal cukup banyak sebelum guru mengirimnya. Nyalakan, lalu untuk PG dan Essay isi batas bawaan untuk semua mapel (misalnya 30 soal), dan buat kelompok untuk mapel yang batasnya berbeda (misalnya 35 soal) dengan mencentang mata pelajarannya. Mapel tanpa kelompok dan tanpa batas bawaan tetap minimal 1 soal. Jumlah tabel di template Word PG milik guru mengikuti batas ini. Aturan ini dicek saat guru menekan Kirim, jadi paket yang sudah terkirim atau disetujui tidak terpengaruh.',
+        detail: 'Di Pengaturan ▸ Pengaturan Ujian ada kartu "Batas Minimal Jumlah Soal" (awalnya mati). Fungsinya memastikan paket soal cukup banyak sebelum guru mengirimnya. Nyalakan, lalu untuk PG dan Essay isi batas bawaan untuk semua mapel (misalnya 30 soal), dan buat kelompok untuk mapel yang batasnya berbeda (misalnya 35 soal) dengan mencentang mata pelajarannya. Mapel tanpa kelompok dan tanpa batas bawaan tetap minimal 1 soal. Angka ini jumlah soal yang tepat per paket: guru tidak bisa menambah soal melebihinya, dan jumlah tabel di template Word milik guru mengikuti angka ini. Aturan ini dicek saat guru menekan Kirim, jadi paket yang sudah terkirim atau disetujui tidak terpengaruh.',
       },
       {
         title: 'Admin Kelas (pilihan)',

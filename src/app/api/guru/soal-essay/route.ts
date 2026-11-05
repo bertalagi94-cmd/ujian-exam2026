@@ -5,6 +5,7 @@
 // ke jadwal_id lagi — lihat 08_paket_essay.sql.
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
+import { cekBatasTambahSoal } from '@/lib/batas-soal'
 import { requireRoleAktif } from '@/lib/status-akun'
 import { generateId, stripHtmlTags } from '@/lib/utils'
 import { cekSesiMapelKelasSudahMulai, pesanBankSoalTerkunci } from '@/lib/sesi-kelas'
@@ -124,6 +125,14 @@ export async function POST(req: NextRequest) {
   if (sesiSudahMulai) {
     return NextResponse.json({ error: pesanBankSoalTerkunci('Essay', sesiSudahMulai, 'menambah') }, { status: 409 })
   }
+
+  // Jumlah soal paket dibatasi admin (tepat N): tolak kalau sudah penuh.
+  const { count: sudahAdaEssay } = await db
+    .from('soal_essay')
+    .select('*', { count: 'exact', head: true })
+    .eq('paket_essay_id', paket.id)
+  const melebihi = await cekBatasTambahSoal(db, { jenis: 'essay', mapelId: paket.mapel_id, sudahAda: sudahAdaEssay ?? 0, tambah: 1 })
+  if (melebihi) return NextResponse.json({ error: melebihi }, { status: 400 })
 
   let urutan = Number(body.urutan)
   if (!urutan) {

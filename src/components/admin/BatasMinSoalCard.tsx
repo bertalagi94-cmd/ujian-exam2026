@@ -144,7 +144,7 @@ export default function BatasMinSoalCard({ onToast: onToastProp }: Props) {
           <p className="text-xs text-slate-500">
             Berlaku untuk mapel yang <b>tidak</b> dicentang di kelompok mana pun. Kosongkan kalau tidak ada batas
             bawaan (mapel itu cukup minimal 1 soal). Contoh: isi 30 di sini, lalu buat kelompok 35 untuk mapel
-            yang butuh lebih banyak.
+            yang butuh jumlah berbeda.
           </p>
         </div>
 
@@ -157,7 +157,7 @@ export default function BatasMinSoalCard({ onToast: onToastProp }: Props) {
         {daftar.map((k, idx) => (
           <div key={idx} className="border border-slate-200 rounded-lg p-3 space-y-3">
             <div className="flex items-center gap-3 flex-wrap">
-              <label className="text-sm text-slate-600">Minimal</label>
+              <label className="text-sm text-slate-600">Wajib tepat</label>
               <input
                 type="number"
                 min={1}
@@ -258,11 +258,12 @@ export default function BatasMinSoalCard({ onToast: onToastProp }: Props) {
       </div>
 
       <p className="text-sm text-slate-500">
-        Opsional. Isi <b>batas bawaan</b> untuk semua mapel (misalnya 30 soal), lalu buat kelompok untuk mapel yang
-        batasnya berbeda (misalnya 35 soal) dan centang mapelnya. Guru tidak bisa mengirim paket untuk validasi bila
-        jumlah soalnya kurang dari batas mapelnya, dan jumlah soal di template yang diunduh guru otomatis mengikuti
-        batas itu. Mapel yang tidak masuk kelompok dan tanpa batas bawaan hanya wajib minimal 1 soal. Paket yang sudah
-        dikirim atau disetujui tidak terpengaruh.
+        Opsional. Angka di sini adalah jumlah soal yang <b>tepat</b> untuk satu paket mapel. Isi <b>batas bawaan</b>
+        untuk semua mapel (misalnya 30 soal), lalu buat kelompok untuk mapel yang jumlahnya berbeda (misalnya 35 soal)
+        dan centang mapelnya. Guru tidak bisa menambah soal (ketik manual atau impor) melebihi angka itu, tidak bisa
+        mengirim paket bila jumlahnya kurang atau lebih, dan jumlah soal di template Word yang diunduh guru otomatis
+        mengikuti angka ini. Mapel yang tidak masuk kelompok dan tanpa batas bawaan hanya wajib minimal 1 soal. Paket
+        yang sudah dikirim atau disetujui tidak terpengaruh.
       </p>
 
       {renderJenis('pg', 'Soal Pilihan Ganda (PG)')}
