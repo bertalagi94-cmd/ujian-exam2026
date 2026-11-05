@@ -36,6 +36,9 @@ export interface OpsiTemplate {
   jumlah: number
   /** Jumlah opsi PG: 4 (A–D) atau 5 (A–E). Diabaikan untuk essay. */
   jumlahOpsi?: 4 | 5
+  /** Identitas paket — dicetak di bagian atas halaman 1 (terkunci). */
+  namaMapel?: string
+  namaKelas?: string
 }
 
 const W_NS = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
@@ -261,6 +264,16 @@ function blokJudul(teks: string): string {
   return para(run(teks, { b: true, sz: 30, color: WARNA_HEADER }), { jc: 'center', after: 120 })
 }
 
+function blokInfoPaket(o: OpsiTemplate, jumlah: number): string {
+  const sel = (label: string, nilai: string) =>
+    run(`${label}: `, { sz: 20, color: WARNA_PETUNJUK }) + run(nilai, { b: true, sz: 22 })
+  const spasi = run('      ')
+  return para(
+    sel('Mapel', o.namaMapel || '-') + spasi + sel('Kelas', o.namaKelas || '-') + spasi + sel('Jumlah soal', String(jumlah)),
+    { shade: 'F3F4F6', jc: 'center', before: 0, after: 100 }
+  )
+}
+
 function blokPetunjuk(jenis: JenisTemplate, jumlahOpsi: 4 | 5): string {
   const huruf = jumlahOpsi === 5 ? 'E' : 'D'
   const langkah = jenis === 'pg'
@@ -300,6 +313,7 @@ function dokumen(opsi: OpsiTemplate): string {
   const body: string[] = []
   // ── HALAMAN 1: petunjuk singkat + contoh ──
   body.push(blokJudul(isPg ? 'TEMPLATE IMPOR SOAL PILIHAN GANDA' : 'TEMPLATE IMPOR SOAL ESSAY'))
+  body.push(blokInfoPaket(opsi, jumlah))
   body.push(blokPetunjuk(opsi.jenis, jumlahOpsi))
   body.push(
     para(run('CONTOH PENGISIAN — tidak perlu diisi, tidak ikut diimpor', { b: true, color: 'FFFFFF', sz: 20 }), {
@@ -514,6 +528,12 @@ export async function buatTemplateDocxBytes(opsi: OpsiTemplate): Promise<Uint8Ar
   return bangunZip(opsi).generateAsync({ type: 'uint8array', compression: 'DEFLATE' })
 }
 
-export function namaFileTemplate(jenis: JenisTemplate): string {
-  return jenis === 'pg' ? 'Template-Impor-Soal-Pilihan-Ganda.docx' : 'Template-Impor-Soal-Essay.docx'
+/** Nama file unduhan: "Mapel - Kelas X - Soal Pilihan Ganda.docx" (karakter terlarang dibuang). */
+export function namaFileTemplate(jenis: JenisTemplate, namaMapel?: string, namaKelas?: string): string {
+  const bersih = (t: string) => t.replace(/[\\/:*?"<>|\u0000-\u001f]/g, '').replace(/\s+/g, ' ').trim().slice(0, 60)
+  const jenisTeks = jenis === 'pg' ? 'Soal Pilihan Ganda' : 'Soal Essay'
+  const mapel = bersih(namaMapel ?? '')
+  const kelas = bersih(namaKelas ?? '')
+  const bagian = [mapel, kelas ? `Kelas ${kelas}` : '', jenisTeks].filter(Boolean)
+  return `${bagian.join(' - ')}.docx`
 }

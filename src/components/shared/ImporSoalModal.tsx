@@ -213,11 +213,11 @@ export function ImporSoalModal(p: Props) {
     const n = angka
     setUnduhBusy(true)
     try {
-      const blob = await buatTemplateDocx({ jenis: p.jenis, jumlah: n, jumlahOpsi: opsiTpl })
+      const blob = await buatTemplateDocx({ jenis: p.jenis, jumlah: n, jumlahOpsi: opsiTpl, namaMapel: p.namaMapel, namaKelas: p.namaKelas })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = namaFileTemplate(p.jenis)
+      a.download = namaFileTemplate(p.jenis, p.namaMapel, p.namaKelas)
       document.body.appendChild(a)
       a.click()
       a.remove()
