@@ -140,7 +140,10 @@ export function ImporSoalModal(p: Props) {
   const isPg = p.jenis === 'pg'
   const inputRef = useRef<HTMLInputElement>(null)
 
-  const [jumlahTpl, setJumlahTpl] = useState('10')
+  // Jumlah soal sengaja DIKOSONGKAN: guru wajib mengisinya sendiri sebelum mengunduh.
+  const [jumlahTpl, setJumlahTpl] = useState('')
+  const [errTpl, setErrTpl] = useState('')
+  const jumlahTplRef = useRef<HTMLInputElement>(null)
   const [opsiTpl, setOpsiTpl] = useState<4 | 5>(p.jumlahOpsiPaksa ?? p.jumlahOpsiBawaan ?? 4)
   const [unduhBusy, setUnduhBusy] = useState(false)
 
@@ -174,6 +177,8 @@ export function ImporSoalModal(p: Props) {
     setErrBaca('')
     setTandaAda(new Set())
     setErrImpor('')
+    setJumlahTpl('')
+    setErrTpl('')
     setProgres('')
     setBobotDefault('')
     setLewati(false)
@@ -188,7 +193,20 @@ export function ImporSoalModal(p: Props) {
   useEffect(() => () => { thumbsRef.current.forEach(u => URL.revokeObjectURL(u)) }, [])
 
   async function unduhTemplate() {
-    const n = Math.max(1, Math.min(100, Math.floor(Number(jumlahTpl)) || 10))
+    // Jumlah soal wajib diisi guru: kosong / bukan angka bulat / di luar 1–100 → beri peringatan.
+    const teks = jumlahTpl.trim()
+    const angka = Number(teks)
+    let pesan = ''
+    if (!teks) pesan = 'Jumlah soal belum diisi. Isi dulu berapa soal yang ingin dibuat (1–100), lalu klik Unduh Template.'
+    else if (!Number.isInteger(angka) || angka < 1) pesan = 'Jumlah soal harus berupa angka bulat minimal 1.'
+    else if (angka > 100) pesan = 'Jumlah soal maksimal 100 per template.'
+    if (pesan) {
+      setErrTpl(pesan)
+      jumlahTplRef.current?.focus()
+      return
+    }
+    setErrTpl('')
+    const n = angka
     setUnduhBusy(true)
     try {
       const blob = await buatTemplateDocx({ jenis: p.jenis, jumlah: n, jumlahOpsi: opsiTpl })
@@ -456,7 +474,11 @@ export function ImporSoalModal(p: Props) {
           <div className="flex flex-wrap items-end gap-3">
             <div>
               <label className="label">Jumlah tabel soal</label>
-              <input type="number" min={1} max={100} className="input w-28" value={jumlahTpl} onChange={e => setJumlahTpl(e.target.value)} />
+              <input ref={jumlahTplRef} type="number" min={1} max={100} inputMode="numeric" placeholder="mis. 20"
+                className={`input w-28 ${errTpl ? 'border-red-400 ring-1 ring-red-300' : ''}`}
+                value={jumlahTpl} aria-invalid={!!errTpl}
+                onChange={e => { setJumlahTpl(e.target.value); if (errTpl) setErrTpl('') }}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); void unduhTemplate() } }} />
             </div>
             {isPg && (
               <div>
@@ -472,6 +494,11 @@ export function ImporSoalModal(p: Props) {
               {unduhBusy ? <Spinner size="sm" /> : <FileDown className="w-4 h-4" />} Unduh Template (.docx)
             </button>
           </div>
+          {errTpl && (
+            <div className="alert-error text-sm flex items-start gap-2" role="alert">
+              <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" /> <span>{errTpl}</span>
+            </div>
+          )}
           {isPg && p.jumlahOpsiPaksa && (
             <p className="text-xs text-slate-500">Paket ini memakai {p.jumlahOpsiPaksa} opsi jawaban, jadi file yang diimpor harus memakai {p.jumlahOpsiPaksa} opsi juga.</p>
           )}
