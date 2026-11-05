@@ -10,10 +10,20 @@ type Props = { onToast: (msg: string, type?: 'success' | 'error') => void }
 
 // Di UI angka disimpan sebagai string supaya kolom bisa dikosongkan saat mengetik.
 type KelompokUI = { min: string; mapel: string[] }
-type StateUI = { aktif: boolean; pg: KelompokUI[]; essay: KelompokUI[] }
+type StateUI = {
+  aktif: boolean
+  /** Batas untuk mapel yang tidak masuk kelompok mana pun ('' = tidak ada → minimal 1). */
+  bawaan: { pg: string; essay: string }
+  pg: KelompokUI[]
+  essay: KelompokUI[]
+}
 
 const norm = (s: string) => s.trim().replace(/\s+/g, ' ').toUpperCase()
 const keUI = (k: KelompokBatas[]): KelompokUI[] => k.map(x => ({ min: String(x.min), mapel: x.mapel }))
+const bawaanKeUI = (b: BatasMinSoal['bawaan']) => ({
+  pg: b.pg == null ? '' : String(b.pg),
+  essay: b.essay == null ? '' : String(b.essay),
+})
 
 export default function BatasMinSoalCard({ onToast: onToastProp }: Props) {
   // showToast di halaman induk dibuat ulang tiap render; simpan di ref supaya
@@ -24,7 +34,7 @@ export default function BatasMinSoalCard({ onToast: onToastProp }: Props) {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [semuaMapel, setSemuaMapel] = useState<string[]>([])
-  const [st, setSt] = useState<StateUI>({ aktif: false, pg: [], essay: [] })
+  const [st, setSt] = useState<StateUI>({ aktif: false, bawaan: { pg: '', essay: '' }, pg: [], essay: [] })
 
   const load = useCallback(async () => {
     try {
@@ -35,7 +45,7 @@ export default function BatasMinSoalCard({ onToast: onToastProp }: Props) {
       const ada = new Set(res.mapel.map(norm))
       const bersih = (arr: KelompokBatas[]) =>
         keUI(arr.map(k => ({ ...k, mapel: k.mapel.filter(m => ada.has(norm(m))) })))
-      setSt({ aktif: res.data.aktif, pg: bersih(res.data.pg), essay: bersih(res.data.essay) })
+      setSt({ aktif: res.data.aktif, bawaan: bawaanKeUI(res.data.bawaan), pg: bersih(res.data.pg), essay: bersih(res.data.essay) })
     } catch (e) {
       onToast(e instanceof Error ? e.message : 'Gagal memuat batas minimal soal', 'error')
     } finally {
@@ -50,6 +60,10 @@ export default function BatasMinSoalCard({ onToast: onToastProp }: Props) {
     try {
       const body = {
         aktif: next.aktif,
+        bawaan: {
+          pg: next.bawaan.pg.trim() === '' ? null : Number(next.bawaan.pg),
+          essay: next.bawaan.essay.trim() === '' ? null : Number(next.bawaan.essay),
+        },
         pg: next.pg.map(k => ({ min: Number(k.min), mapel: k.mapel })),
         essay: next.essay.map(k => ({ min: Number(k.min), mapel: k.mapel })),
       }
@@ -58,7 +72,7 @@ export default function BatasMinSoalCard({ onToast: onToastProp }: Props) {
         body: JSON.stringify(body),
       })
       // Kelompok kosong dibuang server; sinkronkan tampilan dengan yang tersimpan.
-      setSt({ aktif: res.data.aktif, pg: keUI(res.data.pg), essay: keUI(res.data.essay) })
+      setSt({ aktif: res.data.aktif, bawaan: bawaanKeUI(res.data.bawaan), pg: keUI(res.data.pg), essay: keUI(res.data.essay) })
       onToast(res.message)
     } catch (e) {
       onToast(e instanceof Error ? e.message : 'Gagal menyimpan', 'error')
@@ -89,6 +103,17 @@ export default function BatasMinSoalCard({ onToast: onToastProp }: Props) {
 
   const renderJenis = (jenis: JenisSoal, judul: string) => {
     const daftar = st[jenis]
+    const bawaanStr = st.bawaan[jenis]
+    const bawaanNum = Number(bawaanStr)
+    const bawaanAda = bawaanStr.trim() !== '' && Number.isInteger(bawaanNum) && bawaanNum >= 1
+    // Batas yang akan berlaku untuk tiap mapel: kelompok → bawaan → minimal 1.
+    const batasMapel = semuaMapel.map(nama => {
+      const k = daftar.find(x => x.mapel.some(m => norm(m) === norm(nama)))
+      const kn = k ? Number(k.min) : NaN
+      if (k && Number.isInteger(kn) && kn >= 1) return { nama, min: kn, sumber: 'kelompok' as const }
+      if (bawaanAda) return { nama, min: bawaanNum, sumber: 'bawaan' as const }
+      return { nama, min: 1, sumber: 'default' as const }
+    })
     return (
       <div className="space-y-3">
         <div className="flex items-center justify-between">
@@ -102,9 +127,30 @@ export default function BatasMinSoalCard({ onToast: onToastProp }: Props) {
           </button>
         </div>
 
-        {daftar.length === 0 && (
+        <div className="rounded-lg bg-slate-50 border border-slate-200 p-3 space-y-1">
+          <div className="flex items-center gap-3 flex-wrap">
+            <label className="text-sm font-medium text-slate-700">Batas bawaan semua mapel</label>
+            <input
+              type="number"
+              min={1}
+              max={500}
+              className="input w-24"
+              value={bawaanStr}
+              onChange={e => setSt(s => ({ ...s, bawaan: { ...s.bawaan, [jenis]: e.target.value } }))}
+              placeholder="mis. 30"
+            />
+            <span className="text-sm text-slate-600">soal</span>
+          </div>
+          <p className="text-xs text-slate-500">
+            Berlaku untuk mapel yang <b>tidak</b> dicentang di kelompok mana pun. Kosongkan kalau tidak ada batas
+            bawaan (mapel itu cukup minimal 1 soal). Contoh: isi 30 di sini, lalu buat kelompok 35 untuk mapel
+            yang butuh lebih banyak.
+          </p>
+        </div>
+
+        {daftar.length === 0 && !bawaanAda && (
           <p className="text-sm text-slate-400">
-            Belum ada kelompok. Semua mapel memakai aturan bawaan (minimal 1 soal).
+            Belum ada kelompok dan batas bawaan. Semua mapel memakai aturan awal (minimal 1 soal).
           </p>
         )}
 
@@ -165,6 +211,26 @@ export default function BatasMinSoalCard({ onToast: onToastProp }: Props) {
             </div>
           </div>
         ))}
+
+        {batasMapel.length > 0 && (
+          <details className="text-sm">
+            <summary className="cursor-pointer select-none text-slate-600 font-medium">
+              Lihat batas yang berlaku per mapel
+            </summary>
+            <ul className="mt-2 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-1">
+              {batasMapel.map(b => (
+                <li key={b.nama} className="flex items-center justify-between gap-2 border-b border-slate-100 py-0.5">
+                  <span className="text-slate-700 truncate">{b.nama}</span>
+                  <span className={b.sumber === 'default' ? 'text-slate-400' : 'text-slate-800 font-semibold'}>
+                    {b.min} soal
+                    {b.sumber === 'bawaan' && <span className="text-xs font-normal text-slate-400"> (bawaan)</span>}
+                    {b.sumber === 'default' && <span className="text-xs font-normal text-slate-400"> (awal)</span>}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
       </div>
     )
   }
@@ -192,9 +258,11 @@ export default function BatasMinSoalCard({ onToast: onToastProp }: Props) {
       </div>
 
       <p className="text-sm text-slate-500">
-        Opsional. Buat kelompok batas (misalnya 30 soal dan 35 soal), lalu centang mapel yang masuk tiap kelompok.
-        Guru tidak bisa mengirim paket untuk validasi bila jumlah soalnya kurang dari batas mapelnya. Mapel yang tidak
-        dicentang tetap memakai aturan bawaan (minimal 1 soal). Paket yang sudah dikirim atau disetujui tidak terpengaruh.
+        Opsional. Isi <b>batas bawaan</b> untuk semua mapel (misalnya 30 soal), lalu buat kelompok untuk mapel yang
+        batasnya berbeda (misalnya 35 soal) dan centang mapelnya. Guru tidak bisa mengirim paket untuk validasi bila
+        jumlah soalnya kurang dari batas mapelnya, dan jumlah soal di template yang diunduh guru otomatis mengikuti
+        batas itu. Mapel yang tidak masuk kelompok dan tanpa batas bawaan hanya wajib minimal 1 soal. Paket yang sudah
+        dikirim atau disetujui tidak terpengaruh.
       </p>
 
       {renderJenis('pg', 'Soal Pilihan Ganda (PG)')}

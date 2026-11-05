@@ -413,7 +413,7 @@ export const QA_ROLES: QaRole[] = [
         items: [
           {
             q: 'Bagaimana mengatur jumlah soal minimal untuk tiap mata pelajaran?',
-            a: 'Buka Pengaturan, tab Pengaturan Ujian, kartu "Batas Minimal Jumlah Soal". Nyalakan saklarnya (awalnya mati). Untuk PG dan Essay masing-masing, klik "Tambah kelompok", isi angka minimalnya (misalnya 30), lalu centang mata pelajaran yang masuk kelompok itu. Buat kelompok lain untuk angka lain (misalnya 35). Satu mata pelajaran hanya bisa ada di satu kelompok, dan yang tidak dicentang tetap memakai aturan awal (minimal 1 soal). Aturan ini dicek saat guru mengirim paket, jadi paket yang sudah dikirim atau disetujui tidak terpengaruh. Jangan lupa tekan Simpan Batas Soal.',
+            a: 'Buka Pengaturan, tab Pengaturan Ujian, kartu "Batas Minimal Jumlah Soal". Nyalakan saklarnya (awalnya mati). Untuk PG dan Essay masing-masing, isi "Batas bawaan semua mapel" (misalnya 30) bila hampir semua mapel punya batas yang sama. Mapel yang batasnya berbeda dimasukkan ke kelompok: klik "Tambah kelompok", isi angka minimalnya (misalnya 35), lalu centang mata pelajarannya. Satu mata pelajaran hanya bisa ada di satu kelompok. Mapel yang tidak dicentang memakai batas bawaan; kalau batas bawaan juga kosong, aturannya minimal 1 soal. Kartu ini punya daftar "Lihat batas yang berlaku per mapel" untuk memeriksa hasilnya. Jumlah tabel di template Word PG yang diunduh guru otomatis mengikuti batas mapelnya dan tidak bisa diubah. Aturan ini dicek saat guru mengirim paket, jadi paket yang sudah dikirim atau disetujui tidak terpengaruh. Jangan lupa tekan Simpan Batas Soal.',
           },
           {
             q: 'Apa itu Admin Kelas dan bagaimana menyalakannya?',

@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import { Modal, Spinner } from '@/components/ui'
 import { apiRequest, generateId } from '@/lib/utils'
+import { useBatasMinMapel } from '@/lib/use-batas-min-soal'
 import { tandaPg, tandaEssay, tandaPgDariDb, tandaEssayDariDb } from '@/lib/impor-soal/duplikat'
 import { buatTemplateDocx, namaFileTemplate } from '@/lib/impor-soal/template-docx'
 import {
@@ -147,10 +148,6 @@ export function ImporSoalModal(p: Props) {
 
   // Jumlah soal sengaja DIKOSONGKAN: guru wajib mengisinya sendiri sebelum mengunduh.
   const [jumlahTpl, setJumlahTpl] = useState('')
-  // Batas minimal soal untuk mapel ini (ditetapkan admin). Kalau ada, jumlah
-  // tabel di template DIKUNCI sebesar angka itu supaya guru tahu jumlah soal
-  // mapel ini sudah ditentukan. null = tidak dibatasi (guru isi sendiri).
-  const [batasTpl, setBatasTpl] = useState<number | null>(null)
   const [errTpl, setErrTpl] = useState('')
   const jumlahTplRef = useRef<HTMLInputElement>(null)
   const [opsiTpl, setOpsiTpl] = useState<4 | 5>(p.jumlahOpsiPaksa ?? p.jumlahOpsiBawaan ?? 4)
@@ -201,20 +198,10 @@ export function ImporSoalModal(p: Props) {
   }, [p.open, reset])
   useEffect(() => () => { thumbsRef.current.forEach(u => URL.revokeObjectURL(u)) }, [])
 
-  // Ambil batas minimal mapel setiap kali halaman/modal dibuka (PG saja).
-  // Gagal mengambil → tidak dikunci, guru tetap bisa mengisi sendiri.
-  useEffect(() => {
-    if (!p.open || !isPg || !p.mapelId) { setBatasTpl(null); return }
-    let batal = false
-    apiRequest<{ min: number | null }>(`/api/guru/batas-soal?jenis=pg&mapel_id=${encodeURIComponent(p.mapelId)}`)
-      .then(r => {
-        if (batal) return
-        const m = Number(r.min)
-        setBatasTpl(Number.isInteger(m) && m >= 1 ? Math.min(m, BATAS_TEMPLATE_TERKUNCI) : null)
-      })
-      .catch(() => { if (!batal) setBatasTpl(null) })
-    return () => { batal = true }
-  }, [p.open, isPg, p.mapelId])
+  // Batas minimal mapel dari admin (kelompok 30 / 35 / bawaan). PG saja:
+  // kalau ada, jumlah tabel di template dikunci sebesar angka itu.
+  const batasMapel = useBatasMinMapel('pg', p.mapelId, p.open && isPg)
+  const batasTpl = batasMapel == null ? null : Math.min(batasMapel, BATAS_TEMPLATE_TERKUNCI)
 
   // Nilai yang tampil & dipakai: terkunci kalau admin membatasi, bebas kalau tidak.
   const jumlahTplTampil = batasTpl != null ? String(batasTpl) : jumlahTpl

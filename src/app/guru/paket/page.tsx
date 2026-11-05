@@ -10,6 +10,7 @@ import { EssayFlowGuide } from '@/components/shared/EssayFlowGuide'
 import { PaletSimbol } from '@/components/shared/PaletSimbol'
 import { ImporSoalModal, type ImporSoalHasil } from '@/components/shared/ImporSoalModal'
 import { PilihCaraInputModal } from '@/components/shared/PilihCaraInputModal'
+import { BatasMinSoalInfo } from '@/components/shared/BatasMinSoalInfo'
 import { ImporSelesaiPopup, type ImporSelesaiInfo } from '@/components/shared/ImporSelesaiPopup'
 import { apiRequest, formatDateTime, generateId } from '@/lib/utils'
 import { PaketSoal, Mapel, Kelas, Soal, PaketEssay, SoalEssay } from '@/types'
@@ -735,6 +736,7 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
             <p className="page-subtitle">
               {namaMapel} · Kelas {namaKelas} · {activePaket.acak === 'YA' ? 'Soal diacak' : 'Urutan tetap'} · {soalDibuat.length} soal ditambahkan
             </p>
+            <BatasMinSoalInfo jenis="pg" mapelId={activePaket.mapel_id} jumlah={soalDibuat.length} />
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             <button onClick={handleSimpanDanSelesai} className="btn-secondary btn-sm" disabled={saving || !!uploadingImg}>
@@ -1961,6 +1963,7 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
               </button>
             )}
           </p>
+          <BatasMinSoalInfo jenis="essay" mapelId={activePaket.mapel_id} jumlah={soalList.length} />
           {activePaket.status === 'DISETUJUI' && (
             <p className="text-xs text-slate-400 mt-1">
               Mode jawaban terkunci karena paket sudah disetujui admin. Minta admin membatalkan persetujuan dulu kalau perlu diubah.

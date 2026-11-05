@@ -10,9 +10,17 @@
 //            "essay":[{"min":5, "mapel":["MATEMATIKA"]}]}
 //
 // Satu kelompok = satu angka minimal + daftar nama mapel yang dicentang.
-// Mapel yang tidak masuk kelompok mana pun tetap memakai aturan lama
-// (minimal 1 soal). Pencocokan memakai NAMA mapel (tanpa beda huruf besar/
-// kecil), karena satu nama mapel bisa punya beberapa baris (per guru/kelas).
+// Mapel yang tidak masuk kelompok mana pun memakai BATAS BAWAAN
+// (`bawaan.pg` / `bawaan.essay`, opsional). Kalau bawaan juga kosong, tetap
+// memakai aturan lama (minimal 1 soal). Contoh lengkap:
+//
+//   {"aktif":true,
+//    "bawaan":{"pg":30,"essay":null},
+//    "pg":[{"min":35,"mapel":["BAHASA INDONESIA"]}], "essay":[]}
+//   → semua mapel PG minimal 30, kecuali BAHASA INDONESIA minimal 35.
+//
+// Pencocokan memakai NAMA mapel (tanpa beda huruf besar/kecil), karena satu
+// nama mapel bisa punya beberapa baris (per guru/kelas).
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 
@@ -25,6 +33,8 @@ export interface KelompokBatas {
 
 export interface BatasMinSoal {
   aktif: boolean
+  /** Batas untuk mapel yang tidak masuk kelompok mana pun. null = tidak ada (minimal 1). */
+  bawaan: { pg: number | null; essay: number | null }
   pg: KelompokBatas[]
   essay: KelompokBatas[]
 }
@@ -47,14 +57,22 @@ function bersihkanKelompok(arr: unknown): KelompokBatas[] {
   return hasil
 }
 
+function bersihkanAngka(v: unknown): number | null {
+  if (v === null || v === undefined || v === '') return null
+  const n = Math.floor(Number(v))
+  return Number.isFinite(n) && n >= 1 && n <= MIN_SOAL_MAKS ? n : null
+}
+
 /** Parse aman: nilai rusak / kosong = fitur mati (perilaku lama). */
 export function parseBatasMinSoal(raw: string | null | undefined): BatasMinSoal {
-  const kosong: BatasMinSoal = { aktif: false, pg: [], essay: [] }
+  const kosong: BatasMinSoal = { aktif: false, bawaan: { pg: null, essay: null }, pg: [], essay: [] }
   if (!raw) return kosong
   try {
     const o = JSON.parse(raw)
     return {
       aktif: o?.aktif === true,
+      // Data lama (tanpa `bawaan`) otomatis menjadi null = perilaku lama.
+      bawaan: { pg: bersihkanAngka(o?.bawaan?.pg), essay: bersihkanAngka(o?.bawaan?.essay) },
       pg: bersihkanKelompok(o?.pg),
       essay: bersihkanKelompok(o?.essay),
     }
@@ -71,7 +89,19 @@ export function validasiBatasMinSoal(
   if (!o || typeof o !== 'object' || typeof o.aktif !== 'boolean') {
     return { ok: false, error: 'Format pengaturan tidak valid' }
   }
-  const hasil: BatasMinSoal = { aktif: o.aktif, pg: [], essay: [] }
+  const hasil: BatasMinSoal = { aktif: o.aktif, bawaan: { pg: null, essay: null }, pg: [], essay: [] }
+
+  // Batas bawaan: kosong (null/undefined/'') = tidak ada; selain itu wajib bilangan bulat 1..MAKS.
+  for (const jenis of ['pg', 'essay'] as const) {
+    const label = jenis === 'pg' ? 'PG' : 'Essay'
+    const mentah = (o.bawaan as Partial<BatasMinSoal['bawaan']> | undefined)?.[jenis]
+    if (mentah === null || mentah === undefined || (mentah as unknown) === '') continue
+    const n = Number(mentah)
+    if (!Number.isInteger(n) || n < 1 || n > MIN_SOAL_MAKS) {
+      return { ok: false, error: `Batas bawaan ${label} harus bilangan bulat 1 sampai ${MIN_SOAL_MAKS} (atau kosongkan)` }
+    }
+    hasil.bawaan[jenis] = n
+  }
 
   for (const jenis of ['pg', 'essay'] as const) {
     const label = jenis === 'pg' ? 'PG' : 'Essay'
@@ -105,63 +135,63 @@ export function validasiBatasMinSoal(
 }
 
 /**
+ * Batas minimal yang berlaku untuk satu mapel (PURE, tanpa database):
+ *   1. mapel dicentang di sebuah kelompok  → angka kelompok itu (mis. 30 atau 35)
+ *   2. tidak masuk kelompok, ada bawaan    → angka bawaan
+ *   3. selain itu                          → null (aturan lama: minimal 1 soal)
+ * Fitur mati (aktif=false) selalu null.
+ */
+export function cariBatasMin(cfg: BatasMinSoal, jenis: JenisSoal, namaMapel: string): number | null {
+  if (!cfg.aktif) return null
+  const nama = normNamaMapel(namaMapel)
+  const cocok = cfg[jenis].find(k => k.mapel.some(m => normNamaMapel(m) === nama))
+  if (cocok) return cocok.min
+  return cfg.bawaan[jenis]
+}
+
+async function bacaBatasMapel(
+  db: SupabaseClient,
+  opts: { jenis: JenisSoal; mapelId: string }
+): Promise<{ min: number | null; namaMapel: string | null }> {
+  const { data: pengaturan } = await db
+    .from('pengaturan')
+    .select('value')
+    .eq('key', KUNCI_BATAS_MIN_SOAL)
+    .maybeSingle()
+
+  const cfg = parseBatasMinSoal(pengaturan?.value)
+  if (!cfg.aktif) return { min: null, namaMapel: null }
+
+  const { data: mapel } = await db.from('mapel').select('nama').eq('id', opts.mapelId).maybeSingle()
+  if (!mapel?.nama) return { min: null, namaMapel: null }
+
+  return { min: cariBatasMin(cfg, opts.jenis, mapel.nama), namaMapel: mapel.nama }
+}
+
+/**
  * Cek jumlah soal sebuah paket terhadap batas minimal mapelnya.
  * Mengembalikan pesan error (string) kalau KURANG, atau null kalau lolos /
- * fitur mati / mapel tidak masuk kelompok mana pun.
+ * fitur mati / mapel tidak punya batas.
  * `db` harus tenantDb(...) supaya otomatis terbatas ke yayasan yang login.
  */
 export async function cekBatasMinSoal(
   db: SupabaseClient,
   opts: { jenis: JenisSoal; mapelId: string; jumlah: number }
 ): Promise<string | null> {
-  const { data: pengaturan } = await db
-    .from('pengaturan')
-    .select('value')
-    .eq('key', KUNCI_BATAS_MIN_SOAL)
-    .maybeSingle()
-
-  const cfg = parseBatasMinSoal(pengaturan?.value)
-  if (!cfg.aktif) return null
-
-  const kelompok = cfg[opts.jenis]
-  if (kelompok.length === 0) return null
-
-  const { data: mapel } = await db.from('mapel').select('nama').eq('id', opts.mapelId).maybeSingle()
-  if (!mapel?.nama) return null
-
-  const nama = normNamaMapel(mapel.nama)
-  const cocok = kelompok.find(k => k.mapel.some(m => normNamaMapel(m) === nama))
-  if (!cocok || opts.jumlah >= cocok.min) return null
+  const { min, namaMapel } = await bacaBatasMapel(db, opts)
+  if (min === null || opts.jumlah >= min) return null
 
   const label = opts.jenis === 'pg' ? 'PG' : 'Essay'
-  return `Paket ${label} ${mapel.nama} minimal ${cocok.min} soal, saat ini baru ${opts.jumlah}`
+  return `Paket ${label} ${namaMapel} minimal ${min} soal, saat ini baru ${opts.jumlah}`
 }
 
 /**
- * Ambil batas minimal soal untuk satu mapel (dipakai form unduh template guru).
- * Mengembalikan angka kalau fitur batas AKTIF dan mapel masuk salah satu
- * kelompok; selain itu null (guru bebas mengisi jumlah soal sendiri).
+ * Batas minimal soal untuk satu mapel (dipakai form unduh template & info di
+ * halaman guru). null = tidak dibatasi (fitur mati / mapel tanpa batas).
  */
 export async function ambilBatasMinMapel(
   db: SupabaseClient,
   opts: { jenis: JenisSoal; mapelId: string }
 ): Promise<number | null> {
-  const { data: pengaturan } = await db
-    .from('pengaturan')
-    .select('value')
-    .eq('key', KUNCI_BATAS_MIN_SOAL)
-    .maybeSingle()
-
-  const cfg = parseBatasMinSoal(pengaturan?.value)
-  if (!cfg.aktif) return null
-
-  const kelompok = cfg[opts.jenis]
-  if (kelompok.length === 0) return null
-
-  const { data: mapel } = await db.from('mapel').select('nama').eq('id', opts.mapelId).maybeSingle()
-  if (!mapel?.nama) return null
-
-  const nama = normNamaMapel(mapel.nama)
-  const cocok = kelompok.find(k => k.mapel.some(m => normNamaMapel(m) === nama))
-  return cocok ? cocok.min : null
+  return (await bacaBatasMapel(db, opts)).min
 }
