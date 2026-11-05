@@ -22,6 +22,12 @@ export async function GET(req: NextRequest) {
   const mapelId = sp.get('mapel_id')
   if (!mapelId) return NextResponse.json({ min: null })
 
+  // Hanya mapel milik guru ini (mapel.guru_id), sama seperti route guru lain
+  // (lihat src/lib/guru-scope.ts). Selain itu dijawab 'tidak dibatasi' tanpa
+  // membocorkan apa pun tentang mapel guru lain.
+  const { data: mapel } = await db.from('mapel').select('guru_id').eq('id', mapelId).maybeSingle()
+  if (!mapel || mapel.guru_id !== auth.user.username) return NextResponse.json({ min: null })
+
   const min = await ambilBatasMinMapel(db, { jenis, mapelId })
   return NextResponse.json({ min })
 }
