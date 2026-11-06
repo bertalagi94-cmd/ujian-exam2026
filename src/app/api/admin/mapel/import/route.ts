@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRoleAktif } from '@/lib/status-akun'
 import { generateId } from '@/lib/utils'
-import { normalisasiAgama } from '@/lib/agama'
+import { agamaMapelTidakDikenali, gabungAgamaMapel } from '@/lib/agama'
 
 // Impor massal Mata Pelajaran dari file Excel.
 //
@@ -15,7 +15,8 @@ import { normalisasiAgama } from '@/lib/agama'
 //     (mis. KIMIA kelas 12 tidak boleh dipegang Guru A dan Guru B sekaligus).
 //   - KKM bilangan bulat 0-100 (kosong = 75).
 //   - Khusus Agama (opsional): Islam/Kristen/Katolik/Hindu/Buddha/Konghucu untuk
-//     mapel Pendidikan Agama. Kosong = mapel umum (semua siswa kelas ikut).
+//     mapel Pendidikan Agama. Boleh lebih dari satu, dipisah koma (mis. "Kristen, Katolik").
+//     Kosong = mapel umum (semua siswa kelas ikut).
 //   - Jumlah opsi jawaban TIDAK diimpor: diatur di Pengaturan > Pengaturan
 //     Ujian, jadi dipakai nilai bawaan 4 seperti tambah manual.
 //
@@ -192,9 +193,10 @@ export async function POST(req: NextRequest) {
     // 4b. Khusus agama (opsional). Isian yang tidak dikenali = baris ditolak,
     //     supaya mapel agama tidak diam-diam menjadi mapel umum.
     const agamaRaw = String(row.agama ?? '').trim()
-    const agama = normalisasiAgama(agamaRaw)
-    if (agamaRaw && !agama) {
-      errors.push(`${label}: Khusus Agama "${agamaRaw}" tidak dikenali (gunakan Islam, Kristen, Katolik, Hindu, Buddha, atau Konghucu; kosongkan untuk mapel umum)`)
+    const agama = gabungAgamaMapel(agamaRaw)
+    const agamaAsing = agamaMapelTidakDikenali(agamaRaw)
+    if (agamaRaw && (!agama || agamaAsing.length > 0)) {
+      errors.push(`${label}: Khusus Agama "${agamaRaw}" tidak dikenali (gunakan Islam, Kristen, Katolik, Hindu, Buddha, atau Konghucu; beberapa agama dipisah koma, mis. Kristen, Katolik; kosongkan untuk mapel umum)`)
       continue
     }
 
@@ -250,6 +252,9 @@ export async function POST(req: NextRequest) {
   if (baru.length > 0) {
     const { error } = await db.from('mapel').insert(baru)
     if (error) {
+      if (baru.some(b => b.agama?.includes(',')) && /mapel_agama_baku|check constraint/i.test(error.message)) {
+        return NextResponse.json({ error: 'Database belum mendukung lebih dari satu agama per mapel. Jalankan supabase/62_mapel_agama_banyak.sql terlebih dahulu.' }, { status: 500 })
+      }
       if (baru.some(b => b.agama) && /agama/i.test(error.message)) {
         return NextResponse.json({ error: 'Kolom agama belum ada di database. Jalankan supabase/61_agama_siswa_dan_mapel.sql terlebih dahulu.' }, { status: 500 })
       }

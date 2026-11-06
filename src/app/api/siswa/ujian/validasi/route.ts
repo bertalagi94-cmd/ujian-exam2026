@@ -7,7 +7,7 @@ import { instrumented } from '@/lib/metrik'
 import { cachedFetch } from '@/lib/cache'
 import { ambilMaksReset, MAKS_RESET_ABSOLUT } from '@/lib/reset-berurutan'
 import { AntreanPenuhError, buatSemuaAmplopReset } from '@/lib/reset-amplop-server'
-import { cekSiswaBolehMapel } from '@/lib/agama'
+import { cekSiswaBolehMapel, labelAgamaMapel } from '@/lib/agama'
 
 // Threshold: kalau last_heartbeat device lama lebih muda dari ini,
 // anggap device lama masih aktif → tolak login device baru.
@@ -88,7 +88,7 @@ export async function POST(req: NextRequest) {
   if (!cekAgama.boleh) {
     return NextResponse.json({
       valid: false,
-      message: `Mata pelajaran ini khusus siswa beragama ${cekAgama.agamaMapel}. Anda tidak termasuk peserta ujian ini. Jika data agama Anda keliru, hubungi wali kelas atau admin.`,
+      message: `Mata pelajaran ini khusus siswa beragama ${labelAgamaMapel(cekAgama.agamaMapel, ' atau ')}. Anda tidak termasuk peserta ujian ini. Jika data agama Anda keliru, hubungi wali kelas atau admin.`,
     })
   }
 

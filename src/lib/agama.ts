@@ -9,6 +9,9 @@
 // Aturan (dipakai SEMUA endpoint yang menghitung peserta):
 //   - mapel.agama kosong  -> mapel umum: semua siswa kelas adalah peserta
 //   - mapel.agama terisi  -> hanya siswa dengan agama SAMA yang peserta
+//                            (boleh lebih dari satu agama, mis. "Kristen,Katolik"
+//                            untuk sekolah yang menggabungkan PAK; siswa yang
+//                            agamanya salah satu dari daftar itu ikut)
 //   - siswa.agama kosong  -> tetap dihitung peserta mapel agama apa pun
 //                            (supaya data lama tidak tiba-tiba terkunci;
 //                            admin cukup melengkapi agama siswa)
@@ -47,41 +50,82 @@ export function adaIsianAgama(raw: unknown): boolean {
   return raw !== null && raw !== undefined && String(raw).trim() !== ''
 }
 
-/**
- * Apakah siswa (dengan agama `agamaSiswa`) menjadi peserta mapel yang
- * `agamaMapel`-nya diberikan? Lihat aturan di kepala file.
- */
-export function cocokAgama(agamaMapel: unknown, agamaSiswa: unknown): boolean {
-  const m = normalisasiAgama(agamaMapel)
-  if (!m) return true // mapel umum
-  const s = normalisasiAgama(agamaSiswa)
-  if (!s) return true // agama siswa belum diisi -> tetap peserta
-  return m === s
+// ── Daftar agama pada MAPEL ─────────────────────────────────────────────────
+// Kolom mapel.agama berisi satu nama ("Islam") ATAU beberapa nama dipisah koma
+// ("Kristen,Katolik"), selalu dalam urutan DAFTAR_AGAMA. Data lama (satu agama)
+// tetap valid tanpa diubah. Pemisah yang diterima saat input: koma, titik koma,
+// garis miring, "&", baris baru, atau kata "dan".
+const PEMISAH_AGAMA = /[,;\/|&\n]+|\s+dan\s+/i
+
+function pecahAgama(raw: unknown): string[] {
+  if (raw === null || raw === undefined) return []
+  const teks = Array.isArray(raw) ? raw.map((x) => String(x ?? '')).join(',') : String(raw)
+  return teks.split(PEMISAH_AGAMA).map((x) => x.trim()).filter(Boolean)
 }
 
-/** Agama khusus sebuah mapel (null = mapel umum / kolom belum ada). */
-export async function ambilAgamaMapel(db: DbClient, mapelId: string | null | undefined): Promise<Agama | null> {
+/** Agama baku dari isian bebas (string/array), unik, urut sesuai DAFTAR_AGAMA. */
+export function daftarAgamaMapel(raw: unknown): Agama[] {
+  const set = new Set<Agama>()
+  for (const b of pecahAgama(raw)) {
+    const a = normalisasiAgama(b)
+    if (a) set.add(a)
+  }
+  return DAFTAR_AGAMA.filter((a) => set.has(a))
+}
+
+/** Bagian isian yang tidak dikenali (untuk pesan error validasi). */
+export function agamaMapelTidakDikenali(raw: unknown): string[] {
+  return pecahAgama(raw).filter((b) => !normalisasiAgama(b))
+}
+
+/** Bentuk simpan ke DB: "Kristen,Katolik"; null kalau kosong (= mapel umum). */
+export function gabungAgamaMapel(raw: unknown): string | null {
+  const d = daftarAgamaMapel(raw)
+  return d.length ? d.join(',') : null
+}
+
+/** Label tampilan: "Kristen & Katolik" (atau sambung lain, mis. " atau "). */
+export function labelAgamaMapel(raw: unknown, sambung = ' & '): string {
+  return daftarAgamaMapel(raw).join(sambung)
+}
+
+/**
+ * Apakah siswa (dengan agama `agamaSiswa`) menjadi peserta mapel yang
+ * `agamaMapel`-nya diberikan (satu agama, daftar, atau teks "A,B")? Lihat
+ * aturan di kepala file.
+ */
+export function cocokAgama(agamaMapel: unknown, agamaSiswa: unknown): boolean {
+  const m = daftarAgamaMapel(agamaMapel)
+  if (m.length === 0) return true // mapel umum
+  const s = normalisasiAgama(agamaSiswa)
+  if (!s) return true // agama siswa belum diisi -> tetap peserta
+  return m.includes(s)
+}
+
+/** Daftar agama khusus sebuah mapel (null = mapel umum / kolom belum ada). */
+export async function ambilAgamaMapel(db: DbClient, mapelId: string | null | undefined): Promise<Agama[] | null> {
   if (!mapelId) return null
   try {
     const { data, error } = await db.from('mapel').select('agama').eq('id', mapelId).maybeSingle()
     if (error || !data) return null
-    return normalisasiAgama((data as { agama?: unknown }).agama)
+    const d = daftarAgamaMapel((data as { agama?: unknown }).agama)
+    return d.length ? d : null
   } catch {
     return null
   }
 }
 
-/** Versi banyak-mapel: Map mapelId -> agama (hanya mapel khusus agama yang masuk). */
-export async function ambilAgamaMapelBanyak(db: DbClient, mapelIds: Array<string | null | undefined>): Promise<Map<string, Agama>> {
-  const hasil = new Map<string, Agama>()
+/** Versi banyak-mapel: Map mapelId -> daftar agama (hanya mapel khusus agama yang masuk). */
+export async function ambilAgamaMapelBanyak(db: DbClient, mapelIds: Array<string | null | undefined>): Promise<Map<string, Agama[]>> {
+  const hasil = new Map<string, Agama[]>()
   const ids = [...new Set(mapelIds.filter((x): x is string => !!x))]
   if (!ids.length) return hasil
   try {
     const { data, error } = await db.from('mapel').select('id, agama').in('id', ids)
     if (error) return hasil
     for (const r of (data ?? []) as Array<{ id: string; agama?: unknown }>) {
-      const a = normalisasiAgama(r.agama)
-      if (a) hasil.set(r.id, a)
+      const d = daftarAgamaMapel(r.agama)
+      if (d.length) hasil.set(r.id, d)
     }
   } catch { /* kolom belum ada -> semua mapel dianggap umum */ }
   return hasil
@@ -106,15 +150,16 @@ export async function ambilAgamaSiswa(db: DbClient, nisList: string[]): Promise<
 }
 
 /**
- * Saring daftar siswa: sisakan hanya peserta mapel dengan `agamaMapel`.
- * `agamaMapel` null -> daftar dikembalikan apa adanya (tanpa query tambahan).
+ * Saring daftar siswa: sisakan hanya peserta mapel dengan `agamaMapel`
+ * (satu agama atau daftar agama).
+ * `agamaMapel` null/kosong -> daftar dikembalikan apa adanya (tanpa query tambahan).
  */
 export async function saringSiswaSeagama<T extends { nis: string }>(
   db: DbClient,
   siswa: T[],
-  agamaMapel: Agama | null
+  agamaMapel: Agama | Agama[] | null
 ): Promise<T[]> {
-  if (!agamaMapel || !siswa.length) return siswa
+  if (!agamaMapel || daftarAgamaMapel(agamaMapel).length === 0 || !siswa.length) return siswa
   const peta = await ambilAgamaSiswa(db, siswa.map(s => s.nis))
   return siswa.filter(s => cocokAgama(agamaMapel, peta.get(s.nis) ?? null))
 }
@@ -143,7 +188,7 @@ export async function cekSiswaBolehMapel(
   db: DbClient,
   mapelId: string | null | undefined,
   nis: string
-): Promise<{ boleh: true } | { boleh: false; agamaMapel: Agama; agamaSiswa: Agama | null }> {
+): Promise<{ boleh: true } | { boleh: false; agamaMapel: Agama[]; agamaSiswa: Agama | null }> {
   const agamaMapel = await ambilAgamaMapel(db, mapelId)
   if (!agamaMapel) return { boleh: true }
   const agamaSiswa = (await ambilAgamaSiswa(db, [nis])).get(nis) ?? null

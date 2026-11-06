@@ -65,7 +65,8 @@ export interface Mapel {
   kelas_list?: string
   jumlah_opsi: number
   kkm: number
-  // Khusus agama (mis. PAI = Islam, PAK = Kristen). Kosong = mapel umum, semua siswa kelas ikut.
+  // Khusus agama (mis. PAI = Islam, PAK = Kristen,Katolik). Boleh lebih dari satu agama dipisah koma.
+  // Kosong = mapel umum, semua siswa kelas ikut.
   agama?: string | null
   // joined
   nama_guru?: string

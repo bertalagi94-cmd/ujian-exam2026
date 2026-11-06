@@ -6,7 +6,7 @@ import { Plus, Pencil, Trash2, BookOpen, Search, Upload, Download } from 'lucide
 import { Modal, Confirm, EmptyState, Spinner, Toast, SearchInput } from '@/components/ui'
 import { apiRequest } from '@/lib/utils'
 import { Mapel, User, Kelas } from '@/types'
-import { DAFTAR_AGAMA, normalisasiAgama } from '@/lib/agama'
+import { DAFTAR_AGAMA, daftarAgamaMapel, gabungAgamaMapel, labelAgamaMapel, type Agama } from '@/lib/agama'
 
 interface ImportMapelRow {
   nama: string
@@ -69,8 +69,9 @@ export default function AdminMapelPage() {
   // dan menonaktifkan kelas/guru yang sudah terpakai) dan KKM.
   const [namaForm, setNamaForm] = useState('')
   const [kkmForm, setKkmForm] = useState('75')
-  // Khusus agama ('' = mapel umum). Berlaku untuk seluruh pengampu mapel yang sama.
-  const [agamaForm, setAgamaForm] = useState('')
+  // Khusus agama ([] = mapel umum). Boleh lebih dari satu agama (mis. Kristen + Katolik).
+  // Berlaku untuk seluruh pengampu mapel yang sama.
+  const [agamaForm, setAgamaForm] = useState<Agama[]>([])
   // true saat membuka "+ Guru" pada mapel yang sudah ada: nama dikunci.
   const [kunciNama, setKunciNama] = useState(false)
   // Impor mapel dari Excel
@@ -121,7 +122,7 @@ export default function AdminMapelPage() {
     setSelectedKelas([])
     setNamaForm('')
     setKkmForm('75')
-    setAgamaForm('')
+    setAgamaForm([])
     setKunciNama(false)
     setModalOpen(true)
   }
@@ -132,7 +133,7 @@ export default function AdminMapelPage() {
     setSelectedKelas([])
     setNamaForm(g.nama)
     setKkmForm(String(g.items[0]?.kkm ?? 75))
-    setAgamaForm(normalisasiAgama(g.items[0]?.agama) ?? '')
+    setAgamaForm(daftarAgamaMapel(g.items[0]?.agama))
     setKunciNama(true)
     setModalOpen(true)
   }
@@ -142,9 +143,13 @@ export default function AdminMapelPage() {
     setSelectedKelas(daftarKelas(m))
     setNamaForm(m.nama)
     setKkmForm(String(m.kkm ?? 75))
-    setAgamaForm(normalisasiAgama(m.agama) ?? '')
+    setAgamaForm(daftarAgamaMapel(m.agama))
     setKunciNama(false)
     setModalOpen(true)
+  }
+
+  function toggleAgama(a: Agama) {
+    setAgamaForm(prev => (prev.includes(a) ? prev.filter(x => x !== a) : DAFTAR_AGAMA.filter(x => x === a || prev.includes(x))))
   }
 
   function toggleKelas(nama: string) {
@@ -167,8 +172,8 @@ export default function AdminMapelPage() {
     // form tetap bisa menyimpan walau migrasi 61_agama_siswa_dan_mapel.sql
     // belum dijalankan.
     delete payload.agama
-    const agamaBaru = normalisasiAgama(agamaForm) ?? ''
-    const agamaLama = normalisasiAgama(editData?.agama) ?? ''
+    const agamaBaru = gabungAgamaMapel(agamaForm) ?? ''
+    const agamaLama = gabungAgamaMapel(editData?.agama) ?? ''
     if (editData?.id ? agamaBaru !== agamaLama : agamaBaru !== '') payload.agama = agamaBaru
 
     setSaving(true)
@@ -182,7 +187,7 @@ export default function AdminMapelPage() {
         const perluSama = (grupLama?.items ?? []).filter(
           m => m.id !== editData.id && (
             normNama(m.nama) !== namaBaru || m.kkm !== kkmBaru ||
-            (normalisasiAgama(m.agama) ?? '') !== agamaBaru
+            (gabungAgamaMapel(m.agama) ?? '') !== agamaBaru
           )
         )
         const gagal: string[] = []
@@ -192,7 +197,7 @@ export default function AdminMapelPage() {
               method: 'PUT',
               body: JSON.stringify({
                 id: m.id, nama: namaBaru, guru_id: m.guru_id ?? '', kelas_list: m.kelas_list ?? '', kkm: kkmBaru,
-                ...((normalisasiAgama(m.agama) ?? '') !== agamaBaru ? { agama: agamaBaru } : {}),
+                ...((gabungAgamaMapel(m.agama) ?? '') !== agamaBaru ? { agama: agamaBaru } : {}),
               }),
             })
           } catch {
@@ -256,6 +261,7 @@ export default function AdminMapelPage() {
       [`${PENANDA_CONTOH} MATEMATIKA`, contohGuru, contohKelas, 75, ''],
       [`${PENANDA_CONTOH} SENI BUDAYA`, '', '', '', ''],
       [`${PENANDA_CONTOH} PENDIDIKAN AGAMA ISLAM`, contohGuru, contohKelas, 75, 'Islam'],
+      [`${PENANDA_CONTOH} PENDIDIKAN AGAMA KRISTEN`, contohGuru, contohKelas, 75, 'Kristen, Katolik'],
     ]
     const ws = XLSX.utils.aoa_to_sheet([header, ...contoh])
     // Kolom Nama, Username Guru, dan Kelas bertipe TEKS supaya nilai seperti
@@ -284,8 +290,8 @@ export default function AdminMapelPage() {
       [`${C.guru}: opsional. Isi username guru (lihat sheet "Daftar Guru"). Kosong = guru belum ditentukan.`],
       [`${C.kelas}: opsional. Isi nama kelas persis seperti di sheet "Daftar Kelas". Beberapa kelas dipisah koma, contoh: 10, 11.`],
       [`${C.kkm}: opsional, bilangan bulat 0 sampai 100. Kosong = 75.`],
-      [`${C.agama}: opsional. Isi hanya untuk mapel Pendidikan Agama: Islam, Kristen, Katolik, Hindu, Buddha, atau Konghucu. Kosong = mapel umum (semua siswa kelas ikut).`],
-      ['Contoh: buat dua baris terpisah, "PENDIDIKAN AGAMA ISLAM" (Khusus Agama: Islam) dan "PENDIDIKAN AGAMA KRISTEN" (Khusus Agama: Kristen). Siswa hanya menjadi peserta mapel yang seagama.'],
+      [`${C.agama}: opsional. Isi hanya untuk mapel Pendidikan Agama: Islam, Kristen, Katolik, Hindu, Buddha, atau Konghucu. Untuk beberapa agama sekaligus, pisahkan dengan koma, contoh: Kristen, Katolik. Kosong = mapel umum (semua siswa kelas ikut).`],
+      ['Contoh: buat dua baris terpisah, "PENDIDIKAN AGAMA ISLAM" (Khusus Agama: Islam) dan "PENDIDIKAN AGAMA KRISTEN" (Khusus Agama: Kristen). Kalau sekolah menggabungkan Kristen dan Katolik dalam satu pelajaran, cukup satu baris dengan Khusus Agama: Kristen, Katolik. Siswa hanya menjadi peserta mapel yang seagama.'],
       [''],
       ['ATURAN'],
       ['Mapel dengan nama dan guru yang sama tidak boleh ditulis dua kali. Gabungkan kelasnya dalam satu baris.'],
@@ -427,7 +433,7 @@ export default function AdminMapelPage() {
   useEffect(() => {
     if (modalOpen && !editData?.id && grupForm) {
       setKkmForm(String(grupForm.items[0]?.kkm ?? 75))
-      setAgamaForm(normalisasiAgama(grupForm.items[0]?.agama) ?? '')
+      setAgamaForm(daftarAgamaMapel(grupForm.items[0]?.agama))
     }
   }, [modalOpen, editData?.id, grupForm])
 
@@ -491,7 +497,7 @@ export default function AdminMapelPage() {
               <tbody>
                 {grupTampil.map((g, i) => {
                   const kkmUnik = [...new Set(g.items.map(m => m.kkm))].sort((a, b) => a - b)
-                  const agamaGrup = [...new Set(g.items.map(m => normalisasiAgama(m.agama)).filter((a): a is NonNullable<typeof a> => !!a))]
+                  const agamaGrup = [...new Set(g.items.map(m => gabungAgamaMapel(m.agama)).filter((a): a is string => !!a))]
                   return (
                     <tr key={g.nama}>
                       <td className="text-slate-400 text-xs align-top">{i + 1}</td>
@@ -500,7 +506,7 @@ export default function AdminMapelPage() {
                         <div className="text-xs text-slate-400">{g.items.length} pengampu</div>
                         {agamaGrup.length === 1 && (
                           <span className="badge-purple mt-1 inline-block" title="Hanya siswa beragama ini yang menjadi peserta">
-                            Khusus {agamaGrup[0]}
+                            Khusus {labelAgamaMapel(agamaGrup[0])}
                           </span>
                         )}
                         {agamaGrup.length > 1 && (
@@ -696,22 +702,38 @@ export default function AdminMapelPage() {
             </div>
             <div>
               <label className="label">Khusus Agama</label>
-              <select
-                name="agama"
-                className="select"
-                value={agamaForm}
-                onChange={e => setAgamaForm(e.target.value)}
-                disabled={kkmTerkunci}
-              >
-                <option value="">Umum (semua siswa kelas)</option>
-                {DAFTAR_AGAMA.map(a => (
-                  <option key={a} value={a}>Khusus siswa {a}</option>
-                ))}
-              </select>
+              <div className="flex flex-wrap gap-2 mt-1">
+                {DAFTAR_AGAMA.map(a => {
+                  const aktif = agamaForm.includes(a)
+                  return (
+                    <label
+                      key={a}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm transition-colors
+                        ${kkmTerkunci
+                          ? `cursor-not-allowed ${aktif ? 'bg-slate-100 border-slate-300 text-slate-600 font-medium' : 'bg-slate-50 border-slate-200 text-slate-400'}`
+                          : aktif
+                            ? 'bg-brand-50 border-brand-400 text-brand-700 font-medium cursor-pointer'
+                            : 'border-slate-200 text-slate-600 hover:border-slate-300 cursor-pointer'
+                        }`}
+                    >
+                      <input
+                        type="checkbox"
+                        className="sr-only"
+                        disabled={kkmTerkunci}
+                        checked={aktif}
+                        onChange={() => toggleAgama(a)}
+                      />
+                      {a}
+                    </label>
+                  )
+                })}
+              </div>
               <p className="text-xs text-slate-500 mt-1">
                 {kkmTerkunci
                   ? 'Mengikuti pengaturan mapel ini.'
-                  : 'Isi untuk Pendidikan Agama (mis. PAI = Islam, PAK = Kristen). Buat satu mapel per agama.'}
+                  : agamaForm.length === 0
+                    ? 'Umum: semua siswa kelas menjadi peserta. Centang agama untuk Pendidikan Agama (mis. PAI = Islam; PAK = Kristen + Katolik).'
+                    : `Hanya siswa beragama ${labelAgamaMapel(agamaForm, ' atau ')} yang menjadi peserta.`}
               </p>
             </div>
           </div>
