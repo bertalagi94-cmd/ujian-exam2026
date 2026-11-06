@@ -26,6 +26,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Sigma, X } from 'lucide-react'
+import { rapikanTeksSoal } from '@/lib/rapikan-soal'
 
 interface Simbol {
   s: string
