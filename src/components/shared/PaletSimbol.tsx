@@ -182,8 +182,32 @@ export function PaletSimbol({ className = '' }: { className?: string }) {
         setPesan('')
       }
     }
+        // Rapikan teks matematika/LaTeX yang di-paste ke kolom soal.
+    // Teks biasa dibiarkan (handler tidak mencegat paste bila hasilnya sama).
+    const onPaste = (e: ClipboardEvent) => {
+      const el = e.target
+      if (!bisaDiisi(el)) return
+      const asal = e.clipboardData?.getData('text/plain')
+      if (!asal) return
+      const hasil = rapikanTeksSoal(asal, { satuBaris: el instanceof HTMLInputElement })
+      if (hasil === asal) return
+      e.preventDefault()
+      // insertText menjaga riwayat Ctrl+Z; fallback ke penulisan nilai langsung.
+      let ok = false
+      try { ok = document.execCommand('insertText', false, hasil) } catch { ok = false }
+      if (!ok) {
+        const awal = el.selectionStart ?? el.value.length
+        const akhir = el.selectionEnd ?? awal
+        tulisNilai(el, el.value.slice(0, awal) + hasil + el.value.slice(akhir))
+        try { el.setSelectionRange(awal + hasil.length, awal + hasil.length) } catch { /* abaikan */ }
+      }
+    }
     form.addEventListener('focusin', onFocusIn)
-    return () => form.removeEventListener('focusin', onFocusIn)
+    form.addEventListener('paste', onPaste)
+    return () => {
+      form.removeEventListener('focusin', onFocusIn)
+      form.removeEventListener('paste', onPaste)
+    }
   }, [])
 
   // Deteksi layar kecil (lembar bawah) vs layar lebar (panel sejajar).
