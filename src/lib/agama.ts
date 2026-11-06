@@ -21,6 +21,7 @@
 // dianggap umum sehingga perilaku aplikasi sama seperti sebelumnya.
 
 import type { createAdminClient } from '@/lib/supabase'
+import { ambilSemuaBaris } from '@/lib/ambil-semua'
 
 type DbClient = ReturnType<typeof createAdminClient>
 
@@ -217,4 +218,52 @@ export async function bangunPenyaringPeserta(
 /** Label tampilan untuk badge/pesan. */
 export function labelAgama(a: unknown): string {
   return normalisasiAgama(a) ?? ''
+}
+
+// ── Pilihan agama untuk form mapel: diambil dari DATA SISWA ─────────────────
+// Admin tidak mengetik / memilih dari daftar buatan sendiri. Pilihan di form
+// mapel adalah agama yang benar-benar ada pada siswa aktif yayasan ini, lengkap
+// dengan jumlah siswanya, sehingga salah ketik atau salah baca tidak mungkin
+// terjadi. Isian siswa yang tidak dikenali (kemungkinan typo) dilaporkan agar
+// bisa diperbaiki di Data Siswa.
+export interface RingkasanAgamaSiswa {
+  /** Agama baku yang ada pada siswa aktif, urut DAFTAR_AGAMA, dengan jumlah siswa. */
+  agama: Array<{ nama: Agama; jumlah: number }>
+  /** Isian agama siswa yang tidak dikenali (kemungkinan typo), dengan jumlah siswa. */
+  tidakDikenali: Array<{ nilai: string; jumlah: number }>
+  /** Siswa aktif yang agamanya belum diisi. */
+  belumDiisi: number
+  totalAktif: number
+  /** true bila kolom siswa.agama belum ada (migrasi 61 belum dijalankan). */
+  kolomBelumAda?: boolean
+}
+
+export async function ringkasanAgamaSiswa(db: DbClient): Promise<RingkasanAgamaSiswa> {
+  const kosong: RingkasanAgamaSiswa = { agama: [], tidakDikenali: [], belumDiisi: 0, totalAktif: 0 }
+  const { data, error } = await ambilSemuaBaris<{ nis: string; agama?: unknown }>((dari, sampai) =>
+    db.from('siswa').select('nis, agama').eq('status', 'AKTIF')
+      .order('nis', { ascending: true }).range(dari, sampai)
+  )
+  if (error) {
+    if (/agama/i.test(error.message)) return { ...kosong, kolomBelumAda: true }
+    throw new Error(error.message)
+  }
+
+  const hitung = new Map<Agama, number>()
+  const asing = new Map<string, number>()
+  let belumDiisi = 0
+  for (const r of data) {
+    const a = normalisasiAgama(r.agama)
+    if (a) hitung.set(a, (hitung.get(a) ?? 0) + 1)
+    else if (adaIsianAgama(r.agama)) {
+      const nilai = String(r.agama).trim()
+      asing.set(nilai, (asing.get(nilai) ?? 0) + 1)
+    } else belumDiisi++
+  }
+  return {
+    agama: DAFTAR_AGAMA.filter((a) => hitung.has(a)).map((a) => ({ nama: a, jumlah: hitung.get(a) ?? 0 })),
+    tidakDikenali: [...asing.entries()].map(([nilai, jumlah]) => ({ nilai, jumlah })).sort((x, y) => y.jumlah - x.jumlah),
+    belumDiisi,
+    totalAktif: data.length,
+  }
 }

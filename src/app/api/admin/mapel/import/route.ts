@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRoleAktif } from '@/lib/status-akun'
 import { generateId } from '@/lib/utils'
-import { agamaMapelTidakDikenali, gabungAgamaMapel } from '@/lib/agama'
+import { agamaMapelTidakDikenali, daftarAgamaMapel, gabungAgamaMapel, ringkasanAgamaSiswa } from '@/lib/agama'
 
 // Impor massal Mata Pelajaran dari file Excel.
 //
@@ -121,6 +121,8 @@ export async function POST(req: NextRequest) {
 
   const errors: string[] = []
   const warnings: string[] = []
+  // Agama yang ditulis di Excel dicocokkan dengan data siswa (peringatan, bukan penolakan).
+  const cekAgamaBaris: { label: string; daftar: string[] }[] = []
   const baru: { id: string; nama: string; guru_id: string | null; kelas_list: string; jumlah_opsi: number; kkm: number; agama?: string }[] = []
 
   for (let i = 0; i < rows.length; i++) {
@@ -194,6 +196,7 @@ export async function POST(req: NextRequest) {
     //     supaya mapel agama tidak diam-diam menjadi mapel umum.
     const agamaRaw = String(row.agama ?? '').trim()
     const agama = gabungAgamaMapel(agamaRaw)
+    if (agama) cekAgamaBaris.push({ label, daftar: daftarAgamaMapel(agama) })
     const agamaAsing = agamaMapelTidakDikenali(agamaRaw)
     if (agamaRaw && (!agama || agamaAsing.length > 0)) {
       errors.push(`${label}: Khusus Agama "${agamaRaw}" tidak dikenali (gunakan Islam, Kristen, Katolik, Hindu, Buddha, atau Konghucu; beberapa agama dipisah koma, mis. Kristen, Katolik; kosongkan untuk mapel umum)`)
@@ -246,6 +249,23 @@ export async function POST(req: NextRequest) {
     if (kurang.length > 0) {
       warnings.push(`${label}: dibuat tanpa ${kurang.join(' dan ')}, lengkapi lewat tombol Edit`)
     }
+  }
+
+  // Peringatan bila agama yang ditulis belum ada pada siswa aktif (mungkin salah tulis
+  // atau agama siswa belum diisi). Tidak menggagalkan impor.
+  if (cekAgamaBaris.length > 0 && baru.length > 0) {
+    try {
+      const ringkas = await ringkasanAgamaSiswa(db)
+      if (!ringkas.kolomBelumAda) {
+        const ada = new Set<string>(ringkas.agama.map(a => a.nama))
+        for (const c of cekAgamaBaris) {
+          const tidakAda = c.daftar.filter(a => !ada.has(a))
+          if (tidakAda.length > 0) {
+            warnings.push(`${c.label}: belum ada siswa aktif beragama ${tidakAda.join(', ')} di Data Siswa. Periksa penulisannya atau lengkapi agama siswa.`)
+          }
+        }
+      }
+    } catch { /* pemeriksaan opsional; abaikan kalau gagal */ }
   }
 
   // Semua baris yang lolos disimpan dalam satu perintah (semua atau tidak sama sekali).

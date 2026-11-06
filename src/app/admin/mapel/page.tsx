@@ -6,7 +6,7 @@ import { Plus, Pencil, Trash2, BookOpen, Search, Upload, Download } from 'lucide
 import { Modal, Confirm, EmptyState, Spinner, Toast, SearchInput } from '@/components/ui'
 import { apiRequest } from '@/lib/utils'
 import { Mapel, User, Kelas } from '@/types'
-import { DAFTAR_AGAMA, daftarAgamaMapel, gabungAgamaMapel, labelAgamaMapel, type Agama } from '@/lib/agama'
+import { DAFTAR_AGAMA, daftarAgamaMapel, gabungAgamaMapel, labelAgamaMapel, type Agama, type RingkasanAgamaSiswa } from '@/lib/agama'
 
 interface ImportMapelRow {
   nama: string
@@ -72,6 +72,10 @@ export default function AdminMapelPage() {
   // Khusus agama ([] = mapel umum). Boleh lebih dari satu agama (mis. Kristen + Katolik).
   // Berlaku untuk seluruh pengampu mapel yang sama.
   const [agamaForm, setAgamaForm] = useState<Agama[]>([])
+  // Pilihan agama diambil dari DATA SISWA aktif (bukan daftar tetap), supaya
+  // admin tidak salah ketik / salah baca. Dimuat tiap form dibuka.
+  const [ringkasanAgama, setRingkasanAgama] = useState<RingkasanAgamaSiswa | null>(null)
+  const [agamaStatus, setAgamaStatus] = useState<'muat' | 'ok' | 'gagal'>('muat')
   // true saat membuka "+ Guru" pada mapel yang sudah ada: nama dikunci.
   const [kunciNama, setKunciNama] = useState(false)
   // Impor mapel dari Excel
@@ -100,6 +104,16 @@ export default function AdminMapelPage() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  useEffect(() => {
+    if (!modalOpen) return
+    let batal = false
+    setAgamaStatus('muat')
+    apiRequest<{ data: RingkasanAgamaSiswa }>('/api/admin/agama-siswa')
+      .then(r => { if (!batal) { setRingkasanAgama(r.data); setAgamaStatus('ok') } })
+      .catch(() => { if (!batal) setAgamaStatus('gagal') })
+    return () => { batal = true }
+  }, [modalOpen])
 
   useEffect(() => {
     apiRequest<{ data: User[] }>('/api/admin/users?all=true')
@@ -147,6 +161,15 @@ export default function AdminMapelPage() {
     setKunciNama(false)
     setModalOpen(true)
   }
+
+  // Agama yang ada pada siswa aktif. Agama yang sudah tersimpan di mapel tetapi
+  // tidak (lagi) ada siswanya tetap ditampilkan agar bisa dilepas.
+  const opsiAgama = useMemo(() => {
+    const dariData = new Map((ringkasanAgama?.agama ?? []).map(a => [a.nama, a.jumlah] as const))
+    return DAFTAR_AGAMA
+      .filter(a => dariData.has(a) || agamaForm.includes(a))
+      .map(a => ({ nama: a, jumlah: dariData.get(a) ?? 0 }))
+  }, [ringkasanAgama, agamaForm])
 
   function toggleAgama(a: Agama) {
     setAgamaForm(prev => (prev.includes(a) ? prev.filter(x => x !== a) : DAFTAR_AGAMA.filter(x => x === a || prev.includes(x))))
@@ -290,7 +313,7 @@ export default function AdminMapelPage() {
       [`${C.guru}: opsional. Isi username guru (lihat sheet "Daftar Guru"). Kosong = guru belum ditentukan.`],
       [`${C.kelas}: opsional. Isi nama kelas persis seperti di sheet "Daftar Kelas". Beberapa kelas dipisah koma, contoh: 10, 11.`],
       [`${C.kkm}: opsional, bilangan bulat 0 sampai 100. Kosong = 75.`],
-      [`${C.agama}: opsional. Isi hanya untuk mapel Pendidikan Agama: Islam, Kristen, Katolik, Hindu, Buddha, atau Konghucu. Untuk beberapa agama sekaligus, pisahkan dengan koma, contoh: Kristen, Katolik. Kosong = mapel umum (semua siswa kelas ikut).`],
+      [`${C.agama}: opsional. Isi hanya untuk mapel Pendidikan Agama: Islam, Kristen, Katolik, Hindu, Buddha, atau Konghucu. Untuk beberapa agama sekaligus, pisahkan dengan koma, contoh: Kristen, Katolik. Tulis sesuai agama yang ada di Data Siswa; kalau belum ada siswa beragama itu, akan muncul peringatan setelah impor. Kosong = mapel umum (semua siswa kelas ikut).`],
       ['Contoh: buat dua baris terpisah, "PENDIDIKAN AGAMA ISLAM" (Khusus Agama: Islam) dan "PENDIDIKAN AGAMA KRISTEN" (Khusus Agama: Kristen). Kalau sekolah menggabungkan Kristen dan Katolik dalam satu pelajaran, cukup satu baris dengan Khusus Agama: Kristen, Katolik. Siswa hanya menjadi peserta mapel yang seagama.'],
       [''],
       ['ATURAN'],
@@ -703,7 +726,7 @@ export default function AdminMapelPage() {
             <div>
               <label className="label">Khusus Agama</label>
               <div className="flex flex-wrap gap-2 mt-1">
-                {DAFTAR_AGAMA.map(a => {
+                {opsiAgama.map(({ nama: a, jumlah }) => {
                   const aktif = agamaForm.includes(a)
                   return (
                     <label
@@ -724,15 +747,43 @@ export default function AdminMapelPage() {
                         onChange={() => toggleAgama(a)}
                       />
                       {a}
+                      <span className="text-[11px] font-normal text-slate-500">
+                        · {jumlah > 0 ? `${jumlah} siswa` : 'belum ada siswa'}
+                      </span>
                     </label>
                   )
                 })}
               </div>
+              {agamaStatus === 'muat' && (
+                <p className="text-xs text-slate-500 mt-1">Memuat agama dari data siswa…</p>
+              )}
+              {agamaStatus === 'gagal' && (
+                <p className="text-xs text-red-600 mt-1">Agama dari data siswa gagal dimuat. Tutup lalu buka lagi form ini.</p>
+              )}
+              {agamaStatus === 'ok' && ringkasanAgama?.kolomBelumAda && (
+                <p className="text-xs text-amber-600 mt-1">
+                  Kolom agama siswa belum ada di database. Jalankan supabase/61_agama_siswa_dan_mapel.sql, lalu isi agama di menu Data Siswa.
+                </p>
+              )}
+              {agamaStatus === 'ok' && !ringkasanAgama?.kolomBelumAda && opsiAgama.length === 0 && (
+                <p className="text-xs text-amber-600 mt-1">
+                  Belum ada siswa aktif yang agamanya terisi, jadi belum ada pilihan. Isi agama siswa di menu Data Siswa
+                  (form Edit atau impor Excel), lalu buka form ini lagi. Mapel tetap bisa disimpan sebagai mapel umum.
+                </p>
+              )}
+              {agamaStatus === 'ok' && !kkmTerkunci && (ringkasanAgama?.tidakDikenali.length ?? 0) > 0 && (
+                <p className="text-xs text-amber-600 mt-1">
+                  {ringkasanAgama!.tidakDikenali.reduce((n, x) => n + x.jumlah, 0)} siswa punya isian agama yang tidak dikenali
+                  ({ringkasanAgama!.tidakDikenali.slice(0, 3).map(x => `“${x.nilai}”`).join(', ')}
+                  {ringkasanAgama!.tidakDikenali.length > 3 ? ', …' : ''}), jadi agamanya tidak muncul di sini.
+                  Perbaiki di menu Data Siswa.
+                </p>
+              )}
               <p className="text-xs text-slate-500 mt-1">
                 {kkmTerkunci
                   ? 'Mengikuti pengaturan mapel ini.'
                   : agamaForm.length === 0
-                    ? 'Umum: semua siswa kelas menjadi peserta. Centang agama untuk Pendidikan Agama (mis. PAI = Islam; PAK = Kristen + Katolik).'
+                    ? 'Pilihan berasal dari agama yang ada di data siswa. Kosong = mapel umum (semua siswa kelas ikut).'
                     : `Hanya siswa beragama ${labelAgamaMapel(agamaForm, ' atau ')} yang menjadi peserta.`}
               </p>
             </div>

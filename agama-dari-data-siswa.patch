@@ -1,0 +1,264 @@
+diff --git a/src/app/admin/mapel/page.tsx b/src/app/admin/mapel/page.tsx
+index cb1f2f4..9673f90 100644
+--- a/src/app/admin/mapel/page.tsx
++++ b/src/app/admin/mapel/page.tsx
+@@ -6,7 +6,7 @@ import { Plus, Pencil, Trash2, BookOpen, Search, Upload, Download } from 'lucide
+ import { Modal, Confirm, EmptyState, Spinner, Toast, SearchInput } from '@/components/ui'
+ import { apiRequest } from '@/lib/utils'
+ import { Mapel, User, Kelas } from '@/types'
+-import { DAFTAR_AGAMA, daftarAgamaMapel, gabungAgamaMapel, labelAgamaMapel, type Agama } from '@/lib/agama'
++import { DAFTAR_AGAMA, daftarAgamaMapel, gabungAgamaMapel, labelAgamaMapel, type Agama, type RingkasanAgamaSiswa } from '@/lib/agama'
+ 
+ interface ImportMapelRow {
+   nama: string
+@@ -72,6 +72,10 @@ export default function AdminMapelPage() {
+   // Khusus agama ([] = mapel umum). Boleh lebih dari satu agama (mis. Kristen + Katolik).
+   // Berlaku untuk seluruh pengampu mapel yang sama.
+   const [agamaForm, setAgamaForm] = useState<Agama[]>([])
++  // Pilihan agama diambil dari DATA SISWA aktif (bukan daftar tetap), supaya
++  // admin tidak salah ketik / salah baca. Dimuat tiap form dibuka.
++  const [ringkasanAgama, setRingkasanAgama] = useState<RingkasanAgamaSiswa | null>(null)
++  const [agamaStatus, setAgamaStatus] = useState<'muat' | 'ok' | 'gagal'>('muat')
+   // true saat membuka "+ Guru" pada mapel yang sudah ada: nama dikunci.
+   const [kunciNama, setKunciNama] = useState(false)
+   // Impor mapel dari Excel
+@@ -101,6 +105,16 @@ export default function AdminMapelPage() {
+ 
+   useEffect(() => { load() }, [load])
+ 
++  useEffect(() => {
++    if (!modalOpen) return
++    let batal = false
++    setAgamaStatus('muat')
++    apiRequest<{ data: RingkasanAgamaSiswa }>('/api/admin/agama-siswa')
++      .then(r => { if (!batal) { setRingkasanAgama(r.data); setAgamaStatus('ok') } })
++      .catch(() => { if (!batal) setAgamaStatus('gagal') })
++    return () => { batal = true }
++  }, [modalOpen])
++
+   useEffect(() => {
+     apiRequest<{ data: User[] }>('/api/admin/users?all=true')
+       .then(r => setUsers(r.data.filter(u => u.role === 'GURU')))
+@@ -148,6 +162,15 @@ export default function AdminMapelPage() {
+     setModalOpen(true)
+   }
+ 
++  // Agama yang ada pada siswa aktif. Agama yang sudah tersimpan di mapel tetapi
++  // tidak (lagi) ada siswanya tetap ditampilkan agar bisa dilepas.
++  const opsiAgama = useMemo(() => {
++    const dariData = new Map((ringkasanAgama?.agama ?? []).map(a => [a.nama, a.jumlah] as const))
++    return DAFTAR_AGAMA
++      .filter(a => dariData.has(a) || agamaForm.includes(a))
++      .map(a => ({ nama: a, jumlah: dariData.get(a) ?? 0 }))
++  }, [ringkasanAgama, agamaForm])
++
+   function toggleAgama(a: Agama) {
+     setAgamaForm(prev => (prev.includes(a) ? prev.filter(x => x !== a) : DAFTAR_AGAMA.filter(x => x === a || prev.includes(x))))
+   }
+@@ -290,7 +313,7 @@ export default function AdminMapelPage() {
+       [`${C.guru}: opsional. Isi username guru (lihat sheet "Daftar Guru"). Kosong = guru belum ditentukan.`],
+       [`${C.kelas}: opsional. Isi nama kelas persis seperti di sheet "Daftar Kelas". Beberapa kelas dipisah koma, contoh: 10, 11.`],
+       [`${C.kkm}: opsional, bilangan bulat 0 sampai 100. Kosong = 75.`],
+-      [`${C.agama}: opsional. Isi hanya untuk mapel Pendidikan Agama: Islam, Kristen, Katolik, Hindu, Buddha, atau Konghucu. Untuk beberapa agama sekaligus, pisahkan dengan koma, contoh: Kristen, Katolik. Kosong = mapel umum (semua siswa kelas ikut).`],
++      [`${C.agama}: opsional. Isi hanya untuk mapel Pendidikan Agama: Islam, Kristen, Katolik, Hindu, Buddha, atau Konghucu. Untuk beberapa agama sekaligus, pisahkan dengan koma, contoh: Kristen, Katolik. Tulis sesuai agama yang ada di Data Siswa; kalau belum ada siswa beragama itu, akan muncul peringatan setelah impor. Kosong = mapel umum (semua siswa kelas ikut).`],
+       ['Contoh: buat dua baris terpisah, "PENDIDIKAN AGAMA ISLAM" (Khusus Agama: Islam) dan "PENDIDIKAN AGAMA KRISTEN" (Khusus Agama: Kristen). Kalau sekolah menggabungkan Kristen dan Katolik dalam satu pelajaran, cukup satu baris dengan Khusus Agama: Kristen, Katolik. Siswa hanya menjadi peserta mapel yang seagama.'],
+       [''],
+       ['ATURAN'],
+@@ -703,7 +726,7 @@ export default function AdminMapelPage() {
+             <div>
+               <label className="label">Khusus Agama</label>
+               <div className="flex flex-wrap gap-2 mt-1">
+-                {DAFTAR_AGAMA.map(a => {
++                {opsiAgama.map(({ nama: a, jumlah }) => {
+                   const aktif = agamaForm.includes(a)
+                   return (
+                     <label
+@@ -724,15 +747,43 @@ export default function AdminMapelPage() {
+                         onChange={() => toggleAgama(a)}
+                       />
+                       {a}
++                      <span className="text-[11px] font-normal text-slate-500">
++                        · {jumlah > 0 ? `${jumlah} siswa` : 'belum ada siswa'}
++                      </span>
+                     </label>
+                   )
+                 })}
+               </div>
++              {agamaStatus === 'muat' && (
++                <p className="text-xs text-slate-500 mt-1">Memuat agama dari data siswa…</p>
++              )}
++              {agamaStatus === 'gagal' && (
++                <p className="text-xs text-red-600 mt-1">Agama dari data siswa gagal dimuat. Tutup lalu buka lagi form ini.</p>
++              )}
++              {agamaStatus === 'ok' && ringkasanAgama?.kolomBelumAda && (
++                <p className="text-xs text-amber-600 mt-1">
++                  Kolom agama siswa belum ada di database. Jalankan supabase/61_agama_siswa_dan_mapel.sql, lalu isi agama di menu Data Siswa.
++                </p>
++              )}
++              {agamaStatus === 'ok' && !ringkasanAgama?.kolomBelumAda && opsiAgama.length === 0 && (
++                <p className="text-xs text-amber-600 mt-1">
++                  Belum ada siswa aktif yang agamanya terisi, jadi belum ada pilihan. Isi agama siswa di menu Data Siswa
++                  (form Edit atau impor Excel), lalu buka form ini lagi. Mapel tetap bisa disimpan sebagai mapel umum.
++                </p>
++              )}
++              {agamaStatus === 'ok' && !kkmTerkunci && (ringkasanAgama?.tidakDikenali.length ?? 0) > 0 && (
++                <p className="text-xs text-amber-600 mt-1">
++                  {ringkasanAgama!.tidakDikenali.reduce((n, x) => n + x.jumlah, 0)} siswa punya isian agama yang tidak dikenali
++                  ({ringkasanAgama!.tidakDikenali.slice(0, 3).map(x => `“${x.nilai}”`).join(', ')}
++                  {ringkasanAgama!.tidakDikenali.length > 3 ? ', …' : ''}), jadi agamanya tidak muncul di sini.
++                  Perbaiki di menu Data Siswa.
++                </p>
++              )}
+               <p className="text-xs text-slate-500 mt-1">
+                 {kkmTerkunci
+                   ? 'Mengikuti pengaturan mapel ini.'
+                   : agamaForm.length === 0
+-                    ? 'Umum: semua siswa kelas menjadi peserta. Centang agama untuk Pendidikan Agama (mis. PAI = Islam; PAK = Kristen + Katolik).'
++                    ? 'Pilihan berasal dari agama yang ada di data siswa. Kosong = mapel umum (semua siswa kelas ikut).'
+                     : `Hanya siswa beragama ${labelAgamaMapel(agamaForm, ' atau ')} yang menjadi peserta.`}
+               </p>
+             </div>
+diff --git a/src/app/api/admin/agama-siswa/route.ts b/src/app/api/admin/agama-siswa/route.ts
+new file mode 100644
+index 0000000..7ff3769
+--- /dev/null
++++ b/src/app/api/admin/agama-siswa/route.ts
+@@ -0,0 +1,20 @@
++import { NextRequest, NextResponse } from 'next/server'
++import { tenantDb, yayasanIdDari } from '@/lib/tenant'
++import { requireRoleAktif } from '@/lib/status-akun'
++import { ringkasanAgamaSiswa } from '@/lib/agama'
++
++// Agama yang ada pada siswa aktif yayasan ini (beserta jumlahnya). Dipakai form
++// Mata Pelajaran > Khusus Agama supaya pilihan agama berasal dari data siswa,
++// bukan daftar yang dibuat sendiri.
++export async function GET(req: NextRequest) {
++  const auth = await requireRoleAktif(req, ['ADMIN'])
++  if ('error' in auth) return auth.error
++
++  const db = tenantDb(yayasanIdDari(auth.user))
++  try {
++    const data = await ringkasanAgamaSiswa(db)
++    return NextResponse.json({ data })
++  } catch (e) {
++    return NextResponse.json({ error: e instanceof Error ? e.message : 'Gagal membaca agama siswa' }, { status: 500 })
++  }
++}
+diff --git a/src/app/api/admin/mapel/import/route.ts b/src/app/api/admin/mapel/import/route.ts
+index cb14a4b..b14b4c9 100644
+--- a/src/app/api/admin/mapel/import/route.ts
++++ b/src/app/api/admin/mapel/import/route.ts
+@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
+ import { tenantDb, yayasanIdDari } from '@/lib/tenant'
+ import { requireRoleAktif } from '@/lib/status-akun'
+ import { generateId } from '@/lib/utils'
+-import { agamaMapelTidakDikenali, gabungAgamaMapel } from '@/lib/agama'
++import { agamaMapelTidakDikenali, daftarAgamaMapel, gabungAgamaMapel, ringkasanAgamaSiswa } from '@/lib/agama'
+ 
+ // Impor massal Mata Pelajaran dari file Excel.
+ //
+@@ -121,6 +121,8 @@ export async function POST(req: NextRequest) {
+ 
+   const errors: string[] = []
+   const warnings: string[] = []
++  // Agama yang ditulis di Excel dicocokkan dengan data siswa (peringatan, bukan penolakan).
++  const cekAgamaBaris: { label: string; daftar: string[] }[] = []
+   const baru: { id: string; nama: string; guru_id: string | null; kelas_list: string; jumlah_opsi: number; kkm: number; agama?: string }[] = []
+ 
+   for (let i = 0; i < rows.length; i++) {
+@@ -194,6 +196,7 @@ export async function POST(req: NextRequest) {
+     //     supaya mapel agama tidak diam-diam menjadi mapel umum.
+     const agamaRaw = String(row.agama ?? '').trim()
+     const agama = gabungAgamaMapel(agamaRaw)
++    if (agama) cekAgamaBaris.push({ label, daftar: daftarAgamaMapel(agama) })
+     const agamaAsing = agamaMapelTidakDikenali(agamaRaw)
+     if (agamaRaw && (!agama || agamaAsing.length > 0)) {
+       errors.push(`${label}: Khusus Agama "${agamaRaw}" tidak dikenali (gunakan Islam, Kristen, Katolik, Hindu, Buddha, atau Konghucu; beberapa agama dipisah koma, mis. Kristen, Katolik; kosongkan untuk mapel umum)`)
+@@ -248,6 +251,23 @@ export async function POST(req: NextRequest) {
+     }
+   }
+ 
++  // Peringatan bila agama yang ditulis belum ada pada siswa aktif (mungkin salah tulis
++  // atau agama siswa belum diisi). Tidak menggagalkan impor.
++  if (cekAgamaBaris.length > 0 && baru.length > 0) {
++    try {
++      const ringkas = await ringkasanAgamaSiswa(db)
++      if (!ringkas.kolomBelumAda) {
++        const ada = new Set<string>(ringkas.agama.map(a => a.nama))
++        for (const c of cekAgamaBaris) {
++          const tidakAda = c.daftar.filter(a => !ada.has(a))
++          if (tidakAda.length > 0) {
++            warnings.push(`${c.label}: belum ada siswa aktif beragama ${tidakAda.join(', ')} di Data Siswa. Periksa penulisannya atau lengkapi agama siswa.`)
++          }
++        }
++      }
++    } catch { /* pemeriksaan opsional; abaikan kalau gagal */ }
++  }
++
+   // Semua baris yang lolos disimpan dalam satu perintah (semua atau tidak sama sekali).
+   if (baru.length > 0) {
+     const { error } = await db.from('mapel').insert(baru)
+diff --git a/src/lib/agama.ts b/src/lib/agama.ts
+index 7988016..bcdaf54 100644
+--- a/src/lib/agama.ts
++++ b/src/lib/agama.ts
+@@ -21,6 +21,7 @@
+ // dianggap umum sehingga perilaku aplikasi sama seperti sebelumnya.
+ 
+ import type { createAdminClient } from '@/lib/supabase'
++import { ambilSemuaBaris } from '@/lib/ambil-semua'
+ 
+ type DbClient = ReturnType<typeof createAdminClient>
+ 
+@@ -218,3 +219,51 @@ export async function bangunPenyaringPeserta(
+ export function labelAgama(a: unknown): string {
+   return normalisasiAgama(a) ?? ''
+ }
++
++// ── Pilihan agama untuk form mapel: diambil dari DATA SISWA ─────────────────
++// Admin tidak mengetik / memilih dari daftar buatan sendiri. Pilihan di form
++// mapel adalah agama yang benar-benar ada pada siswa aktif yayasan ini, lengkap
++// dengan jumlah siswanya, sehingga salah ketik atau salah baca tidak mungkin
++// terjadi. Isian siswa yang tidak dikenali (kemungkinan typo) dilaporkan agar
++// bisa diperbaiki di Data Siswa.
++export interface RingkasanAgamaSiswa {
++  /** Agama baku yang ada pada siswa aktif, urut DAFTAR_AGAMA, dengan jumlah siswa. */
++  agama: Array<{ nama: Agama; jumlah: number }>
++  /** Isian agama siswa yang tidak dikenali (kemungkinan typo), dengan jumlah siswa. */
++  tidakDikenali: Array<{ nilai: string; jumlah: number }>
++  /** Siswa aktif yang agamanya belum diisi. */
++  belumDiisi: number
++  totalAktif: number
++  /** true bila kolom siswa.agama belum ada (migrasi 61 belum dijalankan). */
++  kolomBelumAda?: boolean
++}
++
++export async function ringkasanAgamaSiswa(db: DbClient): Promise<RingkasanAgamaSiswa> {
++  const kosong: RingkasanAgamaSiswa = { agama: [], tidakDikenali: [], belumDiisi: 0, totalAktif: 0 }
++  const { data, error } = await ambilSemuaBaris<{ nis: string; agama?: unknown }>((dari, sampai) =>
++    db.from('siswa').select('nis, agama').eq('status', 'AKTIF')
++      .order('nis', { ascending: true }).range(dari, sampai)
++  )
++  if (error) {
++    if (/agama/i.test(error.message)) return { ...kosong, kolomBelumAda: true }
++    throw new Error(error.message)
++  }
++
++  const hitung = new Map<Agama, number>()
++  const asing = new Map<string, number>()
++  let belumDiisi = 0
++  for (const r of data) {
++    const a = normalisasiAgama(r.agama)
++    if (a) hitung.set(a, (hitung.get(a) ?? 0) + 1)
++    else if (adaIsianAgama(r.agama)) {
++      const nilai = String(r.agama).trim()
++      asing.set(nilai, (asing.get(nilai) ?? 0) + 1)
++    } else belumDiisi++
++  }
++  return {
++    agama: DAFTAR_AGAMA.filter((a) => hitung.has(a)).map((a) => ({ nama: a, jumlah: hitung.get(a) ?? 0 })),
++    tidakDikenali: [...asing.entries()].map(([nilai, jumlah]) => ({ nilai, jumlah })).sort((x, y) => y.jumlah - x.jumlah),
++    belumDiisi,
++    totalAktif: data.length,
++  }
++}
