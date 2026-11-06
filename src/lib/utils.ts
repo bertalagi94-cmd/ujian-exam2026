@@ -1,7 +1,7 @@
 import { nisTerkunciTab, nisDariToken, IdentitasBerubahError } from '@/lib/identitas-tab'
 import { clsx, type ClassValue } from 'clsx'
 import { twMerge } from 'tailwind-merge'
-import { registerServerDate } from '@/lib/clock-offset'
+import { registerServerDate, catatKontakServer } from '@/lib/clock-offset'
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
@@ -240,6 +240,9 @@ export function apiRequest<T = unknown>(
       // response — gratis, tidak perlu endpoint khusus. Lihat
       // src/lib/clock-offset.ts untuk detail & keterbatasannya.
       registerServerDate(res.headers.get('date'))
+      // HEMAT VERCEL: server menjawab (bukan 5xx) = terjangkau. Pemantau jaringan
+      // tidak perlu memanggil /health lagi dalam beberapa detik ke depan.
+      if (res.status < 500) catatKontakServer()
 
       // Safely parse JSON — body bisa kosong (204) atau bukan JSON
       let data: Record<string, unknown> = {}

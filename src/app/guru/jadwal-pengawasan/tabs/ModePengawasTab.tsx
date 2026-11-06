@@ -103,7 +103,7 @@ const BATAS_TANPA_SINYAL_DETIK = 60
 // Ambang pop-up "siswa terputus". Heartbeat tiap ±10 dtk dan panel ini polling
 // tiap 8 dtk, jadi 30 dtk = ±3 heartbeat terlewat (cukup untuk menyaring sinyal
 // yang hanya lambat sebentar). Pop-up baru muncul ±30-45 dtk setelah putus.
-const BATAS_POPUP_TERPUTUS_DETIK = 30
+const BATAS_POPUP_TERPUTUS_DETIK = 45 // dulu 30; heartbeat siswa kini ~20 dtk (cek-sesi), beri ruang agar tidak salah alarm
 
 function formatTanpaSinyal(detik: number): string {
   if (detik < 120) return `${detik} dtk`
@@ -655,7 +655,8 @@ export function ModePengawasTab() {
       .filter(j => j.sesi_ujian?.status === 'BERJALAN')
       .map(j => j.sesi_ujian!.id)
     if (!runningSesiIds.length) return
-    pollingRef.current = setInterval(() => fetchMonitor(runningSesiIds), 8000)
+    // HEMAT VERCEL: dulu 8 dtk. Tiap tick menarik roster seluruh siswa sesi.
+    pollingRef.current = setInterval(() => fetchMonitor(runningSesiIds), 12000)
     return () => { if (pollingRef.current) clearInterval(pollingRef.current) }
   }, [jadwal, fetchMonitor])
 
@@ -668,7 +669,9 @@ export function ModePengawasTab() {
       .filter(j => j.sesi_ujian?.status === 'BERJALAN')
       .map(j => j.sesi_ujian!.id)
     if (!runningSesiIds.length) return
-    pollingPelRef.current = setInterval(() => cekPelanggaranCepat(runningSesiIds), 1500)
+    // HEMAT VERCEL: dulu 1,5 dtk (40 panggilan/menit per pengawas). 3 dtk tetap
+    // terasa langsung bagi pengawas, separuh beban server.
+    pollingPelRef.current = setInterval(() => cekPelanggaranCepat(runningSesiIds), 3000)
     return () => { if (pollingPelRef.current) clearInterval(pollingPelRef.current) }
   }, [jadwal, cekPelanggaranCepat])
 

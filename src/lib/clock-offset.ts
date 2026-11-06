@@ -97,6 +97,22 @@ export function registerServerDate(dateHeaderValue: string | null | undefined): 
   }
 }
 
+// HEMAT VERCEL: waktu (jam perangkat) terakhir kali ada response dari server
+// aplikasi yang membuktikan server TERJANGKAU (bukan 5xx/timeout). Dipakai
+// pemantau jaringan (status-jaringan.ts) untuk melewati denyut /health kalau
+// request lain (cek-sesi, sync, dst.) baru saja berhasil -- buktinya sama,
+// tapi tanpa memanggil fungsi Vercel tambahan.
+let kontakServerTerakhirMs = 0
+
+/** Dipanggil dari apiRequest() saat server menjawab (status < 500). */
+export function catatKontakServer(): void {
+  kontakServerTerakhirMs = Date.now()
+}
+
+export function ambilKontakServerTerakhirMs(): number {
+  return kontakServerTerakhirMs
+}
+
 /** true kalau sudah pernah dapat minimal satu kalibrasi dari server. */
 export function sudahTerkalibrasi(): boolean {
   return terkalibrasi

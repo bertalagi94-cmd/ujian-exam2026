@@ -98,6 +98,26 @@ interface SoalUjian extends Soal {
 
 interface JawabanMap { [soalId: string]: string }
 
+// ── HEMAT VERCEL: polling & autosync ─────────────────────────────────────────
+// Jeda polling status sesi (cek-sesi). Dulu 10 dtk. Tiap panggilan = 1
+// invocation Vercel + beberapa query database per siswa, jadi 20 dtk memangkas
+// separuhnya. Dampak: siswa mengetahui sesi ditutup/dikunci pengawas paling
+// lambat ~20 dtk (sebelumnya ~10 dtk). Tombol/aksi siswa sendiri tidak berubah.
+const JEDA_CEK_SESI_MS = 20_000
+// Autosync berkala tiap 30 dtk dilewati kalau jawaban tidak berubah sejak sync
+// terakhir yang BERHASIL (sync cepat setelah tiap klik sudah mengirim
+// perubahan). Tetap dipaksa kirim minimal tiap 3 menit sebagai jaring pengaman.
+const JEDA_AUTOSYNC_MS = 30_000
+const AUTOSYNC_DIAM_MAKS_MS = 180_000
+
+// Sidik jari isi jawaban + revisinya, untuk mendeteksi "ada yang berubah".
+function buatSigJawaban(jawaban: JawabanMap, revisi: Record<string, number>): string {
+  return Object.keys(jawaban)
+    .sort()
+    .map(id => `${id}=${revisi[id] ?? 1}:${jawaban[id]}`)
+    .join('|')
+}
+
 // ── Tipe untuk fase essay (fitur essay) ───────────────────────────────────
 interface EssayInfo {
   namaMapel: string
@@ -1314,7 +1334,7 @@ export default function SiswaUjianPage() {
   useEffect(() => {
     if (phase !== 'UJIAN' && phase !== 'ESSAY_INFO' && phase !== 'ESSAY_KERJAKAN') return
     if (essayInfoBelumSiap) return
-    sesiPollRef.current = setInterval(cekStatusSesi, 10000)
+    sesiPollRef.current = setInterval(cekStatusSesi, JEDA_CEK_SESI_MS)
     return () => clearInterval(sesiPollRef.current!)
   }, [phase, cekStatusSesi, essayInfoBelumSiap])
 
@@ -1402,7 +1422,15 @@ export default function SiswaUjianPage() {
   // ── Auto sync ─────────────────────────────────────────────────────────────
   useEffect(() => {
     if (phase !== 'UJIAN') return
-    syncRef.current = setInterval(() => syncJawaban(), 30000)
+    syncRef.current = setInterval(() => {
+      const ok = syncOkTerakhirRef.current
+      if (
+        ok &&
+        Date.now() - ok.ts < AUTOSYNC_DIAM_MAKS_MS &&
+        ok.sig === buatSigJawaban(jawabanRef.current, jawabanRevisiRef.current)
+      ) return // tidak ada perubahan sejak sync berhasil terakhir
+      void syncJawaban()
+    }, JEDA_AUTOSYNC_MS)
     return () => {
       clearInterval(syncRef.current!)
       if (syncCepatTimerRef.current) { clearTimeout(syncCepatTimerRef.current); syncCepatTimerRef.current = null }
@@ -1426,6 +1454,9 @@ export default function SiswaUjianPage() {
   // PUNYA jawaban lokal saat ini sudah dikonfirmasi tersimpan PERSIS dengan
   // revisi yang sama di server".
   const ackTerakhirRef = useRef<Record<string, { revisi: number; accepted: boolean }>>({})
+  // Sidik jari + jam sync PG terakhir yang BERHASIL (dipakai autosync berkala
+  // untuk melewati pengiriman kalau tidak ada perubahan).
+  const syncOkTerakhirRef = useRef<{ sig: string; ts: number } | null>(null)
 
   // FIX BUG P1 (verifikasi submit berbasis COUNT saja bisa lolos padahal isi
   // salah/basi): totalSynced (jumlah baris) tidak peduli apakah ISI baris itu
@@ -1476,6 +1507,7 @@ export default function SiswaUjianPage() {
     const currentJawaban = jawabanRef.current
     if (!currentSesi) return { ok: true, totalSynced: 0 }
     const entries = Object.entries(currentJawaban)
+    const sigDikirim = buatSigJawaban(currentJawaban, jawabanRevisiRef.current)
 
     setSyncStatus('syncing')
     // true kalau kegagalan TERAKHIR murni karena server tidak terjangkau
@@ -1548,6 +1580,7 @@ export default function SiswaUjianPage() {
           }
         }
 
+        syncOkTerakhirRef.current = { sig: sigDikirim, ts: Date.now() }
         return { ok: true, totalSynced: res.totalSynced ?? 0 }
       } catch (e) {
         console.warn(`Sync percobaan ke-${attempt} gagal:`, e)

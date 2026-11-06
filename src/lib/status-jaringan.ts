@@ -9,11 +9,17 @@
 // langsung ONLINE. Saat OFFLINE denyut lebih rapat supaya pemulihan cepat
 // terdeteksi. Satu pemantau bersama (ref-counted) untuk seluruh aplikasi.
 import { useSyncExternalStore } from 'react'
-import { registerServerDate } from '@/lib/clock-offset'
+import { registerServerDate, ambilKontakServerTerakhirMs } from '@/lib/clock-offset'
 
 export type StatusJaringan = 'ONLINE' | 'CHECKING' | 'OFFLINE'
 
-const INTERVAL_ONLINE_MS = 5_000
+// HEMAT VERCEL: tiap denyut = 1 invocation fungsi Vercel per siswa. Dulu 5 dtk
+// (12x/menit/siswa); sekarang 20 dtk, dan dilewati sama sekali kalau request
+// lain (cek-sesi/sync) baru berhasil dalam KONTAK_SEGAR_MS terakhir.
+// Begitu ada 1 kegagalan, status jadi CHECKING dan denyut langsung rapat 3 dtk,
+// jadi deteksi putus jaringan tetap cepat.
+const INTERVAL_ONLINE_MS = 20_000
+const KONTAK_SEGAR_MS = 15_000
 const INTERVAL_OFFLINE_MS = 3_000
 const TIMEOUT_PING_MS = 3_000
 const GAGAL_UNTUK_OFFLINE = 2
@@ -49,6 +55,9 @@ async function pingServer(): Promise<boolean> {
 
 async function siklus(): Promise<void> {
   if (sedangPing) return
+  // Sudah ONLINE dan server baru menjawab request lain: bukti keterjangkauan
+  // sudah ada, lewati denyut ini (hemat 1 invocation Vercel).
+  if (status === 'ONLINE' && Date.now() - ambilKontakServerTerakhirMs() < KONTAK_SEGAR_MS) return
   sedangPing = true
   try {
     if (await pingServer()) {
