@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRoleAktif } from '@/lib/status-akun'
 import { pastikanKelasAda, pesanKelasTanpaSekolah, rapikanNamaKelas } from '@/lib/kelas-sync'
+import { adaIsianAgama, normalisasiAgama } from '@/lib/agama'
 
 export async function GET(req: NextRequest) {
   const auth = await requireRoleAktif(req, ['ADMIN'])
@@ -54,7 +55,7 @@ export async function POST(req: NextRequest) {
 
   const db = tenantDb(yayasanIdDari(auth.user))
   const body = await req.json()
-  const { nis, nama, kelas, jenis_kelamin, tempat_lahir, tanggal_lahir, status } = body
+  const { nis, nama, kelas, jenis_kelamin, tempat_lahir, tanggal_lahir, status, agama } = body
 
   if (!nis || !nama || !kelas) {
     return NextResponse.json({ error: 'NISN, nama, dan kelas wajib diisi' }, { status: 400 })
@@ -73,6 +74,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: e instanceof Error ? e.message : 'Gagal memproses kelas' }, { status: 500 })
   }
 
+  // Agama (opsional). Isian yang tidak dikenali ditolak supaya tidak tersimpan
+  // sebagai teks bebas yang tidak cocok dengan mapel khusus agama.
+  const agamaBaku = normalisasiAgama(agama)
+  if (adaIsianAgama(agama) && !agamaBaku) {
+    return NextResponse.json({ error: 'Agama tidak dikenali. Pilih: Islam, Kristen, Katolik, Hindu, Buddha, atau Konghucu.' }, { status: 400 })
+  }
+
   const password_hash = await bcrypt.hash(String(nis), 10)
 
   const { error } = await db.from('siswa').insert({
@@ -84,9 +92,15 @@ export async function POST(req: NextRequest) {
     tempat_lahir: tempat_lahir || null,
     tanggal_lahir: tanggal_lahir || null,
     status: status ?? 'AKTIF',
+    // Kolom agama hanya ikut dikirim kalau terisi, supaya aplikasi tetap jalan
+    // walau migrasi 61_agama_siswa_dan_mapel.sql belum dijalankan.
+    ...(agamaBaku ? { agama: agamaBaku } : {}),
   })
 
   if (error) {
+    if (agamaBaku && /agama/i.test(error.message)) {
+      return NextResponse.json({ error: 'Kolom agama belum ada di database. Jalankan supabase/61_agama_siswa_dan_mapel.sql terlebih dahulu.' }, { status: 500 })
+    }
     if (error.code === '23505') return NextResponse.json({ error: 'NISN sudah terdaftar' }, { status: 409 })
     return NextResponse.json({ error: error.message }, { status: 500 })
   }

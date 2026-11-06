@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari, idsMilikYayasan } from '@/lib/tenant'
 import { requireRoleAktif } from '@/lib/status-akun'
 import { generateId } from '@/lib/utils'
+import { adaIsianAgama, normalisasiAgama } from '@/lib/agama'
 
 function parseKelasList(kelasList: string | null | undefined): string[] {
   return (kelasList ?? '').split(',').map(s => s.trim()).filter(Boolean)
@@ -87,6 +88,12 @@ export async function POST(req: NextRequest) {
 
   const namaNormalized = String(body.nama).toUpperCase()
 
+  // Khusus agama (opsional): mapel Pendidikan Agama per agama, mis. PAI = Islam.
+  const agamaBaku = normalisasiAgama(body.agama)
+  if (adaIsianAgama(body.agama) && !agamaBaku) {
+    return NextResponse.json({ error: 'Agama tidak dikenali. Pilih: Islam, Kristen, Katolik, Hindu, Buddha, atau Konghucu.' }, { status: 400 })
+  }
+
   // Cek duplikasi: nama mapel + guru_id yang sama sudah ada
   const { data: existing } = body.guru_id
     ? await db.from('mapel').select('id').eq('nama', namaNormalized).eq('guru_id', body.guru_id).limit(1)
@@ -118,9 +125,17 @@ export async function POST(req: NextRequest) {
     kelas_list: body.kelas_list || '',
     jumlah_opsi: body.jumlah_opsi || 4,
     kkm: body.kkm || 75,
+    // Hanya dikirim kalau terisi, supaya tetap jalan walau migrasi
+    // 61_agama_siswa_dan_mapel.sql belum dijalankan.
+    ...(agamaBaku ? { agama: agamaBaku } : {}),
   })
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (error) {
+    if (agamaBaku && /agama/i.test(error.message)) {
+      return NextResponse.json({ error: 'Kolom agama belum ada di database. Jalankan supabase/61_agama_siswa_dan_mapel.sql terlebih dahulu.' }, { status: 500 })
+    }
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
   return NextResponse.json({ message: 'Mata pelajaran berhasil ditambahkan' }, { status: 201 })
 }
 
@@ -135,6 +150,12 @@ export async function PUT(req: NextRequest) {
   // Multi-yayasan: guru pengampu kiriman klien harus milik yayasan ini.
   if (update.guru_id && !(await idsMilikYayasan(db, 'users', [String(update.guru_id)], 'username'))) {
     return NextResponse.json({ error: 'Guru pengampu yang dipilih tidak ditemukan.' }, { status: 400 })
+  }
+
+  // Khusus agama: hanya diubah kalau field `agama` dikirim ('' = jadikan mapel umum).
+  const agamaBaku = normalisasiAgama(update.agama)
+  if (update.agama !== undefined && adaIsianAgama(update.agama) && !agamaBaku) {
+    return NextResponse.json({ error: 'Agama tidak dikenali. Pilih: Islam, Kristen, Katolik, Hindu, Buddha, atau Konghucu.' }, { status: 400 })
   }
 
   // Ambil nama final (kalau nama tidak dikirim di payload, pakai nama lama)
@@ -162,9 +183,15 @@ export async function PUT(req: NextRequest) {
     kelas_list: update.kelas_list,
     jumlah_opsi: update.jumlah_opsi,
     kkm: update.kkm,
+    ...(update.agama !== undefined ? { agama: agamaBaku } : {}),
   }).eq('id', id)
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (error) {
+    if (update.agama !== undefined && /agama/i.test(error.message)) {
+      return NextResponse.json({ error: 'Kolom agama belum ada di database. Jalankan supabase/61_agama_siswa_dan_mapel.sql terlebih dahulu.' }, { status: 500 })
+    }
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
   return NextResponse.json({ message: 'Mata pelajaran berhasil diperbarui' })
 }
 

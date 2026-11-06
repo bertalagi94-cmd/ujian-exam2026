@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRoleAktif } from '@/lib/status-akun'
+import { ambilAgamaMapel, saringSiswaSeagama } from '@/lib/agama'
 
 // GET ?sesiId=... — daftar siswa yang SUDAH_KIRIM essay di sesi ini,
 // beserta jawaban (teks untuk DIGITAL, url foto untuk KERTAS) dan nilai_pg.
@@ -141,6 +142,7 @@ export async function GET(req: NextRequest) {
   // bagian bawah tabel dengan pesan "belum ujian" yang jelas.
   let totalTargetSiswa = 0
   let rosterSiswa: { nis: string; nama: string }[] = []
+  const agamaMapelSesi = await ambilAgamaMapel(db, sesi.mapel_id)
   if (sesi.is_darurat && Array.isArray(sesi.siswa_diizinkan) && sesi.siswa_diizinkan.length > 0) {
     totalTargetSiswa = sesi.siswa_diizinkan.length
     const { data: siswaDarurat } = await db
@@ -148,13 +150,16 @@ export async function GET(req: NextRequest) {
       .select('nis, nama')
       .in('nis', sesi.siswa_diizinkan)
     rosterSiswa = siswaDarurat ?? []
+    // Mapel khusus agama: hanya siswa seagama yang dihitung peserta.
+    rosterSiswa = await saringSiswaSeagama(db, rosterSiswa, agamaMapelSesi)
+    totalTargetSiswa = rosterSiswa.length
   } else if (sesi.kelas) {
     const { data: siswaKelas } = await db
       .from('siswa')
       .select('nis, nama')
       .eq('kelas', sesi.kelas)
       .eq('status', 'AKTIF')
-    rosterSiswa = siswaKelas ?? []
+    rosterSiswa = await saringSiswaSeagama(db, siswaKelas ?? [], agamaMapelSesi)
     totalTargetSiswa = rosterSiswa.length
   }
 

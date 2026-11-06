@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRoleAktif } from '@/lib/status-akun'
 import { generateId } from '@/lib/utils'
+import { normalisasiAgama } from '@/lib/agama'
 
 // Impor massal Mata Pelajaran dari file Excel.
 //
@@ -13,6 +14,8 @@ import { generateId } from '@/lib/utils'
 //   - Mapel bernama sama tidak boleh diampu guru berbeda pada kelas yang sama
 //     (mis. KIMIA kelas 12 tidak boleh dipegang Guru A dan Guru B sekaligus).
 //   - KKM bilangan bulat 0-100 (kosong = 75).
+//   - Khusus Agama (opsional): Islam/Kristen/Katolik/Hindu/Buddha/Konghucu untuk
+//     mapel Pendidikan Agama. Kosong = mapel umum (semua siswa kelas ikut).
 //   - Jumlah opsi jawaban TIDAK diimpor: diatur di Pengaturan > Pengaturan
 //     Ujian, jadi dipakai nilai bawaan 4 seperti tambah manual.
 //
@@ -27,6 +30,7 @@ interface ImportRow {
   guru?: unknown
   kelas?: unknown
   kkm?: unknown
+  agama?: unknown
 }
 
 interface MapelRow {
@@ -116,7 +120,7 @@ export async function POST(req: NextRequest) {
 
   const errors: string[] = []
   const warnings: string[] = []
-  const baru: { id: string; nama: string; guru_id: string | null; kelas_list: string; jumlah_opsi: number; kkm: number }[] = []
+  const baru: { id: string; nama: string; guru_id: string | null; kelas_list: string; jumlah_opsi: number; kkm: number; agama?: string }[] = []
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i] ?? {}
@@ -185,6 +189,15 @@ export async function POST(req: NextRequest) {
       kkm = n
     }
 
+    // 4b. Khusus agama (opsional). Isian yang tidak dikenali = baris ditolak,
+    //     supaya mapel agama tidak diam-diam menjadi mapel umum.
+    const agamaRaw = String(row.agama ?? '').trim()
+    const agama = normalisasiAgama(agamaRaw)
+    if (agamaRaw && !agama) {
+      errors.push(`${label}: Khusus Agama "${agamaRaw}" tidak dikenali (gunakan Islam, Kristen, Katolik, Hindu, Buddha, atau Konghucu; kosongkan untuk mapel umum)`)
+      continue
+    }
+
     // 5. Duplikat: nama + guru yang sama sudah ada.
     const kembar = ada.find(m => m.nama === nama && m.guru_id === guruId)
     if (kembar) {
@@ -222,6 +235,7 @@ export async function POST(req: NextRequest) {
       kelas_list: kelasFinal.join(','),
       jumlah_opsi: JUMLAH_OPSI_DEFAULT,
       kkm,
+      ...(agama ? { agama } : {}),
     })
 
     const kurang: string[] = []
@@ -236,6 +250,9 @@ export async function POST(req: NextRequest) {
   if (baru.length > 0) {
     const { error } = await db.from('mapel').insert(baru)
     if (error) {
+      if (baru.some(b => b.agama) && /agama/i.test(error.message)) {
+        return NextResponse.json({ error: 'Kolom agama belum ada di database. Jalankan supabase/61_agama_siswa_dan_mapel.sql terlebih dahulu.' }, { status: 500 })
+      }
       return NextResponse.json({ error: `Gagal menyimpan: ${error.message}` }, { status: 500 })
     }
   }

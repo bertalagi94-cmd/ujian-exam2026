@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRoleAktif } from '@/lib/status-akun'
 import { getZonaWaktuSekolah, tanggalHariIni } from '@/lib/pengaturan-waktu'
+import { saringJadwalSeagama } from '@/lib/agama'
 
 export async function GET(req: NextRequest) {
   const auth = await requireRoleAktif(req, ['SISWA'])
@@ -9,12 +10,15 @@ export async function GET(req: NextRequest) {
   const { user } = auth
 
   const db = tenantDb(yayasanIdDari(auth.user))
-  const { data, error } = await db
+  const { data: jadwalKelas, error } = await db
     .from('jadwal')
     .select('*')
     .eq('kelas', user.kelas!)
     .order('tanggal', { ascending: false })
     .limit(30)
+
+  // Jadwal mapel khusus agama lain (mis. PAK untuk siswa Islam) tidak ditampilkan.
+  const data = jadwalKelas ? await saringJadwalSeagama(db, jadwalKelas, user.nis) : jadwalKelas
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   if (!data?.length) {

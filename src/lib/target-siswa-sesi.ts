@@ -10,17 +10,21 @@
 //   - sesi susulan (is_darurat = true, siswa_diizinkan tidak kosong):
 //       target = siswa_diizinkan
 //   - sesi reguler: target = semua siswa AKTIF di kelas sesi
+//   - mapel khusus agama (mapel.agama terisi, mis. PAI/PAK): target hanya siswa
+//     seagama (siswa tanpa agama terisi tetap dihitung) — lihat src/lib/agama.ts
 //   - siswa yang sudah punya baris siswa_ujian tapi di luar target (mis. pindah
-//     kelas setelah sesi dibuka) tetap disertakan supaya tidak hilang dari
-//     pantauan.
+//     kelas setelah sesi dibuka, atau beda agama tapi terlanjur login) tetap
+//     disertakan supaya tidak hilang dari pantauan.
 
 import type { createAdminClient } from '@/lib/supabase'
+import { ambilAgamaMapel, saringSiswaSeagama } from '@/lib/agama'
 
 type DbClient = ReturnType<typeof createAdminClient>
 
 export interface SiswaTarget { nis: string; nama: string; kelas: string }
 
 export interface InfoSesiTarget {
+  mapel_id?: string | null
   kelas: string | null
   is_darurat: boolean | null
   siswa_diizinkan: string[] | null
@@ -46,6 +50,10 @@ export async function ambilTargetSiswaSesi(
       .eq('status', 'AKTIF')
     targetSiswa = data ?? []
   }
+
+  // Mapel khusus agama: buang siswa yang beda agama dari target.
+  const agamaMapel = await ambilAgamaMapel(db, sesi.mapel_id)
+  if (agamaMapel) targetSiswa = await saringSiswaSeagama(db, targetSiswa, agamaMapel)
 
   const targetNisSet = new Set(targetSiswa.map(s => s.nis))
   const extraNis = nisSudahLogin.filter(nis => !targetNisSet.has(nis))

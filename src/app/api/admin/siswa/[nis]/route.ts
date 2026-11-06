@@ -4,6 +4,7 @@ import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRoleAktif } from '@/lib/status-akun'
 import { hapusFotoEssayFisik } from '@/lib/backup-restore-shared'
 import { pastikanKelasAda, pesanKelasTanpaSekolah, rapikanNamaKelas } from '@/lib/kelas-sync'
+import { adaIsianAgama, normalisasiAgama } from '@/lib/agama'
 
 interface RouteContext {
   params: Promise<{ nis: string }>
@@ -16,7 +17,13 @@ export async function PUT(req: NextRequest, props: RouteContext) {
 
   const db = tenantDb(yayasanIdDari(auth.user))
   const body = await req.json()
-  const { nama, kelas, jenis_kelamin, tempat_lahir, tanggal_lahir, status, is_tester, nis_baru, reset_password } = body
+  const { nama, kelas, jenis_kelamin, tempat_lahir, tanggal_lahir, status, is_tester, nis_baru, reset_password, agama } = body
+
+  // Agama: hanya diubah kalau field `agama` dikirim ('' = kosongkan).
+  const agamaBaku = normalisasiAgama(agama)
+  if (agama !== undefined && adaIsianAgama(agama) && !agamaBaku) {
+    return NextResponse.json({ error: 'Agama tidak dikenali. Pilih: Islam, Kristen, Katolik, Hindu, Buddha, atau Konghucu.' }, { status: 400 })
+  }
 
   // Ganti NISN (opsional). NISN adalah kunci utama siswa dan tersimpan di banyak
   // tabel turunan, jadi penggantian dilakukan lewat RPC ganti_nisn_atomik
@@ -111,11 +118,15 @@ export async function PUT(req: NextRequest, props: RouteContext) {
       tanggal_lahir: tanggal_lahir || null,
       status: status || undefined,
       is_tester: is_tester || undefined,
+      ...(agama !== undefined ? { agama: agamaBaku } : {}),
     })
     .eq('nis', nisFinal)
     .select('nis')
 
   if (error) {
+    if (agama !== undefined && /agama/i.test(error.message)) {
+      return NextResponse.json({ error: 'Kolom agama belum ada di database. Jalankan supabase/61_agama_siswa_dan_mapel.sql terlebih dahulu.' }, { status: 500 })
+    }
     // NISN sudah berganti tapi pembaruan field lain gagal: beri tahu jelas supaya
     // admin tidak mengira ada yang hilang.
     const awalan = nisFinal !== params.nis ? 'NISN sudah diganti, tetapi data lain gagal disimpan: ' : ''

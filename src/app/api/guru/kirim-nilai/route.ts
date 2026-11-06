@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRoleAktif } from '@/lib/status-akun'
+import { bangunPenyaringPeserta } from '@/lib/agama'
 
 // GET /api/guru/kirim-nilai
 // Mengembalikan semua nilai (per mapel yang diajar guru ini) lengkap dengan
@@ -141,9 +142,14 @@ export async function GET(req: NextRequest) {
   const kkmMap = Object.fromEntries((guruMapel ?? []).map((m: { id: string; kkm: number }) => [m.id, m.kkm]))
   const sudahAdaSet = new Set((nilaiData ?? []).map((n: { mapel_id: string; nis: string }) => `${n.mapel_id}__${n.nis}`))
 
+  // Mapel khusus agama: siswa beda agama bukan peserta, jadi bukan "belum ujian".
+  const pesertaMapel = await bangunPenyaringPeserta(
+    db, pasangan.map(p => p.mapel_id), (siswaRoster ?? []).map(s => s.nis)
+  )
+
   const belumUjianRows: Record<string, unknown>[] = []
   for (const p of pasangan) {
-    const siswaKelasIni = (siswaRoster ?? []).filter(s => s.kelas === p.kelas)
+    const siswaKelasIni = (siswaRoster ?? []).filter(s => s.kelas === p.kelas && pesertaMapel(p.mapel_id, s.nis))
     for (const s of siswaKelasIni) {
       const kunci = `${p.mapel_id}__${s.nis}`
       if (sudahAdaSet.has(kunci)) continue

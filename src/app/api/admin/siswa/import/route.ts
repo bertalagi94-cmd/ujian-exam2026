@@ -4,6 +4,7 @@ import { createAdminClient } from '@/lib/supabase'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRoleAktif } from '@/lib/status-akun'
 import { pastikanKelasAda, pesanKelasTanpaSekolah, rapikanNamaKelas } from '@/lib/kelas-sync'
+import { adaIsianAgama, normalisasiAgama } from '@/lib/agama'
 
 interface ImportRow {
   nis: string
@@ -14,6 +15,7 @@ interface ImportRow {
   tempat_lahir?: string
   tanggal_lahir?: string
   status?: string
+  agama?: string
 }
 
 // Pertahanan kedua di server: kalau tanggal_lahir yang dikirim ternyata masih
@@ -166,6 +168,17 @@ export async function POST(req: NextRequest) {
       if (kelasTanpaSekolah.length > 0) {
         pesanPeringatan.push(pesanKelasTanpaSekolah(kelasTanpaSekolah))
       }
+      // Isian agama yang tidak dikenali (mis. salah ketik) dilewati — siswanya
+      // tetap diimpor, hanya kolom agamanya dibiarkan seperti semula.
+      const agamaAneh = [...new Set(
+        rows.filter((r) => adaIsianAgama(r.agama) && !normalisasiAgama(r.agama)).map((r) => String(r.agama).trim())
+      )]
+      if (agamaAneh.length > 0) {
+        pesanPeringatan.push(
+          `Agama tidak dikenali dan dilewati: ${agamaAneh.slice(0, 5).join(', ')}${agamaAneh.length > 5 ? ', ...' : ''}. ` +
+          `Gunakan Islam, Kristen, Katolik, Hindu, Buddha, atau Konghucu.`
+        )
+      }
       if (pesanPeringatan.length > 0) {
         send({
           type: 'warning',
@@ -206,6 +219,9 @@ export async function POST(req: NextRequest) {
               tempat_lahir: row.tempat_lahir || null,
               tanggal_lahir: normalizeTanggalLahir(row.tanggal_lahir),
               status: row.status ?? 'AKTIF',
+              // Hanya ada kalau terisi & dikenali: baris tanpa agama TIDAK
+              // memuat kolom ini sama sekali sehingga agama lama tidak tertimpa.
+              agama: normalisasiAgama(row.agama),
             }
           })
         )
@@ -237,23 +253,36 @@ export async function POST(req: NextRequest) {
         // termasuk baris-baris lain yang sebenarnya valid. Sekarang: kalau
         // batch gagal, retry satu-per-satu supaya hanya baris yang benar-benar
         // rusak yang digugurkan, baris valid lainnya tetap masuk.
-        for (let j = 0; j < valid.length; j += UPSERT_BATCH) {
-          const upsertBatch = valid.slice(j, j + UPSERT_BATCH)
-          const { error } = await db.from('siswa').upsert(upsertBatch, { onConflict: 'nis' })
+        // Dua kelompok: yang membawa kolom `agama` dan yang tidak. Dipisah karena
+        // upsert massal memakai gabungan kolom seluruh baris — kalau dicampur,
+        // baris tanpa agama akan menimpa agama lama dengan NULL. Kelompok tanpa
+        // agama dikirim tanpa kolom itu, sehingga juga tetap jalan walau migrasi
+        // 61_agama_siswa_dan_mapel.sql belum dijalankan.
+        const denganAgama = valid.filter((v) => v.agama)
+        const tanpaAgama = valid
+          .filter((v) => !v.agama)
+          .map(({ agama: _a, ...sisa }) => { void _a; return sisa })
 
-          if (!error) {
-            inserted += upsertBatch.length
-            continue
-          }
+        const kelompokUpsert: Record<string, unknown>[][] = [denganAgama, tanpaAgama]
+        for (const kelompok of kelompokUpsert) {
+          for (let j = 0; j < kelompok.length; j += UPSERT_BATCH) {
+            const upsertBatch = kelompok.slice(j, j + UPSERT_BATCH)
+            const { error } = await db.from('siswa').upsert(upsertBatch, { onConflict: 'nis' })
 
-          // Batch gagal — retry satu-per-satu untuk isolasi baris yang bermasalah
-          for (const record of upsertBatch) {
-            const { error: rowError } = await db.from('siswa').upsert([record], { onConflict: 'nis' })
-            if (rowError) {
-              errors.push(`NISN ${record.nis} (${record.nama}): ${rowError.message}`)
-              skipped++
-            } else {
-              inserted++
+            if (!error) {
+              inserted += upsertBatch.length
+              continue
+            }
+
+            // Batch gagal — retry satu-per-satu untuk isolasi baris yang bermasalah
+            for (const record of upsertBatch) {
+              const { error: rowError } = await db.from('siswa').upsert([record], { onConflict: 'nis' })
+              if (rowError) {
+                errors.push(`NISN ${record.nis} (${record.nama}): ${rowError.message}`)
+                skipped++
+              } else {
+                inserted++
+              }
             }
           }
         }

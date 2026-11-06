@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRoleAktif } from '@/lib/status-akun'
 import { ambilSemuaBaris } from '@/lib/ambil-semua'
+import { bangunPenyaringPeserta } from '@/lib/agama'
 
 export async function GET(req: NextRequest) {
   const auth = await requireRoleAktif(req, ['GURU'])
@@ -143,12 +144,18 @@ export async function GET(req: NextRequest) {
   // Sumber kebenaran untuk "total peserta seharusnya" adalah seluruh siswa AKTIF
   // di kelas tersebut (tabel `siswa`), bukan hanya yang sempat tercatat di siswa_ujian.
   // (Lihat catatan yang sama di /api/admin/analisis-ujian.)
-  const { data: siswaKelasList } = await db
+  const { data: siswaKelasSemua } = await db
     .from('siswa')
     .select('nis, nama')
     .eq('kelas', sesiAll.kelas)
     .eq('status', 'AKTIF')
     .neq('is_tester', 'YES')
+
+  // Mapel khusus agama: hanya siswa seagama yang dihitung peserta.
+  const pesertaMapel = await bangunPenyaringPeserta(
+    db, [sesiAll.mapel_id], (siswaKelasSemua ?? []).map(s => s.nis)
+  )
+  const siswaKelasList = (siswaKelasSemua ?? []).filter(s => pesertaMapel(sesiAll.mapel_id, s.nis))
 
   const { data: siswaUjianList } = await db
     .from('siswa_ujian')

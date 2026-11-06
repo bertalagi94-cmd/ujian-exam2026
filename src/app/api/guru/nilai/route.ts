@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRoleAktif } from '@/lib/status-akun'
 import { petakanEssayAktifPerSesi, hitungNilaiFinal } from '@/app/api/guru/kirim-nilai/route'
+import { bangunPenyaringPeserta } from '@/lib/agama'
 
 export async function GET(req: NextRequest) {
   const auth = await requireRoleAktif(req, ['GURU'])
@@ -193,9 +194,14 @@ export async function GET(req: NextRequest) {
   // bukan dari seluruh tabel, supaya tetap konsisten dengan filter yang aktif.
   const sudahAdaSet = new Set(nilaiData.map(n => `${n.mapel_id}__${n.nis}`))
 
+  // Mapel khusus agama: siswa beda agama bukan peserta, jadi bukan "belum ujian".
+  const pesertaMapel = await bangunPenyaringPeserta(
+    db, pasangan.map(p => p.mapel_id), (siswaRoster ?? []).map(s => s.nis)
+  )
+
   const belumUjianRows: Record<string, unknown>[] = []
   for (const p of pasangan) {
-    const siswaKelasIni = (siswaRoster ?? []).filter(s => s.kelas === p.kelas)
+    const siswaKelasIni = (siswaRoster ?? []).filter(s => s.kelas === p.kelas && pesertaMapel(p.mapel_id, s.nis))
     for (const s of siswaKelasIni) {
       const kunci = `${p.mapel_id}__${s.nis}`
       if (sudahAdaSet.has(kunci)) continue

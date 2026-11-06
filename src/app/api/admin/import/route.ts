@@ -4,6 +4,7 @@ import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { createAdminClient } from '@/lib/supabase'
 import { requireRoleAktif } from '@/lib/status-akun'
 import { pastikanKelasAda, rapikanNamaKelas } from '@/lib/kelas-sync'
+import { adaIsianAgama, normalisasiAgama } from '@/lib/agama'
 
 interface ImportRow {
   nis: string
@@ -14,6 +15,7 @@ interface ImportRow {
   tempat_lahir?: string
   tanggal_lahir?: string
   status?: string
+  agama?: string
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -140,6 +142,17 @@ export async function GET(req: NextRequest) {
       const errors: string[] = []
       const total = rows.length
 
+      // Isian agama yang tidak dikenali dilewati (siswa tetap diimpor).
+      const agamaAneh = [...new Set(
+        rows.filter((r) => adaIsianAgama(r.agama) && !normalisasiAgama(r.agama)).map((r) => String(r.agama).trim())
+      )]
+      if (agamaAneh.length > 0) {
+        send({
+          type: 'warning',
+          message: `Agama tidak dikenali dan dilewati: ${agamaAneh.slice(0, 5).join(', ')}${agamaAneh.length > 5 ? ', ...' : ''}. Gunakan Islam, Kristen, Katolik, Hindu, Buddha, atau Konghucu.`,
+        })
+      }
+
       send({ type: 'start', total })
 
       // Proses dalam batch: hash paralel per grup, upsert bulk
@@ -172,6 +185,7 @@ export async function GET(req: NextRequest) {
               tempat_lahir: row.tempat_lahir || null,
               tanggal_lahir: row.tanggal_lahir || null,
               status: row.status ?? 'AKTIF',
+              agama: normalisasiAgama(row.agama),
             }
           })
         )
@@ -194,15 +208,24 @@ export async function GET(req: NextRequest) {
           })
         }
 
-        // Upsert valid records dalam sub-batch
-        for (let j = 0; j < valid.length; j += UPSERT_BATCH) {
-          const upsertBatch = valid.slice(j, j + UPSERT_BATCH)
-          const { error } = await db.from('siswa').upsert(upsertBatch, { onConflict: 'nis' })
-          if (error) {
-            errors.push(error.message)
-            skipped += upsertBatch.length
-          } else {
-            inserted += upsertBatch.length
+        // Upsert valid records dalam sub-batch. Dua kelompok (dengan / tanpa
+        // kolom agama) supaya baris tanpa agama tidak menimpa agama lama dengan
+        // NULL dan tetap jalan walau migrasi 61 belum dijalankan.
+        const denganAgama = valid.filter((v) => v.agama)
+        const tanpaAgama = valid
+          .filter((v) => !v.agama)
+          .map(({ agama: _a, ...sisa }) => { void _a; return sisa })
+        const kelompokUpsert: Record<string, unknown>[][] = [denganAgama, tanpaAgama]
+        for (const kelompok of kelompokUpsert) {
+          for (let j = 0; j < kelompok.length; j += UPSERT_BATCH) {
+            const upsertBatch = kelompok.slice(j, j + UPSERT_BATCH)
+            const { error } = await db.from('siswa').upsert(upsertBatch, { onConflict: 'nis' })
+            if (error) {
+              errors.push(error.message)
+              skipped += upsertBatch.length
+            } else {
+              inserted += upsertBatch.length
+            }
           }
         }
       }

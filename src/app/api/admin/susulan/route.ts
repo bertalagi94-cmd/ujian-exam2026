@@ -20,6 +20,7 @@ import { generateId } from '@/lib/utils'
 import { cekSesiBentrokKelas, pesanBentrokKelas } from '@/lib/sesi-kelas'
 import { resolveEssayInfoJson } from '@/lib/gabungKirim'
 import { isKonflikSesiBerjalan } from '@/lib/sesi-unik'
+import { ambilAgamaMapel, saringSiswaSeagama } from '@/lib/agama'
 
 function generateKode7(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
@@ -125,11 +126,15 @@ export async function POST(req: NextRequest) {
   const semuaSesiIds = (semuaSesi ?? []).map(s => s.id)
 
   // Ambil siswa aktif di kelas terkait
-  const { data: siswaDiKelas } = await db
+  const { data: siswaKelasSemua } = await db
     .from('siswa')
     .select('nis, nama')
     .eq('kelas', jadwal.kelas)
     .eq('status', 'AKTIF')
+
+  // Mapel khusus agama (mis. PAI/PAK): hanya siswa seagama yang berhak susulan.
+  const agamaMapel = await ambilAgamaMapel(db, jadwal.mapel_id)
+  const siswaDiKelas = await saringSiswaSeagama(db, siswaKelasSemua ?? [], agamaMapel)
 
   if (!siswaDiKelas?.length) {
     return NextResponse.json({ bisa: false, message: 'Tidak ada siswa aktif di kelas ini.' })

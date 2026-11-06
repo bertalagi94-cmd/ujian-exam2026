@@ -6,12 +6,14 @@ import { Plus, Pencil, Trash2, BookOpen, Search, Upload, Download } from 'lucide
 import { Modal, Confirm, EmptyState, Spinner, Toast, SearchInput } from '@/components/ui'
 import { apiRequest } from '@/lib/utils'
 import { Mapel, User, Kelas } from '@/types'
+import { DAFTAR_AGAMA, normalisasiAgama } from '@/lib/agama'
 
 interface ImportMapelRow {
   nama: string
   guru: string
   kelas: string
   kkm: string
+  agama: string
 }
 interface ImportResult {
   inserted: number
@@ -27,6 +29,7 @@ const IMPORT_COLS = {
   guru: 'Username Guru',
   kelas: 'Kelas',
   kkm: 'KKM',
+  agama: 'Khusus Agama',
 } as const
 const IMPORT_MAX_ROWS = 200
 // Baris contoh di template diawali penanda ini dan otomatis diabaikan saat impor.
@@ -66,6 +69,8 @@ export default function AdminMapelPage() {
   // dan menonaktifkan kelas/guru yang sudah terpakai) dan KKM.
   const [namaForm, setNamaForm] = useState('')
   const [kkmForm, setKkmForm] = useState('75')
+  // Khusus agama ('' = mapel umum). Berlaku untuk seluruh pengampu mapel yang sama.
+  const [agamaForm, setAgamaForm] = useState('')
   // true saat membuka "+ Guru" pada mapel yang sudah ada: nama dikunci.
   const [kunciNama, setKunciNama] = useState(false)
   // Impor mapel dari Excel
@@ -116,6 +121,7 @@ export default function AdminMapelPage() {
     setSelectedKelas([])
     setNamaForm('')
     setKkmForm('75')
+    setAgamaForm('')
     setKunciNama(false)
     setModalOpen(true)
   }
@@ -126,6 +132,7 @@ export default function AdminMapelPage() {
     setSelectedKelas([])
     setNamaForm(g.nama)
     setKkmForm(String(g.items[0]?.kkm ?? 75))
+    setAgamaForm(normalisasiAgama(g.items[0]?.agama) ?? '')
     setKunciNama(true)
     setModalOpen(true)
   }
@@ -135,6 +142,7 @@ export default function AdminMapelPage() {
     setSelectedKelas(daftarKelas(m))
     setNamaForm(m.nama)
     setKkmForm(String(m.kkm ?? 75))
+    setAgamaForm(normalisasiAgama(m.agama) ?? '')
     setKunciNama(false)
     setModalOpen(true)
   }
@@ -155,6 +163,13 @@ export default function AdminMapelPage() {
     payload.nama = namaBaru
     payload.kkm = kkmBaru
     payload.kelas_list = kelasEfektif.join(',')
+    // Agama dikirim hanya bila berubah (edit) / terisi (tambah baru), supaya
+    // form tetap bisa menyimpan walau migrasi 61_agama_siswa_dan_mapel.sql
+    // belum dijalankan.
+    delete payload.agama
+    const agamaBaru = normalisasiAgama(agamaForm) ?? ''
+    const agamaLama = normalisasiAgama(editData?.agama) ?? ''
+    if (editData?.id ? agamaBaru !== agamaLama : agamaBaru !== '') payload.agama = agamaBaru
 
     setSaving(true)
     try {
@@ -165,7 +180,10 @@ export default function AdminMapelPage() {
         // juga pada pengampu lain dari mapel yang sama.
         const grupLama = grup.find(g => g.items.some(m => m.id === editData.id))
         const perluSama = (grupLama?.items ?? []).filter(
-          m => m.id !== editData.id && (normNama(m.nama) !== namaBaru || m.kkm !== kkmBaru)
+          m => m.id !== editData.id && (
+            normNama(m.nama) !== namaBaru || m.kkm !== kkmBaru ||
+            (normalisasiAgama(m.agama) ?? '') !== agamaBaru
+          )
         )
         const gagal: string[] = []
         for (const m of perluSama) {
@@ -174,6 +192,7 @@ export default function AdminMapelPage() {
               method: 'PUT',
               body: JSON.stringify({
                 id: m.id, nama: namaBaru, guru_id: m.guru_id ?? '', kelas_list: m.kelas_list ?? '', kkm: kkmBaru,
+                ...((normalisasiAgama(m.agama) ?? '') !== agamaBaru ? { agama: agamaBaru } : {}),
               }),
             })
           } catch {
@@ -230,18 +249,19 @@ export default function AdminMapelPage() {
   async function handleDownloadTemplate() {
     const XLSX = await import('xlsx')
     const C = IMPORT_COLS
-    const header = [C.nama, C.guru, C.kelas, C.kkm]
+    const header = [C.nama, C.guru, C.kelas, C.kkm, C.agama]
     const contohGuru = users[0]?.username ?? 'username_guru'
     const contohKelas = kelas.slice(0, 2).map(k => String(k.nama)).join(', ') || '10, 11'
     const contoh = [
-      [`${PENANDA_CONTOH} MATEMATIKA`, contohGuru, contohKelas, 75],
-      [`${PENANDA_CONTOH} SENI BUDAYA`, '', '', ''],
+      [`${PENANDA_CONTOH} MATEMATIKA`, contohGuru, contohKelas, 75, ''],
+      [`${PENANDA_CONTOH} SENI BUDAYA`, '', '', '', ''],
+      [`${PENANDA_CONTOH} PENDIDIKAN AGAMA ISLAM`, contohGuru, contohKelas, 75, 'Islam'],
     ]
     const ws = XLSX.utils.aoa_to_sheet([header, ...contoh])
     // Kolom Nama, Username Guru, dan Kelas bertipe TEKS supaya nilai seperti
     // "07" atau "10" tidak diubah Excel menjadi angka. KKM tetap angka.
     // Baris kosong sampai batas impor diformat teks.
-    const kolomTeks = [0, 1, 2]
+    const kolomTeks = [0, 1, 2, 4]
     for (let r = contoh.length + 1; r <= IMPORT_MAX_ROWS; r++) {
       for (const c of kolomTeks) {
         ws[XLSX.utils.encode_cell({ r, c })] = { t: 's', v: '', z: '@' }
@@ -254,7 +274,7 @@ export default function AdminMapelPage() {
       }
     }
     ws['!ref'] = XLSX.utils.encode_range({ r: 0, c: 0 }, { r: IMPORT_MAX_ROWS, c: header.length - 1 })
-    ws['!cols'] = [{ wch: 32 }, { wch: 22 }, { wch: 28 }, { wch: 8 }]
+    ws['!cols'] = [{ wch: 36 }, { wch: 22 }, { wch: 28 }, { wch: 8 }, { wch: 16 }]
 
     const petunjuk = XLSX.utils.aoa_to_sheet([
       ['PETUNJUK PENGISIAN'],
@@ -264,6 +284,8 @@ export default function AdminMapelPage() {
       [`${C.guru}: opsional. Isi username guru (lihat sheet "Daftar Guru"). Kosong = guru belum ditentukan.`],
       [`${C.kelas}: opsional. Isi nama kelas persis seperti di sheet "Daftar Kelas". Beberapa kelas dipisah koma, contoh: 10, 11.`],
       [`${C.kkm}: opsional, bilangan bulat 0 sampai 100. Kosong = 75.`],
+      [`${C.agama}: opsional. Isi hanya untuk mapel Pendidikan Agama: Islam, Kristen, Katolik, Hindu, Buddha, atau Konghucu. Kosong = mapel umum (semua siswa kelas ikut).`],
+      ['Contoh: buat dua baris terpisah, "PENDIDIKAN AGAMA ISLAM" (Khusus Agama: Islam) dan "PENDIDIKAN AGAMA KRISTEN" (Khusus Agama: Kristen). Siswa hanya menjadi peserta mapel yang seagama.'],
       [''],
       ['ATURAN'],
       ['Mapel dengan nama dan guru yang sama tidak boleh ditulis dua kali. Gabungkan kelasnya dalam satu baris.'],
@@ -316,9 +338,10 @@ export default function AdminMapelPage() {
           guru: str(r[C.guru]),
           kelas: str(r[C.kelas]),
           kkm: str(r[C.kkm]),
+          agama: str(r[C.agama]),
         }))
         // Lewati baris kosong dan baris contoh bawaan template.
-        .filter(r => (r.nama || r.guru || r.kelas || r.kkm) && !r.nama.toLowerCase().startsWith(PENANDA_CONTOH))
+        .filter(r => (r.nama || r.guru || r.kelas || r.kkm || r.agama) && !r.nama.toLowerCase().startsWith(PENANDA_CONTOH))
 
       if (parsed.length === 0) {
         showToast('Tidak ada data ditemukan. Pastikan memakai template dan kolom Nama Mata Pelajaran terisi.', 'error')
@@ -402,7 +425,10 @@ export default function AdminMapelPage() {
   // Menambah pengampu ke mapel yang sudah ada: KKM mengikuti mapel tersebut.
   const kkmTerkunci = !editData?.id && !!grupForm
   useEffect(() => {
-    if (modalOpen && !editData?.id && grupForm) setKkmForm(String(grupForm.items[0]?.kkm ?? 75))
+    if (modalOpen && !editData?.id && grupForm) {
+      setKkmForm(String(grupForm.items[0]?.kkm ?? 75))
+      setAgamaForm(normalisasiAgama(grupForm.items[0]?.agama) ?? '')
+    }
   }, [modalOpen, editData?.id, grupForm])
 
   // Teks konfirmasi hapus: bedakan "hapus satu pengampu" vs "hapus mapel".
@@ -465,12 +491,23 @@ export default function AdminMapelPage() {
               <tbody>
                 {grupTampil.map((g, i) => {
                   const kkmUnik = [...new Set(g.items.map(m => m.kkm))].sort((a, b) => a - b)
+                  const agamaGrup = [...new Set(g.items.map(m => normalisasiAgama(m.agama)).filter((a): a is NonNullable<typeof a> => !!a))]
                   return (
                     <tr key={g.nama}>
                       <td className="text-slate-400 text-xs align-top">{i + 1}</td>
                       <td className="align-top">
                         <div className="font-semibold text-slate-800">{g.nama}</div>
                         <div className="text-xs text-slate-400">{g.items.length} pengampu</div>
+                        {agamaGrup.length === 1 && (
+                          <span className="badge-purple mt-1 inline-block" title="Hanya siswa beragama ini yang menjadi peserta">
+                            Khusus {agamaGrup[0]}
+                          </span>
+                        )}
+                        {agamaGrup.length > 1 && (
+                          <span className="badge-yellow mt-1 inline-block" title="Pengampu mapel ini punya pengaturan agama berbeda; samakan lewat Edit">
+                            Agama beda antar guru
+                          </span>
+                        )}
                       </td>
                       <td>
                         <div className="divide-y divide-slate-100">
@@ -657,6 +694,26 @@ export default function AdminMapelPage() {
                 <p className="text-xs text-slate-500 mt-1">Mengikuti KKM mapel ini.</p>
               )}
             </div>
+            <div>
+              <label className="label">Khusus Agama</label>
+              <select
+                name="agama"
+                className="select"
+                value={agamaForm}
+                onChange={e => setAgamaForm(e.target.value)}
+                disabled={kkmTerkunci}
+              >
+                <option value="">Umum (semua siswa kelas)</option>
+                {DAFTAR_AGAMA.map(a => (
+                  <option key={a} value={a}>Khusus siswa {a}</option>
+                ))}
+              </select>
+              <p className="text-xs text-slate-500 mt-1">
+                {kkmTerkunci
+                  ? 'Mengikuti pengaturan mapel ini.'
+                  : 'Isi untuk Pendidikan Agama (mis. PAI = Islam, PAK = Kristen). Buat satu mapel per agama.'}
+              </p>
+            </div>
           </div>
         </form>
       </Modal>
@@ -698,7 +755,7 @@ export default function AdminMapelPage() {
             </div>
             <p className="text-xs text-slate-400">
               Nama mapel otomatis huruf besar. Mapel yang sudah ada dilewati. Mapel dengan nama yang sama tidak boleh
-              diampu guru berbeda pada kelas yang sama. KKM kosong = 75. Maks. {IMPORT_MAX_ROWS} baris.
+              diampu guru berbeda pada kelas yang sama. KKM kosong = 75. Khusus Agama kosong = mapel umum. Maks. {IMPORT_MAX_ROWS} baris.
             </p>
           </div>
 
@@ -710,7 +767,7 @@ export default function AdminMapelPage() {
               <div className="border border-slate-200 rounded-lg overflow-auto max-h-56">
                 <table className="table">
                   <thead>
-                    <tr><th>Nama Mapel</th><th>Guru</th><th>Kelas</th><th>KKM</th></tr>
+                    <tr><th>Nama Mapel</th><th>Guru</th><th>Kelas</th><th>KKM</th><th>Khusus Agama</th></tr>
                   </thead>
                   <tbody>
                     {importRows.slice(0, 50).map((r, i) => (
@@ -719,6 +776,7 @@ export default function AdminMapelPage() {
                         <td className="font-mono text-xs">{r.guru || '—'}</td>
                         <td className="text-xs">{r.kelas || '—'}</td>
                         <td className="text-xs">{r.kkm || '75'}</td>
+                        <td className="text-xs">{r.agama || 'Umum'}</td>
                       </tr>
                     ))}
                   </tbody>

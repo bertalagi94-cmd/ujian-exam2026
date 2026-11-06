@@ -4,6 +4,7 @@ import { requireRoleAktif } from '@/lib/status-akun'
 import { generateId } from '@/lib/utils'
 import { pastikanLokasiSekolahLengkap } from '@/lib/pengaturan-waktu'
 import { bacaBatasDurasiEssay, tentukanDurasiEssay, validasiDurasiEssayAdmin } from '@/lib/durasi-ujian'
+import { ambilAgamaMapel, ambilAgamaMapelBanyak, ambilAgamaSiswa, cocokAgama, saringSiswaSeagama } from '@/lib/agama'
 
 // Baca & validasi durasi essay yang diisi admin di form jadwal.
 // Kosong = "ikuti usulan guru" (disimpan sebagai NULL). Batas min/maks diambil
@@ -219,6 +220,13 @@ export async function GET(req: NextRequest) {
       siswaByKelas[s.kelas].push({ nis: s.nis, nama: s.nama })
     }
 
+    // Mapel khusus agama (PAI/PAK): peserta hanya siswa seagama. Agama siswa
+    // hanya dibaca kalau memang ada jadwal selesai dengan mapel khusus agama.
+    const agamaMapelMap = await ambilAgamaMapelBanyak(db as any, mapelIdSelesai)
+    const agamaSiswaMap = agamaMapelMap.size > 0
+      ? await ambilAgamaSiswa(db as any, (siswaRaw ?? []).map((x: { nis: string }) => x.nis))
+      : new Map<string, string>()
+
     // Semua sesi_ujian untuk kombinasi mapel+kelas yang relevan, dikelompokkan
     // per kombinasi (satu jadwal = satu kombinasi mapel+kelas yang unik, tapi
     // bisa punya lebih dari satu sesi_ujian kalau pernah dibuka ujian susulan)
@@ -253,7 +261,9 @@ export async function GET(req: NextRequest) {
       const sudahSet = new Set<string>()
       for (const sid of sesiIds) for (const nis of (nisSudahPerSesi[sid] ?? [])) sudahSet.add(nis)
 
-      const siswaKelas = siswaByKelas[String(r.kelas)] ?? []
+      const agamaMapelJadwal = agamaMapelMap.get(r.mapel_id) ?? null
+      const siswaKelas = (siswaByKelas[String(r.kelas)] ?? [])
+        .filter(s => cocokAgama(agamaMapelJadwal, agamaSiswaMap.get(s.nis) ?? null))
       const belum = siswaKelas.filter(s => !sudahSet.has(s.nis))
       if (belum.length > 0) belumUjianMap[r.id] = belum
     }
@@ -620,12 +630,17 @@ export async function DELETE(req: NextRequest) {
   if (!jadwal) return NextResponse.json({ error: 'Jadwal tidak ditemukan.' }, { status: 404 })
 
   if (jadwal.status === 'SELESAI') {
-    const { data: semuaSiswa } = await db
+    const { data: semuaSiswaKelas } = await db
       .from('siswa')
       .select('nis, nama')
       .eq('kelas', jadwal.kelas)
       .eq('status', 'AKTIF')
       .order('nama')
+    // Mapel khusus agama: siswa beda agama bukan peserta, jadi tidak boleh
+    // menghalangi penghapusan jadwal yang sudah selesai.
+    const semuaSiswa = await saringSiswaSeagama(
+      db as any, semuaSiswaKelas ?? [], await ambilAgamaMapel(db as any, jadwal.mapel_id)
+    )
 
     const { data: sesiList } = await db
       .from('sesi_ujian')
@@ -675,14 +690,19 @@ export async function PATCH(req: NextRequest) {
   const semuaBelumUjian: { jadwal: string; kelas: string; siswa: { nama: string }[] }[] = []
 
   for (const jadwal of jadwalSelesai) {
-    const { data: semuaSiswa } = await db
+    const { data: semuaSiswaKelas } = await db
       .from('siswa')
       .select('nis, nama')
       .eq('kelas', jadwal.kelas)
       .eq('status', 'AKTIF')
       .order('nama')
 
-    if (!semuaSiswa?.length) continue
+    // Mapel khusus agama: hanya siswa seagama yang dihitung peserta.
+    const semuaSiswa = await saringSiswaSeagama(
+      db as any, semuaSiswaKelas ?? [], await ambilAgamaMapel(db as any, jadwal.mapel_id)
+    )
+
+    if (!semuaSiswa.length) continue
 
     const { data: sesiList } = await db
       .from('sesi_ujian')

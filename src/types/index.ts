@@ -44,6 +44,8 @@ export interface Siswa {
   last_login?: string
   device_info?: string
   is_tester?: string
+  // Agama siswa (Islam/Kristen/Katolik/Hindu/Buddha/Konghucu). Kosong = belum diisi.
+  agama?: string | null
 }
 
 export interface Kelas {
@@ -63,6 +65,8 @@ export interface Mapel {
   kelas_list?: string
   jumlah_opsi: number
   kkm: number
+  // Khusus agama (mis. PAI = Islam, PAK = Kristen). Kosong = mapel umum, semua siswa kelas ikut.
+  agama?: string | null
   // joined
   nama_guru?: string
 }

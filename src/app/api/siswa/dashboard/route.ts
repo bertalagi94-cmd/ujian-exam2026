@@ -3,6 +3,7 @@ import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRoleAktif } from '@/lib/status-akun'
 import { petakanEssayAktifPerSesi } from '@/app/api/guru/kirim-nilai/route'
 import { hitungGrade } from '@/lib/utils'
+import { saringJadwalSeagama } from '@/lib/agama'
 
 export async function GET(req: NextRequest) {
   const auth = await requireRoleAktif(req, ['SISWA'])
@@ -11,10 +12,12 @@ export async function GET(req: NextRequest) {
   const db = tenantDb(yayasanIdDari(auth.user))
   const nis = user.nis!
 
-  const [{ data: nilaiAll }, { data: jadwal }] = await Promise.all([
+  const [{ data: nilaiAll }, { data: jadwalKelas }] = await Promise.all([
     db.from('nilai').select('*').eq('nis', nis).order('timestamp', { ascending: false }),
     db.from('jadwal').select('*').eq('kelas', user.kelas!).eq('status', 'AKTIF').order('tanggal').limit(5),
   ])
+  // Jadwal mapel khusus agama lain tidak ditampilkan di dashboard siswa ini.
+  const jadwal = jadwalKelas ? await saringJadwalSeagama(db, jadwalKelas, nis) : jadwalKelas
 
   // BUG FIX (rekap nilai siswa belum menyesuaikan fitur essay): sama seperti
   // /api/siswa/nilai, kartu statistik dashboard sebelumnya dihitung murni

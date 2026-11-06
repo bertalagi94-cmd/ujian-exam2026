@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRoleAktif } from '@/lib/status-akun'
 import { getKepsekScope } from '@/lib/kepsek-scope'
+import { bangunPenyaringPeserta } from '@/lib/agama'
 
 export async function GET(req: NextRequest) {
   const auth = await requireRoleAktif(req, ['KEPSEK', 'ADMIN'])
@@ -89,8 +90,14 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // Mapel khusus agama: hanya siswa seagama yang dihitung peserta.
+  const pesertaMapel = await bangunPenyaringPeserta(
+    db, [...comboMap.values()].map(c => c.mapel_id),
+    ((siswaAll ?? []) as { nis: string }[]).map(s => s.nis)
+  )
+
   const data = [...comboMap.values()].map(combo => {
-    const siswaKelas = siswaByKelas[combo.kelas] ?? []
+    const siswaKelas = (siswaByKelas[combo.kelas] ?? []).filter(s => pesertaMapel(combo.mapel_id, s.nis))
     const totalSiswa = siswaKelas.length
     const siswaBelum = siswaKelas.filter(s => !sudahNilaiSet.has(`${combo.kelas}__${combo.mapel_id}__${s.nis}`))
     const jumlahSudah = totalSiswa - siswaBelum.length

@@ -11,6 +11,7 @@ import { Modal, Confirm, StatusBadge, SearchInput, Pagination, EmptyState, Spinn
 import { apiRequest, formatDate } from '@/lib/utils'
 import { Siswa, Kelas } from '@/types'
 import { mulaiLihatSebagai } from '@/lib/lihat-sebagai'
+import { DAFTAR_AGAMA, normalisasiAgama } from '@/lib/agama'
 
 const PER_PAGE = 20
 
@@ -162,8 +163,16 @@ export default function AdminSiswaPage() {
   async function handleSave(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     const form = new FormData(e.currentTarget)
+    const { agama: agamaForm, ...sisaForm } = Object.fromEntries(form.entries())
+    // Agama hanya dikirim kalau berubah (edit) / terisi (tambah baru), supaya
+    // form tetap bisa menyimpan walau migrasi 61_agama_siswa_dan_mapel.sql
+    // belum dijalankan di database.
+    const agamaBaru = String(agamaForm ?? '')
+    const agamaLama = String(editData?.agama ?? '')
+    const kirimAgama = editData?.nis ? agamaBaru !== agamaLama : agamaBaru !== ''
     const payload = {
-      ...Object.fromEntries(form.entries()),
+      ...sisaForm,
+      ...(kirimAgama ? { agama: agamaBaru } : {}),
       // Hanya kirim saat edit (bukan tambah baru).
       ...(editData?.nis ? { reset_password: formResetPassword } : {}),
     }
@@ -265,6 +274,7 @@ export default function AdminSiswaPage() {
         'Jenis Kelamin': s.jenis_kelamin ?? '',
         'Tempat Lahir': s.tempat_lahir ?? '',
         'Tanggal Lahir': s.tanggal_lahir ? s.tanggal_lahir.slice(0, 10) : '',
+        Agama: s.agama ?? '',
         Status: s.status,
         'Last Login': s.last_login ? formatDate(s.last_login) : 'Belum pernah',
       }))
@@ -272,7 +282,7 @@ export default function AdminSiswaPage() {
       const ws = XLSX.utils.json_to_sheet(rows)
       ws['!cols'] = [
         { wch: 5 }, { wch: 15 }, { wch: 30 }, { wch: 12 },
-        { wch: 15 }, { wch: 20 }, { wch: 15 }, { wch: 10 }, { wch: 20 },
+        { wch: 15 }, { wch: 20 }, { wch: 15 }, { wch: 12 }, { wch: 10 }, { wch: 20 },
       ]
       const wb = XLSX.utils.book_new()
       XLSX.utils.book_append_sheet(wb, ws, 'Data Siswa')
@@ -294,6 +304,7 @@ export default function AdminSiswaPage() {
         'Jenis Kelamin': 'LAKI-LAKI',
         'Tempat Lahir': 'Manado',
         'Tanggal Lahir': '2008-01-15',
+        Agama: 'Islam',
         Status: 'AKTIF',
       },
       {
@@ -303,6 +314,7 @@ export default function AdminSiswaPage() {
         'Jenis Kelamin': 'PEREMPUAN',
         'Tempat Lahir': 'Bitung',
         'Tanggal Lahir': '2008-03-20',
+        Agama: 'Kristen',
         Status: 'AKTIF',
       },
     ]
@@ -310,7 +322,7 @@ export default function AdminSiswaPage() {
     const ws = XLSX.utils.json_to_sheet(templateRows)
     ws['!cols'] = [
       { wch: 15 }, { wch: 30 }, { wch: 12 },
-      { wch: 15 }, { wch: 20 }, { wch: 15 }, { wch: 10 },
+      { wch: 15 }, { wch: 20 }, { wch: 15 }, { wch: 12 }, { wch: 10 },
     ]
 
     XLSX.utils.sheet_add_aoa(ws, [
@@ -321,6 +333,7 @@ export default function AdminSiswaPage() {
       ['- Kelas: wajib diisi (sesuai nama kelas yang ada)'],
       ['- Jenis Kelamin: LAKI-LAKI atau PEREMPUAN'],
       ['- Tanggal Lahir: format YYYY-MM-DD'],
+      ['- Agama: Islam, Kristen, Katolik, Hindu, Buddha, atau Konghucu (penting untuk mapel Pendidikan Agama; kosongkan jika belum diketahui)'],
       ['- Status: AKTIF atau NONAKTIF (default: AKTIF)'],
       ['- Hapus baris contoh sebelum mengimpor'],
     ], { origin: `A${templateRows.length + 3}` })
@@ -360,6 +373,7 @@ export default function AdminSiswaPage() {
               : undefined,
             tempat_lahir: r['Tempat Lahir'] ? String(r['Tempat Lahir']).trim() : undefined,
             tanggal_lahir: excelDateToISO(XLSX, r['Tanggal Lahir']),
+            agama: r['Agama'] ? String(r['Agama']).trim() : undefined,
             status: r['Status'] ? String(r['Status']).trim().toUpperCase() : 'AKTIF',
           }))
 
@@ -592,6 +606,7 @@ export default function AdminSiswaPage() {
                   <th>Nama Siswa</th>
                   <th>Kelas</th>
                   <th>Jenis Kelamin</th>
+                  <th>Agama</th>
                   <th>Status</th>
                   <th>Last Login</th>
                   <th>Aksi</th>
@@ -614,6 +629,11 @@ export default function AdminSiswaPage() {
                       <span className="badge-blue">{s.kelas}</span>
                     </td>
                     <td className="text-slate-600 text-xs">{s.jenis_kelamin ?? '-'}</td>
+                    <td className="text-xs">
+                      {normalisasiAgama(s.agama)
+                        ? <span className="badge-blue">{normalisasiAgama(s.agama)}</span>
+                        : <span className="badge-yellow" title="Agama belum diisi: siswa ini dihitung peserta semua mapel agama">Belum diisi</span>}
+                    </td>
                     <td><StatusBadge status={s.status} /></td>
                     <td className="text-xs text-slate-400">{s.last_login ? formatDate(s.last_login) : 'Belum pernah'}</td>
                     <td>
@@ -778,6 +798,18 @@ export default function AdminSiswaPage() {
             </div>
           </div>
           <div>
+            <label className="label">Agama</label>
+            <select name="agama" className="select" defaultValue={normalisasiAgama(editData?.agama) ?? ''}>
+              <option value="">-- Belum diisi --</option>
+              {DAFTAR_AGAMA.map(a => (
+                <option key={a} value={a}>{a}</option>
+              ))}
+            </select>
+            <p className="text-xs text-slate-400 mt-1">
+              Dipakai untuk memisahkan peserta mapel Pendidikan Agama (mis. PAI untuk siswa Islam, PAK untuk siswa Kristen).
+            </p>
+          </div>
+          <div>
             <label className="label">Status</label>
             <select name="status" className="select" defaultValue={editData?.status ?? 'AKTIF'}>
               <option value="AKTIF">Aktif</option>
@@ -850,6 +882,7 @@ export default function AdminSiswaPage() {
                     <th>Nama</th>
                     <th>Kelas</th>
                     <th>JK</th>
+                    <th>Agama</th>
                     <th>Status</th>
                   </tr>
                 </thead>
@@ -861,6 +894,7 @@ export default function AdminSiswaPage() {
                       <td>{s.nama}</td>
                       <td>{s.kelas}</td>
                       <td>{s.jenis_kelamin === 'LAKI-LAKI' ? 'L' : s.jenis_kelamin === 'PEREMPUAN' ? 'P' : '-'}</td>
+                      <td>{normalisasiAgama(s.agama) ?? (s.agama ? `⚠ ${s.agama}` : '-')}</td>
                       <td>{s.status}</td>
                     </tr>
                   ))}

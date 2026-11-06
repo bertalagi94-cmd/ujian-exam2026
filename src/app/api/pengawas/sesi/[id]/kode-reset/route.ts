@@ -36,7 +36,7 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
 
   const { data: sesi, error: sesiError } = await db
     .from('sesi_ujian')
-    .select('id, status, kelas, is_darurat, siswa_diizinkan')
+    .select('id, status, mapel_id, kelas, is_darurat, siswa_diizinkan')
     .eq('id', sesiId)
     .maybeSingle()
   if (sesiError) return NextResponse.json({ error: sesiError.message }, { status: 500 })

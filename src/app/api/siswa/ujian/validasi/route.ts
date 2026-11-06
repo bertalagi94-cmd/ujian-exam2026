@@ -7,6 +7,7 @@ import { instrumented } from '@/lib/metrik'
 import { cachedFetch } from '@/lib/cache'
 import { ambilMaksReset, MAKS_RESET_ABSOLUT } from '@/lib/reset-berurutan'
 import { AntreanPenuhError, buatSemuaAmplopReset } from '@/lib/reset-amplop-server'
+import { cekSiswaBolehMapel } from '@/lib/agama'
 
 // Threshold: kalau last_heartbeat device lama lebih muda dari ini,
 // anggap device lama masih aktif → tolak login device baru.
@@ -78,6 +79,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       valid: false,
       message: `Anda bukan peserta ujian ini. Kelas Anda (${user.kelas}) tidak sesuai dengan kelas sesi (${sesi.kelas}).`,
+    })
+  }
+
+  // Validasi agama: mapel khusus agama (mis. PAI/PAK) hanya untuk siswa seagama.
+  // Siswa yang agamanya belum diisi tetap boleh (lihat src/lib/agama.ts).
+  const cekAgama = await cekSiswaBolehMapel(db, sesi.mapel_id, user.nis!)
+  if (!cekAgama.boleh) {
+    return NextResponse.json({
+      valid: false,
+      message: `Mata pelajaran ini khusus siswa beragama ${cekAgama.agamaMapel}. Anda tidak termasuk peserta ujian ini. Jika data agama Anda keliru, hubungi wali kelas atau admin.`,
     })
   }
 

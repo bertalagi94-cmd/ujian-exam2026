@@ -58,7 +58,7 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
   // Ambil info sesi untuk menentukan target peserta.
   const { data: sesi, error: sesiError } = await db
     .from('sesi_ujian')
-    .select('kelas, is_darurat, siswa_diizinkan, jadwal_id')
+    .select('mapel_id, kelas, is_darurat, siswa_diizinkan, jadwal_id')
     .eq('id', sesiId)
     .maybeSingle()
 

@@ -115,7 +115,7 @@ export async function muatPengingatSesi(
       const masuk = new Set(baris.map(b => b.nis))
       const target = await ambilTargetSiswaSesi(
         db,
-        { kelas: s.kelas, is_darurat: s.is_darurat, siswa_diizinkan: s.siswa_diizinkan },
+        { mapel_id: s.mapel_id, kelas: s.kelas, is_darurat: s.is_darurat, siswa_diizinkan: s.siswa_diizinkan },
         [...masuk]
       )
       belumMasuk = target.filter(t => !masuk.has(t.nis)).length
