@@ -669,9 +669,10 @@ export function ModePengawasTab() {
       .filter(j => j.sesi_ujian?.status === 'BERJALAN')
       .map(j => j.sesi_ujian!.id)
     if (!runningSesiIds.length) return
-    // HEMAT VERCEL: dulu 1,5 dtk (40 panggilan/menit per pengawas). 3 dtk tetap
-    // terasa langsung bagi pengawas, separuh beban server.
-    pollingPelRef.current = setInterval(() => cekPelanggaranCepat(runningSesiIds), 3000)
+    // HEMAT VERCEL: dulu 1,5 dtk (40 panggilan/menit per sesi), lalu 3 dtk
+    // (20/menit), sekarang 5 dtk (12/menit). Pelanggaran tetap muncul di layar
+    // pengawas paling lambat ~5 dtk; tiap tick = 1 invocation per sesi berjalan.
+    pollingPelRef.current = setInterval(() => cekPelanggaranCepat(runningSesiIds), 5000)
     return () => { if (pollingPelRef.current) clearInterval(pollingPelRef.current) }
   }, [jadwal, cekPelanggaranCepat])
 
