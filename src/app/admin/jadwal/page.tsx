@@ -463,6 +463,7 @@ interface JadwalCetak {
 interface Sekolah {
   namaSekolah?: string; npsn?: string; alamat?: string
   kota?: string; tahunAjaran?: string; namaKepsek?: string; logoUrl?: string
+  namaKetuaPanitia?: string; nipKetuaPanitia?: string
 }
 
 export default function AdminJadwalPage() {
@@ -949,17 +950,22 @@ export default function AdminJadwalPage() {
 
     const kota = s.kota ?? 'Banggai Kepulauan'
     doc.text(`${kota}, ${fmtTglPendek(j.tanggal)}`, lm + w, ttdY, { align: 'right' })
-    doc.text('Mengetahui,', lm + w, ttdY + 5, { align: 'right' })
-    doc.text(`Kepala ${s.namaSekolah ?? 'Sekolah'}`, lm + w, ttdY + 10, { align: 'right' })
+    doc.text('Ketua Panitia Ujian,', lm + w, ttdY + 5, { align: 'right' })
 
     doc.setFont('helvetica', 'bold')
     doc.text(j.nama_pengawas || '_________________', lm, ttdY + signSpace)
     doc.setLineWidth(0.3)
     doc.line(lm, ttdY + signSpace + 1, lm + doc.getTextWidth(j.nama_pengawas || '_________________'), ttdY + signSpace + 1)
 
-    doc.text(s.namaKepsek ?? '_________________', lm + w, ttdY + signSpace, { align: 'right' })
-    const kepsekW = doc.getTextWidth(s.namaKepsek ?? '_________________')
-    doc.line(lm + w - kepsekW, ttdY + signSpace + 1, lm + w, ttdY + signSpace + 1)
+    // Penanda tangan kanan = Ketua Panitia Ujian (bukan Kepala Sekolah)
+    const namaPanitia = s.namaKetuaPanitia || '_________________'
+    doc.text(namaPanitia, lm + w, ttdY + signSpace, { align: 'right' })
+    const panitiaW = doc.getTextWidth(namaPanitia)
+    doc.line(lm + w - panitiaW, ttdY + signSpace + 1, lm + w, ttdY + signSpace + 1)
+    if (s.nipKetuaPanitia) {
+      doc.setFont('helvetica', 'normal')
+      doc.text(`NIP. ${s.nipKetuaPanitia}`, lm + w, ttdY + signSpace + 6, { align: 'right' })
+    }
 
     return doc.output('arraybuffer') as unknown as Uint8Array
   }

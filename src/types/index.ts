@@ -7,6 +7,8 @@ export interface Sekolah {
   npsn?: string
   nama_kepsek?: string
   nip_kepsek?: string
+  nama_ketua_panitia?: string   // penanda tangan Daftar Hadir & Berita Acara
+  nip_ketua_panitia?: string
   alamat?: string
   kota?: string
   tahun_ajaran?: string

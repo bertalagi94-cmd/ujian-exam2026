@@ -31,6 +31,7 @@ interface Siswa { nis: string; nama: string }
 interface SekolahCetak {
   namaSekolah?: string; npsn?: string; alamat?: string
   kota?: string; tahunAjaran?: string; namaKepsek?: string; logoUrl?: string
+  namaKetuaPanitia?: string; nipKetuaPanitia?: string
   label?: string
 }
 interface JadwalCetak {
@@ -176,9 +177,10 @@ function CetakContent() {
             </div>
             <div class="ttd-col" style="text-align:right;">
               <div>${esc(s.kota ?? '')}, ${fmtTglPendek(j.tanggal)},</div>
-              <div>Kepala ${esc(s.namaSekolah ?? 'Sekolah')},</div>
+              <div>Ketua Panitia Ujian,</div>
               <div class="ttd-space"></div>
-              <div class="ttd-nama">${esc(s.namaKepsek ?? '_________________')}</div>
+              <div class="ttd-nama">${esc(s.namaKetuaPanitia || '_________________')}</div>
+              ${s.nipKetuaPanitia ? `<div class="ttd-nip">NIP. ${esc(s.nipKetuaPanitia)}</div>` : ''}
             </div>
           </div>
         </div>`
@@ -248,10 +250,10 @@ function CetakContent() {
           </div>
           <div class="ttd-col" style="text-align:right;">
             <div>${esc(s.kota ?? '')}, ${fmtTglPendek(j.tanggal)}</div>
-            <div>Mengetahui,</div>
-            <div>Kepala ${esc(s.namaSekolah ?? 'Sekolah')}</div>
+            <div>Ketua Panitia Ujian,</div>
             <div class="ttd-space"></div>
-            <div class="ttd-nama">${esc(s.namaKepsek ?? '_________________')}</div>
+            <div class="ttd-nama">${esc(s.namaKetuaPanitia || '_________________')}</div>
+            ${s.nipKetuaPanitia ? `<div class="ttd-nip">NIP. ${esc(s.nipKetuaPanitia)}</div>` : ''}
           </div>
         </div>
       </div>`
@@ -289,6 +291,7 @@ function CetakContent() {
         .ttd-col { display: flex; flex-direction: column; min-width: 200px; }
         .ttd-space { height: 60px; }
         .ttd-nama { font-weight: bold; text-decoration: underline; }
+        .ttd-nip { font-size: 10pt; }
         @media print {
           body { -webkit-print-color-adjust: exact; }
           .page { page-break-after: always; }

@@ -11,12 +11,19 @@ import Link from 'next/link'
 
 const EMPTY_FORM: Partial<Sekolah> = {
   label: '', nama_sekolah: '', npsn: '', nama_kepsek: '',
-  nip_kepsek: '', alamat: '', kota: '', tahun_ajaran: '', logo_url: '', urutan: 0,
+  nip_kepsek: '', nama_ketua_panitia: '', nip_ketua_panitia: '',
+  alamat: '', kota: '', tahun_ajaran: '', logo_url: '', urutan: 0,
 }
+
+// Nilai khusus pada dropdown Ketua Panitia: beralih ke input manual.
+const PANITIA_MANUAL = '__manual__'
 
 export default function AdminSekolahPage() {
   const [list, setList] = useState<Sekolah[]>([])
   const [kepsekList, setKepsekList] = useState<User[]>([])
+  const [guruList, setGuruList] = useState<User[]>([])
+  // true = Ketua Panitia diisi manual (nama tidak ada di data guru)
+  const [panitiaManual, setPanitiaManual] = useState(false)
   const [loading, setLoading] = useState(true)
   const [modalOpen, setModalOpen] = useState(false)
   const [editData, setEditData] = useState<Partial<Sekolah>>(EMPTY_FORM)
@@ -39,6 +46,7 @@ export default function AdminSekolahPage() {
       ])
       setList(sekolahRes.data)
       setKepsekList(usersRes.data.filter(u => u.role === 'KEPSEK'))
+      setGuruList(usersRes.data.filter(u => u.role === 'GURU' && u.status === 'AKTIF'))
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'Gagal memuat data', 'error')
     } finally {
@@ -51,6 +59,7 @@ export default function AdminSekolahPage() {
   function openAdd() {
     setEditId(null)
     setEditData(EMPTY_FORM)
+    setPanitiaManual(false)
     setLogoPreview('')
     setModalOpen(true)
   }
@@ -58,6 +67,9 @@ export default function AdminSekolahPage() {
   function openEdit(s: Sekolah) {
     setEditId(s.id)
     setEditData({ ...s })
+    // Nama tersimpan yang tidak ada di data guru -> tampilkan sebagai input manual
+    const namaPanitia = (s.nama_ketua_panitia ?? '').trim()
+    setPanitiaManual(!!namaPanitia && !guruList.some(g => g.nama === namaPanitia))
     setLogoPreview(s.logo_url ?? '')
     setModalOpen(true)
   }
@@ -187,6 +199,7 @@ export default function AdminSekolahPage() {
                 <th>Nama Sekolah</th>
                 <th>NPSN</th>
                 <th>Kepala Sekolah</th>
+                <th>Ketua Panitia Ujian</th>
                 <th>Tahun Ajaran</th>
                 <th>Logo</th>
                 <th>Aksi</th>
@@ -204,6 +217,10 @@ export default function AdminSekolahPage() {
                   <td className="text-sm text-slate-600">
                     {s.nama_kepsek || '-'}
                     {s.nip_kepsek && <div className="text-xs text-slate-400">NIP: {s.nip_kepsek}</div>}
+                  </td>
+                  <td className="text-sm text-slate-600">
+                    {s.nama_ketua_panitia || <span className="text-amber-600">Belum diisi</span>}
+                    {s.nip_ketua_panitia && <div className="text-xs text-slate-400">NIP: {s.nip_ketua_panitia}</div>}
                   </td>
                   <td className="text-sm text-slate-500">{s.tahun_ajaran || '-'}</td>
                   <td>
@@ -303,6 +320,47 @@ export default function AdminSekolahPage() {
             <div>
               <label className="label">NIP Kepala Sekolah</label>
               <input className="input" placeholder="NIP" value={editData.nip_kepsek ?? ''} onChange={e => set('nip_kepsek', e.target.value)} />
+            </div>
+          </div>
+
+          {/* Ketua Panitia Ujian — penanda tangan Daftar Hadir & Berita Acara
+              (bersama Pengawas). Pilih dari data guru, atau input manual. */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="label">Ketua Panitia Ujian</label>
+              {guruList.length > 0 && (
+                <select
+                  className="select"
+                  value={panitiaManual ? PANITIA_MANUAL : (editData.nama_ketua_panitia ?? '')}
+                  onChange={e => {
+                    const v = e.target.value
+                    if (v === PANITIA_MANUAL) { setPanitiaManual(true); return }
+                    setPanitiaManual(false)
+                    const selected = guruList.find(g => g.nama === v)
+                    set('nama_ketua_panitia', v)
+                    set('nip_ketua_panitia', selected?.nip ?? '')
+                  }}
+                >
+                  <option value="">Pilih dari data guru</option>
+                  {guruList.map(g => (
+                    <option key={g.username} value={g.nama}>{g.nama}</option>
+                  ))}
+                  <option value={PANITIA_MANUAL}>✎ Tidak ada di daftar — input manual</option>
+                </select>
+              )}
+              {(panitiaManual || guruList.length === 0) && (
+                <input
+                  className={`input ${guruList.length > 0 ? 'mt-2' : ''}`}
+                  placeholder="Nama lengkap ketua panitia ujian"
+                  value={editData.nama_ketua_panitia ?? ''}
+                  onChange={e => set('nama_ketua_panitia', e.target.value)}
+                />
+              )}
+              <p className="text-xs text-slate-400 mt-1">Tampil di kolom tanda tangan Daftar Hadir &amp; Berita Acara</p>
+            </div>
+            <div>
+              <label className="label">NIP Ketua Panitia</label>
+              <input className="input" placeholder="NIP (boleh dikosongkan)" value={editData.nip_ketua_panitia ?? ''} onChange={e => set('nip_ketua_panitia', e.target.value)} />
             </div>
           </div>
 
