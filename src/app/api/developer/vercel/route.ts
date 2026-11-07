@@ -146,8 +146,11 @@ export async function GET(req: NextRequest) {
   let rincian: ReturnType<typeof agregasi>['rincian'] = []
   let biayaUsd = 0
   let tagihanError: string | null = null
+  let jumlahBaris = 0
   if (tagihan.ok) {
-    const agg = agregasi(parseJsonl(tagihan.teks))
+    const baris = parseJsonl(tagihan.teks)
+    jumlahBaris = baris.length
+    const agg = agregasi(baris)
     rincian = agg.rincian
     biayaUsd = agg.biayaUsd
     meter = DEF_METER.map(d => nilaiMeter(d, agg, periode.hariIni, kuotaMeter(d, process.env)))
@@ -174,7 +177,7 @@ export async function GET(req: NextRequest) {
     deploy = { ok: false, error: deployRes.error }
   }
 
-  const umum = meter.length
+  const umum = meter.length && jumlahBaris > 0
     ? ringkasanUmum(meter, deploy.ok ? { tingkat: deploy.tingkat, kalimat: deploy.kalimat } : null, paket)
     : null
 
@@ -183,9 +186,15 @@ export async function GET(req: NextRequest) {
     paket,
     tingkat: umum?.tingkat ?? (deploy.ok ? deploy.tingkat : null),
     ringkasan: umum?.ringkasan
-      ?? (deploy.ok && deploy.tingkat !== 'AMAN' ? deploy.kalimat : 'Pemakaian Vercel belum bisa dibaca. Lihat pesan di bawah.'),
+      ?? (deploy.ok && deploy.tingkat !== 'AMAN' ? deploy.kalimat
+        : tagihan.ok && jumlahBaris === 0
+          ? 'Vercel menjawab, tetapi tidak mengirim data pemakaian sama sekali. Angka kuota belum bisa ditampilkan (lihat penjelasan di bawah).'
+          : 'Pemakaian Vercel belum bisa dibaca. Lihat pesan di bawah.'),
     saran: umum?.saran ?? [],
     meter,
+    // Berapa baris pemakaian yang dikirim Vercel. 0 = Vercel menjawab sukses tetapi kosong
+    // (umum pada akun Hobby, karena API tagihan hanya memuat pemakaian yang ditagih).
+    jumlahBaris,
     periode: { mulai: periode.mulai, hari: periode.hari },
     biayaUsd,
     rincian,

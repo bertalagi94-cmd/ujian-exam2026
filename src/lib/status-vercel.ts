@@ -14,7 +14,7 @@
 // Hanya angka agregat sistem. Tidak ada data siswa, jawaban, atau nilai.
 
 export type Tingkat = 'AMAN' | 'WASPADA' | 'BAHAYA'
-export type KunciMeter = 'cpu' | 'memori' | 'invocation' | 'transfer' | 'origin'
+export type KunciMeter = 'cpu' | 'deploy' | 'cdn' | 'functions' | 'memori' | 'invocation' | 'transfer' | 'origin'
 export type Paket = 'hobby' | 'pro'
 
 /** Satu baris data tagihan FOCUS. Semua field opsional agar toleran terhadap perubahan skema. */
@@ -67,6 +67,18 @@ function keGb(n: number, satuan: string): number {
   return n
 }
 
+/** Penyimpanan: Vercel menagih GB-bulan (rata-rata GB tersimpan selama sebulan). Dibaca sebagai GB. */
+function keGbBulan(n: number, satuan: string): number {
+  const s = satuan.toLowerCase()
+  let gb = n
+  if (/\btb\b/.test(s)) gb = n * 1024
+  else if (/\bmb\b/.test(s)) gb = n / 1024
+  else if (/\bkb\b/.test(s)) gb = n / (1024 * 1024)
+  // Bila satuannya jam (GB-hrs), ubah ke GB-bulan (1 bulan ≈ 720 jam)
+  if (/hour|hrs?\b|-h\b/.test(s)) gb = gb / 720
+  return gb
+}
+
 interface DefMeter {
   kunci: KunciMeter
   label: string
@@ -74,6 +86,10 @@ interface DefMeter {
   sebutan: string
   satuan: string
   pola: RegExp
+  /** Baris yang cocok dengan pola ini diabaikan (mis. Sandbox, CDN Request CPU Duration). */
+  kecuali?: RegExp
+  /** true = ukuran "stok" (isi penyimpanan saat ini), bukan arus harian; tidak ada hitungan "hari tersibuk". */
+  stok?: boolean
   kuotaHobby: number
   env: string
   ubah: (n: number, satuan: string) => number
@@ -81,12 +97,25 @@ interface DefMeter {
 
 export const DEF_METER: DefMeter[] = [
   {
-    kunci: 'cpu', label: 'CPU server', sebutan: 'CPU server', satuan: 'jam',
-    pola: /active[\s_-]*cpu/i, kuotaHobby: 4, env: 'VERCEL_KUOTA_CPU_JAM', ubah: keJam,
+    kunci: 'cpu', label: 'Fluid Active CPU', sebutan: 'CPU server', satuan: 'jam',
+    pola: /active[\s_-]*cpu/i, kecuali: /sandbox/i, kuotaHobby: 4, env: 'VERCEL_KUOTA_CPU_JAM', ubah: keJam,
+  },
+  {
+    kunci: 'deploy', label: 'Deployment Storage', sebutan: 'penyimpanan deployment', satuan: 'GB', stok: true,
+    pola: /deployment[\s_-]*storage/i, kuotaHobby: 10, env: 'VERCEL_KUOTA_DEPLOY_STORAGE_GB', ubah: keGbBulan,
+  },
+  {
+    // Sejak 30 Sep 2026 bernama "CDN Requests" (dulu "Edge Requests"); angka dan batas sama.
+    kunci: 'cdn', label: 'CDN Requests', sebutan: 'jumlah permintaan ke CDN', satuan: 'permintaan',
+    pola: /(cdn|edge)[\s_-]*requests?/i, kecuali: /cpu|duration/i, kuotaHobby: 1_000_000, env: 'VERCEL_KUOTA_CDN_REQUESTS', ubah: n => n,
+  },
+  {
+    kunci: 'functions', label: 'Functions Storage', sebutan: 'penyimpanan fungsi', satuan: 'GB', stok: true,
+    pola: /functions?[\s_-]*storage/i, kuotaHobby: 10, env: 'VERCEL_KUOTA_FUNC_STORAGE_GB', ubah: keGbBulan,
   },
   {
     kunci: 'memori', label: 'Memori server', sebutan: 'memori server', satuan: 'GB-jam',
-    pola: /provisioned[\s_-]*memory/i, kuotaHobby: 360, env: 'VERCEL_KUOTA_MEMORI_GBJAM', ubah: keGbJam,
+    pola: /provisioned[\s_-]*memory/i, kecuali: /sandbox/i, kuotaHobby: 360, env: 'VERCEL_KUOTA_MEMORI_GBJAM', ubah: keGbJam,
   },
   {
     kunci: 'invocation', label: 'Jumlah panggilan server', sebutan: 'jumlah panggilan ke server', satuan: 'kali',
@@ -178,7 +207,7 @@ export function agregasi(baris: BarisCharge[]): HasilAgregasi {
     peta.set(kunciR, r)
 
     const jerami = `${b.ServiceName ?? ''} ${b.SkuId ?? ''}`
-    const def = DEF_METER.find(d => d.pola.test(jerami))
+    const def = DEF_METER.find(d => d.pola.test(jerami) && !(d.kecuali && d.kecuali.test(jerami)))
     if (!def) continue
     const nilai = def.ubah(jumlah, satuan)
     total[def.kunci] += nilai
@@ -274,7 +303,7 @@ export function nilaiMeter(
   const persen = bulatSatuDesimal(Math.min(999, persenAsli))
   const sisa = Math.max(0, kuota - pakai)
   const tersibuk = hariTersibuk(agg.perHari[def.kunci])
-  const hariTersisa = ada && tersibuk > 0 ? sisa / tersibuk : null
+  const hariTersisa = ada && !def.stok && tersibuk > 0 ? sisa / tersibuk : null
 
   let tingkat: Tingkat = 'AMAN'
   if (ada) {
@@ -372,4 +401,35 @@ export function ringkasanUmum(meter: Meter[], deploy: PenilaianDeploy | null, pa
   }
 
   return { tingkat, ringkasan, saran }
+}
+
+// ── Format angka seperti halaman Usage Vercel ────────────────────────────────
+/** 0,29 jam -> "17m 27s"; 5,5 jam -> "5h 30m". */
+function fmtDurasi(jam: number): string {
+  const totalDetik = Math.round(jam * 3600)
+  const h = Math.floor(totalDetik / 3600)
+  const m = Math.floor((totalDetik % 3600) / 60)
+  const d = totalDetik % 60
+  if (h > 0) return m > 0 ? `${h}h ${m}m` : `${h}h`
+  if (m > 0) return d > 0 ? `${m}m ${d}s` : `${m}m`
+  return `${d}s`
+}
+
+function fmtRingkas(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toLocaleString('id-ID', { maximumFractionDigits: 1 })}M`
+  if (n >= 1_000) return `${(n / 1_000).toLocaleString('id-ID', { maximumFractionDigits: 0 })}K`
+  return n.toLocaleString('id-ID', { maximumFractionDigits: 0 })
+}
+
+/** Menampilkan nilai meter dengan gaya dashboard Vercel: "17m 27s", "490,93 MB", "39K". */
+export function fmtMeterVercel(kunci: KunciMeter, n: number): string {
+  switch (kunci) {
+    case 'cpu': return fmtDurasi(n)
+    case 'cdn': case 'invocation': return fmtRingkas(n)
+    case 'memori': return `${n.toLocaleString('id-ID', { maximumFractionDigits: 1 })} GB-hrs`
+    default: // GB
+      return n < 1
+        ? `${(n * 1024).toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MB`
+        : `${n.toLocaleString('id-ID', { maximumFractionDigits: 2 })} GB`
+  }
 }

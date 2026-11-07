@@ -5,7 +5,7 @@
 import {
   AlertTriangle, CheckCircle2, Cloud, Database, Globe, HardDrive, Info, RefreshCw, Rocket, ShieldCheck, XCircle,
 } from 'lucide-react'
-import { fmtAngka } from '@/lib/status-vercel'
+import { fmtAngka, fmtMeterVercel, type KunciMeter } from '@/lib/status-vercel'
 
 export type TingkatUi = 'AMAN' | 'WASPADA' | 'BAHAYA'
 
@@ -26,6 +26,7 @@ export interface DataVercel {
   meter?: MeterVercel[]
   periode?: { mulai: string; hari: number }
   biayaUsd?: number
+  jumlahBaris?: number
   rincian?: Array<{ nama: string; jumlah: number; satuan: string; biayaUsd: number }>
   tagihanError?: string | null
   deploy?:
@@ -49,6 +50,20 @@ function Ikon({ t, className = 'w-4 h-4' }: { t: TingkatUi; className?: string }
   if (t === 'AMAN') return <CheckCircle2 className={`${className} text-emerald-300`} />
   if (t === 'WASPADA') return <AlertTriangle className={`${className} text-amber-300`} />
   return <XCircle className={`${className} text-rose-300`} />
+}
+
+/** Cincin kemajuan kecil, seperti ikon di halaman Usage Vercel. */
+function Cincin({ persen, tingkat, ada }: { persen: number; tingkat: TingkatUi; ada: boolean }) {
+  const r = 8
+  const keliling = 2 * Math.PI * r
+  const isi = ada ? Math.min(100, Math.max(persen, persen > 0 ? 3 : 0)) / 100 * keliling : 0
+  const warna = tingkat === 'AMAN' ? '#34d399' : tingkat === 'WASPADA' ? '#fbbf24' : '#fb7185'
+  return (
+    <svg width="22" height="22" viewBox="0 0 22 22" className="shrink-0 -rotate-90" aria-hidden="true">
+      <circle cx="11" cy="11" r={r} fill="none" stroke="rgba(255,255,255,0.12)" strokeWidth="3" />
+      {ada && <circle cx="11" cy="11" r={r} fill="none" stroke={warna} strokeWidth="3" strokeLinecap="round" strokeDasharray={`${isi} ${keliling}`} />}
+    </svg>
+  )
 }
 
 const waktu = (ms: number) => new Date(ms).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' })
@@ -185,32 +200,49 @@ export function KartuVercel({ data, gagal, memuat, onSegarkan }: PropsKartu) {
 
           {data.tagihanError && <p className="text-sm text-rose-300">{data.tagihanError}</p>}
 
+          {data.terhubung && data.jumlahBaris === 0 && !data.tagihanError && (
+            <div className="rounded-xl bg-amber-400/5 ring-1 ring-amber-400/20 p-3.5 space-y-2 text-sm text-amber-100/90">
+              <p className="font-semibold flex items-center gap-1.5"><Info className="w-4 h-4" />Vercel tidak mengirim data pemakaian</p>
+              <p>
+                Token dan koneksi sudah benar (Vercel menjawab sukses), tetapi daftar pemakaian yang dikirim kosong.
+                API tagihan Vercel adalah API untuk <b>biaya</b>, dan menurut dokumentasi integrasi pihak ketiga akun Hobby (gratis)
+                tidak punya data tagihan di sana. Dashboard Vercel sendiri membaca angka dari jalur internal yang tidak dibuka untuk umum,
+                sehingga angka persis seperti di Vercel → Usage belum bisa diambil untuk akun Hobby.
+              </p>
+              <p className="text-amber-100/70">
+                Sementara itu aktifkan email/notifikasi batas pemakaian di Vercel (Settings → Notifications) agar Anda diberi tahu
+                sebelum jatah habis. Jika kelak akun naik ke Pro, kartu ini otomatis terisi tanpa perubahan kode.
+              </p>
+            </div>
+          )}
+
           {data.meter && data.meter.length > 0 && (
-            <div className="grid md:grid-cols-2 gap-3">
-              {data.meter.map(m => (
-                <div key={m.kunci} className="rounded-xl bg-white/[0.03] ring-1 ring-white/5 p-3.5">
-                  <div className="flex items-baseline justify-between gap-2">
-                    <p className="text-[11px] uppercase tracking-wider text-slate-500">{m.label}</p>
-                    {m.ada && <span className={`text-[11px] font-bold ${GAYA[m.tingkat].teks}`}>{fmtAngka(m.persen)}%</span>}
-                  </div>
-                  {m.ada ? (
-                    <>
-                      <p className="text-lg font-extrabold text-white tabular-nums mt-0.5">
-                        {fmtAngka(m.pakai)} <span className="text-xs font-medium text-slate-400">dari {fmtAngka(m.kuota)} {m.satuan}</span>
-                      </p>
-                      <div className="mt-2 h-2 rounded-full bg-white/10 overflow-hidden">
-                        <div className={`h-full rounded-full ${GAYA[m.tingkat].bar}`} style={{ width: `${Math.min(100, Math.max(1, m.persen))}%` }} />
-                      </div>
-                      <p className="mt-1.5 text-xs text-slate-400">
-                        Sisa {fmtAngka(m.sisa)} {m.satuan}
-                        {m.hariTersisa !== null && m.hariTersisa < 60 && ` · cukup untuk ±${Math.max(0, Math.floor(m.hariTersisa))} hari tersibuk lagi`}
-                      </p>
-                    </>
-                  ) : (
-                    <p className="mt-1 text-xs text-slate-500">Belum ada data dari Vercel.</p>
-                  )}
-                </div>
-              ))}
+            <div className="rounded-xl ring-1 ring-white/10 overflow-hidden">
+              <div className="flex items-center justify-between gap-2 px-3.5 py-2.5 bg-white/[0.04]">
+                <p className="text-sm font-semibold text-slate-100">Pemakaian {data.periode?.hari ?? 30} hari terakhir</p>
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">{data.paket === 'pro' ? 'Pro' : 'Hobby'}</span>
+              </div>
+              <ul>
+                {data.meter.map((m, i) => (
+                  <li key={m.kunci} className={`px-3.5 py-2.5 ${i % 2 === 0 ? 'bg-white/[0.02]' : ''}`}>
+                    <div className="flex items-center gap-3">
+                      <Cincin persen={m.persen} tingkat={m.tingkat} ada={m.ada} />
+                      <span className="flex-1 min-w-0 text-sm text-slate-100 truncate">{m.label}</span>
+                      <span className="text-sm tabular-nums text-slate-300 whitespace-nowrap">
+                        {m.ada
+                          ? <><span className={m.tingkat === 'AMAN' ? 'text-slate-100' : GAYA[m.tingkat].teks}>{fmtMeterVercel(m.kunci as KunciMeter, m.pakai)}</span> / {fmtMeterVercel(m.kunci as KunciMeter, m.kuota)}</>
+                          : <span className="text-slate-500">—</span>}
+                      </span>
+                    </div>
+                    {m.ada && (m.tingkat !== 'AMAN' || (m.hariTersisa !== null && m.hariTersisa < 60)) && (
+                      <p className="mt-1 ml-[34px] text-xs text-slate-400">{m.kalimat}</p>
+                    )}
+                    {!m.ada && data.jumlahBaris !== 0 && (
+                      <p className="mt-1 ml-[34px] text-xs text-slate-500">Belum ada data dari Vercel untuk bagian ini (cek &quot;Rincian mentah&quot; di bawah).</p>
+                    )}
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
 

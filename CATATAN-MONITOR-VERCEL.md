@@ -111,3 +111,14 @@ sebelumnya (karena itu hanya WASPADA).
 - Hanya angka agregat sistem. Tidak ada data siswa, jawaban, atau nilai (dinding keamanan Panel Developer tetap).
 - Saran: buat token khusus untuk monitor ini dengan masa berlaku terbatas, dan cabut di
   Account Settings → Tokens bila tidak dipakai lagi.
+
+## Pembaruan (7 Nov 2026): tampilan mengikuti halaman Usage Vercel
+
+- Meter ditambah: **Deployment Storage**, **CDN Requests** (dulu "Edge Requests", diganti nama
+  Vercel pada 30 Sep 2026), dan **Functions Storage**. Urutannya sama dengan Vercel → Usage.
+- Angka ditampilkan seperti di Vercel: `17m 27s / 4h`, `490,93 MB / 10 GB`, `39K / 1M`.
+- Baris "Sandbox Active CPU" dan "CDN Request CPU Duration" tidak lagi ikut terhitung ke meter CPU/CDN.
+- Env batas baru (opsional, bawaan = batas Hobby): `VERCEL_KUOTA_CDN_REQUESTS` (1000000),
+  `VERCEL_KUOTA_DEPLOY_STORAGE_GB` (10), `VERCEL_KUOTA_FUNC_STORAGE_GB` (10).
+- Bila Vercel menjawab sukses tetapi tanpa baris pemakaian (jumlahBaris = 0), kartu menampilkan
+  penjelasan, bukan lagi status "AMAN" palsu.
