@@ -29,6 +29,8 @@
 // keduanya berkali-kali dengan aman sampai mendapat ACK.
 
 import { ambilStatusOffline, hapusStatusOffline, bersihkanDataEssayOffline } from '@/lib/essay-amplop-client'
+import { hapusPaketPgOffline } from '@/lib/pg-paket-offline'
+import { hapusKlaimPgSelesaiOffline } from '@/lib/pg-offline-client'
 import { apiRequest } from '@/lib/utils'
 import { outboxPut, outboxGet, outboxDelete, outboxGetAllValues } from '@/lib/ujian-offline-storage'
 
@@ -382,20 +384,27 @@ function sedangDiprosesAktif(paket: PaketUjianTertunda): boolean {
 
 // Baca backup jawaban essay lokal yang ditulis halaman ujian (mode DIGITAL) di
 // localStorage. Format baru {v, t} maupun format lama (flat map) didukung.
-function bacaBackupEssayLokal(sesiId: string, nis: string): { v: Record<string, string>; t: Record<string, number> } {
+function bacaBackupEssayLokal(sesiId: string, nis: string): { v: Record<string, string>; t: Record<string, number>; r: Record<string, number> } {
   try {
     const raw = localStorage.getItem(`ujian_essay_backup_${sesiId}_${nis}`)
-    if (!raw) return { v: {}, t: {} }
+    if (!raw) return { v: {}, t: {}, r: {} }
     const parsed = JSON.parse(raw)
     const adaFormatBaru = !!parsed && typeof parsed === 'object' && 'v' in parsed
     const peta = adaFormatBaru ? parsed.v : parsed
     const waktu = adaFormatBaru && parsed.t && typeof parsed.t === 'object' ? parsed.t : {}
+    // PERBAIKAN: baca juga nomor revisi per soal (`r`) yang ditulis halaman
+    // essay. Dulu outbox tidak mengirim revisi sama sekali, sehingga server
+    // menyimpannya sebagai 0 dan jawaban offline bisa DITOLAK diam-diam oleh
+    // sync_jawaban_essay_revisi() kalau di server sudah ada draf dengan revisi
+    // lebih tinggi (mis. siswa sempat menulis essay saat online).
+    const revisi = adaFormatBaru && parsed.r && typeof parsed.r === 'object' ? parsed.r : {}
     return {
       v: peta && typeof peta === 'object' ? (peta as Record<string, string>) : {},
       t: waktu as Record<string, number>,
+      r: revisi as Record<string, number>,
     }
   } catch {
-    return { v: {}, t: {} }
+    return { v: {}, t: {}, r: {} }
   }
 }
 
@@ -467,6 +476,7 @@ async function siapkanEssayUntukKirim(paket: PaketUjianTertunda): Promise<void> 
             jawaban_teks,
             // Bukti waktu untuk kebijakan jawaban terlambat (deadline-pg.ts).
             waktuJawabMs: backupEssay.t?.[soal_essay_id] || undefined,
+            revisi: typeof backupEssay.r?.[soal_essay_id] === 'number' ? backupEssay.r[soal_essay_id] : undefined,
           })),
           deviceId: paket.deviceId,
         }),
@@ -561,6 +571,13 @@ export async function cobaKirimPaketTertunda(
 
     // Kedua tahap (yang relevan) sudah ACK server — paket ini selesai.
     await hapusPaketTertunda(current.sesiId, current.nis)
+    // PERBAIKAN: bersihkan sisa state PG di perangkat. Dulu hanya handleSelesai()
+    // yang menghapusnya, jadi untuk siswa yang selesai OFFLINE paket soal PG +
+    // klaim "selesai offline" tertinggal selamanya. Akibatnya recoverActiveExam()
+    // menghidupkan kembali layar UJIAN (modal "Jawaban PG diamankan di perangkat")
+    // padahal ujian sudah selesai dan terkirim.
+    hapusPaketPgOffline(current.sesiId, current.nis)
+    hapusKlaimPgSelesaiOffline(current.sesiId, current.nis)
     return 'TERKIRIM'
   } catch (err: unknown) {
     const status = (err as { status?: number } | undefined)?.status

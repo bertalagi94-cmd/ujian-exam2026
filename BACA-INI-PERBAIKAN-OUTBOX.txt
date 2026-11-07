@@ -1,0 +1,8 @@
+Ekstrak di folder ROOT repo (yang berisi folder src/) lalu timpa file yang sama.
+
+File yang berubah (hanya 2):
+- src/app/siswa/ujian/page.tsx
+- src/lib/ujian-outbox.ts
+
+Tidak ada migrasi SQL. Setelah menimpa: commit, push, deploy seperti biasa.
+Dibuat dari commit f04df07 (main). Kalau Anda sudah mengubah kedua file ini setelah commit itu, JANGAN timpa -- pakai perbaikan-outbox-essay.patch.

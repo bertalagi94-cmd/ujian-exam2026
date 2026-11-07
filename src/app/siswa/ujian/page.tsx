@@ -18,7 +18,7 @@ import {
 } from '@/lib/pg-offline-client'
 // FIX (Essay masih bergantung koneksi saat "Kirim" + belum ada outbox
 // permanen): lihat src/lib/ujian-outbox.ts untuk rasionalnya.
-import { simpanPaketTertunda, cobaKirimPaketTertunda, ambilPaketTertunda, hapusPaketTertunda } from '@/lib/ujian-outbox'
+import { simpanPaketTertunda, cobaKirimPaketTertunda, ambilPaketTertunda, ambilSemuaPaketTertunda, hapusPaketTertunda } from '@/lib/ujian-outbox'
 import { antrekanPelanggaran } from '@/lib/pelanggaran-outbox'
 import {
   simpanPaketPgOffline,
@@ -804,6 +804,22 @@ export default function SiswaUjianPage() {
       .catch(() => {})
   }, [])
 
+  // PERBAIKAN (balapan outbox vs halaman essay): True kalau perangkat ini punya
+  // paket outbox yang berisi niat "Kirim essay" (siswa SUDAH menekan Kirim di
+  // halaman essay, mungkin saat offline) dan paket itu belum GAGAL. Dalam kondisi
+  // itu siswa TIDAK boleh dibawa kembali ke halaman essay: server belum tahu
+  // essay sudah dikirim (jadi /api/siswa/jadwal masih menjawab essayPending),
+  // sementara outbox sedang/akan mengirimnya. Dua pengirim sekaligus membuat
+  // halaman essay menerima 409 palsu padahal essay sebenarnya sudah terkirim.
+  async function adaPaketEssayTertunda(sesiId?: string): Promise<boolean> {
+    try {
+      const nis = JSON.parse(localStorage.getItem('user') ?? '{}').nis as string | undefined
+      if (!nis) return false
+      const semua = await ambilSemuaPaketTertunda(nis)
+      return semua.some(p => (!sesiId || p.sesiId === sesiId) && p.butuhKirimEssay && p.status !== 'GAGAL')
+    } catch { return false }
+  }
+
   // ── Cek jadwal hari ini saat pertama kali masuk halaman ─────────────────
   useEffect(() => {
     async function cekJadwal() {
@@ -816,6 +832,12 @@ export default function SiswaUjianPage() {
         // langsung ke halaman essay — JANGAN masuk alur KODE lagi karena
         // /api/siswa/ujian/validasi akan menolak (nilai PG sudah ada).
         const essayPendingEntry = (res.data ?? []).find(j => j.essayPending && j.sesiIdEssayPending)
+        // PERBAIKAN: essay sudah ditekan Kirim di perangkat ini dan menunggu outbox
+        // -> arahkan ke menu Pengiriman Tertunda, jangan buka halaman essay lagi.
+        if (essayPendingEntry?.sesiIdEssayPending && await adaPaketEssayTertunda(essayPendingEntry.sesiIdEssayPending)) {
+          window.location.href = '/siswa/pengiriman-tertunda'
+          return
+        }
         if (essayPendingEntry?.sesiIdEssayPending) {
           setSesiInfo({
             sesiId: essayPendingEntry.sesiIdEssayPending,
@@ -899,6 +921,12 @@ export default function SiswaUjianPage() {
         // amplop lokal — alih-alih layar "tidak ada ujian" tanpa jalan kembali.
         const statusHttp = (e as { status?: number } | undefined)?.status
         if (!statusHttp) {
+          // PERBAIKAN: sama seperti jalur online di atas — kalau essay sudah
+          // ditekan Kirim dan menunggu outbox, jangan hidupkan lagi essay/PG.
+          if (await adaPaketEssayTertunda()) {
+            window.location.href = '/siswa/pengiriman-tertunda'
+            return
+          }
           // FIX BUG P0 #1 (audit): jangan jadikan /api/siswa/jadwal syarat
           // resume. Coba pulihkan Essay offline dulu (kalau siswa memang
           // sudah lewat fase PG), baru PG murni (recoverActiveExam) kalau
@@ -3568,6 +3596,12 @@ export default function SiswaUjianPage() {
       butuhKirimEssay: true,
       waktuSelesaiClaimIso: klaimPg,
     })
+    // PERBAIKAN: siswa sudah melewati fase PG dan menekan Kirim essay. Paket soal
+    // PG lokal tidak diperlukan lagi; kalau dibiarkan, recoverActiveExam() bisa
+    // menghidupkan layar UJIAN lagi. (Klaim "selesai offline" sengaja TIDAK
+    // dihapus di sini: nilainya sudah disalin ke paket outbox, dan dihapus oleh
+    // outbox begitu paket TERKIRIM.)
+    hapusPaketPgOffline(currentSesi.sesiId, nis)
   }
 
   // ── Kirim essay (titik akhir alur) — membuka nilai PG & melepas fullscreen ─
@@ -3635,17 +3669,17 @@ export default function SiswaUjianPage() {
           setSubmittingEssay(false)
           return
         }
-        if (!isTimeout) {
-          // Penolakan sah dari server (sesi ditutup/dikunci) — mengulang
-          // tidak akan pernah berhasil, tetap hentikan dengan pesan jelas.
-          setSubmittingEssay(false)
-          setErrorEssay(
-            'Sesi ujian Anda tidak bisa menerima jawaban lagi saat ini (sesi ditutup atau akses dikunci). ' +
-            'Hubungi pengawas Anda.'
-          )
-          return
-        }
-        setEssaySyncGagalSaatTimeout(true)
+        // PERBAIKAN: sync ditolak server (409/403) TIDAK lagi langsung dianggap
+        // "sesi ditutup". Penolakan itu bisa berarti banyak hal, salah satunya
+        // essay SUDAH terkirim (status SUDAH_KIRIM — mis. oleh outbox) sehingga
+        // essay/jawab menjawab 409. Dulu semua kasus dipaksa menjadi pesan
+        // "sesi ditutup" dan proses berhenti sebelum essay/kirim sempat
+        // memastikan status sebenarnya. Sekarang lanjut ke essay/kirim di bawah:
+        // endpoint itu idempotent (sudah terkirim -> sukses) dan kalau memang
+        // ditolak, pesan aslinya dari server yang ditampilkan oleh catch di bawah.
+        // Jawaban tidak berisiko: essay/kirim menolak sendiri kalau sesi ditutup,
+        // waktu habis, perangkat lain, atau siswa terkunci/reset.
+        if (isTimeout) setEssaySyncGagalSaatTimeout(true)
       } else if (!cocokAckEssay) {
         // FIX #6: sync sendiri sukses secara HTTP, tapi setelah beberapa
         // ronde tetap ada soal yang revisinya DITOLAK server (device lain
