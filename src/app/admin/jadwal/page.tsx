@@ -440,6 +440,11 @@ function KosongRangkuman({ pesan, sub }: { pesan: string; sub?: string }) {
   )
 }
 
+// Nama pengawas pada dokumen cetak SENGAJA dikosongkan (titik-titik): pengawas
+// yang bertugas di lapangan bisa berbeda dari yang tertulis di jadwal (mis.
+// berhalangan). Diisi tangan oleh pengawas yang benar-benar bertugas.
+const TITIK_PENGAWAS = '...................................' // 35 titik: muat di kolom meta PDF
+
 interface JadwalCetak {
   id: string; tanggal: string; sesi: number
   jam_mulai: string; jam_selesai: string; durasi: number
@@ -833,7 +838,7 @@ export default function AdminJadwalPage() {
       const meta = [
         ['Mata Pelajaran', j.nama_mapel, 'Kelas', j.kelas],
         ['Hari / Tanggal', fmtTanggal(j.tanggal), 'Sesi', `Sesi ke-${j.sesi}`],
-        ['Pukul', `${j.jam_mulai} - ${j.jam_selesai} WITA`, 'Pengawas', j.nama_pengawas || '-'],
+        ['Pukul', `${j.jam_mulai} - ${j.jam_selesai} WITA`, 'Pengawas', TITIK_PENGAWAS],
         ['Tahun Ajaran', s.tahunAjaran ?? '-', 'Durasi', `${j.durasi} menit`],
       ]
       for (const row of meta) {
@@ -919,7 +924,7 @@ export default function AdminJadwalPage() {
         ['Pukul', `${j.jam_mulai} s.d. ${j.jam_selesai} WITA (${j.durasi} menit)`],
         ['Sesi ke-', String(j.sesi)],
         ['Jumlah Soal', infoJumlahSoalPDF(j)],
-        ['Nama Pengawas', j.nama_pengawas || '-'],
+        ['Nama Pengawas', TITIK_PENGAWAS],
         ['Jumlah Peserta Terdaftar', `${j.siswa.length} siswa`],
         ['Jumlah Hadir', '______ siswa'],
         ['Jumlah Tidak Hadir', '______ siswa (sakit: ___, izin: ___, alpha: ___)'],
@@ -952,10 +957,12 @@ export default function AdminJadwalPage() {
     doc.text(`${kota}, ${fmtTglPendek(j.tanggal)}`, lm + w, ttdY, { align: 'right' })
     doc.text('Ketua Panitia Ujian,', lm + w, ttdY + 5, { align: 'right' })
 
+    // Nama pengawas dikosongkan (titik-titik), diisi tangan oleh pengawas yang
+    // benar-benar bertugas; tanpa garis bawah.
+    doc.setFont('helvetica', 'normal')
+    doc.text(TITIK_PENGAWAS, lm, ttdY + signSpace)
     doc.setFont('helvetica', 'bold')
-    doc.text(j.nama_pengawas || '_________________', lm, ttdY + signSpace)
     doc.setLineWidth(0.3)
-    doc.line(lm, ttdY + signSpace + 1, lm + doc.getTextWidth(j.nama_pengawas || '_________________'), ttdY + signSpace + 1)
 
     // Penanda tangan kanan = Ketua Panitia Ujian (bukan Kepala Sekolah)
     const namaPanitia = s.namaKetuaPanitia || '_________________'

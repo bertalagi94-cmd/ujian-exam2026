@@ -20,6 +20,11 @@ function fmtTglPendek(d: string) {
   return `${dt.getDate()} ${months[dt.getMonth()]} ${dt.getFullYear()}`
 }
 
+// Nama pengawas pada dokumen cetak SENGAJA dikosongkan (titik-titik) karena
+// pengawas yang bertugas di lapangan bisa berbeda dari yang tertulis di jadwal
+// (mis. berhalangan hadir). Diisi tangan oleh pengawas yang benar-benar bertugas.
+const TITIK_PENGAWAS = '.............................................'
+
 // Escape HTML: data siswa/sekolah disuntik ke innerHTML.
 function esc(v: unknown): string {
   return String(v ?? '')
@@ -162,7 +167,7 @@ function CetakContent() {
             <tr><td>Pukul</td><td>:</td><td>${esc(j.jam_mulai)} s.d. ${esc(j.jam_selesai)} (${j.durasi} menit)</td></tr>
             <tr><td>Sesi ke-</td><td>:</td><td>${j.sesi}</td></tr>
             <tr><td>Jumlah Soal</td><td>:</td><td>${infoJumlahSoal(j)}</td></tr>
-            <tr><td>Nama Pengawas</td><td>:</td><td>${esc(j.nama_pengawas || '-')}</td></tr>
+            <tr><td>Nama Pengawas</td><td>:</td><td>${TITIK_PENGAWAS}</td></tr>
             <tr><td>Jumlah Peserta Terdaftar</td><td>:</td><td>${j.siswa.length} siswa</td></tr>
             <tr><td>Jumlah Hadir</td><td>:</td><td>______ siswa</td></tr>
             <tr><td>Jumlah Tidak Hadir</td><td>:</td><td>______ siswa (sakit: ___, izin: ___, alpha: ___)</td></tr>
@@ -173,7 +178,7 @@ function CetakContent() {
             <div class="ttd-col">
               <div>Pengawas Ujian,</div>
               <div class="ttd-space"></div>
-              <div class="ttd-nama">${esc(j.nama_pengawas || '_________________')}</div>
+              <div class="ttd-nama" style="text-decoration:none;">${TITIK_PENGAWAS}</div>
             </div>
             <div class="ttd-col" style="text-align:right;">
               <div>${esc(s.kota ?? '')}, ${fmtTglPendek(j.tanggal)},</div>
@@ -223,7 +228,7 @@ function CetakContent() {
           <tr>
             <td>Pukul</td><td>:</td>
             <td>${esc(j.jam_mulai)} - ${esc(j.jam_selesai)}</td>
-            <td>Pengawas</td><td>:</td><td>${esc(j.nama_pengawas || '-')}</td>
+            <td>Pengawas</td><td>:</td><td>${TITIK_PENGAWAS}</td>
           </tr>
           <tr>
             <td>Tahun Ajaran</td><td>:</td>
@@ -246,7 +251,7 @@ function CetakContent() {
           <div class="ttd-col">
             <div>Pengawas Ujian,</div>
             <div class="ttd-space"></div>
-            <div class="ttd-nama">${esc(j.nama_pengawas || '_________________')}</div>
+            <div class="ttd-nama" style="text-decoration:none;">${TITIK_PENGAWAS}</div>
           </div>
           <div class="ttd-col" style="text-align:right;">
             <div>${esc(s.kota ?? '')}, ${fmtTglPendek(j.tanggal)}</div>
