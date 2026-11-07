@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRoleAktif } from '@/lib/status-akun'
 import { generateId } from '@/lib/utils'
+import { cekBatasDuplikatSoal } from '@/lib/batas-soal'
 
 export async function POST(req: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
@@ -49,6 +50,19 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
       { status: 403 }
     )
   }
+
+  // Batas jumlah soal per mapel (opsional, diatur Super Admin; bawaan mati):
+  // paket sumber yang belum mencapai batas tidak boleh diduplikasi.
+  const { count: jumlahSumber } = await db
+    .from('soal_essay')
+    .select('*', { count: 'exact', head: true })
+    .eq('paket_essay_id', params.id)
+  const kurang = await cekBatasDuplikatSoal(db, {
+    jenis: 'essay',
+    mapelId: paketSumber.mapel_id,
+    jumlah: jumlahSumber ?? 0,
+  })
+  if (kurang) return NextResponse.json({ error: kurang }, { status: 400 })
 
   const { data: existing } = await db
     .from('paket_essay')

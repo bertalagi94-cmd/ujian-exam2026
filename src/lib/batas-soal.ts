@@ -218,6 +218,25 @@ export async function cekBatasTambahSoal(
 }
 
 /**
+ * Cek SEBELUM menduplikasi paket: paket sumber yang jumlah soalnya belum
+ * mencapai batas admin tidak boleh diduplikasi (kalau boleh, guru bisa
+ * menggandakan paket yang belum lengkap ke banyak kelas). Hanya memblokir
+ * kalau KURANG — paket yang pas/lebih tetap boleh, dan fitur mati / mapel
+ * tanpa batas selalu lolos. Pesan sengaja singkat karena tampil di toast.
+ * Mengembalikan pesan error, atau null kalau boleh diduplikasi.
+ */
+export async function cekBatasDuplikatSoal(
+  db: SupabaseClient,
+  opts: { jenis: JenisSoal; mapelId: string; jumlah: number }
+): Promise<string | null> {
+  const { min, namaMapel } = await bacaBatasMapel(db, opts)
+  if (min === null || opts.jumlah >= min) return null
+
+  const label = opts.jenis === 'pg' ? 'PG' : 'Essay'
+  return `Belum bisa diduplikasi. Soal ${label} ${namaMapel} baru ${opts.jumlah} dari ${min}, lengkapi dulu.`
+}
+
+/**
  * Batas minimal soal untuk satu mapel (dipakai form unduh template & info di
  * halaman guru). null = tidak dibatasi (fitur mati / mapel tanpa batas).
  */
