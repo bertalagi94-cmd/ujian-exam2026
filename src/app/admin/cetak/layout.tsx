@@ -1,11 +1,8 @@
-// Layout kosong untuk halaman cetak — tidak ada sidebar, tidak ada navbar
-// Halaman ini akan langsung trigger window.print()
+// Layout halaman cetak.
+// PERBAIKAN: sebelumnya mengembalikan <html><body> bersarang di dalam <body>
+// milik root layout (tidak valid, memicu mismatch hidrasi). <html>/<body>
+// hanya boleh ada di src/app/layout.tsx. Tampilan "tanpa sidebar" dicapai di
+// page.tsx lewat portal ke <body> + aturan CSS yang menyembunyikan sisanya.
 export default function CetakLayout({ children }: { children: React.ReactNode }) {
-  return (
-    <html>
-      <body style={{ margin: 0, background: '#fff' }}>
-        {children}
-      </body>
-    </html>
-  )
+  return <>{children}</>
 }

@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useRef, useCallback } from 'react'
+import { useEffect, useRef, useCallback, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useSearchParams } from 'next/navigation'
 import { Suspense } from 'react'
 
@@ -65,6 +66,16 @@ function CetakContent() {
 
   const containerRef = useRef<HTMLDivElement>(null)
 
+  // PERBAIKAN (cetak dari menu Jadwal Ujian menghasilkan halaman putih):
+  // halaman ini berada di bawah src/app/admin/layout.tsx (sidebar, dll), jadi
+  // #cetak-root BUKAN anak langsung <body>. Aturan CSS di bawah
+  // `body > *:not(#cetak-root) { display:none }` lalu menyembunyikan pembungkus
+  // layout admin yang MEMUAT #cetak-root -> seluruh dokumen ikut hilang dan
+  // yang tercetak kosong. Solusi: render lewat portal langsung ke <body>
+  // supaya #cetak-root benar-benar anak langsung body.
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => { setMounted(true) }, [])
+
   // PERBAIKAN: sebelumnya kegagalan (401/500, jadwal tidak ditemukan, jaringan)
   // semuanya berakhir sebagai halaman putih kosong tanpa penjelasan. Sekarang
   // setiap kegagalan menampilkan pesan yang jelas dan TIDAK memicu dialog cetak.
@@ -108,7 +119,8 @@ function CetakContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tanggal, jadwalId, mode])
 
-  useEffect(() => { if (tanggal) load() }, [load, tanggal])
+  // Tunggu portal terpasang (mounted) supaya containerRef sudah terisi.
+  useEffect(() => { if (mounted && tanggal) load() }, [load, tanggal, mounted])
 
   function renderHTML(jadwal: JadwalCetak[], mode: string) {
     if (!containerRef.current) return
@@ -288,7 +300,9 @@ function CetakContent() {
     setTimeout(() => window.print(), 600)
   }
 
-  return (
+  if (!mounted) return null
+
+  return createPortal(
     <>
       <style>{`
         body > *:not(#cetak-root) { display: none !important; }
@@ -299,7 +313,8 @@ function CetakContent() {
           Memuat dokumen...
         </div>
       </div>
-    </>
+    </>,
+    document.body
   )
 }
 
