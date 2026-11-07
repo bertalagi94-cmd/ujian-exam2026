@@ -1,11 +1,12 @@
 import { NextRequest } from 'next/server'
-import { RealtimeChannel, SupabaseClient } from '@supabase/supabase-js'
+import { SupabaseClient } from '@supabase/supabase-js'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { verifyToken, JWTPayload } from '@/lib/auth'
 import { periksaAkunMasihAktif } from '@/lib/status-akun'
 import { getKepsekScope } from '@/lib/kepsek-scope'
 import { ambilInfoIzin, izinDiperlukan, tolakJikaBelumDiizinkan } from '@/lib/izin-layar-pantau'
 import { computeLiveLeaderboardUntukSesi, LiveLeaderboardSesi } from '@/lib/leaderboard-live'
+import { langgan } from '@/lib/layar-pantau-hub'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -51,7 +52,8 @@ export const maxDuration = 60
 const ENCODER = new TextEncoder()
 const ALLOWED_ROLES = ['GURU', 'KEPSEK', 'ADMIN']
 const SAFETY_REFRESH_MS = 8000   // jaring pengaman: tetap update meski tak ada event Realtime yang masuk
-const DEBOUNCE_MS = 250          // gabungkan burst perubahan (banyak siswa submit hampir bersamaan) jadi satu recompute
+const DEBOUNCE_MS = 800          // gabungkan burst perubahan (banyak siswa submit hampir bersamaan) jadi satu recompute
+const MIN_GAP_MS = 2000          // HEMAT CPU: jarak minimum antar recompute per koneksi (throttle, dengan recompute penutup di akhir burst)
 const MAX_STREAM_MS = 55_000     // tutup rapi sebelum batas durasi fungsi serverless; EventSource auto-reconnect
 
 export async function GET(req: NextRequest) {
@@ -92,7 +94,7 @@ export async function GET(req: NextRequest) {
   let debounceTimer: ReturnType<typeof setTimeout> | null = null
   let safetyTimer: ReturnType<typeof setInterval> | null = null
   let hardCloseTimer: ReturnType<typeof setTimeout> | null = null
-  let channel: RealtimeChannel | null = null
+  let berhentiLanggan: (() => void) | null = null
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -148,8 +150,10 @@ export async function GET(req: NextRequest) {
         return sesiTerlihat.has(sesiId)
       }
 
+      let terakhirJalan = 0
       const pushBoards = async () => {
         if (closed) return
+        terakhirJalan = Date.now()
         const myGen = ++gen
         try {
           // Izin bisa dicabut admin saat layar sedang tampil: cek ulang tiap
@@ -180,9 +184,17 @@ export async function GET(req: NextRequest) {
         }
       }
 
+      // THROTTLE + recompute penutup (bukan debounce yang terus digeser): event
+      // yang datang saat jadwal sudah ada tidak menambah pekerjaan, dan jarak
+      // antar recompute minimal MIN_GAP_MS. Event terakhir dari sebuah burst
+      // selalu ikut terhitung lewat jadwal yang sudah menunggu.
       const scheduleRecompute = () => {
-        if (debounceTimer) clearTimeout(debounceTimer)
-        debounceTimer = setTimeout(pushBoards, DEBOUNCE_MS)
+        if (closed || debounceTimer) return
+        const tunggu = Math.max(DEBOUNCE_MS, terakhirJalan + MIN_GAP_MS - Date.now())
+        debounceTimer = setTimeout(() => {
+          debounceTimer = null
+          void pushBoards()
+        }, tunggu)
       }
 
       function cleanupAndClose() {
@@ -191,7 +203,7 @@ export async function GET(req: NextRequest) {
         if (debounceTimer) clearTimeout(debounceTimer)
         if (safetyTimer) clearInterval(safetyTimer)
         if (hardCloseTimer) clearTimeout(hardCloseTimer)
-        if (channel) db.removeChannel(channel)
+        if (berhentiLanggan) { berhentiLanggan(); berhentiLanggan = null }
         try { controller.close() } catch {}
       }
 
@@ -207,16 +219,13 @@ export async function GET(req: NextRequest) {
       // timer baru yang tidak akan pernah dibersihkan.
       if (closed) return
 
-      // ── Langganan Realtime ────────────────────────────────────────────
-      channel = db
-        .channel(`layar-pantau-${user.username}-${Date.now()}`)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'jawaban' }, (p: any) => { if (eventRelevan('jawaban', p)) scheduleRecompute() })
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'sesi_ujian' }, (p: any) => { if (eventRelevan('sesi_ujian', p)) scheduleRecompute() })
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'siswa_ujian' }, (p: any) => { if (eventRelevan('siswa_ujian', p)) scheduleRecompute() })
-        .subscribe((status) => {
-          if (status === 'SUBSCRIBED') send('status', { realtime: 'tersambung' })
-          if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') send('status', { realtime: 'terputus' })
-        })
+      // ── Langganan Realtime (SATU channel per instance, dibagi semua penonton) ──
+      // Lihat src/lib/layar-pantau-hub.ts. Penyaringan per sesi/yayasan tetap
+      // dilakukan di sini karena daftar sesi yang terlihat berbeda per akun.
+      berhentiLanggan = langgan({
+        onEvent: (tabel, payload) => { if (eventRelevan(tabel, payload)) scheduleRecompute() },
+        onStatus: (status) => send('status', { realtime: status }),
+      })
 
       // Jaring pengaman: tetap recompute berkala walau TIDAK ada event
       // Realtime yang masuk.
@@ -234,7 +243,7 @@ export async function GET(req: NextRequest) {
       if (debounceTimer) clearTimeout(debounceTimer)
       if (safetyTimer) clearInterval(safetyTimer)
       if (hardCloseTimer) clearTimeout(hardCloseTimer)
-      if (channel) db.removeChannel(channel)
+      if (berhentiLanggan) { berhentiLanggan(); berhentiLanggan = null }
     },
   })
 
