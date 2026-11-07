@@ -16,6 +16,7 @@ async function fetchDashboardData(yayasanId: string) {
     { count: totalPaketSoal },
     { count: totalNilai },
     { count: totalMapel },
+    { count: totalKelas },
     { count: jadwalAktif },
     { count: paketMenunggu },
     { data: statsData },                    // rata-rata + per-mapel dihitung di DB
@@ -29,6 +30,7 @@ async function fetchDashboardData(yayasanId: string) {
     db.from('paket_soal').select('*', { count: 'exact', head: true }).eq('status', 'DISETUJUI'),
     db.from('nilai').select('*', { count: 'exact', head: true }),
     db.from('mapel').select('*', { count: 'exact', head: true }),
+    db.from('kelas').select('*', { count: 'exact', head: true }),
     db.from('jadwal').select('*', { count: 'exact', head: true }).eq('status', 'AKTIF'),
     db.from('paket_soal').select('*', { count: 'exact', head: true }).eq('status', 'MENUNGGU'),
     db.rpc('get_dashboard_stats', { p_yayasan_id: yayasanId }),          // AVG & GROUP BY jalan di PostgreSQL
@@ -102,6 +104,7 @@ async function fetchDashboardData(yayasanId: string) {
       totalPaketSoal: totalPaketSoal ?? 0,
       totalNilai: totalNilai ?? 0,
       totalMapel: totalMapel ?? 0,
+      totalKelas: totalKelas ?? 0,
       jadwalAktif: jadwalAktif ?? 0,
       paketMenunggu: paketMenunggu ?? 0,
       rataRataNilai,
