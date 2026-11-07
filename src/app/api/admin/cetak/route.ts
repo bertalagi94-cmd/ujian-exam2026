@@ -103,13 +103,24 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // PERBAIKAN: sebelumnya error query siswa DIBUANG (hanya `data` yang dipakai),
+  // sehingga kegagalan query apa pun berakhir sebagai daftar siswa kosong tanpa
+  // pesan — dokumen Daftar Hadir/Berita Acara tampil "kosong" dan sulit dilacak.
+  // Sekarang kegagalan dikumpulkan dan dikembalikan sebagai error 500 yang jelas.
+  let galatSiswa: string | null = null
+  // PERBAIKAN: nama kelas dicocokkan TANPA peduli huruf besar/kecil dan spasi
+  // pinggir (sama seperti pencocokan soal di atas dan kelas-sync.ts). Sebelumnya
+  // `.eq('kelas', j.kelas)` persis: selisih "7a" vs "7A" membuat daftar kosong.
+  const escLike = (v: string) => v.trim().replace(/[\\%_]/g, (c) => '\\' + c)
+
   const result = await Promise.all(list.map(async (j) => {
-    const { data: siswaList } = await db
+    const { data: siswaList, error: siswaErr } = await db
       .from('siswa')
       .select('nis, nama')
-      .eq('kelas', j.kelas)
+      .ilike('kelas', escLike(String(j.kelas ?? '')))
       .eq('status', 'AKTIF')
       .order('nama')
+    if (siswaErr && !galatSiswa) galatSiswa = siswaErr.message
 
     const sekolahKelas = kelasSekolahMap[j.kelas] ?? null
     const keySoal = buildKeySoal(j.mapel_id, j.kelas)
@@ -136,6 +147,10 @@ export async function GET(req: NextRequest) {
       } : null,
     }
   }))
+
+  if (galatSiswa) {
+    return NextResponse.json({ error: `Gagal mengambil daftar siswa: ${galatSiswa}` }, { status: 500 })
+  }
 
   return NextResponse.json({ data: result })
 }

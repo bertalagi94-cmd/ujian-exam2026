@@ -65,15 +65,47 @@ function CetakContent() {
 
   const containerRef = useRef<HTMLDivElement>(null)
 
+  // PERBAIKAN: sebelumnya kegagalan (401/500, jadwal tidak ditemukan, jaringan)
+  // semuanya berakhir sebagai halaman putih kosong tanpa penjelasan. Sekarang
+  // setiap kegagalan menampilkan pesan yang jelas dan TIDAK memicu dialog cetak.
+  function tampilkanPesan(judul: string, rincian: string) {
+    if (!containerRef.current) return
+    containerRef.current.innerHTML = `<div style="padding:40px;text-align:center;font-family:sans-serif;color:#333;">
+      <div style="font-size:16pt;font-weight:bold;color:#b91c1c;margin-bottom:8px;">${esc(judul)}</div>
+      <div style="font-size:11pt;">${esc(rincian)}</div>
+    </div>`
+  }
+
   const load = useCallback(async () => {
-    const token = localStorage.getItem('token')
-    const res = await fetch(`/api/admin/cetak?tanggal=${tanggal}`, {
-      headers: { Authorization: `Bearer ${token}` }
-    })
-    const json = await res.json()
-    let jadwal: JadwalCetak[] = json.data ?? []
-    if (jadwalId) jadwal = jadwal.filter((j: JadwalCetak) => j.id === jadwalId)
-    renderHTML(jadwal, mode)
+    try {
+      const token = localStorage.getItem('token')
+      if (!token) { tampilkanPesan('Sesi login tidak ditemukan', 'Silakan login ulang sebagai admin, lalu buka halaman cetak lagi.'); return }
+      const res = await fetch(`/api/admin/cetak?tanggal=${encodeURIComponent(tanggal)}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      const json = await res.json().catch(() => null)
+      if (!res.ok) {
+        tampilkanPesan(
+          res.status === 401 || res.status === 403 ? 'Tidak punya akses / sesi login habis' : 'Gagal memuat data cetak',
+          json?.error ?? `Server membalas status ${res.status}.`
+        )
+        return
+      }
+      let jadwal: JadwalCetak[] = json?.data ?? []
+      if (jadwal.length === 0) {
+        tampilkanPesan('Tidak ada jadwal pada tanggal ini', `Tanggal: ${tanggal}. Pastikan jadwal ujian pada tanggal tersebut sudah dibuat.`)
+        return
+      }
+      if (jadwalId) jadwal = jadwal.filter((j: JadwalCetak) => j.id === jadwalId)
+      if (jadwal.length === 0) {
+        tampilkanPesan('Jadwal tidak ditemukan', 'Jadwal yang dipilih tidak ada pada tanggal ini. Muat ulang menu Jadwal Ujian lalu coba lagi.')
+        return
+      }
+      renderHTML(jadwal, mode)
+    } catch (e) {
+      tampilkanPesan('Gagal memuat dokumen', e instanceof Error ? e.message : 'Periksa koneksi internet lalu coba lagi.')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tanggal, jadwalId, mode])
 
   useEffect(() => { if (tanggal) load() }, [load, tanggal])
@@ -141,7 +173,9 @@ function CetakContent() {
       }
 
       // mode daftar hadir
-      const rows = j.siswa.map((siswa, i) => `
+      const rows = j.siswa.length === 0
+        ? `<tr><td colspan="4" class="tc" style="padding:18px;color:#b91c1c;">Tidak ada siswa AKTIF terdaftar pada kelas ${esc(j.kelas)}. Periksa Data Siswa (kelas &amp; status) lalu cetak ulang.</td></tr>`
+        : j.siswa.map((siswa, i) => `
         <tr>
           <td class="tc">${i + 1}</td>
           <td>${esc(siswa.nis)}</td>
