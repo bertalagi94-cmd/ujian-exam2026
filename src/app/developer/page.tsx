@@ -7,6 +7,7 @@ import {
   Inbox, Loader2, LogOut, MessageCircle, Power, RefreshCw, Search, ShieldCheck, Sparkles,
   Trash2, UploadCloud, Users, Wrench, X, XCircle,
 } from 'lucide-react'
+import { KartuVercel, RingkasanAplikasi, type DataVercel } from './KesehatanVercel'
 
 // ── Tipe data (tidak berubah dari versi sebelumnya) ──────────────────────────
 interface Yayasan {
@@ -216,6 +217,9 @@ export default function DeveloperPage() {
   const [monGagal, setMonGagal] = useState('')
   const [stor, setStor] = useState<PenyimpananData | null>(null)
   const [storGagal, setStorGagal] = useState('')
+  const [vcl, setVcl] = useState<DataVercel | null>(null)
+  const [vclGagal, setVclGagal] = useState('')
+  const [vclMemuat, setVclMemuat] = useState(false)
   // Mode maintenance per sekolah (diatur dari sini, bukan lagi dari akun Super Admin).
   const [mt, setMt] = useState<{ y: Yayasan; aktif: boolean; pesan: string; mulai: string; selesai: string; memuat: boolean } | null>(null)
   // Hapus sekolah permanen (dialog risiko + pratinjau dampak dari server).
@@ -387,6 +391,23 @@ export default function DeveloperPage() {
     if (tab !== 'monitor' || !ready) return
     void muatPenyimpanan()
   }, [tab, ready, muatPenyimpanan])
+
+  // Kesehatan Vercel: data tagihan Vercel berubah per hari, jadi cukup dimuat saat
+  // tab dibuka, saat "Segarkan", dan tiap 2 menit selama tab terlihat. Server juga
+  // menyimpan cache 90 detik, jadi tidak menekan API Vercel.
+  const muatVercel = useCallback(async (paksa = false) => {
+    setVclMemuat(true)
+    try { setVcl(await api(`/api/developer/vercel${paksa ? '?paksa=1' : ''}`)); setVclGagal('') }
+    catch (e) { setVclGagal((e as Error).message) }
+    finally { setVclMemuat(false) }
+  }, [api])
+
+  useEffect(() => {
+    if (tab !== 'monitor' || !ready) return
+    void muatVercel()
+    const t = setInterval(() => { if (!document.hidden) void muatVercel() }, 120_000)
+    return () => clearInterval(t)
+  }, [tab, ready, muatVercel])
 
   useEffect(() => {
     if (tab !== 'monitor' || !ready) return
@@ -785,6 +806,8 @@ export default function DeveloperPage() {
         {tab === 'monitor' && (
           <section className="space-y-4 dv-masuk">
             {monGagal && <div className="dv-kaca rounded-2xl p-4 text-sm text-rose-300">{monGagal}</div>}
+            <RingkasanAplikasi vercel={vcl} server={mon?.server ?? null} stor={stor} />
+            <KartuVercel data={vcl} gagal={vclGagal} memuat={vclMemuat} onSegarkan={() => void muatVercel(true)} />
             {!mon ? (
               <div className="grid md:grid-cols-3 gap-3">{[0, 1, 2].map(i => <div key={i} className="h-28 rounded-2xl dv-skel" />)}</div>
             ) : (
@@ -795,7 +818,7 @@ export default function DeveloperPage() {
                       <span className={`px-3 py-1 rounded-full text-sm font-bold ring-1 ${WARNA_STATUS[mon.server.status]}`}>{mon.server.status}</span>
                       <p className="text-sm text-slate-400">Status server ({mon.server.windowMenit} menit terakhir, semua sekolah)</p>
                     </div>
-                    <button onClick={() => { void muatMonitor(); void muatPenyimpanan() }} className="inline-flex items-center gap-1.5 text-xs text-slate-300 hover:text-white"><RefreshCw className="w-3.5 h-3.5" />Segarkan</button>
+                    <button onClick={() => { void muatMonitor(); void muatPenyimpanan(); void muatVercel(true) }} className="inline-flex items-center gap-1.5 text-xs text-slate-300 hover:text-white"><RefreshCw className="w-3.5 h-3.5" />Segarkan</button>
                   </div>
                   {mon.server.alasan.length > 0 && (
                     <ul className="mt-3 space-y-1 text-sm text-amber-200/90 list-disc list-inside">{mon.server.alasan.map(a => <li key={a}>{a}</li>)}</ul>
