@@ -390,6 +390,18 @@ export function Sidebar({ navItems, role, roleColor, roleLabel, accent = '#0891b
 }
 
 // ── Helper: fetch badge count ─────────────────────────────────────────────────
+// HEMAT VERCEL (8 Nov 2026): polling /api/notif dulu 30 dtk untuk semua role dan
+// menjadi salah satu route dengan invocation terbanyak di luar jam ujian.
+// Badge admin/guru tidak perlu sedetik-detik: setelah aksi lokal (setujui/tolak
+// paket, buka kisi-kisi) badge sudah langsung diperbarui lewat event
+// 'notif-changed'. Siswa tetap lebih rapat karena badge "ujian dibuka" cukup
+// sensitif waktu.
+const NOTIF_INTERVAL_MS: Record<'ADMIN' | 'GURU' | 'SISWA', number> = {
+  ADMIN: 90_000,
+  GURU: 90_000,
+  SISWA: 45_000,
+}
+
 function useBadgeCounts(role: 'ADMIN' | 'GURU' | 'SISWA') {
   const [counts, setCounts] = useState<Record<string, number>>({})
 
@@ -421,7 +433,8 @@ function useBadgeCounts(role: 'ADMIN' | 'GURU' | 'SISWA') {
   useEffect(() => {
     fetch_()
 
-    let id: ReturnType<typeof setInterval> | null = setInterval(fetch_, 30_000)
+    const intervalMs = NOTIF_INTERVAL_MS[roleRef.current] ?? 90_000
+    let id: ReturnType<typeof setInterval> | null = setInterval(fetch_, intervalMs)
 
     function onVisibility() {
       if (document.hidden) {
@@ -434,7 +447,7 @@ function useBadgeCounts(role: 'ADMIN' | 'GURU' | 'SISWA') {
         // Tab aktif kembali — fetch langsung sekali, lalu mulai polling lagi
         fetch_()
         if (id === null) {
-          id = setInterval(fetch_, 30_000)
+          id = setInterval(fetch_, intervalMs)
         }
       }
     }
