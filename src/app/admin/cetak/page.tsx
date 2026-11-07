@@ -25,6 +25,12 @@ function fmtTglPendek(d: string) {
 // (mis. berhalangan hadir). Diisi tangan oleh pengawas yang benar-benar bertugas.
 const TITIK_PENGAWAS = '.............................................'
 
+// Tempat pada baris tanggal surat ("<tempat>, 6 November 2026"): pakai isian
+// "Tempat Surat" kalau diisi; kalau kosong, pakai Kota/Kabupaten sekolah.
+function tempatSurat(s: { tempatSurat?: string; kota?: string }): string {
+  return (s.tempatSurat ?? '').trim() || (s.kota ?? '').trim()
+}
+
 // Escape HTML: data siswa/sekolah disuntik ke innerHTML.
 function esc(v: unknown): string {
   return String(v ?? '')
@@ -37,6 +43,7 @@ interface SekolahCetak {
   namaSekolah?: string; npsn?: string; alamat?: string
   kota?: string; tahunAjaran?: string; namaKepsek?: string; logoUrl?: string
   namaKetuaPanitia?: string; nipKetuaPanitia?: string
+  tempatSurat?: string
   label?: string
 }
 interface JadwalCetak {
@@ -176,12 +183,13 @@ function CetakContent() {
           <p style="margin-top:16px; font-size:11pt;">Demikian berita acara ini dibuat dengan sesungguhnya untuk dapat dipergunakan sebagaimana mestinya.</p>
           <div class="ttd-area">
             <div class="ttd-col">
-              <div>Pengawas Ujian,</div>
+              <div>&nbsp;</div>
+            <div>Pengawas Ujian,</div>
               <div class="ttd-space"></div>
               <div class="ttd-nama" style="text-decoration:none;">${TITIK_PENGAWAS}</div>
             </div>
             <div class="ttd-col" style="text-align:right;">
-              <div>${esc(s.kota ?? '')}, ${fmtTglPendek(j.tanggal)},</div>
+              <div>${esc(tempatSurat(s))}, ${fmtTglPendek(j.tanggal)},</div>
               <div>Ketua Panitia Ujian,</div>
               <div class="ttd-space"></div>
               <div class="ttd-nama">${esc(s.namaKetuaPanitia || '_________________')}</div>
@@ -249,12 +257,13 @@ function CetakContent() {
         <p style="margin-top:10px; font-size:10pt;">Jumlah peserta: <strong>${j.siswa.length} siswa</strong></p>
         <div class="ttd-area">
           <div class="ttd-col">
+            <div>&nbsp;</div>
             <div>Pengawas Ujian,</div>
             <div class="ttd-space"></div>
             <div class="ttd-nama" style="text-decoration:none;">${TITIK_PENGAWAS}</div>
           </div>
           <div class="ttd-col" style="text-align:right;">
-            <div>${esc(s.kota ?? '')}, ${fmtTglPendek(j.tanggal)}</div>
+            <div>${esc(tempatSurat(s))}, ${fmtTglPendek(j.tanggal)}</div>
             <div>Ketua Panitia Ujian,</div>
             <div class="ttd-space"></div>
             <div class="ttd-nama">${esc(s.namaKetuaPanitia || '_________________')}</div>

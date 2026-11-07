@@ -11,7 +11,7 @@ import Link from 'next/link'
 
 const EMPTY_FORM: Partial<Sekolah> = {
   label: '', nama_sekolah: '', npsn: '', nama_kepsek: '',
-  nip_kepsek: '', nama_ketua_panitia: '', nip_ketua_panitia: '',
+  nip_kepsek: '', nama_ketua_panitia: '', nip_ketua_panitia: '', tempat_surat: '',
   alamat: '', kota: '', tahun_ajaran: '', logo_url: '', urutan: 0,
 }
 
@@ -371,6 +371,11 @@ export default function AdminSekolahPage() {
           <div>
             <label className="label">Kota / Kabupaten (untuk kop surat)</label>
             <input className="input" placeholder="Contoh: Banggai Kepulauan" value={editData.kota ?? ''} onChange={e => set('kota', e.target.value)} />
+          </div>
+          <div>
+            <label className="label">Tempat Surat (untuk tanggal tanda tangan)</label>
+            <input className="input" placeholder="Contoh: Tatakalai (kosongkan untuk memakai Kota / Kabupaten)" value={editData.tempat_surat ?? ''} onChange={e => set('tempat_surat', e.target.value)} />
+            <p className="text-xs text-slate-400 mt-1">Tampil pada baris &quot;&lt;tempat&gt;, tanggal&quot; di Daftar Hadir &amp; Berita Acara. Jika kosong, otomatis memakai Kota / Kabupaten di atas.</p>
           </div>
           <div>
             <label className="label">Urutan Tampilan</label>

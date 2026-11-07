@@ -11,7 +11,7 @@ export async function PUT(req: NextRequest, props: Ctx) {
 
   const db = tenantDb(yayasanIdDari(auth.user))
   const body = await req.json()
-  const { label, nama_sekolah, npsn, nama_kepsek, nip_kepsek, nama_ketua_panitia, nip_ketua_panitia, alamat, kota, tahun_ajaran, logo_url, urutan } = body
+  const { label, nama_sekolah, npsn, nama_kepsek, nip_kepsek, nama_ketua_panitia, nip_ketua_panitia, tempat_surat, alamat, kota, tahun_ajaran, logo_url, urutan } = body
 
   if (!label || !nama_sekolah) {
     return NextResponse.json({ error: 'Label jenjang dan nama sekolah wajib diisi' }, { status: 400 })
@@ -25,6 +25,7 @@ export async function PUT(req: NextRequest, props: Ctx) {
     nip_kepsek: nip_kepsek ?? '',
     nama_ketua_panitia: String(nama_ketua_panitia ?? '').trim(),
     nip_ketua_panitia: String(nip_ketua_panitia ?? '').trim(),
+    tempat_surat: String(tempat_surat ?? '').trim(),
     alamat: alamat ?? '',
     kota: kota ?? '',
     tahun_ajaran: tahun_ajaran ?? '',

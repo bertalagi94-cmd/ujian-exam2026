@@ -469,6 +469,7 @@ interface Sekolah {
   namaSekolah?: string; npsn?: string; alamat?: string
   kota?: string; tahunAjaran?: string; namaKepsek?: string; logoUrl?: string
   namaKetuaPanitia?: string; nipKetuaPanitia?: string
+  tempatSurat?: string
 }
 
 export default function AdminJadwalPage() {
@@ -951,9 +952,12 @@ export default function AdminJadwalPage() {
     const signSpace = 30
     doc.setFontSize(10)
     doc.setFont('helvetica', 'normal')
-    doc.text('Pengawas Ujian,', lm, ttdY)
+    // "Pengawas Ujian," sejajar dengan "Ketua Panitia Ujian," (baris ke-2);
+    // baris pertama kanan = tempat & tanggal surat.
+    doc.text('Pengawas Ujian,', lm, ttdY + 5)
 
-    const kota = s.kota ?? 'Banggai Kepulauan'
+    // Tempat surat: isian "Tempat Surat" kalau ada, kalau kosong pakai Kota/Kabupaten.
+    const kota = (s.tempatSurat ?? '').trim() || (s.kota ?? '').trim() || 'Banggai Kepulauan'
     doc.text(`${kota}, ${fmtTglPendek(j.tanggal)}`, lm + w, ttdY, { align: 'right' })
     doc.text('Ketua Panitia Ujian,', lm + w, ttdY + 5, { align: 'right' })
 

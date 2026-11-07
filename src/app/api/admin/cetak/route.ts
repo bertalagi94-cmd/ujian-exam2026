@@ -47,10 +47,10 @@ export async function GET(req: NextRequest) {
   // Ambil sekolah per kelas (join kelas → sekolah)
   const { data: kelasRows } = await db
     .from('kelas')
-    .select('nama, sekolah:sekolah_id(id, label, nama_sekolah, npsn, nama_kepsek, nip_kepsek, nama_ketua_panitia, nip_ketua_panitia, alamat, kota, tahun_ajaran, logo_url)')
+    .select('nama, sekolah:sekolah_id(id, label, nama_sekolah, npsn, nama_kepsek, nip_kepsek, nama_ketua_panitia, nip_ketua_panitia, tempat_surat, alamat, kota, tahun_ajaran, logo_url)')
     .in('nama', kelasList.length ? kelasList : ['__'])
 
-  type SekolahRow = { id: string; label: string; nama_sekolah: string; npsn: string; nama_kepsek: string; nip_kepsek: string; nama_ketua_panitia: string | null; nip_ketua_panitia: string | null; alamat: string; kota: string; tahun_ajaran: string; logo_url: string }
+  type SekolahRow = { id: string; label: string; nama_sekolah: string; npsn: string; nama_kepsek: string; nip_kepsek: string; nama_ketua_panitia: string | null; nip_ketua_panitia: string | null; tempat_surat: string | null; alamat: string; kota: string; tahun_ajaran: string; logo_url: string }
   const kelasSekolahMap: Record<string, SekolahRow | null> = Object.fromEntries(
     ((kelasRows ?? []) as unknown as { nama: string; sekolah: SekolahRow | null }[]).map(k => [k.nama, k.sekolah])
   )
@@ -142,6 +142,8 @@ export async function GET(req: NextRequest) {
         // Penanda tangan Daftar Hadir & Berita Acara (bersama Pengawas Ujian)
         namaKetuaPanitia: sekolahKelas.nama_ketua_panitia ?? '',
         nipKetuaPanitia:  sekolahKelas.nip_ketua_panitia ?? '',
+        // Tempat pada baris tanggal surat; kosong -> UI cetak pakai `kota`
+        tempatSurat:      sekolahKelas.tempat_surat ?? '',
         alamat:      sekolahKelas.alamat,
         kota:        sekolahKelas.kota,
         tahunAjaran: sekolahKelas.tahun_ajaran,

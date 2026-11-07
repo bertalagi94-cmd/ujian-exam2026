@@ -9,6 +9,7 @@ export interface Sekolah {
   nip_kepsek?: string
   nama_ketua_panitia?: string   // penanda tangan Daftar Hadir & Berita Acara
   nip_ketua_panitia?: string
+  tempat_surat?: string         // tempat pada tanggal surat; kosong -> pakai `kota`
   alamat?: string
   kota?: string
   tahun_ajaran?: string
