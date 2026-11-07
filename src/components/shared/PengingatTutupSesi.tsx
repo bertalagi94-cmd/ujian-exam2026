@@ -26,7 +26,10 @@ import { AlertTriangle, CheckCircle, Clock, Eye, RefreshCw, Square } from 'lucid
 import { apiRequest } from '@/lib/utils'
 import type { SesiPengingat } from '@/lib/pengingat-tutup-sesi'
 
-const INTERVAL_MS = 30_000
+// HEMAT VERCEL (8 Nov 2026): dulu 30 dtk. Pengingat "sesi belum ditutup" tidak
+// butuh ketepatan hitungan detik; 90 dtk memangkas invocation route ini ±2/3.
+// Pengambilan ulang saat tab kembali tampil (saatTampil) tidak berubah.
+const INTERVAL_MS = 90_000
 const TUNDA_MS = 10 * 60_000
 
 function ringkasPeserta(s: SesiPengingat): string {
