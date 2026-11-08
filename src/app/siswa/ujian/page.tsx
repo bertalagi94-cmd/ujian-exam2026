@@ -43,7 +43,7 @@ import {
   EnkripsiTidakDidukungError as ResetEnkripsiTidakDidukungError,
 } from '@/lib/reset-offline-client'
 import type { ResetAmplop } from '@/lib/reset-amplop-shared'
-import { berlanggananStatusJaringan, ambilStatusJaringan } from '@/lib/status-jaringan'
+import { berlanggananStatusJaringan, ambilStatusJaringan, periksaJaringanSekarang } from '@/lib/status-jaringan'
 import { GambarSoalOffline } from '@/components/ui/GambarSoalOffline'
 import ScoreReveal from '@/components/siswa/ScoreReveal'
 import { getDeviceId } from '@/lib/device-id'
@@ -99,11 +99,19 @@ interface SoalUjian extends Soal {
 interface JawabanMap { [soalId: string]: string }
 
 // ── HEMAT VERCEL: polling & autosync ─────────────────────────────────────────
-// Jeda polling status sesi (cek-sesi). Dulu 10 dtk. Tiap panggilan = 1
-// invocation Vercel + beberapa query database per siswa, jadi 20 dtk memangkas
-// separuhnya. Dampak: siswa mengetahui sesi ditutup/dikunci pengawas paling
-// lambat ~20 dtk (sebelumnya ~10 dtk). Tombol/aksi siswa sendiri tidak berubah.
-const JEDA_CEK_SESI_MS = 20_000
+// Jeda polling status sesi (cek-sesi). Dulu 10 dtk, lalu 20 dtk. Tiap panggilan
+// = 1 invocation Vercel + beberapa query database per siswa. Sekarang 30 dtk
+// (9 dari 10 siswa-menit ujian tidak perlu lebih rapat: pengawas menutup/mengunci
+// sesi jarang terjadi, dan server TETAP menolak sync/selesai dari sesi yang
+// sudah ditutup/terkunci/diambil alih, jadi integritas tidak bergantung pada
+// polling ini). Dampak: siswa mengetahui sesi ditutup/dikunci pengawas paling
+// lambat ~30 dtk. Tombol/aksi siswa sendiri tidak berubah.
+// PENTING: nilai ini dan KONTAK_SEGAR_MS di src/lib/status-jaringan.ts saling
+// terkait. KONTAK_SEGAR_MS harus LEBIH BESAR dari jeda ini; kalau tidak, denyut
+// /health justru jadi lebih sering terkirim. Heartbeat (last_heartbeat) juga
+// ditulis oleh cek-sesi: ambang "siswa terputus" di ModePengawasTab (45 dtk)
+// harus tetap di atas jeda ini + waktu request.
+const JEDA_CEK_SESI_MS = 30_000
 // Autosync berkala tiap 30 dtk dilewati kalau jawaban tidak berubah sejak sync
 // terakhir yang BERHASIL (sync cepat setelah tiap klik sudah mengirim
 // perubahan). Tetap dipaksa kirim minimal tiap 3 menit sebagai jaring pengaman.
@@ -641,8 +649,18 @@ export default function SiswaUjianPage() {
   // ── Ambil "amplop" soal essay terenkripsi SEDINI mungkin ──────────────────
   // Begitu siswa mulai PG (phase UJIAN) — jauh sebelum internet sempat mati di
   // fase essay. Isinya tidak terbaca tanpa kode darurat, jadi aman ada di
-  // perangkat. Diulang tiap 20 dtk sampai berhasil (atau server bilang tidak
-  // perlu), karena siswa bisa saja baru online belakangan.
+  // perangkat. Diulang sampai berhasil (atau server bilang tidak perlu), karena
+  // siswa bisa saja baru online belakangan.
+  //
+  // HEMAT VERCEL: dulu setInterval tetap 20 dtk. Kalau server menjawab "belum"
+  // (mis. BELUM_ADA_SOAL: soal essay belum siap) pengulangan itu berlangsung
+  // SEPANJANG ujian (hingga ~180 request per siswa ke endpoint yang cukup berat).
+  // Sekarang jedanya bertahap 20 dtk, 60 dtk, lalu 180 dtk untuk jawaban "belum"
+  // dan galat 5xx. Tanpa status HTTP (perangkat offline/timeout) tetap 20 dtk:
+  // request itu tidak sampai ke fungsi Vercel dan pulihnya harus cepat.
+  // Kondisi BERHENTI tidak berubah. Konsekuensi: kalau soal essay baru siap di
+  // tengah ujian, amplop bisa terambil sampai ~3 menit kemudian (hanya dibutuhkan
+  // untuk jalur essay offline setelah PG selesai).
   useEffect(() => {
     const sesiId = sesiInfo?.sesiId
     if (!sesiId || (phase !== 'UJIAN' && phase !== 'ESSAY_INFO')) return
@@ -651,8 +669,18 @@ export default function SiswaUjianPage() {
     if (!nis) return
     if (ambilAmplop(sesiId, nis)) { setAmplopTersedia(true); return }
 
+    const JEDA_ULANG_MS = [20_000, 60_000, 180_000]
     let batal = false
+    let selesai = false
+    let jawabanBelumKe = 0
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const jedaBertahap = () => JEDA_ULANG_MS[Math.min(jawabanBelumKe++, JEDA_ULANG_MS.length - 1)]
+    const jadwalkan = (ms: number) => {
+      if (batal || selesai) return
+      timer = setTimeout(() => { void ambil() }, ms)
+    }
     const ambil = async () => {
+      let jedaBerikut = JEDA_ULANG_MS[0]
       try {
         const res = await apiRequest<{ ada: boolean; alasan?: string; amplop?: EssayAmplop }>(
           `/api/siswa/ujian/essay/amplop?sesiId=${sesiId}&deviceId=${encodeURIComponent(getDeviceId())}`
@@ -661,25 +689,30 @@ export default function SiswaUjianPage() {
         if (res.ada && res.amplop) {
           simpanAmplop(sesiId, nis!, res.amplop)
           setAmplopTersedia(true)
-          clearInterval(id)
+          selesai = true
         } else if (res.alasan === 'TANPA_ESSAY') {
           // FIX BUG P0 (lihat komentar di deklarasi sesiTanpaEssayKonfirmasi
           // di atas): sebelumnya sinyal ini dibuang begitu saja, membuat
           // PG-only tidak pernah dianggap "boleh aman offline" walau server
           // sendiri sudah memastikan sesi ini memang tidak punya essay.
           setSesiTanpaEssayKonfirmasi(true)
-          clearInterval(id)
+          selesai = true
         } else if (res.alasan === 'SUDAH_LEWAT') {
-          clearInterval(id)
+          selesai = true
+        } else {
+          // Server menjawab "belum" (mis. BELUM_ADA_SOAL): jarangkan bertahap.
+          jedaBerikut = jedaBertahap()
         }
       } catch (e) {
         const status = (e as { status?: number } | undefined)?.status
-        if (status === 403 || status === 404 || status === 409) clearInterval(id) // terkunci/ganti perangkat/sesi tutup: tidak ada gunanya mengulang
+        if (status === 403 || status === 404 || status === 409) selesai = true // terkunci/ganti perangkat/sesi tutup: tidak ada gunanya mengulang
+        else if (status && status >= 500) jedaBerikut = jedaBertahap()
+        // tanpa status = offline/timeout: tetap 20 dtk
       }
+      jadwalkan(jedaBerikut)
     }
-    const id = setInterval(ambil, 20000)
     void ambil()
-    return () => { batal = true; clearInterval(id) }
+    return () => { batal = true; if (timer) clearTimeout(timer) }
   }, [sesiInfo?.sesiId, phase])
 
   // ── Pulihkan klaim "PG selesai offline" setelah tab di-reload ─────────────
@@ -1355,7 +1388,15 @@ export default function SiswaUjianPage() {
           await handleSelesai(true, true)
         }
       }
-    } catch { /* silent */ }
+    } catch (e) {
+      // Gagal karena jaringan (tanpa status HTTP, timeout, atau 5xx): periksa
+      // keterjangkauan server sekarang. Denyut /health sengaja jarang selama
+      // cek-sesi berhasil (lihat KONTAK_SEGAR_MS di status-jaringan.ts), jadi
+      // kegagalan inilah yang memicu deteksi putus jaringan. Penolakan sah 4xx
+      // bukan masalah jaringan dan tidak memicu apa-apa.
+      const st = (e as { status?: number } | undefined)?.status
+      if (!st || st >= 500) periksaJaringanSekarang()
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -1641,6 +1682,9 @@ export default function SiswaUjianPage() {
           return { ok: false, totalSynced: 0, locked: true }
         }
         gagalJaringan = !status || status >= 500
+        // Kegagalan jaringan: periksa keterjangkauan server sekarang (lihat
+        // catatan di cekStatusSesi). Dibatasi di dalam fungsinya, jadi loop retry ini aman.
+        if (gagalJaringan) periksaJaringanSekarang()
         if (attempt < MAX_SYNC_RETRY) {
           // Backoff bertahap: 1.5s, 3s, 4.5s — beri waktu jaringan/server pulih
           await new Promise(r => setTimeout(r, attempt * 1500))
