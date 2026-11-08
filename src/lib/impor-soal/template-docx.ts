@@ -48,6 +48,19 @@ const LEBAR_TABEL = 9638
 const LEBAR_LABEL = 2300
 const LEBAR_ISI = LEBAR_TABEL - LEBAR_LABEL
 
+// ── UKURAN GAMBAR YANG DITEMPEL ──────────────────────────────────────────────
+// Word tidak punya pengaturan dokumen "batasi ukuran gambar yang di-paste".
+// Yang pasti dilakukan Word: gambar yang ditempel/disisipkan ke dalam tabel
+// disesuaikan ke LEBAR ISI SEL (lebar sel dikurangi margin kiri-kanan), tinggi
+// mengikuti sehingga proporsional. Maka baris yang boleh berisi gambar (Gambar
+// Soal dan opsi A–E) diberi margin kanan besar: warna kuning tetap selebar sel,
+// tetapi area isinya sempit. Ubah LEBAR_AREA_GAMBAR untuk menyesuaikan ukuran
+// (1 cm = 567 twips; 3700 ≈ 6,5 cm). Hanya tampilan di Word: parser tidak
+// membaca ukuran gambar, dan di aplikasi gambar sudah dibatasi sendiri.
+const MARGIN_SEL = 100 // sama dengan tblCellMar kiri/kanan di tabel()
+const LEBAR_AREA_GAMBAR = 3700
+const MARGIN_KANAN_AREA_GAMBAR = LEBAR_ISI - MARGIN_SEL - LEBAR_AREA_GAMBAR
+
 const WARNA_HEADER = '1E4F9C'
 const WARNA_PETUNJUK = '6B7280'
 
@@ -115,10 +128,14 @@ function borders(warna: string, sz: number): string {
   )
 }
 
-function tc(width: number, content: string, shade?: string): string {
+function tc(width: number, content: string, shade?: string, marginKanan?: number): string {
+  // Urutan anak tcPr menurut skema OOXML: tcW, shd, tcMar.
   return (
     `<w:tc><w:tcPr><w:tcW w:w="${width}" w:type="dxa"/>` +
     (shade ? `<w:shd w:val="clear" w:color="auto" w:fill="${shade}"/>` : '') +
+    (marginKanan !== undefined
+      ? `<w:tcMar><w:left w:w="${MARGIN_SEL}" w:type="dxa"/><w:right w:w="${marginKanan}" w:type="dxa"/></w:tcMar>`
+      : '') +
     `</w:tcPr>${content}</w:tc>`
   )
 }
@@ -137,6 +154,8 @@ interface BarisSpec {
   isiParas?: string[]
   /** Baris nomor: sel kanan abu-abu, terkunci (tidak perlu diubah). */
   nomor?: boolean
+  /** Baris yang boleh berisi gambar: area isi dipersempit agar gambar tempelan mengecil proporsional. */
+  areaGambar?: boolean
   /** Ini baris terakhir tabel — paragraf tidak diberi keepNext. */
   terakhir?: boolean
 }
@@ -168,7 +187,12 @@ function baris(b: BarisSpec, sk: Skema, bisaDisunting: boolean): string {
   return (
     '<w:tr><w:trPr><w:cantSplit/></w:trPr>' +
     tc(LEBAR_LABEL, kiri, sk.label) +
-    tc(LEBAR_ISI, isiParas.join(''), b.nomor ? sk.no : sk.isi) +
+    tc(
+      LEBAR_ISI,
+      isiParas.join(''),
+      b.nomor ? sk.no : sk.isi,
+      b.areaGambar ? MARGIN_KANAN_AREA_GAMBAR : undefined
+    ) +
     '</w:tr>'
   )
 }
@@ -210,11 +234,12 @@ function barisSoalPg(nomor: string, jumlahOpsi: 4 | 5, contoh?: ContohPg): strin
   const rows: BarisSpec[] = [
     { label: 'No', petunjuk: HINT_NO, isi: [nomor], nomor: true },
     { label: 'Soal', petunjuk: HINT_SOAL, isiParas: contoh?.soal },
-    { label: 'Gambar Soal', petunjuk: HINT_GAMBAR, isiParas: contoh?.gambar },
+    { label: 'Gambar Soal', petunjuk: HINT_GAMBAR, isiParas: contoh?.gambar, areaGambar: true },
     ...huruf.map(h => ({
       label: h,
       petunjuk: h === 'A' ? 'teks atau gambar' : undefined,
       isi: contoh?.opsi[h],
+      areaGambar: true,
     })),
     { label: 'Kunci', petunjuk: `satu huruf ${huruf[0]}–${huruf[huruf.length - 1]}`, isi: contoh ? [contoh.kunci] : undefined },
     { label: 'Pembahasan', petunjuk: 'boleh kosong', isi: contoh?.pembahasan },
@@ -241,7 +266,7 @@ function barisSoalEssay(nomor: string, contoh?: ContohEssay): string[] {
   const rows: BarisSpec[] = [
     { label: 'No', petunjuk: HINT_NO, isi: [nomor], nomor: true },
     { label: 'Soal', petunjuk: HINT_SOAL, isiParas: contoh?.soal },
-    { label: 'Gambar Soal', petunjuk: HINT_GAMBAR, isiParas: contoh?.gambar },
+    { label: 'Gambar Soal', petunjuk: HINT_GAMBAR, isiParas: contoh?.gambar, areaGambar: true },
     {
       label: 'Bobot',
       petunjuk: 'skor maksimal, angka > 0',
