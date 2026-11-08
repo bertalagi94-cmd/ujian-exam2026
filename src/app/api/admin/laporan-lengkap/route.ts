@@ -174,14 +174,38 @@ async function fetchLaporanLengkap(yayasanId: string) {
   const paketList = (paketRows ?? []) as PaketRow[]
 
   // Distribusi tingkat soal — query soal HANYA untuk paket_id yang relevan di atas,
-  // pakai index idx_soal_paket. Safety limit sama seperti route lain di app ini.
+  // pakai index idx_soal_paket.
+  //
+  // FIX (jumlah soal 0 padahal soal sudah dibuat): jumlah soal per paket dulu
+  // diambil dari kolom cache `paket_soal.jumlah_soal`, padahal kolom itu hanya
+  // diisi saat guru menekan Kirim / impor / duplikasi — menambah, menghapus
+  // atau mengedit soal satu per satu TIDAK memperbaruinya. Akibatnya paket
+  // berstatus DRAFT yang soalnya dibuat manual tampil "0 soal" di laporan ini,
+  // padahal halaman guru (api/guru/paket) menghitung langsung dari tabel
+  // `soal` dan menampilkan jumlah yang benar. Sekarang jumlah soal juga
+  // dihitung langsung dari tabel `soal` (lihat praPaketMap di bawah).
+  //
+  // FIX (batas 1000 baris): query ini dulu memakai .limit(20000), tetapi
+  // PostgREST memotong diam-diam di max_rows (default 1000) sehingga jumlah &
+  // distribusi tingkat bisa terpotong untuk sekolah besar. Sekarang dibaca
+  // halaman demi halaman (ambilSemuaBaris); kegagalan membaca dilaporkan
+  // (500), bukan diam-diam dianggap "tidak ada soal".
   const paketIds = paketList.map(p => p.id)
-  const { data: soalTingkatRows } = paketIds.length
-    ? await db.from('soal').select('paket_id, tingkat').in('paket_id', safeIn(paketIds)).limit(20000)
-    : { data: [] as { paket_id: string; tingkat: string }[] }
+  type SoalTingkatRow = { id: string; paket_id: string; tingkat: string | null }
+  const { data: soalTingkatRows, error: errSoalTingkat } = paketIds.length
+    ? await ambilSemuaBaris<SoalTingkatRow>((dari, sampai) =>
+        db
+          .from('soal')
+          .select('id, paket_id, tingkat')
+          .in('paket_id', safeIn(paketIds))
+          .order('id', { ascending: true })
+          .range(dari, sampai)
+      )
+    : { data: [] as SoalTingkatRow[], error: null }
+  if (errSoalTingkat) throw new Error(`Gagal membaca data soal: ${errSoalTingkat.message}`)
 
   const tingkatByPaket = new Map<string, { mudah: number; sedang: number; sukar: number }>()
-  for (const s of (soalTingkatRows ?? []) as { paket_id: string; tingkat: string }[]) {
+  for (const s of (soalTingkatRows ?? []) as SoalTingkatRow[]) {
     if (!s.paket_id) continue
     if (!tingkatByPaket.has(s.paket_id)) tingkatByPaket.set(s.paket_id, { mudah: 0, sedang: 0, sukar: 0 })
     const bucket = tingkatByPaket.get(s.paket_id)!
@@ -205,18 +229,22 @@ async function fetchLaporanLengkap(yayasanId: string) {
   for (const p of paketList) {
     const key = `${p.mapel_id}::${p.kelas_id}`
     const dist = tingkatByPaket.get(p.id) ?? { mudah: 0, sedang: 0, sukar: 0 }
+    // Jumlah soal nyata = jumlah baris di tabel `soal` untuk paket ini
+    // (mudah + sedang + sukar selalu sama dengan jumlah barisnya, karena
+    // tingkat di luar mudah/sukar dimasukkan ke bucket "sedang").
+    const jumlahNyata = dist.mudah + dist.sedang + dist.sukar
     const existing = praPaketMap.get(key)
     if (!existing) {
       praPaketMap.set(key, {
         statusSoal: p.status,
-        jumlahSoal: p.jumlah_soal ?? 0,
+        jumlahSoal: jumlahNyata,
         distribusi: { ...dist },
         catatanPenolakan: p.status === 'DITOLAK' ? (p.catatan ?? null) : null,
         tanggalTerbaru: p.tanggal ?? p.created_at,
       })
       continue
     }
-    existing.jumlahSoal += p.jumlah_soal ?? 0
+    existing.jumlahSoal += jumlahNyata
     existing.distribusi.mudah += dist.mudah
     existing.distribusi.sedang += dist.sedang
     existing.distribusi.sukar += dist.sukar
