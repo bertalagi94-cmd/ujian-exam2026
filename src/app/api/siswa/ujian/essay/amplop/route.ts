@@ -16,6 +16,7 @@
 //   { ada: true, amplop }     — simpan di perangkat (localStorage)
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
+import { namaPengawasSesi } from '@/lib/nama-pengawas-sesi'
 import { requireRoleAktif } from '@/lib/status-akun'
 import { cacheGet, cacheSet } from '@/lib/cache'
 import { buatAmplop, ambilGambarSebagaiDataUrl, seedKodeDarurat } from '@/lib/essay-amplop-server'
@@ -170,15 +171,13 @@ export async function GET(req: NextRequest) {
   const cacheKey = `essay-amplop:${sesiId}:${paketEssayId ?? 'none'}`
   let amplop = cacheGet<EssayAmplop>(cacheKey)
   if (!amplop) {
-    const [{ data: jadwal }, { data: mapel }] = await Promise.all([
-      db.from('jadwal').select('pengawas').eq('id', sesi.jadwal_id).single(),
+    // FIX: nama pengawas mengikuti pengawas SESI (pengawas ruang untuk sesi ruang
+    // khusus), bukan selalu guru di jadwal — nama ini ikut tersimpan di amplop
+    // offline, jadi harus benar sejak dibuat.
+    const [namaGuru, { data: mapel }] = await Promise.all([
+      namaPengawasSesi(db, sesi),
       db.from('mapel').select('nama').eq('id', sesi.mapel_id).single(),
     ])
-    let namaGuru: string | null = null
-    if (jadwal?.pengawas) {
-      const { data: guru } = await db.from('users').select('nama').eq('username', jadwal.pengawas).single()
-      namaGuru = guru?.nama ?? jadwal.pengawas
-    }
 
     const isi: IsiAmplopEssay = {
       info: {

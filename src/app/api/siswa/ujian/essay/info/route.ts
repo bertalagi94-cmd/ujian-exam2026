@@ -3,6 +3,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRoleAktif } from '@/lib/status-akun'
+import { namaPengawasSesi } from '@/lib/nama-pengawas-sesi'
 
 export async function GET(req: NextRequest) {
   const auth = await requireRoleAktif(req, ['SISWA'])
@@ -134,17 +135,13 @@ export async function GET(req: NextRequest) {
     ? db.from('soal_essay').select('id', { count: 'exact', head: true }).eq('paket_essay_id', sesi.paket_essay_id).eq('status', 'DISETUJUI')
     : db.from('soal_essay').select('id', { count: 'exact', head: true }).eq('mapel_id', sesi.mapel_id).eq('kelas_id', kelasId).eq('status', 'DISETUJUI')
 
-  const [{ data: jadwal }, { data: mapel }, { count: jumlahSoal }] = await Promise.all([
-    db.from('jadwal').select('pengawas').eq('id', sesi.jadwal_id).single(),
+  // FIX: nama pengawas mengikuti pengawas SESI (pengawas ruang untuk sesi ruang
+  // khusus / pengganti untuk susulan), bukan selalu guru di jadwal.
+  const [namaGuru, { data: mapel }, { count: jumlahSoal }] = await Promise.all([
+    namaPengawasSesi(db, sesi),
     db.from('mapel').select('nama').eq('id', sesi.mapel_id).single(),
     jumlahSoalQuery,
   ])
-
-  let namaGuru: string | null = null
-  if (jadwal?.pengawas) {
-    const { data: guru } = await db.from('users').select('nama').eq('username', jadwal.pengawas).single()
-    namaGuru = guru?.nama ?? jadwal.pengawas
-  }
 
   return NextResponse.json({
     namaMapel: mapel?.nama ?? sesi.mapel_id,
