@@ -378,23 +378,60 @@ export async function resolveSesiDariKodeRuang(
     return { pesan: 'Ujian di ruang khusus ini belum dimulai. Tunggu pengawas menekan Mulai sesi.' }
   }
 
+  const idJadwalSiswa = penempatan.map(p => p.jadwal_id as string)
   const { data: sesiRuang } = await db
     .from('sesi_ujian')
-    .select(KOLOM_SESI_VALIDASI)
+    .select(`${KOLOM_SESI_VALIDASI}, waktu_mulai`)
     .eq('ruang_khusus_id', ruang.id)
     .eq('status', 'BERJALAN')
-    .in('jadwal_id', penempatan.map(p => p.jadwal_id as string))
-    .order('waktu_mulai', { ascending: true })
-    .limit(5)
+    .in('jadwal_id', idJadwalSiswa)
+    .limit(50)
   if (!sesiRuang?.length) {
     return { pesan: 'Sesi ujian Anda di ruang ini belum dimulai atau sudah selesai.' }
   }
 
-  // Satu siswa hanya boleh punya jejak di SATU sesi per jadwal (nilai hanya
-  // unik per sesi+siswa). Lewati sesi yang jadwalnya sudah dia ikuti di sesi lain.
-  for (const s of sesiRuang) {
+  // FIX (siswa dengan 2+ jadwal di satu ruang): sebelumnya sesi dipilih dengan
+  // mengecek "apakah siswa terlibat di sesi LAIN pada jadwal yang sama", yang
+  // sengaja mengecualikan sesi miliknya sendiri. Akibatnya sesi yang SUDAH
+  // selesai dikerjakan siswa tetap terpilih lagi (lalu ditolak "sudah
+  // menyelesaikan ujian ini"), sehingga mapel berikutnya tidak pernah bisa
+  // dimulai. Urutan sesi juga hanya mengikuti urutan pembuatan, bukan jam
+  // jadwal, sehingga siswa yang login ulang saat mengerjakan bisa diarahkan ke
+  // sesi yang salah. Sekarang: (1) lanjutkan sesi yang sedang dikerjakan,
+  // (2) kalau tidak ada, ambil sesi berikutnya yang belum disentuh menurut jam
+  // jadwal, (3) sesi yang sudah selesai tidak pernah dipilih lagi.
+  const idSesi = sesiRuang.map(s => s.id as string)
+  const [{ data: suSaya }, { data: nilaiSaya }, { data: jadwalRows }] = await Promise.all([
+    db.from('siswa_ujian').select('sesi_id, status').in('sesi_id', idSesi).eq('nis', nis),
+    db.from('nilai').select('sesi_id').in('sesi_id', idSesi).eq('nis', nis),
+    db.from('jadwal').select('id, jam_mulai').in('id', idJadwalSiswa),
+  ])
+  const statusSaya = new Map((suSaya ?? []).map(r => [String(r.sesi_id), String(r.status)]))
+  const sudahBernilai = new Set((nilaiSaya ?? []).map(r => String(r.sesi_id)))
+  const jamJadwal = new Map((jadwalRows ?? []).map(j => [String(j.id), String(j.jam_mulai ?? '')]))
+  const selesai = (sesiId: string) => sudahBernilai.has(sesiId) || statusSaya.get(sesiId) === 'SELESAI'
+
+  const urut = [...sesiRuang].sort((a, b) =>
+    (jamJadwal.get(String(a.jadwal_id)) ?? '').localeCompare(jamJadwal.get(String(b.jadwal_id)) ?? '') ||
+    String(a.waktu_mulai ?? '').localeCompare(String(b.waktu_mulai ?? '')) ||
+    String(a.id).localeCompare(String(b.id)))
+
+  // 1) Sesi yang sedang dikerjakan (punya baris siswa_ujian, belum selesai):
+  // lanjutkan di situ. Status RESET/TERKUNCI ikut, supaya pesannya muncul dari
+  // sesi yang benar dan siswa tidak "melompat" ke mapel berikutnya.
+  const sedangDikerjakan = urut.find(s => statusSaya.has(String(s.id)) && !selesai(String(s.id)))
+  if (sedangDikerjakan) return { sesi: sedangDikerjakan }
+
+  // 2) Sesi berikutnya yang belum disentuh. Satu siswa hanya boleh punya jejak
+  // di SATU sesi per jadwal (nilai hanya unik per sesi+siswa), jadi lewati sesi
+  // yang jadwalnya sudah dia ikuti di sesi lain (mis. sesi kelas).
+  for (const s of urut) {
+    if (statusSaya.has(String(s.id)) || sudahBernilai.has(String(s.id))) continue
     const terlibat = await nisSudahTerlibat(db, s.jadwal_id as string, [nis], s.id as string)
     if (!terlibat.has(nis)) return { sesi: s }
   }
+
+  // 3) Tidak ada sesi yang bisa dimasuki.
+  if (urut.every(s => selesai(String(s.id)))) return { pesan: 'Anda sudah menyelesaikan ujian ini.' }
   return { pesan: 'Anda sudah tercatat mengikuti ujian ini di sesi lain.' }
 }
