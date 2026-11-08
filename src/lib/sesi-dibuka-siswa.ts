@@ -24,14 +24,30 @@ export async function hitungUjianDibukaSiswa(db: Db, kelas: string, nis: string)
   const jadwalIds = (jadwalList ?? []).map(j => j.id as string)
   if (jadwalIds.length === 0) return 0
 
-  const { data: sesiList } = await db
-    .from('sesi_ujian')
-    .select('id, jadwal_id, status, info_json')
-    .in('jadwal_id', jadwalIds)
+  const [{ data: sesiList }, { data: penempatan }] = await Promise.all([
+    db.from('sesi_ujian')
+      .select('id, jadwal_id, status, info_json, ruang_khusus_id')
+      .in('jadwal_id', jadwalIds),
+    // Siswa yang ditempatkan di ruang khusus (migrasi 65) mengikuti sesi RUANG
+    // untuk jadwal itu, bukan sesi kelas.
+    db.from('ruang_khusus_siswa')
+      .select('jadwal_id, ruang_id')
+      .eq('nis', nis).eq('status', 'DIPROSES').in('jadwal_id', jadwalIds),
+  ])
   const sesi = sesiList ?? []
+  const ruangSiswa = new Map((penempatan ?? []).map(p => [p.jadwal_id as string, p.ruang_id as string]))
 
-  // Jadwal yang benar-benar sudah dibuka pengawas (ada sesi BERJALAN).
-  const dibuka = new Set(sesi.filter(s => s.status === 'BERJALAN').map(s => s.jadwal_id as string))
+  // Jadwal yang benar-benar sudah dibuka untuk SISWA INI (ada sesi BERJALAN
+  // yang relevan: sesi ruangnya bila ditempatkan di ruang, selain itu sesi kelas).
+  const dibuka = new Set(
+    sesi
+      .filter(s => s.status === 'BERJALAN')
+      .filter(s => {
+        const ruangDiaku = ruangSiswa.get(s.jadwal_id as string)
+        return ruangDiaku ? s.ruang_khusus_id === ruangDiaku : !s.ruang_khusus_id
+      })
+      .map(s => s.jadwal_id as string)
+  )
   if (dibuka.size === 0) return 0
 
   const sesiIds = sesi.map(s => s.id as string)

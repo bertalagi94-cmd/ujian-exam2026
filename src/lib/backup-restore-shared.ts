@@ -46,6 +46,11 @@ export const INSERT_ORDER: string[] = [
   'admin_kelas',
   'izin_layar_pantau',
   'jadwal',
+  // Migrasi 65: ruang khusus. Tanpa foreign key, jadi urutan bebas; diletakkan
+  // setelah jadwal (jadwal_ids menunjuk jadwal) dan sebelum sesi_ujian
+  // (sesi_ujian.ruang_khusus_id menunjuk ruang).
+  'ruang_khusus',
+  'ruang_khusus_siswa',
   'paket_soal',
   'soal',
   'kisi_kisi',

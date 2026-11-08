@@ -55,7 +55,20 @@ function hmac(label: string, sesiId: string): Buffer {
   return createHmac('sha256', ambilRahasia()).update(`${label}:${sesiId}`).digest()
 }
 
-/** Kode darurat N karakter (alfabet 32 tanpa karakter ambigu) untuk sesi ini. */
+/**
+ * Nilai awal (seed) kode darurat sebuah sesi.
+ *  - Sesi KELAS: id sesinya sendiri (persis perilaku lama, tidak berubah).
+ *  - Sesi RUANG KHUSUS (migrasi 65): id ruangnya, sehingga SEMUA sesi di ruang
+ *    yang sama memakai SATU kode darurat dan pengawas ruang cukup
+ *    menyebutkan satu kode. Salt dan AAD amplop tetap per sesi.
+ * Pengawas, validasi siswa, dan pembuat amplop WAJIB memakai fungsi ini supaya
+ * kode yang diketik siswa dan kode yang dilihat pengawas selalu sama.
+ */
+export function seedKodeDarurat(sesi: { id: string; ruang_khusus_id?: string | null }): string {
+  return sesi.ruang_khusus_id ? `ruang:${sesi.ruang_khusus_id}` : sesi.id
+}
+
+/** Kode darurat N karakter (alfabet 32 tanpa karakter ambigu). `sesiId` = seed dari seedKodeDarurat(). */
 export function hitungKodeDarurat(sesiId: string): string {
   // Setiap karakter memakai satu byte HMAC (`byte & 31`): 256 habis dibagi 32,
   // jadi sebarannya seragam tanpa bias modulo. HMAC-SHA256 = 32 byte ≥ N.
@@ -81,12 +94,12 @@ export function kodeDaruratCocok(sesiId: string, kodeInput: unknown): boolean {
 }
 
 /** Kunci AES-256 dari kode sesi. Di-cache di memori karena PBKDF2 600rb iterasi tidak murah dan hasilnya sama untuk semua siswa di sesi ini. */
-async function ambilKunciSesi(sesiId: string): Promise<Buffer> {
+async function ambilKunciSesi(sesiId: string, kodeSeed: string = sesiId): Promise<Buffer> {
   const cacheKey = `essay-amplop-kunci:${sesiId}`
   const hit = cacheGet<Buffer>(cacheKey)
   if (hit) return hit
   const kunci = await pbkdf2Async(
-    hitungKodeDarurat(sesiId),
+    hitungKodeDarurat(kodeSeed),
     hitungSalt(sesiId),
     PBKDF2_ITERASI,
     32,
@@ -139,8 +152,8 @@ export async function ambilGambarSebagaiDataUrl(url: string): Promise<string | n
  * Format `ct` = ciphertext || tag(16 byte) — persis yang diminta WebCrypto
  * saat decrypt, jadi client tidak perlu memisahkan tag.
  */
-export async function buatAmplop(sesiId: string, isi: IsiAmplopEssay): Promise<EssayAmplop> {
-  const kunci = await ambilKunciSesi(sesiId)
+export async function buatAmplop(sesiId: string, isi: IsiAmplopEssay, kodeSeed: string = sesiId): Promise<EssayAmplop> {
+  const kunci = await ambilKunciSesi(sesiId, kodeSeed)
   const iv = randomBytes(12)
   const cipher = createCipheriv('aes-256-gcm', kunci, iv)
   cipher.setAAD(Buffer.from(aadAmplop(sesiId), 'utf8'))

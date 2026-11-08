@@ -3,7 +3,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRoleAktif } from '@/lib/status-akun'
-import { kodeDaruratCocok } from '@/lib/essay-amplop-server'
+import { kodeDaruratCocok, seedKodeDarurat } from '@/lib/essay-amplop-server'
 import { MAKS_PERCOBAAN_SERVER } from '@/lib/essay-amplop-shared'
 
 export async function POST(req: NextRequest) {
@@ -73,7 +73,7 @@ export async function POST(req: NextRequest) {
   // ulang berdasarkan status DISETUJUI saat guru mengoreksi.
   const { data: sesi } = await db
     .from('sesi_ujian')
-    .select('status, akses_mulai_essay_dibuka, mapel_id, kelas, paket_essay_id')
+    .select('status, akses_mulai_essay_dibuka, mapel_id, kelas, paket_essay_id, ruang_khusus_id')
     .eq('id', sesiId)
     .single()
 
@@ -148,7 +148,7 @@ export async function POST(req: NextRequest) {
         { status: 429 }
       )
     }
-    if (!kodeDaruratCocok(String(sesiId), kodeDarurat)) {
+    if (!kodeDaruratCocok(seedKodeDarurat({ id: String(sesiId), ruang_khusus_id: sesi?.ruang_khusus_id }), kodeDarurat)) {
       return NextResponse.json({ error: 'Kode darurat tidak valid.' }, { status: 403 })
     }
     await kembalikanPercobaan()

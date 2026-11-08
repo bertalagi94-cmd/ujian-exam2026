@@ -1,3 +1,4 @@
+import { petaPenempatanJadwal } from '@/lib/ruang-khusus'
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRoleAktif } from '@/lib/status-akun'
@@ -58,7 +59,7 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
   // Ambil info sesi untuk menentukan target peserta.
   const { data: sesi, error: sesiError } = await db
     .from('sesi_ujian')
-    .select('mapel_id, kelas, is_darurat, siswa_diizinkan, jadwal_id')
+    .select('mapel_id, kelas, is_darurat, siswa_diizinkan, jadwal_id, ruang_khusus_id')
     .eq('id', sesiId)
     .maybeSingle()
 
@@ -79,7 +80,50 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
   // Tentukan target peserta sesi ini (logika bersama: src/lib/target-siswa-sesi.ts).
   const targetSiswa = await ambilTargetSiswaSesi(db, sesi, [...siswaUjianMap.keys()])
 
-  if (!targetSiswa.length) return NextResponse.json({ data: [] })
+  // Sesi KELAS: siswa yang sudah dipindah ke ruang khusus tetap tampil di
+  // daftar pengawas kelas, hanya sebagai penanda ("Ujian di ruang khusus" lalu
+  // "Selesai"), tanpa pelanggaran dan tanpa tombol reset. Statusnya dibaca dari
+  // sesi ruang. `dari_sesi_lain: true` membuat UI menyembunyikan semua kontrol.
+  type BarisRuang = {
+    nis: string; nama: string; kelas: string
+    status: 'DI_RUANG_KHUSUS' | 'SELESAI'
+    waktu_daftar: string | null; waktu_selesai: string | null
+    jumlah_pelanggaran: number; reset_terpakai: number
+    detik_tanpa_sinyal: null; ganti_perangkat: number
+    dari_sesi_lain: true; di_ruang_khusus: true
+  }
+  let diRuangKhusus: BarisRuang[] = []
+  if (!sesi.ruang_khusus_id && !sesi.is_darurat && sesi.jadwal_id) {
+    const penempatan = await petaPenempatanJadwal(db, sesi.jadwal_id)
+    if (penempatan.size > 0) {
+      const nisRuang = [...penempatan.keys()]
+      const sesiRuangIds = [...new Set([...penempatan.values()].map(v => v.sesi_id).filter((v): v is string => !!v))]
+      const [{ data: namaRows }, { data: suRuang }] = await Promise.all([
+        db.from('siswa').select('nis, nama, kelas').in('nis', nisRuang),
+        sesiRuangIds.length > 0
+          ? db.from('siswa_ujian').select('nis, status, waktu_daftar, waktu_selesai').in('sesi_id', sesiRuangIds).in('nis', nisRuang)
+          : Promise.resolve({ data: [] as { nis: string; status: string; waktu_daftar: string | null; waktu_selesai: string | null }[] }),
+      ])
+      const statusRuang = new Map((suRuang ?? []).map(r => [String(r.nis), r]))
+      diRuangKhusus = (namaRows ?? [])
+        .map(s => {
+          const su = statusRuang.get(s.nis)
+          const selesai = su?.status === 'SELESAI' || su?.status === 'TERKUNCI'
+          return {
+            nis: s.nis, nama: s.nama, kelas: s.kelas,
+            status: selesai ? 'SELESAI' as const : 'DI_RUANG_KHUSUS' as const,
+            waktu_daftar: su?.waktu_daftar ?? null,
+            waktu_selesai: selesai ? (su?.waktu_selesai ?? null) : null,
+            jumlah_pelanggaran: 0, reset_terpakai: 0,
+            detik_tanpa_sinyal: null, ganti_perangkat: 0,
+            dari_sesi_lain: true as const, di_ruang_khusus: true as const,
+          }
+        })
+        .sort((a, b) => a.nama.localeCompare(b.nama, 'id'))
+    }
+  }
+
+  if (!targetSiswa.length && diRuangKhusus.length === 0) return NextResponse.json({ data: [] })
 
   const nisList = targetSiswa.map(s => s.nis)
   const siswaMap = Object.fromEntries(targetSiswa.map(s => [s.nis, { nama: s.nama, kelas: s.kelas }]))
@@ -191,6 +235,7 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
       .select('id')
       .eq('jadwal_id', sesi.jadwal_id)
       .neq('id', sesiId)
+      .is('ruang_khusus_id', null) // siswa ruang khusus tidak ditampilkan di panel susulan
 
     const sesiLainIds = (sesiLain ?? []).map(s => s.id)
     if (sesiLainIds.length > 0) {
@@ -245,5 +290,5 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
     }
   }
 
-  return NextResponse.json({ data: [...sudahLogin, ...sudahSebelumnya, ...belumLogin] })
+  return NextResponse.json({ data: [...sudahLogin, ...sudahSebelumnya, ...diRuangKhusus, ...belumLogin] })
 }

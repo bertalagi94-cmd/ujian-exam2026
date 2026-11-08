@@ -303,15 +303,30 @@ async function ambilBoardsUntukViewer(
     if (errJadwal) throw new Error(errJadwal.message)
 
     const jadwalIds = (jadwalSaya ?? []).map((j: { id: string }) => j.id)
-    if (jadwalIds.length === 0) return { boards: [], sesiIds: [] }
 
-    const { data, error } = await db
+    // Sesi KELAS dari jadwal yang saya awasi (sesi ruang khusus untuk jadwal
+    // yang sama milik pengawas ruang, bukan milik saya).
+    if (jadwalIds.length > 0) {
+      const { data, error } = await db
+        .from('sesi_ujian')
+        .select(kolomSesi)
+        .in('jadwal_id', jadwalIds)
+        .is('ruang_khusus_id', null)
+        .or(statusFilter)
+      if (error) throw new Error(error.message)
+      sesiRows = data ?? []
+    }
+
+    // Sesi RUANG KHUSUS yang ditugaskan kepada saya (migrasi 65).
+    const { data: sesiRuangSaya, error: errRuang } = await db
       .from('sesi_ujian')
       .select(kolomSesi)
-      .in('jadwal_id', jadwalIds)
+      .not('ruang_khusus_id', 'is', null)
+      .contains('info_json', { pengawas_susulan: user.username })
       .or(statusFilter)
-    if (error) throw new Error(error.message)
-    sesiRows = data ?? []
+    if (errRuang) throw new Error(errRuang.message)
+    sesiRows = [...sesiRows, ...(sesiRuangSaya ?? [])]
+    if (sesiRows.length === 0) return { boards: [], sesiIds: [] }
   } else if (user.role === 'KEPSEK') {
     const scope = await getKepsekScope(user.username, yayasanId)
     if (scope.noScope || scope.kelasList.length === 0) {

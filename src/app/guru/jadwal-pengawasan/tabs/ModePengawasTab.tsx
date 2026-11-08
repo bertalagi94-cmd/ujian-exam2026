@@ -75,7 +75,7 @@ interface SiswaAktif {
   // BELUM_LOGIN: status semu dari API (bukan nilai kolom siswa_ujian.status) —
   // dipakai untuk siswa target sesi ini yang belum punya baris di siswa_ujian
   // sama sekali, supaya pengawas tahu siapa yang belum masuk ujian.
-  status: 'AKTIF' | 'SELESAI' | 'RESET' | 'TERKUNCI' | 'BELUM_LOGIN'
+  status: 'AKTIF' | 'SELESAI' | 'RESET' | 'TERKUNCI' | 'BELUM_LOGIN' | 'DI_RUANG_KHUSUS'
   waktu_daftar: string | null
   waktu_selesai: string | null
   jumlah_pelanggaran: number
@@ -88,6 +88,9 @@ interface SiswaAktif {
   // /api/pengawas/sesi/[id]/siswa. Dipakai untuk menampilkan label pembeda
   // di UI, murni tampilan.
   dari_sesi_lain?: boolean
+  // Siswa dipindah ke ruang khusus: hanya penanda (tanpa pelanggaran/reset),
+  // statusnya dibaca dari sesi ruang oleh server.
+  di_ruang_khusus?: boolean
   // Detik sejak heartbeat terakhir yang diterima SERVER (null kalau tidak
   // relevan: bukan AKTIF / belum ada heartbeat). Petunjuk "siswa mungkin
   // offline" — bukan bukti pelanggaran.
@@ -1312,16 +1315,16 @@ export function ModePengawasTab() {
                               </div>
                               <div className="space-y-1.5 max-h-72 overflow-y-auto">
                                 {siswaList.map(sw => (
-                                  <div key={sw.nis} className={`flex items-center gap-2 flex-wrap px-3 py-2 rounded-xl text-sm ${sw.status === 'TERKUNCI' ? 'bg-red-50 border border-red-100' : sw.status === 'RESET' ? 'bg-amber-50 border border-amber-100' : sw.status === 'SELESAI' ? 'bg-slate-50' : sw.status === 'BELUM_LOGIN' ? 'bg-slate-50/70 border border-dashed border-slate-200' : 'bg-white border border-slate-100'}`}>
+                                  <div key={sw.nis} className={`flex items-center gap-2 flex-wrap px-3 py-2 rounded-xl text-sm ${sw.status === 'TERKUNCI' ? 'bg-red-50 border border-red-100' : sw.status === 'RESET' ? 'bg-amber-50 border border-amber-100' : sw.status === 'SELESAI' ? 'bg-slate-50' : sw.status === 'BELUM_LOGIN' ? 'bg-slate-50/70 border border-dashed border-slate-200' : sw.status === 'DI_RUANG_KHUSUS' ? 'bg-violet-50/60 border border-violet-100' : 'bg-white border border-slate-100'}`}>
                                     <div className="flex-1 min-w-0 basis-32">
                                       <div className={`font-medium truncate ${sw.status === 'BELUM_LOGIN' ? 'text-slate-500' : 'text-slate-800'}`}>{sw.nama}</div>
                                       <div className="text-xs text-slate-400 font-mono">{sw.nis}</div>
                                     </div>
                                     <div className="flex items-center gap-2 flex-wrap">
-                                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${sw.status === 'AKTIF' ? 'bg-emerald-100 text-emerald-700' : sw.status === 'SELESAI' ? 'bg-blue-100 text-blue-700' : sw.status === 'RESET' ? 'bg-amber-100 text-amber-700' : sw.status === 'BELUM_LOGIN' ? 'bg-orange-50 text-orange-600' : 'bg-red-100 text-red-700'}`}>
-                                      {sw.status === 'AKTIF' ? '● Ujian' : sw.status === 'SELESAI' ? '✓ Selesai' : sw.status === 'RESET' ? '⏳ Tunggu Kode' : sw.status === 'BELUM_LOGIN' ? '○ Belum Login' : '🔒 Terkunci'}
+                                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${sw.status === 'AKTIF' ? 'bg-emerald-100 text-emerald-700' : sw.status === 'SELESAI' ? 'bg-blue-100 text-blue-700' : sw.status === 'RESET' ? 'bg-amber-100 text-amber-700' : sw.status === 'BELUM_LOGIN' ? 'bg-orange-50 text-orange-600' : sw.status === 'DI_RUANG_KHUSUS' ? 'bg-violet-100 text-violet-700' : 'bg-red-100 text-red-700'}`}>
+                                      {sw.status === 'AKTIF' ? '● Ujian' : sw.status === 'SELESAI' ? '✓ Selesai' : sw.status === 'RESET' ? '⏳ Tunggu Kode' : sw.status === 'BELUM_LOGIN' ? '○ Belum Login' : sw.status === 'DI_RUANG_KHUSUS' ? '🖥 Ujian di ruang khusus' : '🔒 Terkunci'}
                                     </span>
-                                    {sw.dari_sesi_lain && (
+                                    {sw.dari_sesi_lain && !sw.di_ruang_khusus && (
                                       <span className="text-xs font-medium px-2 py-0.5 rounded-full flex-shrink-0 bg-slate-100 text-slate-500">
                                         Sesi sebelumnya
                                       </span>

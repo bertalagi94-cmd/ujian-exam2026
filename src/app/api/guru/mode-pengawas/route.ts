@@ -7,6 +7,7 @@ import { computeStatusSoalDetailMap, getStatusSoalDetail, isStatusSoalSiap, pesa
 import { cekSesiBentrokKelas, pesanBentrokKelas } from '@/lib/sesi-kelas'
 import { resolveEssayInfoJson } from '@/lib/gabungKirim'
 import { isKonflikSesiBerjalan } from '@/lib/sesi-unik'
+import { cariSesiKelasBerjalan, pilihSesiUntukPengawas } from '@/lib/sesi-utama'
 
 function generateKodeSesi7(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
@@ -133,6 +134,16 @@ export async function GET(req: NextRequest) {
     namaGuruSusulanMap = Object.fromEntries((guruSusulanList ?? []).map(g => [g.username, g.nama]))
   }
 
+  // ── 5b2. Data ruang khusus untuk sesi ruang (migrasi 65): siswa lab memakai
+  // SATU kode ruang untuk semua sesi di ruang itu, jadi kode itu yang
+  // ditampilkan pengawas ruang, bukan kode_sesi internal tiap sesi.
+  const ruangIdsSesi = [...new Set((sesiList ?? []).map(s => s.ruang_khusus_id as string | null).filter((v): v is string => !!v))]
+  const ruangMap: Record<string, { id: string; nama: string | null; kode_ruang: string }> = {}
+  if (ruangIdsSesi.length > 0) {
+    const { data: ruangRows } = await db.from('ruang_khusus').select('id, nama, kode_ruang').in('id', ruangIdsSesi)
+    for (const r of ruangRows ?? []) ruangMap[r.id] = r
+  }
+
   // ── 5c. Enrich status_soal supaya UI bisa menonaktifkan tombol "Mulai
   // Ujian" untuk jadwal yang soalnya belum disetujui ────────────────────────
   const statusSoalMap = await computeStatusSoalDetailMap(
@@ -145,7 +156,7 @@ export async function GET(req: NextRequest) {
   // masih kosong. Ini tabel terpisah dari paket_soal (PG) di atas, jadi
   // dihitung sendiri di sini, bukan lewat computeStatusSoalDetailMap.
   const jadwalEssayAktif = jadwalList.filter(j => {
-    const sesiTerkait = (sesiByJadwal[j.id] ?? []).find(s => s.status === 'BERJALAN') ?? (sesiByJadwal[j.id] ?? [])[0]
+    const sesiTerkait = pilihSesiUntukPengawas(sesiByJadwal[j.id], user.username, j.pengawas)
     return !!sesiTerkait?.info_json?.essay_aktif
   })
   const essayJumlahSoalMap: Record<string, number> = {}
@@ -197,10 +208,14 @@ export async function GET(req: NextRequest) {
   // ── 6. Enrich tiap jadwal ─────────────────────────────────────────────────
   const enrichedJadwal = jadwalList.map(j => {
     const sesiUntukJadwal = (sesiList).filter(s => s.jadwal_id === j.id)
-    const sesiTerkait = sesiUntukJadwal.find(s => s.status === 'BERJALAN') ?? sesiUntukJadwal[0] ?? null
+    // Satu jadwal bisa punya sesi kelas DAN sesi ruang khusus (migrasi 65);
+    // tiap pengawas hanya melihat sesinya sendiri.
+    const sesiTerkait = pilihSesiUntukPengawas(sesiUntukJadwal, user.username, j.pengawas)
     let status = j.status
     if (sesiTerkait?.status === 'BERJALAN') status = 'BERJALAN'
-    if (sesiTerkait?.status === 'SELESAI' && status !== 'BERJALAN') status = 'SELESAI'
+    // Sesi milik pengawas ini sudah SELESAI -> tampil SELESAI walau jadwal.status
+    // masih BERJALAN karena sesi LAIN (mis. sesi ruang khusus) belum ditutup.
+    if (sesiTerkait?.status === 'SELESAI') status = 'SELESAI'
 
     // Apakah sesi BERJALAN ini sesi susulan yang dibuka admin untuk GURU LAIN
     // (bukan guru yang sedang membuka mode-pengawas ini)? Jika ya, guru ini
@@ -226,6 +241,12 @@ export async function GET(req: NextRequest) {
       // (kode sesi, dll) ke pengawas asli — cukup info ringkas untuk pesan.
       sesi_ujian: sesiTerkait && !diambilAlih ? {
         ...sesiTerkait,
+        ...(sesiTerkait.ruang_khusus_id && ruangMap[sesiTerkait.ruang_khusus_id]
+          ? {
+              kode_sesi: ruangMap[sesiTerkait.ruang_khusus_id].kode_ruang,
+              ruang_khusus: ruangMap[sesiTerkait.ruang_khusus_id],
+            }
+          : {}),
         jumlah_peserta: siswaUjianMap[sesiTerkait.id]?.total ?? sesiTerkait.jumlah_peserta ?? 0,
         jumlah_selesai: siswaUjianMap[sesiTerkait.id]?.selesai ?? 0,
         // Jumlah soal essay DISETUJUI untuk mapel+kelas jadwal ini — dipakai
@@ -329,12 +350,8 @@ export async function POST(req: NextRequest) {
   }
 
   // Cek apakah sesi sudah ada & berjalan
-  const { data: existingSesi } = await db
-    .from('sesi_ujian')
-    .select('id, kode_sesi, info_json')
-    .eq('jadwal_id', jadwalId)
-    .eq('status', 'BERJALAN')
-    .single()
+  // Hanya sesi KELAS: sesi ruang khusus untuk jadwal yang sama berdiri sendiri.
+  const existingSesi = await cariSesiKelasBerjalan(db, jadwalId)
 
   if (existingSesi) {
     // Jika sesi yang berjalan adalah sesi susulan yang diambil-alih ADMIN
@@ -500,12 +517,7 @@ export async function POST(req: NextRequest) {
     // ini. Jangan buat sesi kedua — kembalikan sesi yang sudah ada, sama
     // seperti cabang "Sesi sudah berjalan" di atas.
     if (isKonflikSesiBerjalan(error)) {
-      const { data: sesiPemenang } = await db
-        .from('sesi_ujian')
-        .select('id, kode_sesi, info_json')
-        .eq('jadwal_id', jadwalId)
-        .eq('status', 'BERJALAN')
-        .maybeSingle()
+      const sesiPemenang = await cariSesiKelasBerjalan(db, jadwalId)
 
       if (sesiPemenang) {
         const pengawasSusulan = sesiPemenang.info_json?.dibuka_oleh_admin

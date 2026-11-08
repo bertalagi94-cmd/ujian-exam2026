@@ -3,6 +3,8 @@ import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRoleAktif } from '@/lib/status-akun'
 import { verifySesiOwnership } from '@/lib/sesi-ownership'
 import { finalisasiNilaiPaksa } from '@/lib/finalisasi-nilai'
+import { adaSesiBerjalanLain } from '@/lib/sesi-utama'
+import { setelahSesiDitutup } from '@/lib/ruang-khusus'
 
 export async function POST(req: NextRequest) {
   const auth = await requireRoleAktif(req, ['GURU'])
@@ -67,10 +69,22 @@ export async function POST(req: NextRequest) {
 
   let peringatan: string[] = []
 
+  // Sesi ruang khusus: lepas siswa yang tidak pernah masuk, tutup ruang bila sesi terakhir.
+  await setelahSesiDitutup(db, sesiId)
+
+  // Status jadwal baru SELESAI kalau tidak ada sesi lain (kelas ATAU ruang
+  // khusus) yang masih BERJALAN untuk jadwal ini. Tanpa syarat ini, menutup
+  // sesi kelas membuat siswa ruang khusus yang belum masuk melihat "ujian
+  // ditutup" (halaman siswa menyaring berdasarkan jadwal.status).
   if (sesi.jadwal_id) {
-    const { error: errJadwal } = await db.from('jadwal').update({ status: 'SELESAI' }).eq('id', sesi.jadwal_id)
-    if (errJadwal) {
-      peringatan.push(`Sesi berhasil ditutup, tapi status jadwal gagal diperbarui: ${errJadwal.message}`)
+    let masihAdaSesi = false
+    try { masihAdaSesi = await adaSesiBerjalanLain(db, sesi.jadwal_id, sesiId) }
+    catch (e) { peringatan.push(`Gagal memeriksa sesi lain pada jadwal ini: ${e instanceof Error ? e.message : String(e)}`); masihAdaSesi = true }
+    if (!masihAdaSesi) {
+      const { error: errJadwal } = await db.from('jadwal').update({ status: 'SELESAI' }).eq('id', sesi.jadwal_id)
+      if (errJadwal) {
+        peringatan.push(`Sesi berhasil ditutup, tapi status jadwal gagal diperbarui: ${errJadwal.message}`)
+      }
     }
   }
 

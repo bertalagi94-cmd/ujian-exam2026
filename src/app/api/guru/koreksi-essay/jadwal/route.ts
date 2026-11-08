@@ -50,29 +50,48 @@ export async function GET(req: NextRequest) {
   const jadwalIds = jadwalList.map(j => j.id)
   const { data: sesiList } = await db
     .from('sesi_ujian')
-    .select('id, jadwal_id, status, info_json')
+    .select('id, jadwal_id, status, info_json, ruang_khusus_id')
     .in('jadwal_id', jadwalIds)
     .order('waktu_mulai', { ascending: false })
 
-  // Sesi terbaru per jadwal (data sudah diurutkan terbaru dulu).
-  const sesiMap: Record<string, { id: string; status: string; info_json: Record<string, unknown> | null }> = {}
+  // Satu jadwal bisa punya sesi KELAS dan sesi RUANG KHUSUS (migrasi 65);
+  // keduanya harus bisa dikoreksi, jadi satu entri per sesi (bukan per jadwal).
+  // Sesi kelas: yang terbaru (data sudah diurutkan terbaru dulu).
+  type SesiRow = { id: string; status: string; info_json: Record<string, unknown> | null; ruang_khusus_id: string | null }
+  const sesiPerJadwal: Record<string, SesiRow[]> = {}
+  const kelasTerlihat = new Set<string>()
   for (const s of sesiList ?? []) {
-    if (!sesiMap[s.jadwal_id]) sesiMap[s.jadwal_id] = s
+    if (!s.ruang_khusus_id) {
+      if (kelasTerlihat.has(s.jadwal_id)) continue
+      kelasTerlihat.add(s.jadwal_id)
+    }
+    ;(sesiPerJadwal[s.jadwal_id] ??= []).push(s as SesiRow)
   }
+  const ruangIds = [...new Set((sesiList ?? []).map(s => s.ruang_khusus_id as string | null).filter((v): v is string => !!v))]
+  const { data: ruangRows } = ruangIds.length > 0
+    ? await db.from('ruang_khusus').select('id, nama').in('id', ruangIds)
+    : { data: [] as { id: string; nama: string | null }[] }
+  const namaRuang = Object.fromEntries((ruangRows ?? []).map(r => [r.id, r.nama || 'Ruang khusus']))
 
   const enriched = jadwalList
-    .map(j => {
+    .flatMap(j => {
       const tanggal = j.tanggal?.slice(0, 10) ?? j.tanggal
-      const sesi = sesiMap[j.id]
-      return {
-        id: j.id,
+      const daftar = sesiPerJadwal[j.id] ?? []
+      const baris = daftar.length > 0 ? daftar : [null]
+      return baris.map(sesi => ({
+        // id unik per sesi (dipakai UI sebagai key); sesi kelas tetap memakai id jadwal.
+        id: sesi?.ruang_khusus_id ? `${j.id}__${sesi.ruang_khusus_id}` : j.id,
+        jadwal_id: j.id,
         tanggal,
         mapel_id: j.mapel_id,
         kelas: j.kelas,
         nama_mapel: mapelMap[j.mapel_id] ?? j.mapel_id,
-        nama_kelas: kelasMap[j.kelas] ?? j.kelas,
+        nama_kelas: sesi?.ruang_khusus_id
+          ? `${kelasMap[j.kelas] ?? j.kelas} — ${namaRuang[sesi.ruang_khusus_id] ?? 'Ruang khusus'}`
+          : (kelasMap[j.kelas] ?? j.kelas),
+        ruang_khusus_id: sesi?.ruang_khusus_id ?? null,
         sesi_ujian: sesi ? { id: sesi.id, status: sesi.status, info_json: sesi.info_json } : null,
-      }
+      }))
     })
     // Hanya sesi yang essay-nya sudah aktif (soal essay disetujui & sesi sudah dibuka).
     .filter(j => j.sesi_ujian && (j.sesi_ujian.info_json as { essay_aktif?: boolean } | null)?.essay_aktif)

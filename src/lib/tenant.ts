@@ -47,6 +47,9 @@ export const TABEL_PER_YAYASAN: ReadonlySet<string> = new Set([
   'admin_kelas',
   // Migrasi 60: riwayat pengawas membuka kunci permanen siswa.
   'riwayat_buka_kunci',
+  // Migrasi 65: ruang khusus (lab komputer) dan siswa yang diproses ke sana.
+  'ruang_khusus',
+  'ruang_khusus_siswa',
 ])
 
 /**

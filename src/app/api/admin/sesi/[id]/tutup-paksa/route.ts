@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { adaSesiBerjalanLain } from '@/lib/sesi-utama'
+import { setelahSesiDitutup } from '@/lib/ruang-khusus'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRoleAktif } from '@/lib/status-akun'
 import { finalisasiNilaiPaksa } from '@/lib/finalisasi-nilai'
@@ -89,7 +91,17 @@ export async function POST(req: NextRequest, props: Ctx) {
 
   let peringatan: string[] = []
 
+  // Sesi ruang khusus: lepas siswa yang tidak pernah masuk, tutup ruang bila sesi terakhir.
+  await setelahSesiDitutup(db, sesiId)
+
+  // Status jadwal baru SELESAI bila tidak ada sesi lain (kelas atau ruang
+  // khusus) yang masih BERJALAN untuk jadwal ini. Lihat guru/mode-pengawas/tutup.
+  let masihAdaSesiLain = false
   if (sesi.jadwal_id) {
+    try { masihAdaSesiLain = await adaSesiBerjalanLain(db, sesi.jadwal_id, sesiId) }
+    catch { masihAdaSesiLain = true }
+  }
+  if (sesi.jadwal_id && !masihAdaSesiLain) {
     const { error: errJadwal } = await db.from('jadwal').update({ status: 'SELESAI' }).eq('id', sesi.jadwal_id)
     // FIX: sesi sudah terlanjur SELESAI di atas — kalau update jadwal ini
     // gagal, itu tidak seserius kegagalan finalisasi nilai (jadwal murni

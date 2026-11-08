@@ -59,6 +59,9 @@ const SESI_TURUNAN = [
   ...JAWABAN_ESSAY,
   'essay_amplop_offline',
   'siswa_ujian',
+  // Migrasi 65: ruang khusus menunjuk sesi & jadwal, jadi ikut terhapus bersama sesi.
+  'ruang_khusus_siswa',
+  'ruang_khusus',
   'sesi_ujian',
 ]
 const BANK_SOAL = ['soal', 'soal_essay', 'kisi_kisi', 'paket_soal', 'paket_essay']
@@ -71,8 +74,9 @@ const CATEGORY_MAP: Record<ResetCategory, string[]> = {
   // siswa sudah mengikuti ujian dan tidak boleh ikut terhapus di sini.
   // Kalau admin memang ingin reset nilai/jawaban juga, pakai kategori
   // 'jawaban_nilai' secara terpisah (bisa dipilih bersamaan dari UI).
-  jadwal: ['jadwal'],
+  jadwal: ['ruang_khusus_siswa', 'ruang_khusus', 'jadwal'],
   siswa: [
+    'ruang_khusus_siswa',
     'pelanggaran',
     'log_reset',
     'nilai',

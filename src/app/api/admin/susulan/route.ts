@@ -13,6 +13,7 @@
 // dengan pesan jelas + info sesi yang sedang aktif, supaya admin tidak
 // membuka sesi kedua yang bertabrakan dengan sesi yang sudah berjalan.
 
+import { petaPenempatanJadwal } from '@/lib/ruang-khusus'
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRoleAktif } from '@/lib/status-akun'
@@ -87,7 +88,9 @@ export async function POST(req: NextRequest) {
     .maybeSingle()
 
   if (sesiAktif) {
-    const dibukaOleh = sesiAktif.info_json?.dibuka_oleh_admin
+    const dibukaOleh = sesiAktif.info_json?.ruang_khusus_id
+      ? `pengawas ruang khusus (${sesiAktif.info_json?.pengawas_susulan_nama ?? sesiAktif.info_json?.pengawas_susulan ?? '-'})`
+      : sesiAktif.info_json?.dibuka_oleh_admin
       ? `admin (pengawas: ${sesiAktif.info_json?.pengawas_susulan_nama ?? sesiAktif.info_json?.pengawas_susulan ?? '-'})`
       : 'pengawas yang bertugas pada jadwal ini'
 
@@ -161,7 +164,9 @@ export async function POST(req: NextRequest) {
 
   const nisSudah = new Set((sudahUjian ?? []).map(n => n.nis))
   const nisTerkunci = new Set((statusSemua ?? []).filter(s => s.status === 'TERKUNCI').map(s => s.nis))
-  const nisDikecualikan = new Set([...nisSudah, ...nisTerkunci])
+  // Siswa yang sedang ditempatkan di ruang khusus untuk jadwal ini bukan "belum ujian".
+  const nisDiRuang = new Set((await petaPenempatanJadwal(db, jadwalId)).keys())
+  const nisDikecualikan = new Set([...nisSudah, ...nisTerkunci, ...nisDiRuang])
   const siswaBelum = siswaDiKelas.filter(s => !nisDikecualikan.has(s.nis))
 
   if (siswaBelum.length === 0) {

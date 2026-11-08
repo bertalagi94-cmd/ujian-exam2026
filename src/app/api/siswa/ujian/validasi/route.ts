@@ -1,4 +1,5 @@
 // app/api/siswa/ujian/validasi/route.ts
+import { KOLOM_SESI_VALIDASI, resolveSesiDariKodeRuang } from '@/lib/ruang-khusus'
 import { NextRequest, NextResponse, after } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRoleAktif } from '@/lib/status-akun'
@@ -65,14 +66,47 @@ export async function POST(req: NextRequest) {
   // punya snapshot paket (siswa lain sudah pernah masuk duluan), kita WAJIB
   // memakai paket yang sama, bukan resolusi ulang berdasarkan status
   // DISETUJUI (lihat FIX lengkap di bagian bawah & di penilaian-ujian.ts).
-  const { data: sesi } = await db
+  const kodeBersih = kodeSesi.trim().toUpperCase()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let { data: sesi } = await db
     .from('sesi_ujian')
-    .select('id, mapel_id, kelas, durasi, is_darurat, siswa_diizinkan, paket_soal_id')
-    .eq('kode_sesi', kodeSesi.toUpperCase())
+    .select(KOLOM_SESI_VALIDASI)
+    .eq('kode_sesi', kodeBersih)
     .eq('status', 'BERJALAN')
-    .single()
+    .single() as { data: any }
+
+  // RUANG KHUSUS (migrasi 65): kode yang diketik bukan kode sesi kelas ->
+  // mungkin kode RUANG. Siswa yang ditempatkan di ruang memakai satu kode untuk
+  // semua siswa lab; sistem mengarahkannya ke sesi sesuai kelas & mapelnya.
+  let lewatKodeRuang = false
+  if (!sesi) {
+    const hasilRuang = await resolveSesiDariKodeRuang(db, kodeBersih, String(nis))
+    if ('pesan' in hasilRuang) return NextResponse.json({ valid: false, message: hasilRuang.pesan })
+    if ('sesi' in hasilRuang) { sesi = hasilRuang.sesi; lewatKodeRuang = true }
+  }
 
   if (!sesi) return NextResponse.json({ valid: false, message: 'Kode sesi tidak ditemukan atau ujian sudah selesai.' })
+
+  // Sesi ruang hanya bisa dimasuki lewat kode ruang, bukan kode_sesi internalnya.
+  if (sesi.ruang_khusus_id && !lewatKodeRuang) {
+    return NextResponse.json({ valid: false, message: 'Kode sesi tidak ditemukan atau ujian sudah selesai.' })
+  }
+
+  // Siswa yang sudah dipindah ke ruang khusus LEPAS dari sesi kelas: token kelas
+  // ditolak dengan pesan jelas (dan tidak bisa dipakai untuk menyerobot sesi kelas).
+  if (!sesi.ruang_khusus_id && sesi.jadwal_id) {
+    const { data: dipindah } = await db
+      .from('ruang_khusus_siswa')
+      .select('id')
+      .eq('nis', String(nis)).eq('jadwal_id', sesi.jadwal_id).eq('status', 'DIPROSES')
+      .limit(1)
+    if (dipindah && dipindah.length > 0) {
+      return NextResponse.json({
+        valid: false,
+        message: 'Anda mengikuti ujian ini di ruang khusus. Masukkan kode dari pengawas ruang khusus, bukan kode kelas.',
+      })
+    }
+  }
 
   // Validasi kelas
   if (user.kelas && String(user.kelas) !== String(sesi.kelas)) {

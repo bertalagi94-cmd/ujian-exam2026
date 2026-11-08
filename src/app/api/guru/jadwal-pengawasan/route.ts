@@ -69,6 +69,8 @@ export async function GET(req: NextRequest) {
     .from('sesi_ujian')
     .select('id, jadwal_id, status')
     .in('jadwal_id', allJadwalIds)
+    // Hanya sesi KELAS: sesi ruang khusus (migrasi 65) milik pengawas ruang.
+    .is('ruang_khusus_id', null)
     // Ambil sesi non-susulan (is_darurat = false atau null) untuk status utama
     .order('waktu_mulai', { ascending: false })
 

@@ -7,7 +7,7 @@ import {
   LayoutDashboard, Users, BookOpen, Calendar, ClipboardList,
   BarChart3, Settings, LogOut, Menu, X, ChevronRight, ChevronLeft,
   GraduationCap, School, User, FileText, Eye, ShieldAlert,
-  FileBarChart, CheckSquare, Send, CalendarDays, TrendingUp, Radio, UserCheck, KeyRound
+  FileBarChart, CheckSquare, Send, CalendarDays, TrendingUp, Radio, UserCheck, KeyRound, DoorOpen
 } from 'lucide-react'
 import { cn, apiRequest, fetchPublik } from '@/lib/utils'
 import { AuthUser } from '@/types'
@@ -486,6 +486,7 @@ export function AdminSidebar() {
     { label: 'Admin Kelas', href: '/admin/admin-kelas', icon: UserCheck },
     { label: 'Mata Pelajaran', href: '/admin/mapel', icon: BookOpen },
     { label: 'Jadwal Ujian', href: '/admin/jadwal', icon: Calendar, section: 'Persiapan Ujian' },
+    { label: 'Ruang Khusus', href: '/admin/ruang-khusus', icon: DoorOpen },
     { label: 'Kisi-kisi', href: '/admin/kisi-kisi', icon: FileText },
     // Disembunyikan kalau Admin Kelas aktif dan semua kelas sudah punya Admin
     // Kelas (tugasnya beralih). counts belum terisi (undefined) → tetap tampil.
@@ -522,6 +523,7 @@ export function GuruSidebar() {
   const [hasPengawasan, setHasPengawasan] = useState(false)
   const [isAdminKelas, setIsAdminKelas] = useState(false)
   const [adaHasilUjian, setAdaHasilUjian] = useState(false)
+  const [isPengawasRuang, setIsPengawasRuang] = useState(false)
   const pathname = usePathname()
 
   useEffect(() => {
@@ -538,6 +540,12 @@ export function GuruSidebar() {
 
     apiRequest<{ isAdminKelas?: boolean }>('/api/guru/admin-kelas/saya', { timeoutMs: 8_000 })
       .then(d => { if (d.isAdminKelas) setIsAdminKelas(true) })
+      .catch(() => {})
+
+    // Menu "Pengawas Ruang Khusus" hanya muncul untuk guru yang ditunjuk admin
+    // sebagai pengawas sebuah ruang khusus yang masih aktif.
+    apiRequest<{ adaRuang?: boolean }>('/api/guru/ruang-khusus', { timeoutMs: 8_000 })
+      .then(d => { if (d.adaRuang) setIsPengawasRuang(true) })
       .catch(() => {})
 
     // Menu "Analisis Ujian PG" hanya tampil kalau guru ini sudah punya hasil
@@ -626,6 +634,9 @@ export function GuruSidebar() {
   if (hasPengawasan) {
     // "Jadwal Pengawasan" + "Mode Pengawas" sudah digabung jadi satu menu bertab.
     tugasTambahan.push({ label: 'Jadwal Mengawas Saya', href: '/guru/jadwal-pengawasan', icon: Calendar })
+  }
+  if (isPengawasRuang) {
+    tugasTambahan.push({ label: 'Pengawas Ruang Khusus', href: '/guru/ruang-khusus', icon: DoorOpen, variant: 'highlight' })
   }
   if (isWaliKelas) {
     // Tetap bergaya 'highlight' (latar putih, teks tebal) supaya guru sadar ini

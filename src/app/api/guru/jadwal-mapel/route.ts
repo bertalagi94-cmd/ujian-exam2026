@@ -61,6 +61,7 @@ export async function GET(req: NextRequest) {
     db.from('sesi_ujian')
       .select('id, jadwal_id, status')
       .in('jadwal_id', jadwalIds)
+      .is('ruang_khusus_id', null) // sesi ruang khusus tidak mewakili jadwal
       .order('waktu_mulai', { ascending: false }),
   ])
 

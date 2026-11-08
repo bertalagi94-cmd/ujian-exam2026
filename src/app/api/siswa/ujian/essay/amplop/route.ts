@@ -18,7 +18,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRoleAktif } from '@/lib/status-akun'
 import { cacheGet, cacheSet } from '@/lib/cache'
-import { buatAmplop, ambilGambarSebagaiDataUrl } from '@/lib/essay-amplop-server'
+import { buatAmplop, ambilGambarSebagaiDataUrl, seedKodeDarurat } from '@/lib/essay-amplop-server'
 import type { EssayAmplop, IsiAmplopEssay } from '@/lib/essay-amplop-shared'
 
 export async function GET(req: NextRequest) {
@@ -34,7 +34,7 @@ export async function GET(req: NextRequest) {
 
   const { data: sesi } = await db
     .from('sesi_ujian')
-    .select('id, jadwal_id, mapel_id, kelas, status, info_json, paket_essay_id')
+    .select('id, jadwal_id, mapel_id, kelas, status, info_json, paket_essay_id, ruang_khusus_id')
     .eq('id', sesiId)
     .single()
 
@@ -202,7 +202,7 @@ export async function GET(req: NextRequest) {
         urutan: s.urutan,
       }))),
     }
-    amplop = await buatAmplop(sesiId, isi)
+    amplop = await buatAmplop(sesiId, isi, seedKodeDarurat({ id: String(sesiId), ruang_khusus_id: sesi.ruang_khusus_id }))
     cacheSet(cacheKey, amplop, 60)
   }
 

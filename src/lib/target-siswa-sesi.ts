@@ -18,6 +18,7 @@
 
 import type { createAdminClient } from '@/lib/supabase'
 import { ambilAgamaMapel, saringSiswaSeagama } from '@/lib/agama'
+import { nisPenempatanRuangJadwal, petaPenempatanJadwal } from '@/lib/ruang-khusus'
 
 type DbClient = ReturnType<typeof createAdminClient>
 
@@ -28,6 +29,12 @@ export interface InfoSesiTarget {
   kelas: string | null
   is_darurat: boolean | null
   siswa_diizinkan: string[] | null
+  // Ruang khusus (migrasi 65). Kalau diisi, target ikut aturan ruang:
+  //   - sesi RUANG   : target = siswa yang ditempatkan di ruang itu;
+  //   - sesi KELAS   : siswa yang ditempatkan di ruang khusus TIDAK dihitung
+  //                    (mereka lepas dari kelas dan diawasi pengawas ruang).
+  jadwal_id?: string | null
+  ruang_khusus_id?: string | null
 }
 
 export async function ambilTargetSiswaSesi(
@@ -36,7 +43,13 @@ export async function ambilTargetSiswaSesi(
   nisSudahLogin: string[]
 ): Promise<SiswaTarget[]> {
   let targetSiswa: SiswaTarget[] = []
-  if (sesi.is_darurat && Array.isArray(sesi.siswa_diizinkan) && sesi.siswa_diizinkan.length > 0) {
+  if (sesi.ruang_khusus_id && sesi.jadwal_id) {
+    const nisRuang = await nisPenempatanRuangJadwal(db, sesi.ruang_khusus_id, sesi.jadwal_id)
+    if (nisRuang.length > 0) {
+      const { data } = await db.from('siswa').select('nis, nama, kelas').in('nis', nisRuang)
+      targetSiswa = data ?? []
+    }
+  } else if (sesi.is_darurat && Array.isArray(sesi.siswa_diizinkan) && sesi.siswa_diizinkan.length > 0) {
     const { data } = await db
       .from('siswa')
       .select('nis, nama, kelas')
@@ -49,6 +62,11 @@ export async function ambilTargetSiswaSesi(
       .eq('kelas', sesi.kelas)
       .eq('status', 'AKTIF')
     targetSiswa = data ?? []
+    // Siswa yang sudah dipindah ke ruang khusus tidak lagi menjadi target kelas.
+    if (sesi.jadwal_id && !sesi.is_darurat) {
+      const dipindah = await petaPenempatanJadwal(db, sesi.jadwal_id)
+      if (dipindah.size > 0) targetSiswa = targetSiswa.filter(s => !dipindah.has(s.nis))
+    }
   }
 
   // Mapel khusus agama: buang siswa yang beda agama dari target.

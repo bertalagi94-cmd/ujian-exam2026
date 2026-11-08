@@ -14,7 +14,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRoleAktif } from '@/lib/status-akun'
 import { verifySesiOwnership } from '@/lib/sesi-ownership'
-import { hitungKodeDarurat } from '@/lib/essay-amplop-server'
+import { hitungKodeDarurat, seedKodeDarurat } from '@/lib/essay-amplop-server'
 import { PANJANG_KODE_DARURAT, MAKS_PERCOBAAN_SERVER } from '@/lib/essay-amplop-shared'
 
 export async function GET(req: NextRequest) {
@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
 
   const { data: sesi } = await db
     .from('sesi_ujian')
-    .select('id, status, info_json')
+    .select('id, status, info_json, ruang_khusus_id')
     .eq('id', sesiId)
     .single()
   if (!sesi) return NextResponse.json({ error: 'Sesi tidak ditemukan' }, { status: 404 })
@@ -83,7 +83,7 @@ export async function GET(req: NextRequest) {
   }
 
   const res = NextResponse.json({
-    kode: hitungKodeDarurat(sesiId),
+    kode: hitungKodeDarurat(seedKodeDarurat({ id: sesiId, ruang_khusus_id: sesi.ruang_khusus_id })),
     panjangKode: PANJANG_KODE_DARURAT,
     jumlahLogin: login.length,
     jumlahPerluAmplop: perluAmplop.length,

@@ -50,6 +50,10 @@ export async function cekSesiBentrokKelas(
     .eq('kelas', String(kelasNama))
     .eq('status', 'BERJALAN')
     .neq('jadwal_id', jadwalIdBaru)
+    // Sesi RUANG KHUSUS (migrasi 65) tidak dihitung: isinya siswa lab yang
+    // sudah lepas dari kelas, dan sesinya bisa masih berjalan ketika kelas
+    // sudah pindah ke mapel berikutnya.
+    .is('ruang_khusus_id', null)
     .limit(1)
     .maybeSingle()
 

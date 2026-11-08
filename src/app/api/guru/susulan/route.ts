@@ -2,6 +2,8 @@
 // Cek siswa belum ujian dan buka sesi susulan berdasarkan jadwal_id.
 // Tidak bergantung pada sesi_ujian yang sudah ada.
 
+import { cariSesiKelasBerjalan } from '@/lib/sesi-utama'
+import { petaPenempatanJadwal } from '@/lib/ruang-khusus'
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRoleAktif } from '@/lib/status-akun'
@@ -75,6 +77,7 @@ export async function POST(req: NextRequest) {
       .select('id, jadwal_id, kode_sesi, is_darurat')
       .in('jadwal_id', jadwalGuruIds)
       .eq('status', 'BERJALAN')
+      .is('ruang_khusus_id', null) // sesi ruang khusus milik pengawas ruang, bukan pengawas kelas
       .neq('jadwal_id', jadwalId) // boleh jika sesi aktif memang dari jadwal yang sama (re-check)
       .limit(1)
 
@@ -88,12 +91,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Cek juga apakah sudah ada sesi susulan BERJALAN untuk jadwal ini
-  const { data: sesiSusulanAktif } = await db
-    .from('sesi_ujian')
-    .select('id, kode_sesi')
-    .eq('jadwal_id', jadwalId)
-    .eq('status', 'BERJALAN')
-    .single()
+  const sesiSusulanAktif = await cariSesiKelasBerjalan(db, jadwalId, 'id, kode_sesi')
 
   if (sesiSusulanAktif) {
     return NextResponse.json({
@@ -173,7 +171,10 @@ export async function POST(req: NextRequest) {
 
   const nisSudah = new Set((sudahUjian ?? []).map(n => n.nis))
   const nisTerkunci = new Set((statusSemua ?? []).filter(s => s.status === 'TERKUNCI').map(s => s.nis))
-  const nisDikecualikan = new Set([...nisSudah, ...nisTerkunci])
+  // Siswa yang sedang ditempatkan di ruang khusus untuk jadwal ini bukan
+  // "belum ujian": mereka diawasi pengawas ruang.
+  const nisDiRuang = new Set((await petaPenempatanJadwal(db, jadwalId)).keys())
+  const nisDikecualikan = new Set([...nisSudah, ...nisTerkunci, ...nisDiRuang])
   const siswaBelum = siswaDiKelas.filter(s => !nisDikecualikan.has(s.nis))
 
   if (siswaBelum.length === 0) {
@@ -225,12 +226,7 @@ export async function POST(req: NextRequest) {
     // untuk jadwal ini baru saja dibuka di antara pengecekan di atas dan
     // insert ini. Jawab sama seperti cabang "sudah ada sesi berjalan".
     if (isKonflikSesiBerjalan(error)) {
-      const { data: sesiPemenang } = await db
-        .from('sesi_ujian')
-        .select('id, kode_sesi')
-        .eq('jadwal_id', jadwalId)
-        .eq('status', 'BERJALAN')
-        .maybeSingle()
+      const sesiPemenang = await cariSesiKelasBerjalan(db, jadwalId, 'id, kode_sesi')
       if (sesiPemenang) {
         return NextResponse.json({
           bisa: false,

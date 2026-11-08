@@ -1,4 +1,5 @@
 // Taruh di: src/app/api/guru/koreksi-essay/route.ts
+import { nisPenempatanRuangJadwal, petaPenempatanJadwal } from '@/lib/ruang-khusus'
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRoleAktif } from '@/lib/status-akun'
@@ -6,6 +7,17 @@ import { ambilAgamaMapel, saringSiswaSeagama } from '@/lib/agama'
 
 // GET ?sesiId=... — daftar siswa yang SUDAH_KIRIM essay di sesi ini,
 // beserta jawaban (teks untuk DIGITAL, url foto untuk KERTAS) dan nilai_pg.
+// Bobot PG:Essay berlaku untuk SELURUH sesi satu jadwal (sesi kelas dan sesi
+// ruang khusus, migrasi 65): ujiannya sama, jadi skala nilainya harus sama, dan
+// kunci bobot aktif bila ada nilai terkirim ke wali kelas di sesi mana pun.
+async function sesiSatuJadwal(
+  db: ReturnType<typeof tenantDb>, jadwalId: string | null | undefined, sesiId: string
+): Promise<{ id: string; info_json: Record<string, unknown> | null }[]> {
+  if (!jadwalId) return [{ id: sesiId, info_json: null }]
+  const { data } = await db.from('sesi_ujian').select('id, info_json').eq('jadwal_id', jadwalId)
+  return (data ?? []).length > 0 ? (data as { id: string; info_json: Record<string, unknown> | null }[]) : [{ id: sesiId, info_json: null }]
+}
+
 export async function GET(req: NextRequest) {
   const auth = await requireRoleAktif(req, ['GURU'])
   if ('error' in auth) return auth.error
@@ -22,7 +34,7 @@ export async function GET(req: NextRequest) {
   // DISETUJUI saat ini (lihat FIX lengkap di essay/mulai/route.ts).
   const { data: sesi } = await db
     .from('sesi_ujian')
-    .select('id, jadwal_id, mapel_id, kelas, info_json, is_darurat, siswa_diizinkan, paket_essay_id')
+    .select('id, jadwal_id, mapel_id, kelas, info_json, is_darurat, siswa_diizinkan, paket_essay_id, ruang_khusus_id')
     .eq('id', sesiId)
     .single()
   if (!sesi) return NextResponse.json({ error: 'Sesi tidak ditemukan' }, { status: 404 })
@@ -143,7 +155,15 @@ export async function GET(req: NextRequest) {
   let totalTargetSiswa = 0
   let rosterSiswa: { nis: string; nama: string }[] = []
   const agamaMapelSesi = await ambilAgamaMapel(db, sesi.mapel_id)
-  if (sesi.is_darurat && Array.isArray(sesi.siswa_diizinkan) && sesi.siswa_diizinkan.length > 0) {
+  if (sesi.ruang_khusus_id) {
+    // Sesi RUANG KHUSUS: targetnya hanya siswa yang ditempatkan di ruang itu.
+    const nisRuang = await nisPenempatanRuangJadwal(db, sesi.ruang_khusus_id, sesi.jadwal_id)
+    const { data: siswaRuang } = nisRuang.length > 0
+      ? await db.from('siswa').select('nis, nama').in('nis', nisRuang)
+      : { data: [] as { nis: string; nama: string }[] }
+    rosterSiswa = await saringSiswaSeagama(db, siswaRuang ?? [], agamaMapelSesi)
+    totalTargetSiswa = rosterSiswa.length
+  } else if (sesi.is_darurat && Array.isArray(sesi.siswa_diizinkan) && sesi.siswa_diizinkan.length > 0) {
     totalTargetSiswa = sesi.siswa_diizinkan.length
     const { data: siswaDarurat } = await db
       .from('siswa')
@@ -160,6 +180,11 @@ export async function GET(req: NextRequest) {
       .eq('kelas', sesi.kelas)
       .eq('status', 'AKTIF')
     rosterSiswa = await saringSiswaSeagama(db, siswaKelas ?? [], agamaMapelSesi)
+    // Siswa yang ditempatkan di ruang khusus dinilai lewat sesi ruangnya.
+    if (sesi.jadwal_id) {
+      const nisDiRuang = await petaPenempatanJadwal(db, sesi.jadwal_id)
+      if (nisDiRuang.size > 0) rosterSiswa = rosterSiswa.filter(s => !nisDiRuang.has(s.nis))
+    }
     totalTargetSiswa = rosterSiswa.length
   }
 
@@ -175,10 +200,11 @@ export async function GET(req: NextRequest) {
     .sort((a, b) => a.nama.localeCompare(b.nama))
 
   if (nisList.length === 0) {
+    const idSesiJadwalAwal = (await sesiSatuJadwal(db, sesi.jadwal_id, sesiId)).map(x => x.id)
     const { count: jumlahSudahDikirimKeWaliAwal } = await db
       .from('nilai')
       .select('id', { count: 'exact', head: true })
-      .eq('sesi_id', sesiId)
+      .in('sesi_id', idSesiJadwalAwal)
       .eq('dikirim_ke_wali', true)
     return NextResponse.json({
       soalEssay: soalEssayList ?? [], totalBobotMaks, peserta: [], modeJawaban, bobotPg, bobotEssay,
@@ -289,10 +315,11 @@ export async function GET(req: NextRequest) {
   // bawah (bukan diturunkan dari `peserta`, yang bisa saja tidak mencakup
   // semua baris nilai sesi ini), supaya status kunci yang ditampilkan ke
   // guru selalu konsisten dengan yang benar-benar ditegakkan backend.
+  const idSesiJadwal = (await sesiSatuJadwal(db, sesi.jadwal_id, sesiId)).map(x => x.id)
   const { count: jumlahSudahDikirimKeWali } = await db
     .from('nilai')
     .select('id', { count: 'exact', head: true })
-    .eq('sesi_id', sesiId)
+    .in('sesi_id', idSesiJadwal)
     .eq('dikirim_ke_wali', true)
   const bobotTerkunci = (jumlahSudahDikirimKeWali ?? 0) > 0
 
@@ -586,10 +613,12 @@ export async function PATCH(req: NextRequest) {
 
   const { data: sesi } = await db
     .from('sesi_ujian')
-    .select('id, mapel_id, info_json')
+    .select('id, mapel_id, info_json, jadwal_id')
     .eq('id', sesiId)
     .single()
   if (!sesi) return NextResponse.json({ error: 'Sesi tidak ditemukan' }, { status: 404 })
+  const sesiJadwal = await sesiSatuJadwal(db, sesi.jadwal_id, sesiId)
+  const semuaSesiIds = sesiJadwal.map(x => x.id)
 
   // KEBIJAKAN (sama seperti GET/PUT): hanya GURU PENGAMPU mapel yang boleh
   // mengubah bobot PG:Essay, bukan pengawas ruangan/pengganti.
@@ -614,28 +643,32 @@ export async function PATCH(req: NextRequest) {
   const { count: jumlahSudahDikirim } = await db
     .from('nilai')
     .select('id', { count: 'exact', head: true })
-    .eq('sesi_id', sesiId)
+    .in('sesi_id', semuaSesiIds)
     .eq('dikirim_ke_wali', true)
 
   if ((jumlahSudahDikirim ?? 0) > 0) {
     return NextResponse.json({
-      error: `Bobot PG:Essay tidak bisa diubah karena sudah ada ${jumlahSudahDikirim} nilai siswa di sesi ini yang terkirim ke wali kelas. Minta wali kelas mengembalikan nilainya dulu jika bobot perlu direvisi.`,
+      error: `Bobot PG:Essay tidak bisa diubah karena sudah ada ${jumlahSudahDikirim} nilai siswa di jadwal ini (sesi kelas atau ruang khusus) yang terkirim ke wali kelas. Minta wali kelas mengembalikan nilainya dulu jika bobot perlu direvisi.`,
     }, { status: 409 })
   }
 
-  const infoJsonBaru = { ...(sesi.info_json ?? {}), essay_bobot_pg_persen: pgAngka, essay_bobot_essay_persen: essayAngka }
-  const { error: sesiError } = await db
-    .from('sesi_ujian')
-    .update({ info_json: infoJsonBaru })
-    .eq('id', sesiId)
-  if (sesiError) return NextResponse.json({ error: sesiError.message }, { status: 500 })
+  // Terapkan ke SEMUA sesi jadwal ini (kelas + ruang khusus), masing-masing
+  // dengan info_json-nya sendiri supaya data lain tidak tertimpa.
+  for (const sj of sesiJadwal) {
+    const dasar = sj.id === sesiId ? (sesi.info_json ?? {}) : (sj.info_json ?? {})
+    const { error: sesiError } = await db
+      .from('sesi_ujian')
+      .update({ info_json: { ...dasar, essay_bobot_pg_persen: pgAngka, essay_bobot_essay_persen: essayAngka } })
+      .eq('id', sj.id)
+    if (sesiError) return NextResponse.json({ error: sesiError.message }, { status: 500 })
+  }
 
   // Hitung ulang nilai siswa yang essay-nya SUDAH dinilai (nilai_essay != null
   // & dinilai_pada != null) supaya nilai_total langsung mengikuti bobot baru.
   const { data: nilaiSudahDinilai } = await db
     .from('nilai')
     .select('id, nilai, nilai_essay, kkm, dirilis')
-    .eq('sesi_id', sesiId)
+    .in('sesi_id', semuaSesiIds)
     .not('dinilai_pada', 'is', null)
 
   let jumlahDiperbarui = 0

@@ -60,7 +60,7 @@ export async function muatPengingatSesi(
   // 1) Semua sesi yang masih BERJALAN.
   const { data: sesiList, error: errSesi } = await db
     .from('sesi_ujian')
-    .select('id, jadwal_id, mapel_id, kelas, waktu_mulai, durasi, is_darurat, siswa_diizinkan, info_json')
+    .select('id, jadwal_id, mapel_id, kelas, waktu_mulai, durasi, is_darurat, siswa_diizinkan, info_json, ruang_khusus_id')
     .eq('status', 'BERJALAN')
   if (errSesi) throw new Error(errSesi.message)
   if (!sesiList?.length) return []
@@ -115,7 +115,7 @@ export async function muatPengingatSesi(
       const masuk = new Set(baris.map(b => b.nis))
       const target = await ambilTargetSiswaSesi(
         db,
-        { mapel_id: s.mapel_id, kelas: s.kelas, is_darurat: s.is_darurat, siswa_diizinkan: s.siswa_diizinkan },
+        { mapel_id: s.mapel_id, kelas: s.kelas, is_darurat: s.is_darurat, siswa_diizinkan: s.siswa_diizinkan, jadwal_id: s.jadwal_id, ruang_khusus_id: s.ruang_khusus_id },
         [...masuk]
       )
       belumMasuk = target.filter(t => !masuk.has(t.nis)).length

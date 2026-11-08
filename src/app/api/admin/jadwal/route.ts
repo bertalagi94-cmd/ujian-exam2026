@@ -174,6 +174,7 @@ export async function GET(req: NextRequest) {
       .select('jadwal_id, info_json')
       .in('jadwal_id', jadwalIdsBerjalan)
       .eq('status', 'BERJALAN')
+      .is('ruang_khusus_id', null) // pengawas aktif = pengawas sesi KELAS; sesi ruang khusus punya pengawas ruang
     for (const s of (sesiAktifList ?? []) as { jadwal_id: string; info_json?: any }[]) {
       if (!s.jadwal_id) continue
       sesiAktifMap[s.jadwal_id] = {
