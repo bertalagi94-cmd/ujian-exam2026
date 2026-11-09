@@ -112,6 +112,17 @@ interface JawabanMap { [soalId: string]: string }
 // ditulis oleh cek-sesi: ambang "siswa terputus" di ModePengawasTab (45 dtk)
 // harus tetap di atas jeda ini + waktu request.
 const JEDA_CEK_SESI_MS = 30_000
+// HEMAT VERCEL (tahap 3): respons sync yang sukses dan membawa
+// `sesiTerkonfirmasi` membuktikan sesi masih normal DAN menulis heartbeat di
+// server, jadi cek-sesi berikutnya ditunda sampai JEDA_CEK_SESI_MS SETELAH
+// kontak terakhir itu (bukan sejak cek-sesi terakhir). Akibatnya jarak antar
+// kontak server tetap <= ~30 dtk: heartbeat & deteksi kunci/tutup/ambil-alih
+// tidak melambat. Pewaktu berdetak lokal tiap TICK (gratis, tanpa request).
+const TICK_CEK_SESI_MS = 3_000
+// Batas atas: cek-sesi NYATA tetap dipanggil minimal tiap 60 dtk walau sync
+// terus sukses (siswa menjawab cepat). Cek-sesi adalah satu-satunya yang
+// membawa status "dipantau", progres reset offline, dan overlay ambil-alih.
+const CEK_SESI_MAKS_JEDA_MS = 60_000
 // Autosync berkala tiap 30 dtk dilewati kalau jawaban tidak berubah sejak sync
 // terakhir yang BERHASIL (sync cepat setelah tiap klik sudah mengirim
 // perubahan). Tetap dipaksa kirim minimal tiap 3 menit sebagai jaring pengaman.
@@ -525,6 +536,10 @@ export default function SiswaUjianPage() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const syncRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const sesiPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  // Kontak server terakhir yang mengonfirmasi status sesi (cek-sesi dipanggil,
+  // atau sync sukses dengan `sesiTerkonfirmasi`) dan waktu cek-sesi nyata terakhir.
+  const kontakSesiRef = useRef(0)
+  const cekSesiNyataRef = useRef(0)
   const pelanggRef = useRef(0)
   const pelanggaranActiveRef = useRef(false)
   const jawabanRef = useRef<JawabanMap>({})
@@ -1403,7 +1418,22 @@ export default function SiswaUjianPage() {
   useEffect(() => {
     if (phase !== 'UJIAN' && phase !== 'ESSAY_INFO' && phase !== 'ESSAY_KERJAKAN') return
     if (essayInfoBelumSiap) return
-    sesiPollRef.current = setInterval(cekStatusSesi, JEDA_CEK_SESI_MS)
+    // Titik awal sama seperti dulu: cek-sesi pertama JEDA_CEK_SESI_MS setelah masuk fase ini.
+    kontakSesiRef.current = Date.now()
+    cekSesiNyataRef.current = Date.now()
+    sesiPollRef.current = setInterval(() => {
+      const sekarang = Date.now()
+      const sejakKontak = sekarang - kontakSesiRef.current
+      const sejakCekNyata = sekarang - cekSesiNyataRef.current
+      // Lewati kalau server baru saja mengonfirmasi status (mis. lewat sync)
+      // DAN cek-sesi nyata belum lebih lama dari batas atas.
+      if (sejakKontak < JEDA_CEK_SESI_MS - TICK_CEK_SESI_MS / 2 && sejakCekNyata < CEK_SESI_MAKS_JEDA_MS) return
+      // Dicatat saat DIPANGGIL (bukan saat berhasil): kalau gagal, percobaan
+      // berikutnya tetap JEDA_CEK_SESI_MS lagi, bukan tiap tick.
+      kontakSesiRef.current = sekarang
+      cekSesiNyataRef.current = sekarang
+      void cekStatusSesi()
+    }, TICK_CEK_SESI_MS)
     return () => clearInterval(sesiPollRef.current!)
   }, [phase, cekStatusSesi, essayInfoBelumSiap])
 
@@ -1591,6 +1621,7 @@ export default function SiswaUjianPage() {
           totalSynced: number
           ditolakTerlambat?: number
           acked?: { soal_id: string; jawaban: string; revisi: number; accepted: boolean }[]
+          sesiTerkonfirmasi?: boolean
         }>('/api/siswa/ujian/sync', {
           method: 'POST',
           body: JSON.stringify({
@@ -1617,6 +1648,9 @@ export default function SiswaUjianPage() {
         })
         setSyncStatus('synced')
         setSyncErrorMsg('')
+        // Server mengonfirmasi sesi masih normal + menulis heartbeat: tunda
+        // cek-sesi berikutnya (lihat TICK_CEK_SESI_MS di atas).
+        if (res.sesiTerkonfirmasi === true) kontakSesiRef.current = Date.now()
         // Server menghitung ulang dari SEMUA jawaban yang dikirim tiap sync,
         // jadi nilai ini otomatis kembali 0 kalau tidak ada lagi yang ditolak.
         setJumlahDitolakTerlambat(
