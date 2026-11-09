@@ -3,9 +3,10 @@
 // Tombol "Unduh" untuk satu paket soal guru (PG atau Essay) → PDF / Word.
 // Seluruh pembuatan file terjadi di browser (src/lib/ekspor-soal.ts); soal
 // diambil dari endpoint guru yang sudah ada, jadi tidak ada API baru.
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Download, FileText, FileType2 } from 'lucide-react'
-import { Spinner } from '@/components/ui'
+import { Modal, Spinner } from '@/components/ui'
 import { apiRequest } from '@/lib/utils'
 import type { OpsiEksporSoal, SoalPgEkspor, SoalEssayEkspor } from '@/lib/ekspor-soal'
 
@@ -23,15 +24,6 @@ export function TombolUnduhSoal({ jenis, paketId, namaMapel, namaKelas, durasiMe
   const [open, setOpen] = useState(false)
   const [kerja, setKerja] = useState<'pdf' | 'word' | null>(null)
   const [kunci, setKunci] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const tutup = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
-    document.addEventListener('mousedown', tutup)
-    return () => document.removeEventListener('mousedown', tutup)
-  }, [open])
-
   async function unduh(format: 'pdf' | 'word') {
     if (kerja) return
     setKerja(format)
@@ -77,34 +69,40 @@ export function TombolUnduhSoal({ jenis, paketId, namaMapel, namaKelas, durasiMe
   }
 
   return (
-    <div className="relative" ref={ref}>
+    <>
       <button
         type="button"
-        onClick={() => setOpen(o => !o)}
+        onClick={() => setOpen(true)}
         className="btn-secondary !px-2 !py-1 !text-[11px] lg:!px-3 lg:!py-1.5 lg:!text-xs !rounded-lg"
         title="Unduh soal sebagai PDF atau Word"
       >
         <Download className="w-3 h-3 lg:w-3.5 lg:h-3.5" /> Unduh
       </button>
 
-      {open && (
-        <div className="absolute right-0 z-30 mt-1.5 w-60 rounded-xl border border-slate-200 bg-white shadow-lg p-2 space-y-1">
-          <button type="button" disabled={!!kerja} onClick={() => unduh('pdf')}
-            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-60">
-            {kerja === 'pdf' ? <Spinner size="sm" /> : <FileText className="w-4 h-4 text-red-500" />} Unduh PDF
-          </button>
-          <button type="button" disabled={!!kerja} onClick={() => unduh('word')}
-            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-60">
-            {kerja === 'word' ? <Spinner size="sm" /> : <FileType2 className="w-4 h-4 text-blue-600" />} Unduh Word (.docx)
-          </button>
-          {jenis === 'PG' && (
-            <label className="flex items-start gap-2 px-3 py-2 text-xs text-slate-600 border-t border-slate-100 cursor-pointer">
-              <input type="checkbox" checked={kunci} onChange={e => setKunci(e.target.checked)} className="mt-0.5" />
-              <span>Sertakan halaman <strong>kunci jawaban</strong> di akhir file</span>
-            </label>
-          )}
-        </div>
+      {open && typeof document !== 'undefined' && createPortal(
+        <Modal open onClose={() => { if (!kerja) setOpen(false) }} title={`Unduh Soal ${jenis === 'PG' ? 'Pilihan Ganda' : 'Essay'}`} size="sm">
+          <p className="text-sm text-slate-600 mb-3">
+            {namaMapel} · Kelas {namaKelas}
+          </p>
+          <div className="space-y-2">
+            <button type="button" disabled={!!kerja} onClick={() => unduh('pdf')}
+              className="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg border border-slate-200 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-60">
+              {kerja === 'pdf' ? <Spinner size="sm" /> : <FileText className="w-4 h-4 text-red-500" />} Unduh PDF
+            </button>
+            <button type="button" disabled={!!kerja} onClick={() => unduh('word')}
+              className="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg border border-slate-200 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-60">
+              {kerja === 'word' ? <Spinner size="sm" /> : <FileType2 className="w-4 h-4 text-blue-600" />} Unduh Word (.docx)
+            </button>
+            {jenis === 'PG' && (
+              <label className="flex items-start gap-2 pt-2 text-xs text-slate-600 cursor-pointer">
+                <input type="checkbox" checked={kunci} onChange={e => setKunci(e.target.checked)} className="mt-0.5" />
+                <span>Sertakan halaman <strong>kunci jawaban</strong> di akhir file</span>
+              </label>
+            )}
+          </div>
+        </Modal>,
+        document.body,
       )}
-    </div>
+    </>
   )
 }
