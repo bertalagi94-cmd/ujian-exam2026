@@ -32,6 +32,27 @@ export async function GET(req: NextRequest) {
   const { data: mapelList } = await db.from('mapel').select('id, nama').in('id', mapelIds)
   const mapelMap = Object.fromEntries((mapelList ?? []).map(m => [m.id, m.nama]))
 
+  // Nama pengawas untuk kolom "Pengawas" di tabel jadwal siswa. jadwal.pengawas
+  // berisi username guru; di sini diubah jadi nama tampilan. Kalau nama tidak
+  // ditemukan, jatuh ke username supaya kolom tidak kosong.
+  // HEMAT QUERY: endpoint ini juga dipanggil berkala oleh Sidebar/Beranda yang
+  // tidak butuh nama pengawas, jadi query `users` hanya dijalankan kalau
+  // diminta (?pengawas=1, dipakai halaman /siswa/jadwal).
+  const butuhNamaPengawas = req.nextUrl.searchParams.get('pengawas') === '1'
+  const pengawasUsernames = butuhNamaPengawas
+    ? ([...new Set(data.map(j => j.pengawas).filter(Boolean))] as string[])
+    : []
+  const pengawasNamaMap: Record<string, string> = {}
+  if (pengawasUsernames.length > 0) {
+    const { data: guruList } = await db
+      .from('users')
+      .select('username, nama')
+      .in('username', pengawasUsernames)
+    for (const g of (guruList ?? []) as { username: string; nama: string | null }[]) {
+      if (g.nama) pengawasNamaMap[g.username] = g.nama
+    }
+  }
+
   // Cek apakah siswa ini SUDAH mengikuti (sudah submit jawaban) untuk
   // masing-masing jadwal — supaya kartu jadwalnya bisa langsung tampilkan
   // hasilnya, bukan cuma status sesi (yang masih "Berjalan" selama pengawas
@@ -147,6 +168,7 @@ export async function GET(req: NextRequest) {
         ...j,
         status,                                          // ← FIX
         nama_mapel: mapelMap[j.mapel_id] ?? j.mapel_id,
+        nama_pengawas: j.pengawas ? (pengawasNamaMap[j.pengawas] ?? j.pengawas) : null,
         // Diisi kalau siswa ini sudah submit jawaban untuk jadwal ini —
         // dipakai di UI untuk menampilkan "Anda sudah mengikuti ujian ini"
         // + link ke menu Nilai, alih-alih cuma status sesi yang masih
