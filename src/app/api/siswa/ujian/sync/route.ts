@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse, after } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRoleAktif } from '@/lib/status-akun'
 import { instrumented } from '@/lib/metrik'
@@ -194,6 +194,55 @@ export async function POST(req: NextRequest) {
       { error: 'Sesi ujian Anda sedang aktif di perangkat lain. Jawaban tidak bisa disimpan dari perangkat ini.' },
       { status: 409 }
     )
+  }
+  // ─────────────────────────────────────────────────────────────────────────
+
+  // ── HEMAT VERCEL: titip konfirmasi status sesi di respons sync ──────────────
+  // Semua pemeriksaan di atas (sesi BERJALAN, siswa terdaftar & tidak TERKUNCI/
+  // RESET, device cocok) sudah dilakukan dengan data yang SUDAH dibaca, jadi
+  // respons sukses sync sekaligus membuktikan "sesi normal" tanpa query tambahan.
+  // Client memakainya untuk menunda polling cek-sesi (lihat page.tsx,
+  // kontakSesiRef). Kondisi tidak normal TIDAK diberi tanda ini: sync menolak
+  // dengan 403/409 seperti biasa, dan client tetap memakai cek-sesi.
+  //
+  // Hanya diberikan pada jalur NORMAL: bukan sesi yang sudah ditutup (susulan),
+  // siswa berstatus AKTIF, waktu pengerjaan belum kedaluwarsa, dan bukan mode
+  // "Lihat sebagai". Di luar itu client terus memakai cek-sesi seperti semula.
+  //
+  // Heartbeat: cek-sesi menulis last_heartbeat (bukti device online, dipakai
+  // panel pengawas & deadline-pg.ts). Kalau cek-sesi ditunda, sync yang
+  // menggantikannya menulis heartbeat yang sama (setelah respons terkirim),
+  // dengan syarat yang sama dengan cek-sesi (AKTIF, ada deviceId, bukan viewAs).
+  // Ditulis SETELAH pemeriksaan batas waktu di bawah membaca last_heartbeat,
+  // dan hanya pada jalur normal (belum kedaluwarsa) supaya penyaringan jawaban
+  // offline setelah deadline tidak terpengaruh.
+  const batasWaktuNormal = hitungBatasWaktuPg(siswaUjian.waktu_mulai_awal ?? siswaUjian.waktu_mulai, sesi.durasi)
+  const sesiNormal =
+    !sesiDitutupSusulan &&
+    !user.viewAs &&
+    siswaUjian.status === 'AKTIF' &&
+    typeof deviceId === 'string' && deviceId.length > 0 &&
+    !sudahKedaluwarsa(batasWaktuNormal, Date.now())
+  let heartbeatDijadwalkan = false
+  const konfirmasiSesiNormal = (): { sesiTerkonfirmasi?: true } => {
+    if (!sesiNormal) return {}
+    if (!heartbeatDijadwalkan) {
+      heartbeatDijadwalkan = true
+      const nisHb = user.nis!
+      const waktuHeartbeat = new Date().toISOString()
+      after(async () => {
+        try {
+          await db
+            .from('siswa_ujian')
+            .update({ last_heartbeat: waktuHeartbeat })
+            .eq('sesi_id', sesiId)
+            .eq('nis', nisHb)
+        } catch (e) {
+          console.error('[sync] gagal menulis heartbeat:', e instanceof Error ? e.message : e)
+        }
+      })
+    }
+    return { sesiTerkonfirmasi: true }
   }
   // ─────────────────────────────────────────────────────────────────────────
 
@@ -544,6 +593,7 @@ export async function POST(req: NextRequest) {
         totalSynced: jumlahTersimpan + ditolakTerlambatTanpaBaris,
         acked,
         ...(jumlahDitolakTerlambat > 0 ? { ditolakTerlambat: jumlahDitolakTerlambat } : {}),
+        ...konfirmasiSesiNormal(),
       })
     }
     if (jumlahDitolakTerlambat > 0) {
@@ -570,6 +620,7 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({
     message: `${Array.isArray(jawaban) ? jawaban.length : 0} jawaban diproses`,
     totalSynced: count ?? 0,
+    ...konfirmasiSesiNormal(),
   })
   })
 }
