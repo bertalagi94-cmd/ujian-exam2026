@@ -1,0 +1,132 @@
+diff --git a/src/lib/impor-soal/parser-docx.ts b/src/lib/impor-soal/parser-docx.ts
+index 0fea58b..9972b01 100644
+--- a/src/lib/impor-soal/parser-docx.ts
++++ b/src/lib/impor-soal/parser-docx.ts
+@@ -588,6 +588,48 @@ export function gambarLangsungDidukung(mime: string): boolean {
+   return MIME_LANGSUNG.has(mime)
+ }
+ 
++// Awalan huruf di depan opsi: "A.", "a)", "(B)", "C:" …
++const AWALAN_OPSI = /^\(?([A-Ea-e])\s*[.)\]:]\s*/
++
++/**
++ * Guru sering menyalin pilihan A–E dari soalnya lalu menempelnya sekaligus ke
++ * sel A. Bila sel A berisi beberapa baris sedangkan B–E kosong, pecah per baris:
++ *  • baris berawalan huruf berurutan mulai "A." → huruf itu dipakai (baris tanpa
++ *    huruf dianggap lanjutan opsi sebelumnya);
++ *  • selain itu tiap baris = satu opsi berurutan A, B, C, …
++ * Tidak berlaku bila B–E sudah terisi atau sel A berisi gambar.
++ */
++function pecahOpsiDariSelA(opsi: Record<HurufOpsi, OpsiTerbaca>, peringatan: string[]) {
++  const lainKosong = SEMUA_HURUF.slice(1).every(h => !opsi[h].teks && !opsi[h].gambar)
++  if (!lainKosong || opsi.a.gambar) return
++  const baris = opsi.a.teks.split('\n').map(x => x.trim()).filter(Boolean)
++  if (baris.length < 2) return
++
++  const awal = baris.map(b => b.match(AWALAN_OPSI))
++  const modeHuruf = awal.filter(Boolean).length >= 2 && awal[0]?.[1].toLowerCase() === 'a'
++  const hasil: Partial<Record<HurufOpsi, string[]>> = {}
++  if (modeHuruf) {
++    let aktif: HurufOpsi | null = null
++    baris.forEach((b, i) => {
++      const m = awal[i]
++      if (m) {
++        aktif = m[1].toLowerCase() as HurufOpsi
++        if (!hasil[aktif]) hasil[aktif] = [b.slice(m[0].length)]
++      } else if (aktif && hasil[aktif]) {
++        hasil[aktif]!.push(b)
++      }
++    })
++  } else {
++    baris.slice(0, SEMUA_HURUF.length).forEach((b, i) => { hasil[SEMUA_HURUF[i]] = [b] })
++    if (baris.length > SEMUA_HURUF.length) peringatan.push('Pilihan jawaban berisi lebih dari 5 baris; baris ke-6 dan seterusnya diabaikan.')
++  }
++  for (const h of SEMUA_HURUF) {
++    const x = hasil[h]
++    opsi[h] = { teks: x ? x.filter(Boolean).join('\n') : '', gambar: null }
++  }
++  peringatan.push('Pilihan A–E ditempel sekaligus di baris A, lalu dipecah otomatis per baris. Periksa di pratinjau.')
++}
++
+ /** Baca template soal PILIHAN GANDA. */
+ export async function bacaDocxPg(data: ArrayBuffer | Uint8Array, opsi?: OpsiBaca): Promise<HasilBacaPg> {
+   const { zip, rels, tabel } = await bukaDokumen(data, opsi)
+@@ -635,6 +677,8 @@ export async function bacaDocxPg(data: ArrayBuffer | Uint8Array, opsi?: OpsiBaca
+         gambar: pilihGambar(sel, `Opsi ${h.toUpperCase()}`, peringatan),
+       }
+     }
++    // Pilihan A–E ditempel sekaligus ke satu sel (baris A): pecah per baris.
++    pecahOpsiDariSelA(opsiBaca, peringatan)
+     const selKunci = isi.get('kunci')
+     const k = parseKunci(selKunci?.teks ?? '')
+     if (k.banyak) galat.push('Kunci berisi lebih dari satu huruf. Isi satu huruf saja.')
+diff --git a/src/lib/impor-soal/template-docx.ts b/src/lib/impor-soal/template-docx.ts
+index f90a491..69777f3 100644
+--- a/src/lib/impor-soal/template-docx.ts
++++ b/src/lib/impor-soal/template-docx.ts
+@@ -61,6 +61,11 @@ const MARGIN_SEL = 100 // sama dengan tblCellMar kiri/kanan di tabel()
+ const LEBAR_AREA_GAMBAR = 3700
+ const MARGIN_KANAN_AREA_GAMBAR = LEBAR_ISI - MARGIN_SEL - LEBAR_AREA_GAMBAR
+ 
++// Proteksi penyuntingan Word. DIMATIKAN: dengan proteksi aktif, Word tidak bisa
++// menempel beberapa baris/sel sekaligus (mis. pilihan A–E dari soal guru) karena
++// sel nama baris di antaranya terkunci. Ubah ke true untuk mengunci kembali.
++const PROTEKSI_WORD = false
++
+ const WARNA_HEADER = '1E4F9C'
+ const WARNA_PETUNJUK = '6B7280'
+ 
+@@ -174,7 +179,7 @@ function baris(b: BarisSpec, sk: Skema, bisaDisunting: boolean): string {
+   )
+   // Hanya sel isian kuning yang dibuka dari proteksi: penanda rentang disisipkan
+   // di paragraf pertama (awal) dan paragraf terakhir (akhir) sel itu.
+-  if (bisaDisunting && !b.nomor) {
++  if (PROTEKSI_WORD && bisaDisunting && !b.nomor) {
+     const ps = permStart(), pe = permEnd()
+     const mid = (x: string) => x
+     isiParas = isiParas.map((x, i) => {
+@@ -215,7 +220,7 @@ function tabel(rows: string[], sk: Skema): string {
+ // paragraf di antaranya akan digabung oleh Word menjadi satu tabel.
+ const PEMISAH = para('', { after: 120 })
+ 
+-const HINT_NO = 'otomatis, terkunci'
++const HINT_NO = 'otomatis'
+ const HINT_SOAL = 'ketik pertanyaan'
+ const HINT_GAMBAR = 'jika ada gambar: Sisipkan ▸ Gambar'
+ 
+@@ -303,13 +308,13 @@ function blokPetunjuk(jenis: JenisTemplate, jumlahOpsi: 4 | 5): string {
+   const huruf = jumlahOpsi === 5 ? 'E' : 'D'
+   const langkah = jenis === 'pg'
+     ? [
+-        'Isi hanya kolom KUNING. Nama baris (kolom biru) sudah terkunci.',
++        'Isi hanya kolom KUNING. Jangan ubah nama baris (kolom biru). Soal dan pilihan jawaban boleh langsung ditempel (paste) dari Word Anda.',
+         'Soal: ketik pertanyaan di baris "Soal". Kalau ada gambar, sisipkan di baris "Gambar Soal" (bukan di baris Soal). Tidak ada gambar? Kosongkan.',
+         `Pilihan jawaban: isi baris A–${huruf} (boleh teks atau gambar). Kunci: satu huruf saja, mis. B.`,
+         'Gambar PNG/JPG, maks. 2 MB, satu gambar per baris. Simpan sebagai .docx, lalu unggah di menu Impor dari Word.',
+       ]
+     : [
+-        'Isi hanya kolom KUNING. Nama baris (kolom biru) sudah terkunci.',
++        'Isi hanya kolom KUNING. Jangan ubah nama baris (kolom biru). Soal dan pilihan jawaban boleh langsung ditempel (paste) dari Word Anda.',
+         'Soal: ketik pertanyaan di baris "Soal". Kalau ada gambar, sisipkan di baris "Gambar Soal" (bukan di baris Soal). Tidak ada gambar? Kosongkan.',
+         'Bobot: skor maksimal soal itu, angka lebih dari 0 (mis. 10).',
+         'Gambar PNG/JPG, maks. 2 MB, satu gambar per baris. Simpan sebagai .docx, lalu unggah di menu Impor dari Word.',
+@@ -321,7 +326,7 @@ function blokPetunjuk(jenis: JenisTemplate, jumlahOpsi: 4 | 5): string {
+     ).join('') +
+     para(
+       run('Warna:  ', { b: true, sz: 18 }) +
+-      run(' BIRU ', { b: true, color: 'FFFFFF', shade: SKEMA_ISI.label, sz: 18 }) + run(' terkunci    ', { sz: 18 }) +
++      run(' BIRU ', { b: true, color: 'FFFFFF', shade: SKEMA_ISI.label, sz: 18 }) + run(' nama baris, jangan diubah    ', { sz: 18 }) +
+       run(' KUNING ', { b: true, shade: SKEMA_ISI.isi, sz: 18 }) + run(' tempat mengisi    ', { sz: 18 }) +
+       run(' ORANYE ', { b: true, color: 'FFFFFF', shade: SKEMA_CONTOH.label, sz: 18 }) + run(' contoh (tidak diimpor)', { sz: 18 }),
+       { before: 80, after: 60 }
+@@ -500,7 +505,9 @@ const STYLES =
+ // (sel isian kuning) yang bisa disunting; sisanya terkunci.
+ const SETTINGS =
+   '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+-  `<w:settings xmlns:w="${W_NS}"><w:documentProtection w:edit="readOnly" w:enforcement="1"/></w:settings>`
++  `<w:settings xmlns:w="${W_NS}">` +
++  (PROTEKSI_WORD ? '<w:documentProtection w:edit="readOnly" w:enforcement="1"/>' : '') +
++  '</w:settings>'
+ 
+ const CONTENT_TYPES =
+   '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +

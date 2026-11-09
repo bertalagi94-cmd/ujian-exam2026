@@ -19,14 +19,6 @@
 //    kuning. Petunjuk, contoh, nomor, dan nama baris tidak bisa diubah atau
 //    dihapus. Tanpa kata sandi: guru yang butuh membukanya cukup klik
 //    Review ▸ Restrict Editing ▸ Stop Protection.
-//  • OPSI JAWABAN PG punya dua mode (OpsiTemplate.modeOpsi):
-//      - 'sekaligus' (bawaan): SATU sel isian "Pilihan Jawaban". Guru menempel
-//        semua pilihan (A–E) sekaligus, satu pilihan per baris; huruf "A." /
-//        "B)" di depan boleh ada, boleh tidak. Parser memecahnya per baris.
-//        Alasan: proteksi Word mengunci baris di antara sel isian, sehingga
-//        tempelan beberapa baris ke A–E (baris terpisah) tidak bisa dilakukan
-//        sekali jalan.
-//      - 'terpisah': baris A, B, C, D, (E) sendiri-sendiri (cara lama).
 //  • Warna hanya tampilan: biru = nama baris (terkunci), kuning = tempat
 //    mengisi, oranye = tabel CONTOH (tidak diimpor).
 //  • Petunjuk kecil di bawah nama baris TIDAK ikut terbaca — parser hanya
@@ -37,7 +29,6 @@
 import JSZip from 'jszip'
 
 export type JenisTemplate = 'pg' | 'essay'
-export type ModeOpsi = 'sekaligus' | 'terpisah'
 
 export interface OpsiTemplate {
   jenis: JenisTemplate
@@ -45,11 +36,6 @@ export interface OpsiTemplate {
   jumlah: number
   /** Jumlah opsi PG: 4 (A–D) atau 5 (A–E). Diabaikan untuk essay. */
   jumlahOpsi?: 4 | 5
-  /**
-   * Cara mengisi opsi PG. 'sekaligus' (bawaan) = satu sel "Pilihan Jawaban" untuk
-   * menempel semua opsi sekaligus; 'terpisah' = satu baris per huruf (A, B, C …).
-   */
-  modeOpsi?: ModeOpsi
   /** Identitas paket — dicetak di bagian atas halaman 1 (terkunci). */
   namaMapel?: string
   namaKelas?: string
@@ -74,6 +60,11 @@ const LEBAR_ISI = LEBAR_TABEL - LEBAR_LABEL
 const MARGIN_SEL = 100 // sama dengan tblCellMar kiri/kanan di tabel()
 const LEBAR_AREA_GAMBAR = 3700
 const MARGIN_KANAN_AREA_GAMBAR = LEBAR_ISI - MARGIN_SEL - LEBAR_AREA_GAMBAR
+
+// Proteksi penyuntingan Word. DIMATIKAN: dengan proteksi aktif, Word tidak bisa
+// menempel beberapa baris/sel sekaligus (mis. pilihan A–E dari soal guru) karena
+// sel nama baris di antaranya terkunci. Ubah ke true untuk mengunci kembali.
+const PROTEKSI_WORD = false
 
 const WARNA_HEADER = '1E4F9C'
 const WARNA_PETUNJUK = '6B7280'
@@ -188,7 +179,7 @@ function baris(b: BarisSpec, sk: Skema, bisaDisunting: boolean): string {
   )
   // Hanya sel isian kuning yang dibuka dari proteksi: penanda rentang disisipkan
   // di paragraf pertama (awal) dan paragraf terakhir (akhir) sel itu.
-  if (bisaDisunting && !b.nomor) {
+  if (PROTEKSI_WORD && bisaDisunting && !b.nomor) {
     const ps = permStart(), pe = permEnd()
     const mid = (x: string) => x
     isiParas = isiParas.map((x, i) => {
@@ -229,10 +220,9 @@ function tabel(rows: string[], sk: Skema): string {
 // paragraf di antaranya akan digabung oleh Word menjadi satu tabel.
 const PEMISAH = para('', { after: 120 })
 
-const HINT_NO = 'otomatis, terkunci'
+const HINT_NO = 'otomatis'
 const HINT_SOAL = 'ketik pertanyaan'
 const HINT_GAMBAR = 'jika ada gambar: Sisipkan ▸ Gambar'
-const HINT_PILIHAN = 'tempel semua opsi sekaligus, 1 opsi per baris'
 
 interface ContohPg {
   soal: string[]                 // paragraf XML
@@ -244,28 +234,18 @@ interface ContohPg {
 
 const paraContoh = (runs: string) => para(runs, { keepNext: true, before: 40, after: 40 })
 
-function barisSoalPg(nomor: string, jumlahOpsi: 4 | 5, mode: ModeOpsi, contoh?: ContohPg): string[] {
+function barisSoalPg(nomor: string, jumlahOpsi: 4 | 5, contoh?: ContohPg): string[] {
   const huruf = ['A', 'B', 'C', 'D', 'E'].slice(0, jumlahOpsi)
-  // Baris opsi: satu sel "Pilihan Jawaban" (tempel sekaligus) atau A, B, C … terpisah.
-  const barisOpsi: BarisSpec[] =
-    mode === 'sekaligus'
-      ? [{
-          label: 'Pilihan Jawaban',
-          petunjuk: HINT_PILIHAN,
-          isiParas: contoh ? huruf.map(h => paraContoh(run(`${h}. ${(contoh.opsi[h] ?? [''])[0]}`))) : undefined,
-          areaGambar: true,
-        }]
-      : huruf.map(h => ({
-          label: h,
-          petunjuk: h === 'A' ? 'teks atau gambar' : undefined,
-          isi: contoh?.opsi[h],
-          areaGambar: true,
-        }))
   const rows: BarisSpec[] = [
     { label: 'No', petunjuk: HINT_NO, isi: [nomor], nomor: true },
     { label: 'Soal', petunjuk: HINT_SOAL, isiParas: contoh?.soal },
     { label: 'Gambar Soal', petunjuk: HINT_GAMBAR, isiParas: contoh?.gambar, areaGambar: true },
-    ...barisOpsi,
+    ...huruf.map(h => ({
+      label: h,
+      petunjuk: h === 'A' ? 'teks atau gambar' : undefined,
+      isi: contoh?.opsi[h],
+      areaGambar: true,
+    })),
     { label: 'Kunci', petunjuk: `satu huruf ${huruf[0]}–${huruf[huruf.length - 1]}`, isi: contoh ? [contoh.kunci] : undefined },
     { label: 'Pembahasan', petunjuk: 'boleh kosong', isi: contoh?.pembahasan },
   ]
@@ -324,20 +304,17 @@ function blokInfoPaket(o: OpsiTemplate, jumlah: number): string {
   )
 }
 
-function blokPetunjuk(jenis: JenisTemplate, jumlahOpsi: 4 | 5, mode: ModeOpsi): string {
+function blokPetunjuk(jenis: JenisTemplate, jumlahOpsi: 4 | 5): string {
   const huruf = jumlahOpsi === 5 ? 'E' : 'D'
-  const langkahOpsi = mode === 'sekaligus'
-    ? `Pilihan jawaban: salin semua pilihan A–${huruf} dari Word Anda, lalu TEMPEL SEKALIGUS di baris \"Pilihan Jawaban\" (satu pilihan per baris). Huruf \"A.\" \"B.\" di depan boleh ada, boleh tidak. Kunci: satu huruf saja, mis. B.`
-    : `Pilihan jawaban: isi baris A–${huruf} satu per satu (boleh teks atau gambar). Kunci: satu huruf saja, mis. B.`
   const langkah = jenis === 'pg'
     ? [
-        'Isi hanya kolom KUNING. Nama baris (kolom biru) sudah terkunci.',
+        'Isi hanya kolom KUNING. Jangan ubah nama baris (kolom biru). Soal dan pilihan jawaban boleh langsung ditempel (paste) dari Word Anda.',
         'Soal: ketik pertanyaan di baris "Soal". Kalau ada gambar, sisipkan di baris "Gambar Soal" (bukan di baris Soal). Tidak ada gambar? Kosongkan.',
-        langkahOpsi,
+        `Pilihan jawaban: isi baris A–${huruf} (boleh teks atau gambar). Kunci: satu huruf saja, mis. B.`,
         'Gambar PNG/JPG, maks. 2 MB, satu gambar per baris. Simpan sebagai .docx, lalu unggah di menu Impor dari Word.',
       ]
     : [
-        'Isi hanya kolom KUNING. Nama baris (kolom biru) sudah terkunci.',
+        'Isi hanya kolom KUNING. Jangan ubah nama baris (kolom biru). Soal dan pilihan jawaban boleh langsung ditempel (paste) dari Word Anda.',
         'Soal: ketik pertanyaan di baris "Soal". Kalau ada gambar, sisipkan di baris "Gambar Soal" (bukan di baris Soal). Tidak ada gambar? Kosongkan.',
         'Bobot: skor maksimal soal itu, angka lebih dari 0 (mis. 10).',
         'Gambar PNG/JPG, maks. 2 MB, satu gambar per baris. Simpan sebagai .docx, lalu unggah di menu Impor dari Word.',
@@ -349,7 +326,7 @@ function blokPetunjuk(jenis: JenisTemplate, jumlahOpsi: 4 | 5, mode: ModeOpsi): 
     ).join('') +
     para(
       run('Warna:  ', { b: true, sz: 18 }) +
-      run(' BIRU ', { b: true, color: 'FFFFFF', shade: SKEMA_ISI.label, sz: 18 }) + run(' terkunci    ', { sz: 18 }) +
+      run(' BIRU ', { b: true, color: 'FFFFFF', shade: SKEMA_ISI.label, sz: 18 }) + run(' nama baris, jangan diubah    ', { sz: 18 }) +
       run(' KUNING ', { b: true, shade: SKEMA_ISI.isi, sz: 18 }) + run(' tempat mengisi    ', { sz: 18 }) +
       run(' ORANYE ', { b: true, color: 'FFFFFF', shade: SKEMA_CONTOH.label, sz: 18 }) + run(' contoh (tidak diimpor)', { sz: 18 }),
       { before: 80, after: 60 }
@@ -362,13 +339,12 @@ function dokumen(opsi: OpsiTemplate): string {
   const jumlah = Math.max(1, Math.min(200, Math.floor(opsi.jumlah) || 10))
   const jumlahOpsi: 4 | 5 = opsi.jumlahOpsi === 5 ? 5 : 4
   const isPg = opsi.jenis === 'pg'
-  const mode: ModeOpsi = opsi.modeOpsi === 'terpisah' ? 'terpisah' : 'sekaligus'
 
   const body: string[] = []
   // ── HALAMAN 1: petunjuk singkat + contoh ──
   body.push(blokJudul(isPg ? 'TEMPLATE IMPOR SOAL PILIHAN GANDA' : 'TEMPLATE IMPOR SOAL ESSAY'))
   body.push(blokInfoPaket(opsi, jumlah))
-  body.push(blokPetunjuk(opsi.jenis, jumlahOpsi, mode))
+  body.push(blokPetunjuk(opsi.jenis, jumlahOpsi))
   body.push(
     para(run('CONTOH PENGISIAN — tidak perlu diisi, tidak ikut diimpor', { b: true, color: 'FFFFFF', sz: 20 }), {
       shade: SKEMA_CONTOH.label, before: 60, after: 0, keepNext: true,
@@ -377,7 +353,7 @@ function dokumen(opsi: OpsiTemplate): string {
   body.push(
     tabel(
       isPg
-        ? barisSoalPg('CONTOH', jumlahOpsi, mode, dataContohPg(jumlahOpsi))
+        ? barisSoalPg('CONTOH', jumlahOpsi, dataContohPg(jumlahOpsi))
         : barisSoalEssay('CONTOH', dataContohEssay()),
       SKEMA_CONTOH
     )
@@ -386,7 +362,7 @@ function dokumen(opsi: OpsiTemplate): string {
   // ── HALAMAN 2 dst.: tabel soal untuk diisi ──
   body.push(para(run('DAFTAR SOAL — isi di tabel kuning di bawah ini', { b: true, sz: 26, color: WARNA_HEADER }), { pb: true, before: 0, after: 120, keepNext: true }))
   for (let n = 1; n <= jumlah; n++) {
-    body.push(tabel(isPg ? barisSoalPg(String(n), jumlahOpsi, mode) : barisSoalEssay(String(n)), SKEMA_ISI))
+    body.push(tabel(isPg ? barisSoalPg(String(n), jumlahOpsi) : barisSoalEssay(String(n)), SKEMA_ISI))
     body.push(PEMISAH)
   }
 
@@ -529,7 +505,9 @@ const STYLES =
 // (sel isian kuning) yang bisa disunting; sisanya terkunci.
 const SETTINGS =
   '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
-  `<w:settings xmlns:w="${W_NS}"><w:documentProtection w:edit="readOnly" w:enforcement="1"/></w:settings>`
+  `<w:settings xmlns:w="${W_NS}">` +
+  (PROTEKSI_WORD ? '<w:documentProtection w:edit="readOnly" w:enforcement="1"/>' : '') +
+  '</w:settings>'
 
 const CONTENT_TYPES =
   '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +

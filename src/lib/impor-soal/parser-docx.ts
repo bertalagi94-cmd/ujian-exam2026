@@ -12,10 +12,6 @@
 // ATURAN BACA (selaras dengan template di template-docx.ts)
 //  • Setiap TABEL = satu soal. Baris dikenali dari LABEL di sel pertama
 //    (baris pertama label saja), bukan dari posisi baris.
-//  • Baris "Pilihan Jawaban" (satu sel berisi semua opsi, ditempel sekaligus)
-//    dipecah per baris/paragraf menjadi A, B, C, D, E. Awalan huruf "A.",
-//    "B)" dsb. boleh ada, boleh tidak. Baris terpisah A–E (cara lama) tetap
-//    dibaca dan diutamakan bila sama-sama terisi.
 //  • Sel kanan boleh berisi teks, gambar, atau keduanya. Hanya GAMBAR
 //    PERTAMA per sel yang dipakai (aplikasi menyimpan 1 gambar per
 //    soal/opsi); sisanya dilaporkan sebagai peringatan.
@@ -265,17 +261,10 @@ interface Konteks {
   peringatan: string[]
 }
 
-interface UnitParagraf {
-  teks: string
-  gambar: GambarRef[]
-}
-
 interface IsiSel {
   teks: string
   gambar: GambarRef[]
   adaMath: boolean
-  /** Hanya diisi untuk baris "Pilihan Jawaban": isi sel per paragraf. */
-  paragraf?: UnitParagraf[]
 }
 
 const PERINGATAN_OBJEK =
@@ -442,106 +431,9 @@ function bacaSel(tc: N, ktx: Konteks): IsiSel {
   return isi
 }
 
-/** Isi sel per paragraf (teks + gambar tiap paragraf), untuk baris "Pilihan Jawaban". */
-function bacaParagrafSel(tc: N, ktx: Konteks): UnitParagraf[] {
-  const out: UnitParagraf[] = []
-  const kumpul = (parent: N) => {
-    for (const c of anak(parent)) {
-      switch (ln(c)) {
-        case 'p': {
-          const isi: IsiSel = { teks: '', gambar: [], adaMath: false }
-          const teks = bersihkan(bacaInline(c, ktx, isi))
-          out.push({ teks, gambar: isi.gambar })
-          break
-        }
-        case 'sdt': {
-          const konten = anakNamed(c, 'sdtContent')[0]
-          if (konten) kumpul(konten)
-          break
-        }
-        case 'tbl':
-          for (const tr of anakNamed(c, 'tr')) {
-            for (const sel of anakNamed(tr, 'tc')) kumpul(sel)
-          }
-          break
-        default:
-          break
-      }
-    }
-  }
-  kumpul(tc)
-  return out
-}
-
-// Awalan huruf opsi di depan teks: "A.", "a)", "(B)", "C:" …
-const AWALAN_OPSI = /^\(?([A-Ea-e])\s*[.)\]:]\s*/
-
-/**
- * Memecah isi sel "Pilihan Jawaban" menjadi opsi A–E.
- *  • Bila baris-baris diawali huruf berurutan mulai dari A ("A. …", "B) …"),
- *    huruf itu dipakai; baris tanpa huruf dianggap lanjutan opsi sebelumnya.
- *  • Bila tidak ada huruf (mis. penomoran otomatis Word yang tidak ikut
- *    tersalin), tiap baris/paragraf = satu opsi, berurutan A, B, C, …
- */
-export function pecahPilihan(
-  paragraf: UnitParagraf[],
-  peringatan: string[]
-): Partial<Record<HurufOpsi, OpsiTerbaca>> {
-  // Ratakan: paragraf yang berisi pindah-baris lunak (Shift+Enter) jadi beberapa baris.
-  const baris: UnitParagraf[] = []
-  for (const p of paragraf) {
-    const bagian = p.teks.split('\n')
-    bagian.forEach((t, i) => baris.push({ teks: t.trim(), gambar: i === 0 ? p.gambar : [] }))
-  }
-  const berisi = baris.filter(b => b.teks || b.gambar.length > 0)
-  const hasil: Partial<Record<HurufOpsi, OpsiTerbaca>> = {}
-  if (berisi.length === 0) return hasil
-
-  const awal = berisi.map(b => b.teks.match(AWALAN_OPSI))
-  const jumlahBerhuruf = awal.filter(Boolean).length
-  const modeHuruf = jumlahBerhuruf >= 2 && awal[0]?.[1].toLowerCase() === 'a'
-
-  const simpan = (h: HurufOpsi, teks: string, gambar: GambarRef[]) => {
-    if (gambar.length > 1) peringatan.push(`Opsi ${h.toUpperCase()}: ada ${gambar.length} gambar, hanya gambar pertama yang dipakai.`)
-    hasil[h] = { teks, gambar: gambar[0] ?? null }
-  }
-
-  if (modeHuruf) {
-    let aktif: HurufOpsi | null = null
-    const buf: Partial<Record<HurufOpsi, { teks: string[]; gambar: GambarRef[] }>> = {}
-    berisi.forEach((b, i) => {
-      const m = awal[i]
-      if (m) {
-        aktif = m[1].toLowerCase() as HurufOpsi
-        if (buf[aktif]) peringatan.push(`Pilihan Jawaban: huruf ${aktif.toUpperCase()} muncul lebih dari sekali; yang pertama dipakai.`)
-        else buf[aktif] = { teks: [b.teks.slice(m[0].length)], gambar: [...b.gambar] }
-      } else if (aktif && buf[aktif]) {
-        if (b.teks) buf[aktif]!.teks.push(b.teks)
-        buf[aktif]!.gambar.push(...b.gambar)
-      } else {
-        peringatan.push('Pilihan Jawaban: ada baris sebelum "A." yang diabaikan.')
-      }
-    })
-    for (const h of SEMUA_HURUF) {
-      const x = buf[h]
-      if (x) simpan(h, x.teks.filter(Boolean).join('\n'), x.gambar)
-    }
-    return hasil
-  }
-
-  berisi.forEach((b, i) => {
-    if (i >= SEMUA_HURUF.length) {
-      if (i === SEMUA_HURUF.length) peringatan.push('Pilihan Jawaban berisi lebih dari 5 baris; baris ke-6 dan seterusnya diabaikan.')
-      return
-    }
-    simpan(SEMUA_HURUF[i], b.teks, b.gambar)
-  })
-  return hasil
-}
-
 // ───────────────────────── pengenalan label ─────────────────────────
 
-type Label = 'no' | 'soal' | 'gambar' | 'kunci' | 'pembahasan' | 'bobot' | 'pilihan' | HurufOpsi | null
+type Label = 'no' | 'soal' | 'gambar' | 'kunci' | 'pembahasan' | 'bobot' | HurufOpsi | null
 
 function kenaliLabel(teks: string): Label {
   const n = teks.split('\n')[0].toLowerCase().replace(/[^a-z]/g, '')
@@ -554,9 +446,6 @@ function kenaliLabel(teks: string): Label {
   if (n.startsWith('bobot') || n.startsWith('skor')) return 'bobot'
   const m = n.match(/^(?:opsi|pilihan)?([a-e])$/)
   if (m) return m[1] as HurufOpsi
-  // Satu sel untuk semua opsi: "Pilihan Jawaban", "Opsi", "Pilihan A-E" …
-  if (n === 'opsi' || n === 'pilihan' || n.startsWith('pilihanjawaban') || n.startsWith('opsijawaban') ||
-      /^(?:opsi|pilihan)(?:ae|abcde|abcd)$/.test(n)) return 'pilihan'
   return null
 }
 
@@ -588,7 +477,6 @@ function bacaTabel(tbl: N, ktx: Konteks): TabelTerbaca {
       gabung.adaMath = gabung.adaMath || x.adaMath
     }
     gabung.teks = potongan.join('\n')
-    if (label === 'pilihan') gabung.paragraf = sel.slice(1).flatMap(s => bacaParagrafSel(s, ktx))
     isi.set(label, gabung)
   }
   return { isi, duplikat }
@@ -700,6 +588,48 @@ export function gambarLangsungDidukung(mime: string): boolean {
   return MIME_LANGSUNG.has(mime)
 }
 
+// Awalan huruf di depan opsi: "A.", "a)", "(B)", "C:" …
+const AWALAN_OPSI = /^\(?([A-Ea-e])\s*[.)\]:]\s*/
+
+/**
+ * Guru sering menyalin pilihan A–E dari soalnya lalu menempelnya sekaligus ke
+ * sel A. Bila sel A berisi beberapa baris sedangkan B–E kosong, pecah per baris:
+ *  • baris berawalan huruf berurutan mulai "A." → huruf itu dipakai (baris tanpa
+ *    huruf dianggap lanjutan opsi sebelumnya);
+ *  • selain itu tiap baris = satu opsi berurutan A, B, C, …
+ * Tidak berlaku bila B–E sudah terisi atau sel A berisi gambar.
+ */
+function pecahOpsiDariSelA(opsi: Record<HurufOpsi, OpsiTerbaca>, peringatan: string[]) {
+  const lainKosong = SEMUA_HURUF.slice(1).every(h => !opsi[h].teks && !opsi[h].gambar)
+  if (!lainKosong || opsi.a.gambar) return
+  const baris = opsi.a.teks.split('\n').map(x => x.trim()).filter(Boolean)
+  if (baris.length < 2) return
+
+  const awal = baris.map(b => b.match(AWALAN_OPSI))
+  const modeHuruf = awal.filter(Boolean).length >= 2 && awal[0]?.[1].toLowerCase() === 'a'
+  const hasil: Partial<Record<HurufOpsi, string[]>> = {}
+  if (modeHuruf) {
+    let aktif: HurufOpsi | null = null
+    baris.forEach((b, i) => {
+      const m = awal[i]
+      if (m) {
+        aktif = m[1].toLowerCase() as HurufOpsi
+        if (!hasil[aktif]) hasil[aktif] = [b.slice(m[0].length)]
+      } else if (aktif && hasil[aktif]) {
+        hasil[aktif]!.push(b)
+      }
+    })
+  } else {
+    baris.slice(0, SEMUA_HURUF.length).forEach((b, i) => { hasil[SEMUA_HURUF[i]] = [b] })
+    if (baris.length > SEMUA_HURUF.length) peringatan.push('Pilihan jawaban berisi lebih dari 5 baris; baris ke-6 dan seterusnya diabaikan.')
+  }
+  for (const h of SEMUA_HURUF) {
+    const x = hasil[h]
+    opsi[h] = { teks: x ? x.filter(Boolean).join('\n') : '', gambar: null }
+  }
+  peringatan.push('Pilihan A–E ditempel sekaligus di baris A, lalu dipecah otomatis per baris. Periksa di pratinjau.')
+}
+
 /** Baca template soal PILIHAN GANDA. */
 export async function bacaDocxPg(data: ArrayBuffer | Uint8Array, opsi?: OpsiBaca): Promise<HasilBacaPg> {
   const { zip, rels, tabel } = await bukaDokumen(data, opsi)
@@ -740,23 +670,15 @@ export async function bacaDocxPg(data: ArrayBuffer | Uint8Array, opsi?: OpsiBaca
     if (selGambar?.teks) peringatan.push('Baris Gambar Soal berisi teks; teks itu diabaikan (tulis pertanyaan di baris Soal).')
     const gambarSoal = pilihGambar(selGambar, 'Gambar Soal', peringatan) ?? pilihGambar(selSoal, 'Soal', peringatan)
     const opsiBaca = {} as Record<HurufOpsi, OpsiTerbaca>
-    // Opsi dari satu sel "Pilihan Jawaban" (tempel sekaligus), bila ada.
-    const selPilihan = isi.get('pilihan')
-    const dariPilihan = selPilihan?.paragraf ? pecahPilihan(selPilihan.paragraf, peringatan) : {}
     for (const h of SEMUA_HURUF) {
       const sel = isi.get(h)
-      const terpisah: OpsiTerbaca = {
+      opsiBaca[h] = {
         teks: sel?.teks ?? '',
         gambar: pilihGambar(sel, `Opsi ${h.toUpperCase()}`, peringatan),
       }
-      const sekaligus = dariPilihan[h]
-      if (sekaligus && (terpisah.teks || terpisah.gambar)) {
-        peringatan.push(`Opsi ${h.toUpperCase()} terisi di baris ${h.toUpperCase()} dan di Pilihan Jawaban; yang dipakai baris ${h.toUpperCase()}.`)
-        opsiBaca[h] = terpisah
-      } else {
-        opsiBaca[h] = terpisah.teks || terpisah.gambar ? terpisah : sekaligus ?? terpisah
-      }
     }
+    // Pilihan A–E ditempel sekaligus ke satu sel (baris A): pecah per baris.
+    pecahOpsiDariSelA(opsiBaca, peringatan)
     const selKunci = isi.get('kunci')
     const k = parseKunci(selKunci?.teks ?? '')
     if (k.banyak) galat.push('Kunci berisi lebih dari satu huruf. Isi satu huruf saja.')
@@ -819,7 +741,7 @@ export async function bacaDocxEssay(data: ArrayBuffer | Uint8Array, opsi?: OpsiB
       ringkasan.tabelTidakDikenali++
       continue
     }
-    if (SEMUA_HURUF.some(h => isi.has(h)) || isi.has('pilihan')) adaOpsiLabel = true
+    if (SEMUA_HURUF.some(h => isi.has(h))) adaOpsiLabel = true
     const nomorDok = isi.get('no')?.teks ?? ''
     if (/contoh/i.test(nomorDok)) {
       ringkasan.tabelContoh++

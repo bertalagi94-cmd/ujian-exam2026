@@ -1,17 +1,6 @@
-PERBAIKAN: TEMPEL PILIHAN A-E SEKALIGUS
-=======================================
-Timpa 3 file ini ke repo (struktur folder sama):
-  src/components/shared/ImporSoalModal.tsx
-  src/lib/impor-soal/parser-docx.ts
+PERBAIKAN PASTE TEMPLATE WORD (format template tetap seperti awal)
+Ekstrak di folder utama repo (yang ada package.json), pilih timpa 2 file:
   src/lib/impor-soal/template-docx.ts
-(Alternatif: git apply tempel-opsi-sekaligus.patch dari root repo.)
-
-Dibuat dari commit 6009562. Kalau 3 file itu sudah Anda ubah sesudahnya,
-pakai .patch, jangan timpa.
-
-Cara pakai di aplikasi: menu Impor dari Word > Unduh Template > "Cara isi opsi"
-= "Tempel sekaligus" (bawaan). Di Word, salin semua pilihan jawaban dari soal
-Anda, tempel di satu kotak kuning "Pilihan Jawaban". Satu pilihan per baris;
-huruf "A." / "B)" di depan boleh ada atau tidak.
-
-Template lama (baris A, B, C ... terpisah) tetap bisa diimpor.
+  src/lib/impor-soal/parser-docx.ts
+(Alternatif: git apply perbaikan-paste.patch)
+Setelah deploy, UNDUH ULANG template dari menu Impor dari Word.
