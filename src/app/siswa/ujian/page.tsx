@@ -118,7 +118,7 @@ const JEDA_CEK_SESI_MS = 30_000
 // kontak terakhir itu (bukan sejak cek-sesi terakhir). Akibatnya jarak antar
 // kontak server tetap <= ~30 dtk: heartbeat & deteksi kunci/tutup/ambil-alih
 // tidak melambat. Pewaktu berdetak lokal tiap TICK (gratis, tanpa request).
-const TICK_CEK_SESI_MS = 3_000
+const TICK_CEK_SESI_MS = 1_000
 // Batas atas: cek-sesi NYATA tetap dipanggil minimal tiap 60 dtk walau sync
 // terus sukses (siswa menjawab cepat). Cek-sesi adalah satu-satunya yang
 // membawa status "dipantau", progres reset offline, dan overlay ambil-alih.
