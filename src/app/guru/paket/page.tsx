@@ -1047,11 +1047,13 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
                     </div>
                   )}
                   {p.status === 'DITOLAK' && (
-                    <div className="mt-1 text-[11px] lg:text-xs text-red-600">Soal ditolak — silakan edit soal lalu kirim ulang</div>
+                    <div className="mt-1 text-[11px] lg:text-xs text-red-600">Soal ditolak — klik Lanjutkan untuk menambah/mengedit soal, lalu kirim ulang</div>
                   )}
                 </div>
                 <div className="flex items-center gap-1.5 lg:gap-2 flex-shrink-0 flex-wrap justify-start lg:justify-end">
-                  {p.status === 'DRAFT' && (
+                  {/* FIX: paket DITOLAK admin juga harus bisa dilanjutkan (tambah/impor soal);
+                      server (guru/soal & guru/soal/impor) sudah mengizinkan DRAFT dan DITOLAK. */}
+                  {(p.status === 'DRAFT' || p.status === 'DITOLAK') && (
                     <button onClick={() => lanjutkanPaket(p)} className="btn-secondary !px-2 !py-1 !text-[11px] lg:!px-3 lg:!py-1.5 lg:!text-xs !rounded-lg">
                       <Plus className="w-3 h-3 lg:w-3.5 lg:h-3.5" /> Lanjutkan
                     </button>
@@ -2369,7 +2371,7 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
                     </div>
                   )}
                   {p.status === 'DITOLAK' && (
-                    <div className="mt-1 text-[11px] lg:text-xs text-red-600">Soal ditolak — silakan edit soal lalu kirim ulang</div>
+                    <div className="mt-1 text-[11px] lg:text-xs text-red-600">Soal ditolak — klik Kelola Soal untuk menambah/mengedit soal, lalu kirim ulang</div>
                   )}
                   {p.status === 'MENUNGGU' && p.catatan && (
                     <div className="mt-1 text-[11px] lg:text-xs text-slate-500">Menunggu validasi admin</div>
