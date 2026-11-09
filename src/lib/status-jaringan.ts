@@ -28,7 +28,9 @@ export type StatusJaringan = 'ONLINE' | 'CHECKING' | 'OFFLINE'
 // Kegagalan jaringan pada cek-sesi/sync memicu periksaJaringanSekarang() di bawah,
 // jadi deteksi putus jaringan tidak menunggu denyut berikutnya.
 const INTERVAL_ONLINE_MS = 20_000
-const KONTAK_SEGAR_MS = 35_000
+// MODE HEMAT DARURAT: jeda cek-sesi 60 dtk -> ambang ini WAJIB di atasnya (60 dtk +
+// waktu request). Dulu 35_000 untuk jeda 30 dtk.
+const KONTAK_SEGAR_MS = 75_000
 // Jarak minimum antar pemeriksaan paksa (mis. loop retry sync tidak membanjiri /health).
 const JEDA_MIN_PERIKSA_PAKSA_MS = 2_000
 const INTERVAL_OFFLINE_MS = 3_000

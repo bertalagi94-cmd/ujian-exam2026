@@ -101,12 +101,16 @@ interface SiswaAktif {
 
 // Ambang (detik) sebelum label "tanpa sinyal" muncul. Heartbeat dikirim tiap
 // ±10 detik saat online, jadi 60 detik = sudah 5–6 kali terlewat.
-const BATAS_TANPA_SINYAL_DETIK = 60
+// MODE HEMAT DARURAT: heartbeat kini ~tiap 60 dtk (cek-sesi 60 dtk), jadi ambang
+// dinaikkan 60 -> 120 dtk supaya siswa sehat tidak diberi label "tanpa sinyal".
+const BATAS_TANPA_SINYAL_DETIK = 120
 
 // Ambang pop-up "siswa terputus". Heartbeat tiap ±10 dtk dan panel ini polling
 // tiap 8 dtk, jadi 30 dtk = ±3 heartbeat terlewat (cukup untuk menyaring sinyal
 // yang hanya lambat sebentar). Pop-up baru muncul ±30-45 dtk setelah putus.
-const BATAS_POPUP_TERPUTUS_DETIK = 45 // dulu 30; heartbeat siswa kini ~20 dtk (cek-sesi), beri ruang agar tidak salah alarm
+// MODE HEMAT DARURAT: heartbeat ~tiap 60 dtk, jadi 45 -> 90 dtk (1,5x jeda). Pop-up
+// muncul paling cepat ~90 dtk setelah siswa benar-benar putus (dulu ~45 dtk).
+const BATAS_POPUP_TERPUTUS_DETIK = 90
 
 function formatTanpaSinyal(detik: number): string {
   if (detik < 120) return `${detik} dtk`

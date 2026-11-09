@@ -13,7 +13,10 @@ import { cekSiswaBolehMapel, labelAgamaMapel } from '@/lib/agama'
 // Threshold: kalau last_heartbeat device lama lebih muda dari ini,
 // anggap device lama masih aktif → tolak login device baru.
 // Kalau lebih tua (device lama sudah lama tidak polling), izinkan takeover.
-const DEVICE_STALE_MS = 2 * 60 * 1000 // 2 menit
+// MODE HEMAT DARURAT: heartbeat ~tiap 60 dtk, jadi device dianggap basi setelah
+// 3 menit (dulu 2 menit untuk heartbeat 30 dtk): satu polling gagal tidak boleh
+// membuat perangkat yang masih aktif dianggap basi dan bisa diambil alih.
+const DEVICE_STALE_MS = 3 * 60 * 1000 // 3 menit
 
 // Bentuk baris soal yang dikirim ke siswa (tanpa kunci & pembahasan).
 type SoalValidasi = {

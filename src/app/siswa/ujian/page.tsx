@@ -111,7 +111,16 @@ interface JawabanMap { [soalId: string]: string }
 // /health justru jadi lebih sering terkirim. Heartbeat (last_heartbeat) juga
 // ditulis oleh cek-sesi: ambang "siswa terputus" di ModePengawasTab (45 dtk)
 // harus tetap di atas jeda ini + waktu request.
-const JEDA_CEK_SESI_MS = 30_000
+// MODE HEMAT DARURAT (9 Nov 2026): jeda dinaikkan 30 dtk -> 60 dtk untuk menghemat
+// kuota Vercel Hobby. Akibat: siswa tahu sesi dikunci/ditutup pengawas paling
+// lambat ~60 dtk lewat polling ini (sync yang ditolak server tetap terdeteksi
+// seketika). Nilai-nilai yang HARUS ikut berubah bila angka ini diubah:
+//   - KONTAK_SEGAR_MS            (src/lib/status-jaringan.ts)
+//   - BATAS_POPUP_TERPUTUS_DETIK & BATAS_TANPA_SINYAL_DETIK
+//                                (src/app/guru/jadwal-pengawasan/tabs/ModePengawasTab.tsx)
+//   - DEVICE_STALE_MS            (src/app/api/siswa/ujian/validasi/route.ts)
+// Untuk kembali ke normal: 30_000 / 35_000 / 45 & 60 / 2 menit.
+const JEDA_CEK_SESI_MS = 60_000
 // HEMAT VERCEL (tahap 3): respons sync yang sukses dan membawa
 // `sesiTerkonfirmasi` membuktikan sesi masih normal DAN menulis heartbeat di
 // server, jadi cek-sesi berikutnya ditunda sampai JEDA_CEK_SESI_MS SETELAH
@@ -122,6 +131,8 @@ const TICK_CEK_SESI_MS = 1_000
 // Batas atas: cek-sesi NYATA tetap dipanggil minimal tiap 60 dtk walau sync
 // terus sukses (siswa menjawab cepat). Cek-sesi adalah satu-satunya yang
 // membawa status "dipantau", progres reset offline, dan overlay ambil-alih.
+// Sama dengan JEDA_CEK_SESI_MS pada mode hemat darurat: cek-sesi nyata tepat
+// tiap 60 dtk (sync tidak lagi menunda lebih lama dari itu).
 const CEK_SESI_MAKS_JEDA_MS = 60_000
 // Autosync berkala tiap 30 dtk dilewati kalau jawaban tidak berubah sejak sync
 // terakhir yang BERHASIL (sync cepat setelah tiap klik sudah mengirim
