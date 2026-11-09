@@ -75,6 +75,7 @@ interface Skema {
   labelTeks: string   // warna tulisan nama baris
   hint: string        // warna petunjuk kecil di bawah nama baris
   isi: string         // latar sel tempat mengisi
+  gambar: string      // latar sel Gambar Soal (dibedakan agar tidak tertukar dengan baris Soal/opsi)
   no: string          // latar sel nomor (sudah terisi, tidak perlu diubah)
   garis: string       // warna garis tabel
   garisSz: number     // tebal garis (1/8 pt)
@@ -82,11 +83,11 @@ interface Skema {
 
 const SKEMA_ISI: Skema = {
   label: '1E4F9C', labelTeks: 'FFFFFF', hint: 'DCE8FF',
-  isi: 'FFF5C2', no: 'E5E7EB', garis: '7F8FA6', garisSz: 6,
+  isi: 'FFF5C2', gambar: 'C6EBD3', no: 'E5E7EB', garis: '7F8FA6', garisSz: 6,
 }
 const SKEMA_CONTOH: Skema = {
   label: 'C2410C', labelTeks: 'FFFFFF', hint: 'FFE4D1',
-  isi: 'FFF4EB', no: 'FDBA8C', garis: 'F97316', garisSz: 24,
+  isi: 'FFF4EB', gambar: 'FFF4EB', no: 'FDBA8C', garis: 'F97316', garisSz: 24,
 }
 
 function esc(s: string): string {
@@ -157,6 +158,8 @@ interface BarisSpec {
   isi?: string[]
   /** Paragraf XML siap pakai untuk sel kanan (dipakai tabel CONTOH, mis. berisi gambar). */
   isiParas?: string[]
+  /** Baris Gambar Soal: sel kanan diberi warna berbeda dari sel isian lain. */
+  gambarSoal?: boolean
   /** Baris nomor: sel kanan abu-abu, terkunci (tidak perlu diubah). */
   nomor?: boolean
   /** Baris yang boleh berisi gambar: area isi dipersempit agar gambar tempelan mengecil proporsional. */
@@ -195,7 +198,7 @@ function baris(b: BarisSpec, sk: Skema, bisaDisunting: boolean): string {
     tc(
       LEBAR_ISI,
       isiParas.join(''),
-      b.nomor ? sk.no : sk.isi,
+      b.nomor ? sk.no : b.gambarSoal ? sk.gambar : sk.isi,
       b.areaGambar ? MARGIN_KANAN_AREA_GAMBAR : undefined
     ) +
     '</w:tr>'
@@ -239,7 +242,7 @@ function barisSoalPg(nomor: string, jumlahOpsi: 4 | 5, contoh?: ContohPg): strin
   const rows: BarisSpec[] = [
     { label: 'No', petunjuk: HINT_NO, isi: [nomor], nomor: true },
     { label: 'Soal', petunjuk: HINT_SOAL, isiParas: contoh?.soal },
-    { label: 'Gambar Soal', petunjuk: HINT_GAMBAR, isiParas: contoh?.gambar, areaGambar: true },
+    { label: 'Gambar Soal', petunjuk: HINT_GAMBAR, isiParas: contoh?.gambar, areaGambar: true, gambarSoal: true },
     ...huruf.map(h => ({
       label: h,
       petunjuk: h === 'A' ? 'teks atau gambar' : undefined,
@@ -271,7 +274,7 @@ function barisSoalEssay(nomor: string, contoh?: ContohEssay): string[] {
   const rows: BarisSpec[] = [
     { label: 'No', petunjuk: HINT_NO, isi: [nomor], nomor: true },
     { label: 'Soal', petunjuk: HINT_SOAL, isiParas: contoh?.soal },
-    { label: 'Gambar Soal', petunjuk: HINT_GAMBAR, isiParas: contoh?.gambar, areaGambar: true },
+    { label: 'Gambar Soal', petunjuk: HINT_GAMBAR, isiParas: contoh?.gambar, areaGambar: true, gambarSoal: true },
     {
       label: 'Bobot',
       petunjuk: 'skor maksimal, angka > 0',
@@ -309,13 +312,13 @@ function blokPetunjuk(jenis: JenisTemplate, jumlahOpsi: 4 | 5): string {
   const langkah = jenis === 'pg'
     ? [
         'Isi hanya kolom KUNING. Jangan ubah nama baris (kolom biru). Soal dan pilihan jawaban boleh langsung ditempel (paste) dari Word Anda.',
-        'Soal: ketik pertanyaan di baris "Soal". Kalau ada gambar, sisipkan di baris "Gambar Soal" (bukan di baris Soal). Tidak ada gambar? Kosongkan.',
+        'Soal: ketik pertanyaan di baris "Soal". Kalau ada gambar, sisipkan di baris "Gambar Soal" yang berwarna HIJAU (bukan di baris Soal). Tidak ada gambar? Kosongkan.',
         `Pilihan jawaban: isi baris A–${huruf} (boleh teks atau gambar). Kunci: satu huruf saja, mis. B.`,
         'Gambar PNG/JPG, maks. 2 MB, satu gambar per baris. Simpan sebagai .docx, lalu unggah di menu Impor dari Word.',
       ]
     : [
         'Isi hanya kolom KUNING. Jangan ubah nama baris (kolom biru). Soal dan pilihan jawaban boleh langsung ditempel (paste) dari Word Anda.',
-        'Soal: ketik pertanyaan di baris "Soal". Kalau ada gambar, sisipkan di baris "Gambar Soal" (bukan di baris Soal). Tidak ada gambar? Kosongkan.',
+        'Soal: ketik pertanyaan di baris "Soal". Kalau ada gambar, sisipkan di baris "Gambar Soal" yang berwarna HIJAU (bukan di baris Soal). Tidak ada gambar? Kosongkan.',
         'Bobot: skor maksimal soal itu, angka lebih dari 0 (mis. 10).',
         'Gambar PNG/JPG, maks. 2 MB, satu gambar per baris. Simpan sebagai .docx, lalu unggah di menu Impor dari Word.',
       ]
@@ -328,6 +331,7 @@ function blokPetunjuk(jenis: JenisTemplate, jumlahOpsi: 4 | 5): string {
       run('Warna:  ', { b: true, sz: 18 }) +
       run(' BIRU ', { b: true, color: 'FFFFFF', shade: SKEMA_ISI.label, sz: 18 }) + run(' nama baris, jangan diubah    ', { sz: 18 }) +
       run(' KUNING ', { b: true, shade: SKEMA_ISI.isi, sz: 18 }) + run(' tempat mengisi    ', { sz: 18 }) +
+      run(' HIJAU ', { b: true, shade: SKEMA_ISI.gambar, sz: 18 }) + run(' khusus gambar soal    ', { sz: 18 }) +
       run(' ORANYE ', { b: true, color: 'FFFFFF', shade: SKEMA_CONTOH.label, sz: 18 }) + run(' contoh (tidak diimpor)', { sz: 18 }),
       { before: 80, after: 60 }
     )
