@@ -1,0 +1,366 @@
+diff --git a/src/components/shared/ImporSoalModal.tsx b/src/components/shared/ImporSoalModal.tsx
+index 6c8a446..d11165f 100644
+--- a/src/components/shared/ImporSoalModal.tsx
++++ b/src/components/shared/ImporSoalModal.tsx
+@@ -151,6 +151,8 @@ export function ImporSoalModal(p: Props) {
+   const [errTpl, setErrTpl] = useState('')
+   const jumlahTplRef = useRef<HTMLInputElement>(null)
+   const [opsiTpl, setOpsiTpl] = useState<4 | 5>(p.jumlahOpsiPaksa ?? p.jumlahOpsiBawaan ?? 4)
++  // 'sekaligus' = satu kolom "Pilihan Jawaban" untuk tempel semua opsi A–E sekali jalan.
++  const [modeOpsi, setModeOpsi] = useState<'sekaligus' | 'terpisah'>('sekaligus')
+   const [unduhBusy, setUnduhBusy] = useState(false)
+ 
+   const [namaFile, setNamaFile] = useState('')
+@@ -229,7 +231,7 @@ export function ImporSoalModal(p: Props) {
+     const n = angka
+     setUnduhBusy(true)
+     try {
+-      const blob = await buatTemplateDocx({ jenis: p.jenis, jumlah: n, jumlahOpsi: opsiTpl, namaMapel: p.namaMapel, namaKelas: p.namaKelas })
++      const blob = await buatTemplateDocx({ jenis: p.jenis, jumlah: n, jumlahOpsi: opsiTpl, modeOpsi, namaMapel: p.namaMapel, namaKelas: p.namaKelas })
+       const url = URL.createObjectURL(blob)
+       const a = document.createElement('a')
+       a.href = url
+@@ -551,6 +553,16 @@ export function ImporSoalModal(p: Props) {
+                 </select>
+               </div>
+             )}
++            {isPg && (
++              <div>
++                <label className="label">Cara isi opsi</label>
++                <select className="input w-64" value={modeOpsi}
++                  onChange={e => setModeOpsi(e.target.value === 'terpisah' ? 'terpisah' : 'sekaligus')}>
++                  <option value="sekaligus">Tempel sekaligus (A–E satu kolom)</option>
++                  <option value="terpisah">Satu per satu (baris A, B, C …)</option>
++                </select>
++              </div>
++            )}
+             <button className="btn-secondary" onClick={unduhTemplate} disabled={unduhBusy}>
+               {unduhBusy ? <Spinner size="sm" /> : <FileDown className="w-4 h-4" />} Unduh Template (.docx)
+             </button>
+diff --git a/src/lib/impor-soal/parser-docx.ts b/src/lib/impor-soal/parser-docx.ts
+index 0fea58b..e71ad09 100644
+--- a/src/lib/impor-soal/parser-docx.ts
++++ b/src/lib/impor-soal/parser-docx.ts
+@@ -12,6 +12,10 @@
+ // ATURAN BACA (selaras dengan template di template-docx.ts)
+ //  • Setiap TABEL = satu soal. Baris dikenali dari LABEL di sel pertama
+ //    (baris pertama label saja), bukan dari posisi baris.
++//  • Baris "Pilihan Jawaban" (satu sel berisi semua opsi, ditempel sekaligus)
++//    dipecah per baris/paragraf menjadi A, B, C, D, E. Awalan huruf "A.",
++//    "B)" dsb. boleh ada, boleh tidak. Baris terpisah A–E (cara lama) tetap
++//    dibaca dan diutamakan bila sama-sama terisi.
+ //  • Sel kanan boleh berisi teks, gambar, atau keduanya. Hanya GAMBAR
+ //    PERTAMA per sel yang dipakai (aplikasi menyimpan 1 gambar per
+ //    soal/opsi); sisanya dilaporkan sebagai peringatan.
+@@ -261,10 +265,17 @@ interface Konteks {
+   peringatan: string[]
+ }
+ 
++interface UnitParagraf {
++  teks: string
++  gambar: GambarRef[]
++}
++
+ interface IsiSel {
+   teks: string
+   gambar: GambarRef[]
+   adaMath: boolean
++  /** Hanya diisi untuk baris "Pilihan Jawaban": isi sel per paragraf. */
++  paragraf?: UnitParagraf[]
+ }
+ 
+ const PERINGATAN_OBJEK =
+@@ -431,9 +442,106 @@ function bacaSel(tc: N, ktx: Konteks): IsiSel {
+   return isi
+ }
+ 
++/** Isi sel per paragraf (teks + gambar tiap paragraf), untuk baris "Pilihan Jawaban". */
++function bacaParagrafSel(tc: N, ktx: Konteks): UnitParagraf[] {
++  const out: UnitParagraf[] = []
++  const kumpul = (parent: N) => {
++    for (const c of anak(parent)) {
++      switch (ln(c)) {
++        case 'p': {
++          const isi: IsiSel = { teks: '', gambar: [], adaMath: false }
++          const teks = bersihkan(bacaInline(c, ktx, isi))
++          out.push({ teks, gambar: isi.gambar })
++          break
++        }
++        case 'sdt': {
++          const konten = anakNamed(c, 'sdtContent')[0]
++          if (konten) kumpul(konten)
++          break
++        }
++        case 'tbl':
++          for (const tr of anakNamed(c, 'tr')) {
++            for (const sel of anakNamed(tr, 'tc')) kumpul(sel)
++          }
++          break
++        default:
++          break
++      }
++    }
++  }
++  kumpul(tc)
++  return out
++}
++
++// Awalan huruf opsi di depan teks: "A.", "a)", "(B)", "C:" …
++const AWALAN_OPSI = /^\(?([A-Ea-e])\s*[.)\]:]\s*/
++
++/**
++ * Memecah isi sel "Pilihan Jawaban" menjadi opsi A–E.
++ *  • Bila baris-baris diawali huruf berurutan mulai dari A ("A. …", "B) …"),
++ *    huruf itu dipakai; baris tanpa huruf dianggap lanjutan opsi sebelumnya.
++ *  • Bila tidak ada huruf (mis. penomoran otomatis Word yang tidak ikut
++ *    tersalin), tiap baris/paragraf = satu opsi, berurutan A, B, C, …
++ */
++export function pecahPilihan(
++  paragraf: UnitParagraf[],
++  peringatan: string[]
++): Partial<Record<HurufOpsi, OpsiTerbaca>> {
++  // Ratakan: paragraf yang berisi pindah-baris lunak (Shift+Enter) jadi beberapa baris.
++  const baris: UnitParagraf[] = []
++  for (const p of paragraf) {
++    const bagian = p.teks.split('\n')
++    bagian.forEach((t, i) => baris.push({ teks: t.trim(), gambar: i === 0 ? p.gambar : [] }))
++  }
++  const berisi = baris.filter(b => b.teks || b.gambar.length > 0)
++  const hasil: Partial<Record<HurufOpsi, OpsiTerbaca>> = {}
++  if (berisi.length === 0) return hasil
++
++  const awal = berisi.map(b => b.teks.match(AWALAN_OPSI))
++  const jumlahBerhuruf = awal.filter(Boolean).length
++  const modeHuruf = jumlahBerhuruf >= 2 && awal[0]?.[1].toLowerCase() === 'a'
++
++  const simpan = (h: HurufOpsi, teks: string, gambar: GambarRef[]) => {
++    if (gambar.length > 1) peringatan.push(`Opsi ${h.toUpperCase()}: ada ${gambar.length} gambar, hanya gambar pertama yang dipakai.`)
++    hasil[h] = { teks, gambar: gambar[0] ?? null }
++  }
++
++  if (modeHuruf) {
++    let aktif: HurufOpsi | null = null
++    const buf: Partial<Record<HurufOpsi, { teks: string[]; gambar: GambarRef[] }>> = {}
++    berisi.forEach((b, i) => {
++      const m = awal[i]
++      if (m) {
++        aktif = m[1].toLowerCase() as HurufOpsi
++        if (buf[aktif]) peringatan.push(`Pilihan Jawaban: huruf ${aktif.toUpperCase()} muncul lebih dari sekali; yang pertama dipakai.`)
++        else buf[aktif] = { teks: [b.teks.slice(m[0].length)], gambar: [...b.gambar] }
++      } else if (aktif && buf[aktif]) {
++        if (b.teks) buf[aktif]!.teks.push(b.teks)
++        buf[aktif]!.gambar.push(...b.gambar)
++      } else {
++        peringatan.push('Pilihan Jawaban: ada baris sebelum "A." yang diabaikan.')
++      }
++    })
++    for (const h of SEMUA_HURUF) {
++      const x = buf[h]
++      if (x) simpan(h, x.teks.filter(Boolean).join('\n'), x.gambar)
++    }
++    return hasil
++  }
++
++  berisi.forEach((b, i) => {
++    if (i >= SEMUA_HURUF.length) {
++      if (i === SEMUA_HURUF.length) peringatan.push('Pilihan Jawaban berisi lebih dari 5 baris; baris ke-6 dan seterusnya diabaikan.')
++      return
++    }
++    simpan(SEMUA_HURUF[i], b.teks, b.gambar)
++  })
++  return hasil
++}
++
+ // ───────────────────────── pengenalan label ─────────────────────────
+ 
+-type Label = 'no' | 'soal' | 'gambar' | 'kunci' | 'pembahasan' | 'bobot' | HurufOpsi | null
++type Label = 'no' | 'soal' | 'gambar' | 'kunci' | 'pembahasan' | 'bobot' | 'pilihan' | HurufOpsi | null
+ 
+ function kenaliLabel(teks: string): Label {
+   const n = teks.split('\n')[0].toLowerCase().replace(/[^a-z]/g, '')
+@@ -446,6 +554,9 @@ function kenaliLabel(teks: string): Label {
+   if (n.startsWith('bobot') || n.startsWith('skor')) return 'bobot'
+   const m = n.match(/^(?:opsi|pilihan)?([a-e])$/)
+   if (m) return m[1] as HurufOpsi
++  // Satu sel untuk semua opsi: "Pilihan Jawaban", "Opsi", "Pilihan A-E" …
++  if (n === 'opsi' || n === 'pilihan' || n.startsWith('pilihanjawaban') || n.startsWith('opsijawaban') ||
++      /^(?:opsi|pilihan)(?:ae|abcde|abcd)$/.test(n)) return 'pilihan'
+   return null
+ }
+ 
+@@ -477,6 +588,7 @@ function bacaTabel(tbl: N, ktx: Konteks): TabelTerbaca {
+       gabung.adaMath = gabung.adaMath || x.adaMath
+     }
+     gabung.teks = potongan.join('\n')
++    if (label === 'pilihan') gabung.paragraf = sel.slice(1).flatMap(s => bacaParagrafSel(s, ktx))
+     isi.set(label, gabung)
+   }
+   return { isi, duplikat }
+@@ -628,12 +740,22 @@ export async function bacaDocxPg(data: ArrayBuffer | Uint8Array, opsi?: OpsiBaca
+     if (selGambar?.teks) peringatan.push('Baris Gambar Soal berisi teks; teks itu diabaikan (tulis pertanyaan di baris Soal).')
+     const gambarSoal = pilihGambar(selGambar, 'Gambar Soal', peringatan) ?? pilihGambar(selSoal, 'Soal', peringatan)
+     const opsiBaca = {} as Record<HurufOpsi, OpsiTerbaca>
++    // Opsi dari satu sel "Pilihan Jawaban" (tempel sekaligus), bila ada.
++    const selPilihan = isi.get('pilihan')
++    const dariPilihan = selPilihan?.paragraf ? pecahPilihan(selPilihan.paragraf, peringatan) : {}
+     for (const h of SEMUA_HURUF) {
+       const sel = isi.get(h)
+-      opsiBaca[h] = {
++      const terpisah: OpsiTerbaca = {
+         teks: sel?.teks ?? '',
+         gambar: pilihGambar(sel, `Opsi ${h.toUpperCase()}`, peringatan),
+       }
++      const sekaligus = dariPilihan[h]
++      if (sekaligus && (terpisah.teks || terpisah.gambar)) {
++        peringatan.push(`Opsi ${h.toUpperCase()} terisi di baris ${h.toUpperCase()} dan di Pilihan Jawaban; yang dipakai baris ${h.toUpperCase()}.`)
++        opsiBaca[h] = terpisah
++      } else {
++        opsiBaca[h] = terpisah.teks || terpisah.gambar ? terpisah : sekaligus ?? terpisah
++      }
+     }
+     const selKunci = isi.get('kunci')
+     const k = parseKunci(selKunci?.teks ?? '')
+@@ -697,7 +819,7 @@ export async function bacaDocxEssay(data: ArrayBuffer | Uint8Array, opsi?: OpsiB
+       ringkasan.tabelTidakDikenali++
+       continue
+     }
+-    if (SEMUA_HURUF.some(h => isi.has(h))) adaOpsiLabel = true
++    if (SEMUA_HURUF.some(h => isi.has(h)) || isi.has('pilihan')) adaOpsiLabel = true
+     const nomorDok = isi.get('no')?.teks ?? ''
+     if (/contoh/i.test(nomorDok)) {
+       ringkasan.tabelContoh++
+diff --git a/src/lib/impor-soal/template-docx.ts b/src/lib/impor-soal/template-docx.ts
+index f90a491..1e0c482 100644
+--- a/src/lib/impor-soal/template-docx.ts
++++ b/src/lib/impor-soal/template-docx.ts
+@@ -19,6 +19,14 @@
+ //    kuning. Petunjuk, contoh, nomor, dan nama baris tidak bisa diubah atau
+ //    dihapus. Tanpa kata sandi: guru yang butuh membukanya cukup klik
+ //    Review ▸ Restrict Editing ▸ Stop Protection.
++//  • OPSI JAWABAN PG punya dua mode (OpsiTemplate.modeOpsi):
++//      - 'sekaligus' (bawaan): SATU sel isian "Pilihan Jawaban". Guru menempel
++//        semua pilihan (A–E) sekaligus, satu pilihan per baris; huruf "A." /
++//        "B)" di depan boleh ada, boleh tidak. Parser memecahnya per baris.
++//        Alasan: proteksi Word mengunci baris di antara sel isian, sehingga
++//        tempelan beberapa baris ke A–E (baris terpisah) tidak bisa dilakukan
++//        sekali jalan.
++//      - 'terpisah': baris A, B, C, D, (E) sendiri-sendiri (cara lama).
+ //  • Warna hanya tampilan: biru = nama baris (terkunci), kuning = tempat
+ //    mengisi, oranye = tabel CONTOH (tidak diimpor).
+ //  • Petunjuk kecil di bawah nama baris TIDAK ikut terbaca — parser hanya
+@@ -29,6 +37,7 @@
+ import JSZip from 'jszip'
+ 
+ export type JenisTemplate = 'pg' | 'essay'
++export type ModeOpsi = 'sekaligus' | 'terpisah'
+ 
+ export interface OpsiTemplate {
+   jenis: JenisTemplate
+@@ -36,6 +45,11 @@ export interface OpsiTemplate {
+   jumlah: number
+   /** Jumlah opsi PG: 4 (A–D) atau 5 (A–E). Diabaikan untuk essay. */
+   jumlahOpsi?: 4 | 5
++  /**
++   * Cara mengisi opsi PG. 'sekaligus' (bawaan) = satu sel "Pilihan Jawaban" untuk
++   * menempel semua opsi sekaligus; 'terpisah' = satu baris per huruf (A, B, C …).
++   */
++  modeOpsi?: ModeOpsi
+   /** Identitas paket — dicetak di bagian atas halaman 1 (terkunci). */
+   namaMapel?: string
+   namaKelas?: string
+@@ -218,6 +232,7 @@ const PEMISAH = para('', { after: 120 })
+ const HINT_NO = 'otomatis, terkunci'
+ const HINT_SOAL = 'ketik pertanyaan'
+ const HINT_GAMBAR = 'jika ada gambar: Sisipkan ▸ Gambar'
++const HINT_PILIHAN = 'tempel semua opsi sekaligus, 1 opsi per baris'
+ 
+ interface ContohPg {
+   soal: string[]                 // paragraf XML
+@@ -229,18 +244,28 @@ interface ContohPg {
+ 
+ const paraContoh = (runs: string) => para(runs, { keepNext: true, before: 40, after: 40 })
+ 
+-function barisSoalPg(nomor: string, jumlahOpsi: 4 | 5, contoh?: ContohPg): string[] {
++function barisSoalPg(nomor: string, jumlahOpsi: 4 | 5, mode: ModeOpsi, contoh?: ContohPg): string[] {
+   const huruf = ['A', 'B', 'C', 'D', 'E'].slice(0, jumlahOpsi)
++  // Baris opsi: satu sel "Pilihan Jawaban" (tempel sekaligus) atau A, B, C … terpisah.
++  const barisOpsi: BarisSpec[] =
++    mode === 'sekaligus'
++      ? [{
++          label: 'Pilihan Jawaban',
++          petunjuk: HINT_PILIHAN,
++          isiParas: contoh ? huruf.map(h => paraContoh(run(`${h}. ${(contoh.opsi[h] ?? [''])[0]}`))) : undefined,
++          areaGambar: true,
++        }]
++      : huruf.map(h => ({
++          label: h,
++          petunjuk: h === 'A' ? 'teks atau gambar' : undefined,
++          isi: contoh?.opsi[h],
++          areaGambar: true,
++        }))
+   const rows: BarisSpec[] = [
+     { label: 'No', petunjuk: HINT_NO, isi: [nomor], nomor: true },
+     { label: 'Soal', petunjuk: HINT_SOAL, isiParas: contoh?.soal },
+     { label: 'Gambar Soal', petunjuk: HINT_GAMBAR, isiParas: contoh?.gambar, areaGambar: true },
+-    ...huruf.map(h => ({
+-      label: h,
+-      petunjuk: h === 'A' ? 'teks atau gambar' : undefined,
+-      isi: contoh?.opsi[h],
+-      areaGambar: true,
+-    })),
++    ...barisOpsi,
+     { label: 'Kunci', petunjuk: `satu huruf ${huruf[0]}–${huruf[huruf.length - 1]}`, isi: contoh ? [contoh.kunci] : undefined },
+     { label: 'Pembahasan', petunjuk: 'boleh kosong', isi: contoh?.pembahasan },
+   ]
+@@ -299,13 +324,16 @@ function blokInfoPaket(o: OpsiTemplate, jumlah: number): string {
+   )
+ }
+ 
+-function blokPetunjuk(jenis: JenisTemplate, jumlahOpsi: 4 | 5): string {
++function blokPetunjuk(jenis: JenisTemplate, jumlahOpsi: 4 | 5, mode: ModeOpsi): string {
+   const huruf = jumlahOpsi === 5 ? 'E' : 'D'
++  const langkahOpsi = mode === 'sekaligus'
++    ? `Pilihan jawaban: salin semua pilihan A–${huruf} dari Word Anda, lalu TEMPEL SEKALIGUS di baris \"Pilihan Jawaban\" (satu pilihan per baris). Huruf \"A.\" \"B.\" di depan boleh ada, boleh tidak. Kunci: satu huruf saja, mis. B.`
++    : `Pilihan jawaban: isi baris A–${huruf} satu per satu (boleh teks atau gambar). Kunci: satu huruf saja, mis. B.`
+   const langkah = jenis === 'pg'
+     ? [
+         'Isi hanya kolom KUNING. Nama baris (kolom biru) sudah terkunci.',
+         'Soal: ketik pertanyaan di baris "Soal". Kalau ada gambar, sisipkan di baris "Gambar Soal" (bukan di baris Soal). Tidak ada gambar? Kosongkan.',
+-        `Pilihan jawaban: isi baris A–${huruf} (boleh teks atau gambar). Kunci: satu huruf saja, mis. B.`,
++        langkahOpsi,
+         'Gambar PNG/JPG, maks. 2 MB, satu gambar per baris. Simpan sebagai .docx, lalu unggah di menu Impor dari Word.',
+       ]
+     : [
+@@ -334,12 +362,13 @@ function dokumen(opsi: OpsiTemplate): string {
+   const jumlah = Math.max(1, Math.min(200, Math.floor(opsi.jumlah) || 10))
+   const jumlahOpsi: 4 | 5 = opsi.jumlahOpsi === 5 ? 5 : 4
+   const isPg = opsi.jenis === 'pg'
++  const mode: ModeOpsi = opsi.modeOpsi === 'terpisah' ? 'terpisah' : 'sekaligus'
+ 
+   const body: string[] = []
+   // ── HALAMAN 1: petunjuk singkat + contoh ──
+   body.push(blokJudul(isPg ? 'TEMPLATE IMPOR SOAL PILIHAN GANDA' : 'TEMPLATE IMPOR SOAL ESSAY'))
+   body.push(blokInfoPaket(opsi, jumlah))
+-  body.push(blokPetunjuk(opsi.jenis, jumlahOpsi))
++  body.push(blokPetunjuk(opsi.jenis, jumlahOpsi, mode))
+   body.push(
+     para(run('CONTOH PENGISIAN — tidak perlu diisi, tidak ikut diimpor', { b: true, color: 'FFFFFF', sz: 20 }), {
+       shade: SKEMA_CONTOH.label, before: 60, after: 0, keepNext: true,
+@@ -348,7 +377,7 @@ function dokumen(opsi: OpsiTemplate): string {
+   body.push(
+     tabel(
+       isPg
+-        ? barisSoalPg('CONTOH', jumlahOpsi, dataContohPg(jumlahOpsi))
++        ? barisSoalPg('CONTOH', jumlahOpsi, mode, dataContohPg(jumlahOpsi))
+         : barisSoalEssay('CONTOH', dataContohEssay()),
+       SKEMA_CONTOH
+     )
+@@ -357,7 +386,7 @@ function dokumen(opsi: OpsiTemplate): string {
+   // ── HALAMAN 2 dst.: tabel soal untuk diisi ──
+   body.push(para(run('DAFTAR SOAL — isi di tabel kuning di bawah ini', { b: true, sz: 26, color: WARNA_HEADER }), { pb: true, before: 0, after: 120, keepNext: true }))
+   for (let n = 1; n <= jumlah; n++) {
+-    body.push(tabel(isPg ? barisSoalPg(String(n), jumlahOpsi) : barisSoalEssay(String(n)), SKEMA_ISI))
++    body.push(tabel(isPg ? barisSoalPg(String(n), jumlahOpsi, mode) : barisSoalEssay(String(n)), SKEMA_ISI))
+     body.push(PEMISAH)
+   }
+ 
