@@ -66,6 +66,57 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
   if (sesiError) return NextResponse.json({ error: sesiError.message }, { status: 500 })
   if (!sesi) return NextResponse.json({ error: 'Sesi ujian tidak ditemukan' }, { status: 404 })
 
+  // Sesi KELAS: siswa yang sudah dipindah ke ruang khusus tetap tampil di
+  // daftar pengawas kelas, hanya sebagai penanda ("Ujian di ruang khusus" lalu
+  // "Selesai"), tanpa pelanggaran dan tanpa tombol reset. Statusnya dibaca dari
+  // sesi ruang. `dari_sesi_lain: true` membuat UI menyembunyikan semua kontrol.
+  //
+  // HEMAT VERCEL: blok ini hanya bergantung pada `sesi`, jadi dijalankan
+  // PARALEL dengan query siswa_ujian di bawah (sebelumnya berurutan). Logika dan
+  // hasilnya identik; yang berubah hanya waktu tunggunya.
+  type BarisRuang = {
+    nis: string; nama: string; kelas: string
+    status: 'DI_RUANG_KHUSUS' | 'SELESAI'
+    waktu_daftar: string | null; waktu_selesai: string | null
+    jumlah_pelanggaran: number; reset_terpakai: number
+    detik_tanpa_sinyal: null; ganti_perangkat: number
+    dari_sesi_lain: true; di_ruang_khusus: true
+  }
+  const muatDiRuangKhusus = async (): Promise<BarisRuang[]> => {
+    if (sesi.ruang_khusus_id || sesi.is_darurat || !sesi.jadwal_id) return []
+    const penempatan = await petaPenempatanJadwal(db, sesi.jadwal_id)
+    if (penempatan.size === 0) return []
+    const nisRuang = [...penempatan.keys()]
+    const sesiRuangIds = [...new Set([...penempatan.values()].map(v => v.sesi_id).filter((v): v is string => !!v))]
+    const [{ data: namaRows }, { data: suRuang }] = await Promise.all([
+      db.from('siswa').select('nis, nama, kelas').in('nis', nisRuang),
+      sesiRuangIds.length > 0
+        ? db.from('siswa_ujian').select('nis, status, waktu_daftar, waktu_selesai').in('sesi_id', sesiRuangIds).in('nis', nisRuang)
+        : Promise.resolve({ data: [] as { nis: string; status: string; waktu_daftar: string | null; waktu_selesai: string | null }[] }),
+    ])
+    const statusRuang = new Map((suRuang ?? []).map(r => [String(r.nis), r]))
+    return (namaRows ?? [])
+      .map(s => {
+        const su = statusRuang.get(s.nis)
+        const selesai = su?.status === 'SELESAI' || su?.status === 'TERKUNCI'
+        return {
+          nis: s.nis, nama: s.nama, kelas: s.kelas,
+          status: selesai ? 'SELESAI' as const : 'DI_RUANG_KHUSUS' as const,
+          waktu_daftar: su?.waktu_daftar ?? null,
+          waktu_selesai: selesai ? (su?.waktu_selesai ?? null) : null,
+          jumlah_pelanggaran: 0, reset_terpakai: 0,
+          detik_tanpa_sinyal: null, ganti_perangkat: 0,
+          dari_sesi_lain: true as const, di_ruang_khusus: true as const,
+        }
+      })
+      .sort((a, b) => a.nama.localeCompare(b.nama, 'id'))
+  }
+  // Dimulai sekarang (paralel dengan query siswa_ujian). `.catch` kosong hanya
+  // mencegah "unhandled rejection" kalau handler keluar lebih awal; kegagalan
+  // tetap muncul di `await` di bawah seperti semula.
+  const diRuangKhususPromise = muatDiRuangKhusus()
+  diRuangKhususPromise.catch(() => {})
+
   // Ambil semua siswa yang SUDAH login (baris di siswa_ujian) untuk sesi ini
   const { data: siswaUjian, error } = await db
     .from('siswa_ujian')
@@ -77,56 +128,125 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
 
   const siswaUjianMap = new Map((siswaUjian ?? []).map(s => [s.nis, s]))
 
-  // Tentukan target peserta sesi ini (logika bersama: src/lib/target-siswa-sesi.ts).
-  const targetSiswa = await ambilTargetSiswaSesi(db, sesi, [...siswaUjianMap.keys()])
-
-  // Sesi KELAS: siswa yang sudah dipindah ke ruang khusus tetap tampil di
-  // daftar pengawas kelas, hanya sebagai penanda ("Ujian di ruang khusus" lalu
-  // "Selesai"), tanpa pelanggaran dan tanpa tombol reset. Statusnya dibaca dari
-  // sesi ruang. `dari_sesi_lain: true` membuat UI menyembunyikan semua kontrol.
-  type BarisRuang = {
-    nis: string; nama: string; kelas: string
-    status: 'DI_RUANG_KHUSUS' | 'SELESAI'
+  // FIX: khusus sesi SUSULAN, sertakan juga siswa yang sudah SELESAI di sesi
+  // lain pada jadwal yang sama (misalnya sesi reguler yang sudah ditutup),
+  // supaya pengawas melihat gambaran lengkap: total siswa, yang sudah, dan
+  // yang belum — bukan cuma target sesi susulan ini yang sengaja dipersempit
+  // hanya untuk siswa yang belum ujian. Ditandai `dari_sesi_lain: true` agar
+  // frontend bisa membedakannya secara visual dari siswa yang login di sesi
+  // ini sendiri. Target/izin login (siswa_diizinkan) SAMA SEKALI tidak
+  // disentuh oleh bagian ini.
+  //
+  // HEMAT VERCEL: blok ini hanya bergantung pada `sesi` dan `siswaUjianMap`,
+  // jadi dijalankan PARALEL dengan penentuan target siswa (dulu berurutan di
+  // akhir handler). Isi dan hasilnya tidak berubah.
+  type BarisSebelumnya = {
+    nis: string; nama: string; kelas: string; status: 'SELESAI'
     waktu_daftar: string | null; waktu_selesai: string | null
     jumlah_pelanggaran: number; reset_terpakai: number
     detik_tanpa_sinyal: null; ganti_perangkat: number
-    dari_sesi_lain: true; di_ruang_khusus: true
+    dari_sesi_lain: true
   }
-  let diRuangKhusus: BarisRuang[] = []
-  if (!sesi.ruang_khusus_id && !sesi.is_darurat && sesi.jadwal_id) {
-    const penempatan = await petaPenempatanJadwal(db, sesi.jadwal_id)
-    if (penempatan.size > 0) {
-      const nisRuang = [...penempatan.keys()]
-      const sesiRuangIds = [...new Set([...penempatan.values()].map(v => v.sesi_id).filter((v): v is string => !!v))]
-      const [{ data: namaRows }, { data: suRuang }] = await Promise.all([
-        db.from('siswa').select('nis, nama, kelas').in('nis', nisRuang),
-        sesiRuangIds.length > 0
-          ? db.from('siswa_ujian').select('nis, status, waktu_daftar, waktu_selesai').in('sesi_id', sesiRuangIds).in('nis', nisRuang)
-          : Promise.resolve({ data: [] as { nis: string; status: string; waktu_daftar: string | null; waktu_selesai: string | null }[] }),
-      ])
-      const statusRuang = new Map((suRuang ?? []).map(r => [String(r.nis), r]))
-      diRuangKhusus = (namaRows ?? [])
-        .map(s => {
-          const su = statusRuang.get(s.nis)
-          const selesai = su?.status === 'SELESAI' || su?.status === 'TERKUNCI'
-          return {
-            nis: s.nis, nama: s.nama, kelas: s.kelas,
-            status: selesai ? 'SELESAI' as const : 'DI_RUANG_KHUSUS' as const,
-            waktu_daftar: su?.waktu_daftar ?? null,
-            waktu_selesai: selesai ? (su?.waktu_selesai ?? null) : null,
-            jumlah_pelanggaran: 0, reset_terpakai: 0,
-            detik_tanpa_sinyal: null, ganti_perangkat: 0,
-            dari_sesi_lain: true as const, di_ruang_khusus: true as const,
+  const muatSudahSebelumnya = async (): Promise<BarisSebelumnya[]> => {
+    let sudahSebelumnya: BarisSebelumnya[] = []
+
+    if (sesi.is_darurat && sesi.jadwal_id) {
+      const { data: sesiLain } = await db
+        .from('sesi_ujian')
+        .select('id')
+        .eq('jadwal_id', sesi.jadwal_id)
+        .neq('id', sesiId)
+        .is('ruang_khusus_id', null) // siswa ruang khusus tidak ditampilkan di panel susulan
+
+      const sesiLainIds = (sesiLain ?? []).map(s => s.id)
+      if (sesiLainIds.length > 0) {
+        const { data: siswaSelesaiLainRaw } = await db
+          .from('siswa_ujian')
+          .select('nis, sesi_id, waktu_daftar, waktu_selesai')
+          .in('sesi_id', sesiLainIds)
+          .eq('status', 'SELESAI')
+
+        // Siswa yang sudah ada di daftar sesi INI (siswaUjianMap) tidak perlu
+        // diulang di sini — sudah tercakup di `sudahLogin` di atas.
+        const siswaSelesaiLain = (siswaSelesaiLainRaw ?? []).filter(s => !siswaUjianMap.has(s.nis))
+
+        if (siswaSelesaiLain.length > 0) {
+          const nisLain = [...new Set(siswaSelesaiLain.map(s => s.nis))]
+          const { data: siswaLainData } = await db
+            .from('siswa')
+            .select('nis, nama, kelas')
+            .in('nis', nisLain)
+          const siswaLainMap = Object.fromEntries((siswaLainData ?? []).map(s => [s.nis, { nama: s.nama, kelas: s.kelas }]))
+
+          const { data: pelanggaranLain } = await db
+            .from('pelanggaran')
+            .select('nis, sesi_id')
+            .in('sesi_id', sesiLainIds)
+            .in('nis', nisLain)
+            .neq('status', 'DIABAIKAN')
+          const pelanggaranLainMap: Record<string, number> = {}
+          for (const p of pelanggaranLain ?? []) {
+            pelanggaranLainMap[p.nis] = (pelanggaranLainMap[p.nis] ?? 0) + 1
           }
-        })
-        .sort((a, b) => a.nama.localeCompare(b.nama, 'id'))
+
+          // Kalau satu siswa terekam SELESAI lebih dari sekali di sesi-sesi
+          // lain (edge case tidak wajar, tapi jaga-jaga), pakai baris terakhir.
+          const dedupMap = new Map(siswaSelesaiLain.map(s => [s.nis, s]))
+          sudahSebelumnya = [...dedupMap.values()]
+            .sort((a, b) => (siswaLainMap[a.nis]?.nama ?? a.nis).localeCompare(siswaLainMap[b.nis]?.nama ?? b.nis, 'id'))
+            .map(s => ({
+              nis: s.nis,
+              nama: siswaLainMap[s.nis]?.nama ?? s.nis,
+              kelas: siswaLainMap[s.nis]?.kelas ?? '-',
+              status: 'SELESAI' as const,
+              waktu_daftar: s.waktu_daftar,
+              waktu_selesai: s.waktu_selesai,
+              jumlah_pelanggaran: pelanggaranLainMap[s.nis] ?? 0,
+              reset_terpakai: 0,
+              detik_tanpa_sinyal: null,
+              ganti_perangkat: 0,
+              dari_sesi_lain: true as const,
+            }))
+        }
+      }
     }
+    return sudahSebelumnya
   }
+  const sudahSebelumnyaPromise = muatSudahSebelumnya()
+  sudahSebelumnyaPromise.catch(() => {})
+
+  // Tentukan target peserta sesi ini (logika bersama: src/lib/target-siswa-sesi.ts).
+  const targetSiswa = await ambilTargetSiswaSesi(db, sesi, [...siswaUjianMap.keys()])
+  const diRuangKhusus = await diRuangKhususPromise
 
   if (!targetSiswa.length && diRuangKhusus.length === 0) return NextResponse.json({ data: [] })
 
   const nisList = targetSiswa.map(s => s.nis)
   const siswaMap = Object.fromEntries(targetSiswa.map(s => [s.nis, { nama: s.nama, kelas: s.kelas }]))
+
+  // HEMAT VERCEL: query log GANTI_PERANGKAT hanya butuh `nisList`, sama seperti
+  // query pelanggaran di bawah, jadi dijalankan PARALEL (dulu berurutan).
+  // Isi dan hasilnya tidak berubah.
+  const gantiPerangkatPromise = (async () => {
+    const gantiPerangkatMap: Record<string, number> = {}
+    if (nisList.length > 0) {
+      const { data: logGanti } = await db
+        .from('log_aktivitas')
+        .select('user_id, detail')
+        .eq('aksi', 'GANTI_PERANGKAT')
+        .in('user_id', nisList)
+        .like('detail', `sesi:${sesiId}|%`)
+        .limit(2000)
+      for (const r of logGanti ?? []) {
+        // `like` memperlakukan "_" sebagai wildcard; pastikan cocok persis.
+        if (typeof r.detail === 'string' && r.detail.startsWith(`sesi:${sesiId}|`)) {
+          gantiPerangkatMap[r.user_id] = (gantiPerangkatMap[r.user_id] ?? 0) + 1
+        }
+      }
+    }
+    return gantiPerangkatMap
+  })()
+  gantiPerangkatPromise.catch(() => {})
 
   // Ambil jumlah pelanggaran tiap siswa
   const { data: pelanggaranList } = await db
@@ -152,22 +272,7 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
   // otomatis (siswa jujur yang pindah HP karena sinyal hilang tidak boleh
   // langsung kena reset/kunci).
   const sekarangMs = Date.now()
-  const gantiPerangkatMap: Record<string, number> = {}
-  if (nisList.length > 0) {
-    const { data: logGanti } = await db
-      .from('log_aktivitas')
-      .select('user_id, detail')
-      .eq('aksi', 'GANTI_PERANGKAT')
-      .in('user_id', nisList)
-      .like('detail', `sesi:${sesiId}|%`)
-      .limit(2000)
-    for (const r of logGanti ?? []) {
-      // `like` memperlakukan "_" sebagai wildcard; pastikan cocok persis.
-      if (typeof r.detail === 'string' && r.detail.startsWith(`sesi:${sesiId}|`)) {
-        gantiPerangkatMap[r.user_id] = (gantiPerangkatMap[r.user_id] ?? 0) + 1
-      }
-    }
-  }
+  const gantiPerangkatMap = await gantiPerangkatPromise
   const hitungDetikTanpaSinyal = (status: string, hb: string | null | undefined): number | null => {
     if (status !== 'AKTIF' || !hb) return null
     const t = new Date(hb).getTime()
@@ -213,82 +318,7 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
       ganti_perangkat: 0,
     }))
 
-  // FIX: khusus sesi SUSULAN, sertakan juga siswa yang sudah SELESAI di sesi
-  // lain pada jadwal yang sama (misalnya sesi reguler yang sudah ditutup),
-  // supaya pengawas melihat gambaran lengkap: total siswa, yang sudah, dan
-  // yang belum — bukan cuma target sesi susulan ini yang sengaja dipersempit
-  // hanya untuk siswa yang belum ujian. Ditandai `dari_sesi_lain: true` agar
-  // frontend bisa membedakannya secara visual dari siswa yang login di sesi
-  // ini sendiri. Target/izin login (siswa_diizinkan) SAMA SEKALI tidak
-  // disentuh oleh bagian ini.
-  let sudahSebelumnya: {
-    nis: string; nama: string; kelas: string; status: 'SELESAI'
-    waktu_daftar: string | null; waktu_selesai: string | null
-    jumlah_pelanggaran: number; reset_terpakai: number
-    detik_tanpa_sinyal: null; ganti_perangkat: number
-    dari_sesi_lain: true
-  }[] = []
-
-  if (sesi.is_darurat && sesi.jadwal_id) {
-    const { data: sesiLain } = await db
-      .from('sesi_ujian')
-      .select('id')
-      .eq('jadwal_id', sesi.jadwal_id)
-      .neq('id', sesiId)
-      .is('ruang_khusus_id', null) // siswa ruang khusus tidak ditampilkan di panel susulan
-
-    const sesiLainIds = (sesiLain ?? []).map(s => s.id)
-    if (sesiLainIds.length > 0) {
-      const { data: siswaSelesaiLainRaw } = await db
-        .from('siswa_ujian')
-        .select('nis, sesi_id, waktu_daftar, waktu_selesai')
-        .in('sesi_id', sesiLainIds)
-        .eq('status', 'SELESAI')
-
-      // Siswa yang sudah ada di daftar sesi INI (siswaUjianMap) tidak perlu
-      // diulang di sini — sudah tercakup di `sudahLogin` di atas.
-      const siswaSelesaiLain = (siswaSelesaiLainRaw ?? []).filter(s => !siswaUjianMap.has(s.nis))
-
-      if (siswaSelesaiLain.length > 0) {
-        const nisLain = [...new Set(siswaSelesaiLain.map(s => s.nis))]
-        const { data: siswaLainData } = await db
-          .from('siswa')
-          .select('nis, nama, kelas')
-          .in('nis', nisLain)
-        const siswaLainMap = Object.fromEntries((siswaLainData ?? []).map(s => [s.nis, { nama: s.nama, kelas: s.kelas }]))
-
-        const { data: pelanggaranLain } = await db
-          .from('pelanggaran')
-          .select('nis, sesi_id')
-          .in('sesi_id', sesiLainIds)
-          .in('nis', nisLain)
-          .neq('status', 'DIABAIKAN')
-        const pelanggaranLainMap: Record<string, number> = {}
-        for (const p of pelanggaranLain ?? []) {
-          pelanggaranLainMap[p.nis] = (pelanggaranLainMap[p.nis] ?? 0) + 1
-        }
-
-        // Kalau satu siswa terekam SELESAI lebih dari sekali di sesi-sesi
-        // lain (edge case tidak wajar, tapi jaga-jaga), pakai baris terakhir.
-        const dedupMap = new Map(siswaSelesaiLain.map(s => [s.nis, s]))
-        sudahSebelumnya = [...dedupMap.values()]
-          .sort((a, b) => (siswaLainMap[a.nis]?.nama ?? a.nis).localeCompare(siswaLainMap[b.nis]?.nama ?? b.nis, 'id'))
-          .map(s => ({
-            nis: s.nis,
-            nama: siswaLainMap[s.nis]?.nama ?? s.nis,
-            kelas: siswaLainMap[s.nis]?.kelas ?? '-',
-            status: 'SELESAI' as const,
-            waktu_daftar: s.waktu_daftar,
-            waktu_selesai: s.waktu_selesai,
-            jumlah_pelanggaran: pelanggaranLainMap[s.nis] ?? 0,
-            reset_terpakai: 0,
-            detik_tanpa_sinyal: null,
-            ganti_perangkat: 0,
-            dari_sesi_lain: true as const,
-          }))
-      }
-    }
-  }
+  const sudahSebelumnya = await sudahSebelumnyaPromise
 
   return NextResponse.json({ data: [...sudahLogin, ...sudahSebelumnya, ...diRuangKhusus, ...belumLogin] })
 }

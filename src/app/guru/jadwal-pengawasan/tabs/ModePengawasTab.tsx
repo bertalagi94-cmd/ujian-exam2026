@@ -112,6 +112,18 @@ const BATAS_TANPA_SINYAL_DETIK = 120
 // muncul paling cepat ~90 dtk setelah siswa benar-benar putus (dulu ~45 dtk).
 const BATAS_POPUP_TERPUTUS_DETIK = 90
 
+// HEMAT VERCEL (Nov 2026): jeda poll roster siswa 12 dtk -> 30 dtk, dan daftar
+// pelanggaran LENGKAP (jaring pengaman) tidak lagi ikut di tiap poll roster,
+// melainkan tiap PELANGGARAN_PENUH_MS. Pelanggaran BARU tetap ditangkap poll
+// cepat (cekPelanggaranCepat) sehingga alarm pengawas tidak melambat.
+// Aksi pengawas (reset, kunci, dll.) memanggil load(true) -> selalu memuat
+// roster + pelanggaran lengkap seketika, jadi tidak terpengaruh jeda ini.
+// Ambang pop-up terputus dihitung di SERVER dari last_heartbeat, jadi jeda poll
+// ini hanya memengaruhi seberapa cepat pop-up tampil (maks +30 dtk), bukan
+// akurasinya.
+const JEDA_POLL_ROSTER_MS = 30_000
+const PELANGGARAN_PENUH_MS = 120_000
+
 function formatTanpaSinyal(detik: number): string {
   if (detik < 120) return `${detik} dtk`
   const menit = Math.floor(detik / 60)
@@ -288,6 +300,8 @@ export function ModePengawasTab() {
   // sebagai parameter `sejak` supaya poll cepat di bawah ini murah (server
   // hanya perlu mencari baris yang lebih baru dari ini, hampir selalu kosong).
   const sejakPelRef = useRef<Record<string, string>>({})
+  // Kapan daftar pelanggaran LENGKAP terakhir ditarik (lihat PELANGGARAN_PENUH_MS).
+  const terakhirPelanggaranPenuhRef = useRef(0)
   // FIX: penanda "sinkronisasi pelanggaran awal (baseline) sudah selesai".
   // Dulu kode menebak status ini dari ukuran seenPelIdsRef (size > 0), yang
   // keliru untuk sesi yang baru mulai dan memang belum punya pelanggaran
@@ -464,13 +478,19 @@ export function ModePengawasTab() {
     finally { kodeResetMemuatRef.current.delete(sesiId) }
   }, [])
 
-  const fetchMonitor = useCallback(async (sesiIds: string[]) => {
+  // sertakanPelanggaran (default true = perilaku lama): tarik juga daftar
+  // pelanggaran lengkap. Poll berkala roster memberi false di sebagian besar
+  // tick (HEMAT VERCEL); load() awal/refresh manual/aksi pengawas selalu true.
+  const fetchMonitor = useCallback(async (sesiIds: string[], sertakanPelanggaran = true) => {
     if (!sesiIds.length) return
     try {
       const [siswaResults, pelResults] = await Promise.all([
         Promise.all(sesiIds.map(id => apiRequest<{ data: SiswaAktif[] }>(`/api/pengawas/sesi/${id}/siswa`))),
-        Promise.all(sesiIds.map(id => apiRequest<{ data: Pelanggaran[] }>(`/api/pengawas/pelanggaran?sesiId=${id}`))),
+        sertakanPelanggaran
+          ? Promise.all(sesiIds.map(id => apiRequest<{ data: Pelanggaran[] }>(`/api/pengawas/pelanggaran?sesiId=${id}`)))
+          : Promise.resolve(null),
       ])
+      if (sertakanPelanggaran) terakhirPelanggaranPenuhRef.current = Date.now()
 
       // Update siswa map + auto-expand sesi yang ada siswanya
       const newSiswaMap: Record<string, SiswaAktif[]> = {}
@@ -532,29 +552,31 @@ export function ModePengawasTab() {
         setTimeout(() => setSelesaiNotif(null), 8000)
       }
 
-      // Update pelanggaran map (daftar lengkap — dipakai sbg "safety net"
-      // kalau poll cepat sempat terlewat, mis. tab browser sempat di-background
-      // sehingga interval-nya di-throttle browser).
-      const newPelMap: Record<string, Pelanggaran[]> = {}
-      sesiIds.forEach((id, i) => { newPelMap[id] = pelResults[i].data ?? [] })
-      setPelanggaranMap(prev => {
-        const merged = { ...prev }
-        sesiIds.forEach((id, i) => { merged[id] = newPelMap[id] })
-        return merged
-      })
+      if (pelResults) {
+        // Update pelanggaran map (daftar lengkap — dipakai sbg "safety net"
+        // kalau poll cepat sempat terlewat, mis. tab browser sempat di-background
+        // sehingga interval-nya di-throttle browser).
+        const newPelMap: Record<string, Pelanggaran[]> = {}
+        sesiIds.forEach((id, i) => { newPelMap[id] = pelResults[i].data ?? [] })
+        setPelanggaranMap(prev => {
+          const merged = { ...prev }
+          sesiIds.forEach((id, i) => { merged[id] = newPelMap[id] })
+          return merged
+        })
 
-      const allPel = Object.values(newPelMap).flat()
-      const brandNew = allPel.filter(p => !seenPelIdsRef.current.has(p.id))
-      if (brandNew.length > 0 && baselineSiapRef.current) {
-        playAlert()
-        setPelNotif(brandNew[0])
-        setTimeout(() => setPelNotif(null), 8000)
+        const allPel = Object.values(newPelMap).flat()
+        const brandNew = allPel.filter(p => !seenPelIdsRef.current.has(p.id))
+        if (brandNew.length > 0 && baselineSiapRef.current) {
+          playAlert()
+          setPelNotif(brandNew[0])
+          setTimeout(() => setPelNotif(null), 8000)
+        }
+        allPel.forEach(p => {
+          seenPelIdsRef.current.add(p.id)
+          const existing = sejakPelRef.current[p.sesi_id]
+          if (!existing || p.created_at > existing) sejakPelRef.current[p.sesi_id] = p.created_at
+        })
       }
-      allPel.forEach(p => {
-        seenPelIdsRef.current.add(p.id)
-        const existing = sejakPelRef.current[p.sesi_id]
-        if (!existing || p.created_at > existing) sejakPelRef.current[p.sesi_id] = p.created_at
-      })
     } catch { /* silent */ }
   }, [muatKodeReset])
 
@@ -662,8 +684,14 @@ export function ModePengawasTab() {
       .filter(j => j.sesi_ujian?.status === 'BERJALAN')
       .map(j => j.sesi_ujian!.id)
     if (!runningSesiIds.length) return
-    // HEMAT VERCEL: dulu 8 dtk. Tiap tick menarik roster seluruh siswa sesi.
-    pollingRef.current = setInterval(() => fetchMonitor(runningSesiIds), 12000)
+    // HEMAT VERCEL: dulu 8 dtk, lalu 12 dtk, sekarang 30 dtk. Tiap tick menarik
+    // roster seluruh siswa sesi. Daftar pelanggaran lengkap hanya ikut tiap
+    // PELANGGARAN_PENUH_MS (jaring pengaman; pelanggaran baru sudah ditangkap
+    // poll cepat di bawah).
+    pollingRef.current = setInterval(() => {
+      const sudahWaktunya = Date.now() - terakhirPelanggaranPenuhRef.current >= PELANGGARAN_PENUH_MS - 5_000
+      void fetchMonitor(runningSesiIds, sudahWaktunya)
+    }, JEDA_POLL_ROSTER_MS)
     return () => { if (pollingRef.current) clearInterval(pollingRef.current) }
   }, [jadwal, fetchMonitor])
 
