@@ -50,6 +50,10 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   // 4 opsi jadi 5 opsi sendiri saat membuat soal PG. Kalau dinonaktifkan,
   // guru bebas memilih 4 atau 5 opsi per soal.
   kunciJumlahOpsi: 'false',
+  // Sekolah yang tidak menyelenggarakan ujian essay: 'true' = guru tidak bisa
+  // membuat/mengisi/mengirim soal essay (kartu Soal Essay terkunci gembok).
+  // Lihat src/lib/essay-guru.ts.
+  essayGuruNonaktif: 'false',
   minSubmitAktif: 'false',
   minSubmitMenit: '45',
   logoUrl: '',
@@ -119,6 +123,7 @@ export default function AdminPengaturanPage() {
 
   const [togglingMinSubmit, setTogglingMinSubmit] = useState(false)
   const [togglingKunciJumlahOpsi, setTogglingKunciJumlahOpsi] = useState(false)
+  const [togglingEssayGuru, setTogglingEssayGuru] = useState(false)
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => setToast({ msg, type })
 
@@ -490,6 +495,7 @@ export default function AdminPengaturanPage() {
 
   const isMinSubmitAktif = values.minSubmitAktif === 'true'
   const isKunciJumlahOpsi = values.kunciJumlahOpsi === 'true'
+  const isEssayGuruNonaktif = values.essayGuruNonaktif === 'true'
 
   // Toggle ini tersimpan LANGSUNG (tidak menunggu tombol "Simpan" di bawah),
   // karena tampilannya berupa saklar on/off — kalau cuma diubah di state lokal
@@ -509,6 +515,27 @@ export default function AdminPengaturanPage() {
       showToast(err instanceof Error ? err.message : 'Gagal menyimpan', 'error')
     } finally {
       setTogglingKunciJumlahOpsi(false)
+    }
+  }
+
+  // Tersimpan langsung (saklar), sama seperti kunci jumlah opsi di atas.
+  async function handleToggleEssayGuru() {
+    const target = !isEssayGuruNonaktif
+    setTogglingEssayGuru(true)
+    try {
+      await apiRequest('/api/admin/pengaturan', {
+        method: 'PUT',
+        body: JSON.stringify({ settings: [{ key: 'essayGuruNonaktif', value: String(target) }] }),
+      })
+      set('essayGuruNonaktif', String(target))
+      showToast(target
+        ? 'Pengisian soal essay oleh guru dinonaktifkan'
+        : 'Pengisian soal essay oleh guru diaktifkan kembali')
+      window.dispatchEvent(new Event('pengaturan-changed'))
+    } catch (err: unknown) {
+      showToast(err instanceof Error ? err.message : 'Gagal menyimpan', 'error')
+    } finally {
+      setTogglingEssayGuru(false)
     }
   }
 
@@ -703,6 +730,35 @@ export default function AdminPengaturanPage() {
                   : isKunciJumlahOpsi
                   ? <><ToggleRight className="w-4 h-4" /> Terkunci</>
                   : <><ToggleLeft className="w-4 h-4" /> Tidak Terkunci</>}
+              </button>
+            </div>
+
+            {/* Sekolah yang tidak menyelenggarakan ujian essay: kartu "Soal Essay"
+                di akun guru terkunci (gembok) dan server menolak penulisan essay. */}
+            <div className={`flex items-center justify-between gap-4 p-3 rounded-lg border ${isEssayGuruNonaktif ? 'border-amber-300 bg-amber-50' : 'border-slate-200'}`}>
+              <div>
+                <p className="text-sm font-medium text-slate-800">Pengisian Soal Essay oleh Guru</p>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  {isEssayGuruNonaktif
+                    ? 'Nonaktif — sekolah tidak menyelenggarakan ujian essay. Kartu Soal Essay di akun guru terkunci (gembok) dan guru tidak bisa membuat, mengisi, mengimpor, atau mengirim soal essay. Paket essay yang sudah ada tidak dihapus.'
+                    : 'Aktif — guru bisa membuat dan mengirim soal essay seperti biasa. Nonaktifkan jika sekolah Anda tidak menyelenggarakan ujian essay.'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleToggleEssayGuru}
+                disabled={togglingEssayGuru}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors flex-shrink-0 ${
+                  isEssayGuruNonaktif
+                    ? 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    : 'bg-brand-100 text-brand-700 hover:bg-brand-200'
+                }`}
+              >
+                {togglingEssayGuru
+                  ? <Spinner size="sm" />
+                  : isEssayGuruNonaktif
+                  ? <><ToggleLeft className="w-4 h-4" /> Nonaktif</>
+                  : <><ToggleRight className="w-4 h-4" /> Aktif</>}
               </button>
             </div>
 

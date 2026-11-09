@@ -21,6 +21,7 @@ import { generateId, stripHtmlTags } from '@/lib/utils'
 import { cekSesiMapelKelasSudahMulai, pesanBankSoalTerkunci } from '@/lib/sesi-kelas'
 import { catatAktivitas } from '@/lib/aktivitas'
 import { tandaEssay, tandaEssayDariDb } from '@/lib/impor-soal/duplikat'
+import { tolakJikaEssayNonaktif } from '@/lib/essay-guru'
 
 const MAKS_SOAL = 200
 
@@ -44,6 +45,10 @@ export async function POST(req: NextRequest) {
   const { user } = auth
   const yid = yayasanIdDari(auth.user)
   const db = tenantDb(yid)
+  {
+    const blokEssay = await tolakJikaEssayNonaktif(db)
+    if (blokEssay) return blokEssay
+  }
 
   let body: Record<string, unknown>
   try {

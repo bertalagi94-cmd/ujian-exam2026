@@ -2760,6 +2760,21 @@ export default function GuruBuatSoalPage() {
   const [ringkasanEssay, setRingkasanEssay] = useState<RingkasanSoal | null>(null)
   const [loadingRingkasan, setLoadingRingkasan] = useState(true)
 
+  // Admin bisa menonaktifkan pengisian soal essay (sekolah yang tidak
+  // menyelenggarakan ujian essay) lewat Pengaturan > Pengaturan Ujian. Kartu
+  // "Soal Essay" lalu terkunci (gembok). Server tetap menolak semua penulisan
+  // essay (lihat src/lib/essay-guru.ts), jadi ini hanya tampilan.
+  const [essayNonaktif, setEssayNonaktif] = useState(false)
+  useEffect(() => {
+    if (kind !== 'choice') return
+    let batal = false
+    // Query unik: lewati cache CDN supaya perubahan admin langsung terlihat.
+    apiRequest<{ data: Record<string, string> }>(`/api/public/pengaturan?_t=${Date.now()}`)
+      .then(r => { if (!batal) setEssayNonaktif(r.data?.essayGuruNonaktif === 'true') })
+      .catch(() => { /* gagal memuat: kartu tampil normal, server tetap memvalidasi */ })
+    return () => { batal = true }
+  }, [kind])
+
   // ── Efek "kartu membesar saat di-hover" (hanya berlaku di layar sm ke
   // atas yang punya kursor mouse — di HP/touchscreen kartu tetap statis
   // berdampingan seperti biasa, tap langsung memicu onClick).
@@ -2886,38 +2901,76 @@ export default function GuruBuatSoalPage() {
             </div>
           </button>
 
-          <button
-            onClick={() => setKind('essay')}
-            onMouseEnter={() => setHoverKind('essay')}
-            onMouseLeave={() => setHoverKind(null)}
-            onFocus={() => setHoverKind('essay')}
-            onBlur={() => setHoverKind(null)}
-            className={`group relative text-left rounded-3xl sm:min-w-0 flex-1 flex flex-col overflow-hidden
-                       bg-white border-2 border-slate-200 hover:border-emerald-400
-                       shadow-card hover:-translate-y-0.5 active:translate-y-0
-                       transition-[transform,box-shadow,border-color,opacity] ${EASE}
-                       p-7 min-h-[220px]
-                       ${kartuScaleClass('essay')}`}
-          >
-            <PaketBelumKirimBadge ringkasan={ringkasanEssay} loading={loadingRingkasan} />
-            <div className="w-14 h-14 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center flex-shrink-0 mb-5">
-              <PenSquare className="w-7 h-7" />
-            </div>
-            <h2 className="text-xl font-bold text-slate-900 mb-1.5">Soal Essay</h2>
-            <div>
-              <p className="text-slate-500 text-sm leading-relaxed">
-                Dinilai manual oleh Anda setelah siswa mengumpulkan jawaban.
-              </p>
-              <RingkasanSoalCard ringkasan={ringkasanEssay} loading={loadingRingkasan} />
-            </div>
-            <div className="mt-auto pt-6">
-              <span className="inline-flex items-center gap-2 rounded-full bg-emerald-600 group-hover:bg-emerald-700
-                               text-white text-sm font-semibold px-5 py-2.5">
-                <Plus className="w-4 h-4 flex-shrink-0" />
-                <span className="whitespace-nowrap">Buat Soal Essay</span>
-              </span>
-            </div>
-          </button>
+          {essayNonaktif ? (
+            // Kartu TERKUNCI: admin menonaktifkan pengisian soal essay. Gembok
+            // di tengah kartu; isi kartu diredupkan. Menekan kartu/gembok hanya
+            // menampilkan penjelasan, tidak membuka alur pembuatan soal.
+            <button
+              type="button"
+              onClick={() => showToast('Sekolah ini tidak menyelenggarakan ujian essay, jadi pengisian soal essay dinonaktifkan oleh admin.', 'error')}
+              aria-disabled="true"
+              aria-label="Soal Essay dinonaktifkan oleh admin"
+              className="group relative text-left rounded-3xl sm:min-w-0 flex-1 flex flex-col overflow-hidden
+                         bg-slate-50 border-2 border-dashed border-slate-300 cursor-not-allowed
+                         p-7 min-h-[220px] sm:scale-100"
+            >
+              <div className="opacity-40 grayscale select-none pointer-events-none flex flex-col flex-1">
+                <div className="w-14 h-14 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center flex-shrink-0 mb-5">
+                  <PenSquare className="w-7 h-7" />
+                </div>
+                <h2 className="text-xl font-bold text-slate-900 mb-1.5">Soal Essay</h2>
+                <p className="text-slate-500 text-sm leading-relaxed">
+                  Dinilai manual oleh Anda setelah siswa mengumpulkan jawaban.
+                </p>
+              </div>
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center bg-white/70 backdrop-blur-[1.5px]">
+                <span className="w-16 h-16 rounded-full bg-slate-800 text-white flex items-center justify-center shadow-card-lg
+                                 transition-transform duration-200 group-hover:scale-105 group-active:scale-95">
+                  <Lock className="w-8 h-8" />
+                </span>
+                <div>
+                  <p className="font-bold text-slate-800 text-base">Soal Essay Dinonaktifkan</p>
+                  <p className="text-slate-600 text-xs leading-relaxed mt-1 max-w-[240px] mx-auto">
+                    Sekolah ini tidak menyelenggarakan ujian essay, sehingga pengisian soal essay
+                    dinonaktifkan oleh admin.
+                  </p>
+                </div>
+              </div>
+            </button>
+          ) : (
+            <button
+              onClick={() => setKind('essay')}
+              onMouseEnter={() => setHoverKind('essay')}
+              onMouseLeave={() => setHoverKind(null)}
+              onFocus={() => setHoverKind('essay')}
+              onBlur={() => setHoverKind(null)}
+              className={`group relative text-left rounded-3xl sm:min-w-0 flex-1 flex flex-col overflow-hidden
+                         bg-white border-2 border-slate-200 hover:border-emerald-400
+                         shadow-card hover:-translate-y-0.5 active:translate-y-0
+                         transition-[transform,box-shadow,border-color,opacity] ${EASE}
+                         p-7 min-h-[220px]
+                         ${kartuScaleClass('essay')}`}
+            >
+              <PaketBelumKirimBadge ringkasan={ringkasanEssay} loading={loadingRingkasan} />
+              <div className="w-14 h-14 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center flex-shrink-0 mb-5">
+                <PenSquare className="w-7 h-7" />
+              </div>
+              <h2 className="text-xl font-bold text-slate-900 mb-1.5">Soal Essay</h2>
+              <div>
+                <p className="text-slate-500 text-sm leading-relaxed">
+                  Dinilai manual oleh Anda setelah siswa mengumpulkan jawaban.
+                </p>
+                <RingkasanSoalCard ringkasan={ringkasanEssay} loading={loadingRingkasan} />
+              </div>
+              <div className="mt-auto pt-6">
+                <span className="inline-flex items-center gap-2 rounded-full bg-emerald-600 group-hover:bg-emerald-700
+                                 text-white text-sm font-semibold px-5 py-2.5">
+                  <Plus className="w-4 h-4 flex-shrink-0" />
+                  <span className="whitespace-nowrap">Buat Soal Essay</span>
+                </span>
+              </div>
+            </button>
+          )}
 
           {/* Kartu ke-3: bukan alur "buat" — murni ringkasan informasi supaya
               guru bisa cek sekilas mapel+kelas mana yang statusnya masih

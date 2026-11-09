@@ -7,6 +7,7 @@ import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRoleAktif } from '@/lib/status-akun'
 import { stripHtmlTags } from '@/lib/utils'
 import { cekSesiMapelKelasSudahMulai, pesanBankSoalTerkunci } from '@/lib/sesi-kelas'
+import { tolakJikaEssayNonaktif } from '@/lib/essay-guru'
 
 interface Ctx { params: Promise<{ id: string }> }
 
@@ -17,6 +18,10 @@ export async function PUT(req: NextRequest, props: Ctx) {
   const { user } = auth
 
   const db = tenantDb(yayasanIdDari(auth.user))
+  {
+    const blokEssay = await tolakJikaEssayNonaktif(db)
+    if (blokEssay) return blokEssay
+  }
   const body = await req.json()
 
   const { data: existing } = await db

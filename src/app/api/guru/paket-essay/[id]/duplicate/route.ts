@@ -3,6 +3,7 @@ import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRoleAktif } from '@/lib/status-akun'
 import { generateId } from '@/lib/utils'
 import { cekBatasDuplikatSoal } from '@/lib/batas-soal'
+import { tolakJikaEssayNonaktif } from '@/lib/essay-guru'
 
 export async function POST(req: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
@@ -11,6 +12,10 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
   const { user } = auth
 
   const db = tenantDb(yayasanIdDari(auth.user))
+  {
+    const blokEssay = await tolakJikaEssayNonaktif(db)
+    if (blokEssay) return blokEssay
+  }
   const body = await req.json()
   const { kelas_id: kelasTarget } = body
 

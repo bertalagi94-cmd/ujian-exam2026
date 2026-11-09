@@ -4,6 +4,7 @@ import { requireRoleAktif } from '@/lib/status-akun'
 import { kirimPasanganPaket, cekPasanganPaket, type CounterpartResult } from '@/lib/gabungKirim'
 import { cekBatasMinSoal } from '@/lib/batas-soal'
 import { cekSesiMapelKelasSudahMulai, pesanBankSoalTerkunci } from '@/lib/sesi-kelas'
+import { tolakJikaEssayNonaktif } from '@/lib/essay-guru'
 
 // GET dipakai FE untuk menanyakan (tanpa mengubah apa pun) apakah ada paket
 // PG pasangan (mapel+kelas sama, masih DRAFT/DITOLAK, minimal 1 soal)
@@ -54,6 +55,13 @@ export async function POST(
   const db = tenantDb(yayasanIdDari(auth.user))
   const paketId = params.id
   const action = params.action
+
+  // Sekolah tanpa ujian essay: paket essay tidak boleh diajukan. Menarik
+  // kembali paket yang sudah terlanjur dikirim ('tarik') tetap diizinkan.
+  if (action === 'kirim') {
+    const blokEssay = await tolakJikaEssayNonaktif(db)
+    if (blokEssay) return blokEssay
+  }
 
   const { data: paket } = await db
     .from('paket_essay')

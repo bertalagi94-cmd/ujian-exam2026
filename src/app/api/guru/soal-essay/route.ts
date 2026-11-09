@@ -9,6 +9,7 @@ import { cekBatasTambahSoal } from '@/lib/batas-soal'
 import { requireRoleAktif } from '@/lib/status-akun'
 import { generateId, stripHtmlTags } from '@/lib/utils'
 import { cekSesiMapelKelasSudahMulai, pesanBankSoalTerkunci } from '@/lib/sesi-kelas'
+import { tolakJikaEssayNonaktif } from '@/lib/essay-guru'
 
 export async function GET(req: NextRequest) {
   const auth = await requireRoleAktif(req, ['GURU'])
@@ -52,6 +53,10 @@ export async function POST(req: NextRequest) {
   const { user } = auth
 
   const db = tenantDb(yayasanIdDari(auth.user))
+  {
+    const blokEssay = await tolakJikaEssayNonaktif(db)
+    if (blokEssay) return blokEssay
+  }
   const body = await req.json()
 
   if (!body.paket_id) {

@@ -4,6 +4,7 @@ import { requireRoleAktif } from '@/lib/status-akun'
 import { generateId } from '@/lib/utils'
 import { cekSesiMapelKelasSudahMulai, pesanBankSoalTerkunci } from '@/lib/sesi-kelas'
 import { verifikasiKepemilikanMapelKelas } from '@/lib/guru-scope'
+import { tolakJikaEssayNonaktif } from '@/lib/essay-guru'
 
 export async function GET(req: NextRequest) {
   const auth = await requireRoleAktif(req, ['GURU'])
@@ -74,6 +75,10 @@ export async function POST(req: NextRequest) {
   if ('error' in auth) return auth.error
   const { user } = auth
   const db = tenantDb(yayasanIdDari(auth.user))
+  {
+    const blokEssay = await tolakJikaEssayNonaktif(db)
+    if (blokEssay) return blokEssay
+  }
   const body = await req.json()
 
   if (!body.mapel_id || !body.kelas_id) {

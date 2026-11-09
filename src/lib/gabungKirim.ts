@@ -13,6 +13,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { tentukanDurasiEssay } from '@/lib/durasi-ujian'
 import { cekBatasMinSoal } from '@/lib/batas-soal'
+import { essayGuruNonaktif } from '@/lib/essay-guru'
 
 export interface CounterpartResult {
   submitted: boolean
@@ -44,6 +45,12 @@ export async function cekPasanganPaket(
   }
 ): Promise<CounterpartCheck> {
   const { mapelId, kelasId, guruId, jenisPasangan } = opts
+
+  // Sekolah tanpa ujian essay: paket essay pasangan tidak ikut terkirim
+  // bersama paket PG (kirimPasanganPaket memanggil fungsi ini juga).
+  if (jenisPasangan === 'ESSAY' && (await essayGuruNonaktif(db))) {
+    return { ada: false, alasanTidakIkut: 'Pengisian soal essay dinonaktifkan oleh admin' }
+  }
 
   const paketTable = jenisPasangan === 'PG' ? 'paket_soal' : 'paket_essay'
   const soalTable = jenisPasangan === 'PG' ? 'soal' : 'soal_essay'

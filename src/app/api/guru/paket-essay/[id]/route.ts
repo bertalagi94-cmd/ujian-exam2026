@@ -3,6 +3,7 @@ import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRoleAktif } from '@/lib/status-akun'
 import { cekSesiMapelKelasSudahMulai, pesanBankSoalTerkunci } from '@/lib/sesi-kelas'
 import { bacaBatasDurasiEssay } from '@/lib/durasi-ujian'
+import { tolakJikaEssayNonaktif } from '@/lib/essay-guru'
 
 export async function DELETE(req: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
@@ -82,6 +83,10 @@ export async function PUT(req: NextRequest, props: { params: Promise<{ id: strin
 
   const { user } = auth
   const db = tenantDb(yayasanIdDari(auth.user))
+  {
+    const blokEssay = await tolakJikaEssayNonaktif(db)
+    if (blokEssay) return blokEssay
+  }
   const paketId = params.id
   const body = await req.json()
 
