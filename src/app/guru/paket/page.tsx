@@ -10,6 +10,7 @@ import { EssayFlowGuide } from '@/components/shared/EssayFlowGuide'
 import { PaletSimbol } from '@/components/shared/PaletSimbol'
 import { ImporSoalModal, type ImporSoalHasil } from '@/components/shared/ImporSoalModal'
 import { PilihCaraInputModal } from '@/components/shared/PilihCaraInputModal'
+import { TombolUnduhSoal } from '@/components/shared/TombolUnduhSoal'
 import { useBatasMinMapel } from '@/lib/use-batas-min-soal'
 import { BatasMinSoalInfo } from '@/components/shared/BatasMinSoalInfo'
 import { ImporSelesaiPopup, type ImporSelesaiInfo } from '@/components/shared/ImporSelesaiPopup'
@@ -1055,6 +1056,15 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
                       <Plus className="w-3 h-3 lg:w-3.5 lg:h-3.5" /> Lanjutkan
                     </button>
                   )}
+
+                  {/* Unduh naskah soal (PDF / Word) */}
+                  <TombolUnduhSoal
+                    jenis="PG"
+                    paketId={p.id}
+                    namaMapel={p.nama_mapel ?? getNamaMapel(p.mapel_id)}
+                    namaKelas={p.nama_kelas ?? getNamaKelas(p.kelas_id)}
+                    onToast={(msg, type) => setToast({ msg, type })}
+                  />
 
                   {/* Duplicate — selalu tersedia */}
                   <button onClick={() => { setDupId(p.id); setDupKelas('') }}
@@ -2366,6 +2376,14 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
                   )}
                 </div>
                 <div className="flex items-center gap-1.5 lg:gap-2 flex-shrink-0 flex-wrap justify-start lg:justify-end">
+                  <TombolUnduhSoal
+                    jenis="ESSAY"
+                    paketId={p.id}
+                    namaMapel={p.nama_mapel ?? getNamaMapel(p.mapel_id)}
+                    namaKelas={p.nama_kelas ?? getNamaKelas(p.kelas_id)}
+                    durasiMenit={p.durasi_final_admin ?? p.durasi_menit}
+                    onToast={(msg, type) => setToast({ msg, type })}
+                  />
                   <button onClick={() => { setDupId(p.id); setDupKelas('') }} className="btn-ghost !px-2 !py-1 !text-[11px] lg:!px-3 lg:!py-1.5 lg:!text-xs !rounded-lg text-slate-600" title="Duplikasi paket ke kelas lain">
                     <Copy className="w-3 h-3 lg:w-3.5 lg:h-3.5" /> Duplikasi
                   </button>

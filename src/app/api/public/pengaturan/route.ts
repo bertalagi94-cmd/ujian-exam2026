@@ -42,6 +42,20 @@ export async function GET(req: NextRequest) {
         const url = (sekolahLogo?.[0] as { logo_url?: string } | undefined)?.logo_url
         if (url) map.logoUrl = url
       }
+
+      // Alamat & NPSN untuk kop naskah soal (PDF/Word). Diambil dari Informasi
+      // Sekolah (jenjang pertama); kosong kalau belum diisi admin.
+      try {
+        const { data: sk } = await db
+          .from('sekolah')
+          .select('alamat, npsn')
+          .order('urutan')
+          .order('created_at')
+          .limit(1)
+        const row = sk?.[0] as { alamat?: string | null; npsn?: string | null } | undefined
+        if (row?.alamat) map.alamatSekolah = row.alamat
+        if (row?.npsn) map.npsnSekolah = row.npsn
+      } catch { /* kop tetap dibuat tanpa alamat */ }
       return map
     })
 
