@@ -151,8 +151,6 @@ export function ImporSoalModal(p: Props) {
   const [errTpl, setErrTpl] = useState('')
   const jumlahTplRef = useRef<HTMLInputElement>(null)
   const [opsiTpl, setOpsiTpl] = useState<4 | 5>(p.jumlahOpsiPaksa ?? p.jumlahOpsiBawaan ?? 4)
-  // 'sekaligus' = satu kolom "Pilihan Jawaban" untuk tempel semua opsi A–E sekali jalan.
-  const [modeOpsi, setModeOpsi] = useState<'sekaligus' | 'terpisah'>('sekaligus')
   const [unduhBusy, setUnduhBusy] = useState(false)
 
   const [namaFile, setNamaFile] = useState('')
@@ -231,7 +229,7 @@ export function ImporSoalModal(p: Props) {
     const n = angka
     setUnduhBusy(true)
     try {
-      const blob = await buatTemplateDocx({ jenis: p.jenis, jumlah: n, jumlahOpsi: opsiTpl, modeOpsi, namaMapel: p.namaMapel, namaKelas: p.namaKelas })
+      const blob = await buatTemplateDocx({ jenis: p.jenis, jumlah: n, jumlahOpsi: opsiTpl, namaMapel: p.namaMapel, namaKelas: p.namaKelas })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
@@ -550,16 +548,6 @@ export function ImporSoalModal(p: Props) {
                   onChange={e => setOpsiTpl(Number(e.target.value) === 5 ? 5 : 4)}>
                   <option value={4}>4 (A–D)</option>
                   <option value={5}>5 (A–E)</option>
-                </select>
-              </div>
-            )}
-            {isPg && (
-              <div>
-                <label className="label">Cara isi opsi</label>
-                <select className="input w-64" value={modeOpsi}
-                  onChange={e => setModeOpsi(e.target.value === 'terpisah' ? 'terpisah' : 'sekaligus')}>
-                  <option value="sekaligus">Tempel sekaligus (A–E satu kolom)</option>
-                  <option value="terpisah">Satu per satu (baris A, B, C …)</option>
                 </select>
               </div>
             )}
