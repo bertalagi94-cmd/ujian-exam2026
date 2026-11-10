@@ -1034,7 +1034,7 @@ export default function LoginPage() {
             </div>
 
             {/* Welcome card mobile — glass */}
-            <div className="login-glass-card rounded-3xl p-8 text-slate-900">
+            <div className="login-glass-card-mobile rounded-3xl p-8 text-slate-900">
               {/* Avatar + heading */}
               <div className="flex flex-col items-center mb-6">
                 <div className="w-16 h-16 rounded-full bg-sky-50 flex items-center justify-center mb-3">
