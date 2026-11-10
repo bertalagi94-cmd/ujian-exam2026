@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { FileText, Plus, Send, Save, Edit2, Trash2, Eye, X, ChevronDown, Users, Clock, ChevronRight, BookOpen, GraduationCap } from 'lucide-react'
+import { FileText, Plus, Send, Save, Edit2, Trash2, X, ChevronDown, Users, Clock, BookOpen, GraduationCap, Lock, Eye } from 'lucide-react'
 import { apiRequest, formatDateTime } from '@/lib/utils'
 
 interface KisiKisi {
@@ -406,12 +406,13 @@ export default function GuruKisiKisiPage() {
           {milikRekan.length > 0 && (
             <section>
               <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-3">Kisi-kisi Rekan Guru</h2>
+              <p className="-mt-2 mb-3 text-[11px] text-slate-400">Hanya menampilkan guru, mapel, dan status. Isi kisi-kisi hanya dapat dilihat oleh pemiliknya.</p>
               <div className="space-y-2">
                 {milikRekan.map(k => (
                   <KisiKisiRow
                     key={k.id}
                     item={k}
-                    onPreview={() => openPreview(k)}
+                    onPreview={() => {}}
                     canEdit={false}
                   />
                 ))}
@@ -437,7 +438,7 @@ export default function GuruKisiKisiPage() {
   return (
     <div className="max-w-4xl mx-auto">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-4">
         <div>
           <h1 className="text-xl font-bold text-slate-800 flex items-center gap-2 subheader-title">
             <FileText className="w-5 h-5 text-emerald-600" /> Kisi-kisi
@@ -475,7 +476,7 @@ export default function GuruKisiKisiPage() {
       ) : (
         <>
           {/* Info ringkas */}
-          <div className="flex items-center gap-2 mb-5 p-3 rounded-xl bg-slate-50 border border-slate-200 text-sm text-slate-500">
+          <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs sm:text-sm text-slate-500">
             <BookOpen className="w-4 h-4 text-emerald-500 flex-shrink-0" />
             <span>
               Terdapat <strong className="text-slate-700">{kisiList.length} kisi-kisi</strong> dari{' '}
@@ -484,85 +485,46 @@ export default function GuruKisiKisiPage() {
             </span>
           </div>
 
-          {/* Grid kartu kelas */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {/* Grid kartu kelas — kompak: nama kelas, jumlah kisi-kisi, nama guru.
+              2 kolom di HP supaya puluhan kelas tidak perlu scroll panjang. */}
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 lg:grid-cols-4">
             {kelasEntries.map(([kelasId, group], idx) => {
               const color = CARD_COLORS[idx % CARD_COLORS.length]
               const jumlahSaya = group.items.filter(k => k.is_mine).length
-              const jumlahRekan = group.items.filter(k => !k.is_mine).length
-              const adaTerkirim = group.items.some(k => k.status === 'TERKIRIM')
-              const adaDraft = group.items.some(k => k.status === 'DRAFT')
+
+              // Nama guru unik; milik sendiri ditulis "Saya" dan diletakkan paling depan.
+              const namaGuru = [...new Set(
+                [...group.items].sort((x, y) => Number(y.is_mine) - Number(x.is_mine))
+                  .map(k => (k.is_mine ? 'Saya' : k.nama_guru))
+              )]
+              const ringkasGuru = namaGuru.length > 2
+                ? `${namaGuru.slice(0, 2).join(', ')} +${namaGuru.length - 2}`
+                : namaGuru.join(', ')
 
               return (
                 <button
                   key={kelasId}
                   onClick={() => openKelasDetail(group.namaKelas)}
-                  className="group text-left rounded-2xl overflow-hidden shadow-card hover:shadow-card-md transition-all duration-200 hover:-translate-y-0.5 active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2"
+                  title={`${group.namaKelas} · ${namaGuru.join(', ')}`}
+                  className="group relative min-w-0 overflow-hidden rounded-xl border border-slate-100 bg-white p-2.5 pl-3.5 text-left shadow-card transition-all duration-150 hover:shadow-card-md active:scale-[0.97] focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 >
-                  {/* Bagian atas berwarna */}
-                  <div className={`bg-gradient-to-br ${color.bg} p-5 relative overflow-hidden`}>
-                    {/* Dekorasi lingkaran */}
-                    <div className="absolute -top-6 -right-6 w-24 h-24 rounded-full bg-white/10" />
-                    <div className="absolute -bottom-4 -left-4 w-16 h-16 rounded-full bg-white/10" />
+                  {/* Garis warna di sisi kiri */}
+                  <span aria-hidden className={`absolute inset-y-0 left-0 w-1.5 bg-gradient-to-b ${color.bg}`} />
 
-                    <div className="relative flex items-start justify-between">
-                      <div>
-                        <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center mb-3">
-                          <GraduationCap className="w-5 h-5 text-white" />
-                        </div>
-                        <p className="text-white/70 text-xs font-medium uppercase tracking-wider">Kelas</p>
-                        <h3 className="text-white font-bold text-lg leading-tight mt-0.5">
-                          {group.namaKelas}
-                        </h3>
-                      </div>
-                      <div className="bg-white/20 rounded-full w-8 h-8 flex items-center justify-center group-hover:bg-white/30 transition-colors mt-1">
-                        <ChevronRight className="w-4 h-4 text-white" />
-                      </div>
-                    </div>
-
-                    {/* Badge status */}
-                    <div className="relative flex gap-1.5 mt-4 flex-wrap">
-                      {adaTerkirim && (
-                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-white/25 text-white">
-                          ✓ Ada Terkirim
-                        </span>
-                      )}
-                      {adaDraft && (
-                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-white/20 text-white/80">
-                          ✎ Ada Draft
-                        </span>
-                      )}
-                    </div>
+                  <div className="flex items-center justify-between gap-1.5">
+                    <h3 className="min-w-0 truncate text-sm font-bold leading-tight text-slate-800">{group.namaKelas}</h3>
+                    <span className={`flex-shrink-0 rounded-full px-1.5 py-0.5 text-[11px] font-bold tabular-nums ${color.light} ${color.text}`}>
+                      {group.items.length}
+                    </span>
                   </div>
 
-                  {/* Bagian bawah putih */}
-                  <div className="bg-white border border-t-0 border-slate-100 p-4">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-2xl font-bold text-slate-800">{group.items.length}</p>
-                        <p className="text-xs text-slate-400 mt-0.5">
-                          kisi-kisi tersedia
-                        </p>
-                      </div>
-                      <div className="text-right space-y-0.5">
-                        {jumlahSaya > 0 && (
-                          <p className="text-xs text-slate-500">
-                            <span className="font-semibold text-slate-700">{jumlahSaya}</span> milik saya
-                          </p>
-                        )}
-                        {jumlahRekan > 0 && (
-                          <p className="text-xs text-slate-400">
-                            <span className="font-semibold text-slate-600">{jumlahRekan}</span> dari rekan
-                          </p>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="mt-3 pt-3 border-t border-slate-100 flex items-center gap-1.5 text-xs font-medium text-slate-500 group-hover:text-emerald-600 transition-colors">
-                      <Eye className="w-3.5 h-3.5" />
-                      Klik untuk lihat kisi-kisi
-                    </div>
-                  </div>
+                  <p className="mt-1 flex items-center gap-1 text-[11px] leading-tight text-slate-400">
+                    <Users className="h-3 w-3 flex-shrink-0" />
+                    <span className="truncate">{ringkasGuru}</span>
+                  </p>
+                  {jumlahSaya > 0 && (
+                    <span className="sr-only">{jumlahSaya} milik saya</span>
+                  )}
                 </button>
               )
             })}
@@ -584,7 +546,7 @@ function KisiKisiRow({
   canEdit: boolean
 }) {
   return (
-    <div className="card p-4 flex items-center gap-4 hover:shadow-card-md transition-shadow">
+    <div className="card p-3 flex items-center gap-3 hover:shadow-card-md transition-shadow">
       <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center flex-shrink-0">
         <FileText className="w-5 h-5 text-emerald-600" />
       </div>
@@ -605,9 +567,15 @@ function KisiKisiRow({
         </div>
       </div>
       <div className="flex items-center gap-1 flex-shrink-0">
-        <button onClick={onPreview} className="btn-ghost btn-icon btn-sm" title="Lihat">
-          <Eye className="w-4 h-4" />
-        </button>
+        {canEdit ? (
+          <button onClick={onPreview} className="btn-ghost btn-icon btn-sm" title="Lihat">
+            <Eye className="w-4 h-4" />
+          </button>
+        ) : (
+          <span className="p-2 text-slate-300" title="Isi kisi-kisi hanya dapat dilihat oleh guru pemiliknya">
+            <Lock className="w-4 h-4" />
+          </span>
+        )}
         {canEdit && onEdit && (
           <button onClick={onEdit} className="btn-ghost btn-icon btn-sm" title="Edit">
             <Edit2 className="w-4 h-4" />

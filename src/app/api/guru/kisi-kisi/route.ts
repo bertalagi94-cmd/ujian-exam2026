@@ -73,8 +73,11 @@ export async function GET(req: NextRequest) {
   const kelasMap = Object.fromEntries((kelasList ?? []).map(k => [k.id, k.nama]))
   const guruMap = Object.fromEntries((guruList ?? []).map(g => [g.username, g.nama]))
 
+  // Isi kisi-kisi milik rekan guru TIDAK dikirim ke browser (hanya metadata:
+  // guru, mapel, kelas, status). Isi hanya untuk pemiliknya sendiri.
   const enriched = kisiList.map(k => ({
     ...k,
+    konten: k.guru_id === user.username ? k.konten : '',
     nama_mapel: mapelMap[k.mapel_id] ?? k.mapel_id,
     nama_kelas: kelasMap[k.kelas_id] ?? k.kelas_id,
     nama_guru: guruMap[k.guru_id] ?? k.guru_id,
