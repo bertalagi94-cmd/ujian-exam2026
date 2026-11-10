@@ -16,6 +16,7 @@ import { PieChart, ArrowUpRight, MousePointerClick, X } from 'lucide-react'
 import { apiRequest, cn } from '@/lib/utils'
 import type { LaporanResponse, RowLaporan } from '@/lib/laporan-pdf'
 import { STATUS_SOAL_LABEL } from '@/lib/laporan-pdf'
+import { PesanSoalSelesai } from '@/components/shared/PesanSoalSelesai'
 
 type StatusKey = 'DISETUJUI' | 'MENUNGGU' | 'DRAFT' | 'DITOLAK' | 'BELUM_DIBUAT'
 
@@ -300,6 +301,8 @@ export function DonutKelengkapanSoal({ className }: { className?: string }) {
                   ))}
                 </div>
               </div>
+            ) : total > 0 && hitung.DISETUJUI === total ? (
+              <PesanSoalSelesai untuk="admin" />
             ) : (
               <div className="flex items-center gap-2 rounded-xl border border-dashed border-slate-200 px-3 py-2.5 text-xs text-slate-500">
                 <MousePointerClick className="h-4 w-4 flex-shrink-0 text-brand-500" />

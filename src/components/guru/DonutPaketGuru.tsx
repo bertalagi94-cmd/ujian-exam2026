@@ -13,6 +13,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { PieChart, ArrowUpRight, MousePointerClick, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { PesanSoalSelesai } from '@/components/shared/PesanSoalSelesai'
 
 export interface PaketRingkas {
   id: string
@@ -297,6 +298,8 @@ export function DonutPaketGuru({ paket, className }: { paket: PaketRingkas[]; cl
                   ))}
                 </div>
               </div>
+            ) : total > 0 && hitung.DISETUJUI === total ? (
+              <PesanSoalSelesai untuk="guru" />
             ) : (
               <div className="flex items-center gap-2 rounded-xl border border-dashed border-slate-200 px-3 py-2.5 text-xs text-slate-500">
                 <MousePointerClick className="h-4 w-4 flex-shrink-0 text-brand-500" />
