@@ -637,13 +637,29 @@ function PgSoalFlow({ onBack }: { onBack: () => void }) {
   // Sekarang dibatasi ke kelas yang ada di `kelas_list` milik mapel ini
   // pada `guruMapelList` — persis logika yang sudah dipakai untuk mengisi
   // dropdown kelas di step "setup" (lihat `kelasUntukMapel` di atas).
+  //
+  // FIX BUG (kelas yang sudah diduplikasi masih muncul di dropdown): setelah
+  // paket diduplikasi ke kelas X, kelas X tetap tampil sebagai tujuan, lalu
+  // memilihnya lagi hanya berujung error server "Anda sudah memiliki paket
+  // aktif untuk mapel dan kelas tersebut". Sekarang kelas yang SUDAH punya
+  // paket aktif (DRAFT/MENUNGGU/DISETUJUI) untuk mapel yang sama langsung
+  // disembunyikan — aturan ini sama persis dengan pemeriksaan `existing` di
+  // /api/guru/paket/[id]/duplicate. Paket DITOLAK tidak memblokir (server
+  // juga mengizinkannya), jadi kelas itu tetap bisa dipilih.
   function getKelasUntukDuplicate(paketId: string) {
     const paket = pakets.find(p => p.id === paketId)
     if (!paket) return []
     const mapel = guruMapelList.find(m => m.id === paket.mapel_id)
     if (!mapel?.kelas_list) return []
     const kelasDiMapel = mapel.kelas_list.split(',').map(s => s.trim()).filter(Boolean)
-    return allKelasList.filter(k => kelasDiMapel.includes(k.nama) && k.id !== paket.kelas_id)
+    const kelasSudahAdaPaket = new Set(
+      pakets
+        .filter(p => p.mapel_id === paket.mapel_id && ['DRAFT', 'MENUNGGU', 'DISETUJUI'].includes(p.status))
+        .map(p => p.kelas_id)
+    )
+    return allKelasList.filter(
+      k => kelasDiMapel.includes(k.nama) && k.id !== paket.kelas_id && !kelasSudahAdaPaket.has(k.id)
+    )
   }
 
   const getNamaMapel = (id: string) => guruMapelList.find(m => m.id === id)?.nama ?? allMapelList.find(m => m.id === id)?.nama ?? id
@@ -1901,13 +1917,25 @@ function EssaySoalFlow({ onBack }: { onBack: () => void }) {
   // sama sekali untuk mapel tsb — sama seperti bug di getKelasUntukDuplicate
   // pada PgSoalFlow di atas, diperbaiki dengan pola yang sama: cocokkan ke
   // `kelas_list` milik mapel ini di guruMapelList.
+  //
+  // FIX BUG (kelas yang sudah diduplikasi masih muncul di dropdown): kelas yang
+  // SUDAH punya paket essay aktif (DRAFT/MENUNGGU/DISETUJUI) untuk mapel yang
+  // sama disembunyikan, sama dengan pemeriksaan `existing` di
+  // /api/guru/paket-essay/[id]/duplicate. Paket DITOLAK tidak memblokir.
   const dupPaketSumber = pakets.find(p => p.id === dupId) ?? null
   const kelasTujuanDuplikasi = (() => {
     if (!dupPaketSumber) return []
     const mapel = guruMapelList.find(m => m.id === dupPaketSumber.mapel_id)
     if (!mapel?.kelas_list) return []
     const kelasDiMapel = mapel.kelas_list.split(',').map(s => s.trim()).filter(Boolean)
-    return allKelasList.filter(k => kelasDiMapel.includes(k.nama) && k.id !== dupPaketSumber.kelas_id)
+    const kelasSudahAdaPaket = new Set(
+      pakets
+        .filter(p => p.mapel_id === dupPaketSumber.mapel_id && ['DRAFT', 'MENUNGGU', 'DISETUJUI'].includes(p.status))
+        .map(p => p.kelas_id)
+    )
+    return allKelasList.filter(
+      k => kelasDiMapel.includes(k.nama) && k.id !== dupPaketSumber.kelas_id && !kelasSudahAdaPaket.has(k.id)
+    )
   })()
 
   // ── Render daftar soal (dipakai di step detail) ──
