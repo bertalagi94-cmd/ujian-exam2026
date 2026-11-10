@@ -44,6 +44,9 @@ export default function AdminLaporanPage() {
   // atau mapel bernama sama di beberapa jenjang ikut tampil bersamaan.
   const [filterKelas, setFilterKelas] = useState('')
   const [filterMapel, setFilterMapel] = useState('')
+  // Filter per guru & per status soal (status mapel). '' = semua.
+  const [filterGuru, setFilterGuru] = useState('')
+  const [filterStatus, setFilterStatus] = useState('')
   const [panelFilterBuka, setPanelFilterBuka] = useState(false)
   // Download PDF: tiap tahap (Pra/Saat/Setelah Ujian) = 1 file terpisah.
   const [panelUnduhBuka, setPanelUnduhBuka] = useState(false)
@@ -76,40 +79,50 @@ export default function AdminLaporanPage() {
   // mapel yang ada di kelas terpilih, dan daftar kelas hanya berisi kelas yang
   // punya mapel terpilih — jadi tidak ada kombinasi yang berujung tabel kosong.
   const urutNama = (a: string, b: string) => a.localeCompare(b, 'id', { numeric: true })
-  const opsiKelas = useMemo(() => {
+  // Baris yang lolos semua filter kecuali `kecuali` — dipakai agar pilihan tiap
+  // dropdown hanya berisi nilai yang masih menghasilkan data.
+  type Kunci = 'kelas' | 'mapel' | 'guru' | 'status'
+  const lolos = useCallback((r: JenjangGroup['rows'][number], kecuali?: Kunci) =>
+    (kecuali === 'kelas' || !filterKelas || r.namaKelas === filterKelas) &&
+    (kecuali === 'mapel' || !filterMapel || r.namaMapel === filterMapel) &&
+    (kecuali === 'guru' || !filterGuru || r.namaGuru === filterGuru) &&
+    (kecuali === 'status' || !filterStatus || r.pra.statusSoal === filterStatus),
+  [filterKelas, filterMapel, filterGuru, filterStatus])
+
+  const opsiDari = useCallback((kunci: Kunci, ambil: (r: JenjangGroup['rows'][number]) => string) => {
     const set = new Set<string>()
-    for (const g of data) for (const r of g.rows) {
-      if (!filterMapel || r.namaMapel === filterMapel) set.add(r.namaKelas)
-    }
+    for (const g of data) for (const r of g.rows) if (lolos(r, kunci)) set.add(ambil(r))
     return [...set].sort(urutNama)
-  }, [data, filterMapel])
-  const opsiMapel = useMemo(() => {
-    const set = new Set<string>()
-    for (const g of data) for (const r of g.rows) {
-      if (!filterKelas || r.namaKelas === filterKelas) set.add(r.namaMapel)
-    }
-    return [...set].sort(urutNama)
-  }, [data, filterKelas])
+  }, [data, lolos])
+
+  const opsiKelas = useMemo(() => opsiDari('kelas', r => r.namaKelas), [opsiDari])
+  const opsiMapel = useMemo(() => opsiDari('mapel', r => r.namaMapel), [opsiDari])
+  const opsiGuru = useMemo(() => opsiDari('guru', r => r.namaGuru), [opsiDari])
+  const opsiStatus = useMemo(
+    () => Object.keys(STATUS_SOAL_LABEL).filter(k => opsiDari('status', r => r.pra.statusSoal).includes(k)),
+    [opsiDari]
+  )
 
   // Pilihan yang sudah tidak ada lagi (mis. setelah Refresh atau setelah filter
   // lain diganti) otomatis dikembalikan ke "Semua".
   useEffect(() => { if (filterKelas && !opsiKelas.includes(filterKelas)) setFilterKelas('') }, [opsiKelas, filterKelas])
   useEffect(() => { if (filterMapel && !opsiMapel.includes(filterMapel)) setFilterMapel('') }, [opsiMapel, filterMapel])
+  useEffect(() => { if (filterGuru && !opsiGuru.includes(filterGuru)) setFilterGuru('') }, [opsiGuru, filterGuru])
+  useEffect(() => { if (filterStatus && !opsiStatus.includes(filterStatus)) setFilterStatus('') }, [opsiStatus, filterStatus])
 
-  const jumlahFilterAktif = (filterKelas ? 1 : 0) + (filterMapel ? 1 : 0)
-  const resetFilter = () => { setFilterKelas(''); setFilterMapel('') }
+  const jumlahFilterAktif = [filterKelas, filterMapel, filterGuru, filterStatus].filter(Boolean).length
+  const resetFilter = () => { setFilterKelas(''); setFilterMapel(''); setFilterGuru(''); setFilterStatus('') }
 
   // Filter kelas + mapel + pencarian (client-side) — dipakai untuk preview DAN
   // untuk PDF yang di-generate (PDF hanya memuat baris yang sedang tampil).
   const filteredData = useMemo(() => {
     const q = search.trim().toLowerCase()
-    if (!q && !filterKelas && !filterMapel) return data
+    if (!q && !jumlahFilterAktif) return data
     return data
       .map(g => ({
         ...g,
         rows: g.rows.filter(r =>
-          (!filterKelas || r.namaKelas === filterKelas) &&
-          (!filterMapel || r.namaMapel === filterMapel) &&
+          lolos(r) &&
           (!q ||
             r.namaMapel.toLowerCase().includes(q) ||
             r.namaKelas.toLowerCase().includes(q) ||
@@ -117,7 +130,7 @@ export default function AdminLaporanPage() {
         ),
       }))
       .filter(g => g.rows.length > 0)
-  }, [data, search, filterKelas, filterMapel])
+  }, [data, search, lolos, jumlahFilterAktif])
 
   const toggleCollapse = (key: string) => setCollapsed(prev => ({ ...prev, [key]: !prev[key] }))
 
@@ -140,6 +153,8 @@ export default function AdminLaporanPage() {
   const cakupanTeks = [
     `Kelas: ${filterKelas || 'Semua'}`,
     `Mapel: ${filterMapel || 'Semua'}`,
+    `Guru: ${filterGuru || 'Semua'}`,
+    filterStatus ? `Status Soal: ${STATUS_SOAL_LABEL[filterStatus] ?? filterStatus}` : '',
     search.trim() ? `Pencarian: "${search.trim()}"` : '',
   ].filter(Boolean).join('  |  ')
 
@@ -184,6 +199,7 @@ export default function AdminLaporanPage() {
         jenjangLabel: jenjangUnduh === 'ALL' ? null : (targetUnduh[0]?.label ?? null),
         kelas: filterKelas,
         mapel: filterMapel,
+        guru: filterGuru,
         tanggal: new Date().toISOString().slice(0, 10),
       }))
       showToast(`PDF ${INFO_TAHAP[tahap].tombol} berhasil diunduh`)
@@ -322,7 +338,7 @@ export default function AdminLaporanPage() {
         </div>
 
         {panelFilterBuka && (
-          <div className="card p-4 grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-2xl">
+          <div className="card p-4 grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-3xl">
             <div>
               <label className="label">Filter per Kelas</label>
               <select className="select" value={filterKelas} onChange={e => setFilterKelas(e.target.value)}>
@@ -337,8 +353,22 @@ export default function AdminLaporanPage() {
                 {opsiMapel.map(m => <option key={m} value={m}>{m}</option>)}
               </select>
             </div>
+            <div>
+              <label className="label">Filter per Guru</label>
+              <select className="select" value={filterGuru} onChange={e => setFilterGuru(e.target.value)}>
+                <option value="">Semua guru</option>
+                {opsiGuru.map(g => <option key={g} value={g}>{g}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="label">Filter Status Soal (Mapel)</label>
+              <select className="select" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
+                <option value="">Semua status</option>
+                {opsiStatus.map(k => <option key={k} value={k}>{STATUS_SOAL_LABEL[k] ?? k}</option>)}
+              </select>
+            </div>
             <p className="sm:col-span-2 text-xs text-muted">
-              Pilihan kelas dan mapel saling menyesuaikan. Hasil filter juga dipakai saat Download PDF.
+              Pilihan kelas, mapel, guru, dan status saling menyesuaikan. Hasil filter juga dipakai saat Download PDF.
             </p>
           </div>
         )}
