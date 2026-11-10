@@ -12,37 +12,41 @@ export async function GET(req: NextRequest) {
   const db = tenantDb(yayasanIdDari(auth.user))
   const guruId = user.username
 
-  const [
-    { count: totalSoal },
-    { count: soalDisetujui },
-    { count: soalMenunggu },
-    { count: soalDitolak },
-    { count: totalPaket },
-    { data: paketTerbaru },
-  ] = await Promise.all([
-    db.from('soal').select('*', { count: 'exact', head: true }).eq('guru_id', guruId),
-    db.from('soal').select('*', { count: 'exact', head: true }).eq('guru_id', guruId).eq('status', 'DISETUJUI'),
-    db.from('soal').select('*', { count: 'exact', head: true }).eq('guru_id', guruId).eq('status', 'MENUNGGU'),
-    db.from('soal').select('*', { count: 'exact', head: true }).eq('guru_id', guruId).eq('status', 'DITOLAK'),
-    db.from('paket_soal').select('*', { count: 'exact', head: true }).eq('guru_id', guruId),
-    db.from('paket_soal').select('*').eq('guru_id', guruId).order('tanggal', { ascending: false }).limit(5),
-  ])
+  // Kartu & diagram donat beranda guru dihitung PER PAKET (bukan per soal),
+  // jadi cukup satu query: seluruh paket milik guru ini, terbaru dulu. Hitungan
+  // per status diambil dari hasilnya, dan 5 teratas dipakai untuk daftar
+  // "Paket Soal Terbaru". Jumlah paket per guru kecil (puluhan), jadi aman.
+  const { data: paketGuru } = await db
+    .from('paket_soal')
+    .select('id, mapel_id, kelas_id, status, tanggal, catatan, jumlah_soal')
+    .eq('guru_id', guruId)
+    .order('tanggal', { ascending: false })
 
-  // Enrich paket with mapel & kelas names
-  const mapelIds = [...new Set((paketTerbaru ?? []).map(p => p.mapel_id).filter(Boolean))]
-  const kelasIds = [...new Set((paketTerbaru ?? []).map(p => p.kelas_id).filter(Boolean))]
+  const semuaPaket = paketGuru ?? []
+  const hitungPaket = (status: string) => semuaPaket.filter(p => p.status === status).length
+  const totalPaket = semuaPaket.length
+  const paketDisetujui = hitungPaket('DISETUJUI')
+  const paketMenunggu = hitungPaket('MENUNGGU')
+  const paketDitolak = hitungPaket('DITOLAK')
+  const paketDraft = hitungPaket('DRAFT')
+
+  // Enrich paket with mapel & kelas names (semua paket: dipakai juga oleh
+  // detail diagram donat saat sebuah segmen diklik).
+  const mapelIds = [...new Set(semuaPaket.map(p => p.mapel_id).filter(Boolean))]
+  const kelasIds = [...new Set(semuaPaket.map(p => p.kelas_id).filter(Boolean))]
   const [{ data: mapelList }, { data: kelasList }] = await Promise.all([
-    db.from('mapel').select('id, nama').in('id', mapelIds),
-    db.from('kelas').select('id, nama').in('id', kelasIds),
+    db.from('mapel').select('id, nama').in('id', mapelIds.length ? mapelIds : ['__none__']),
+    db.from('kelas').select('id, nama').in('id', kelasIds.length ? kelasIds : ['__none__']),
   ])
   const mapelMap = Object.fromEntries((mapelList ?? []).map(m => [m.id, m.nama]))
   const kelasMap = Object.fromEntries((kelasList ?? []).map(k => [k.id, String(k.nama)]))
 
-  const enrichedPaket = (paketTerbaru ?? []).map(p => ({
+  const enrichedSemua = semuaPaket.map(p => ({
     ...p,
     nama_mapel: mapelMap[p.mapel_id] ?? p.mapel_id,
     nama_kelas: kelasMap[p.kelas_id] ?? p.kelas_id,
   }))
+  const enrichedPaket = enrichedSemua.slice(0, 5)
 
   // Get nilai for mapels taught by this guru
   const { data: guruMapel } = await db.from('mapel').select('id').eq('guru_id', guruId)
@@ -102,15 +106,24 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     stats: {
-      totalSoal: totalSoal ?? 0,
-      soalDisetujui: soalDisetujui ?? 0,
-      soalMenunggu: soalMenunggu ?? 0,
-      soalDitolak: soalDitolak ?? 0,
-      totalPaket: totalPaket ?? 0,
+      totalPaket,
+      paketDisetujui,
+      paketMenunggu,
+      paketDitolak,
+      paketDraft,
       totalNilai: nilaiAll?.length ?? 0,
       rataRataNilai,
     },
     paketTerbaru: enrichedPaket,
+    // Seluruh paket (ringkas) untuk detail diagram donat di beranda guru.
+    paketSemua: enrichedSemua.map(p => ({
+      id: p.id,
+      nama_mapel: p.nama_mapel,
+      nama_kelas: p.nama_kelas,
+      status: p.status,
+      jumlah_soal: p.jumlah_soal ?? 0,
+      catatan: p.status === 'DITOLAK' ? (p.catatan ?? null) : null,
+    })),
     nilaiTerbaru,
   })
 }

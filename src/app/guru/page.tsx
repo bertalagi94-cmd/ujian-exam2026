@@ -1,20 +1,23 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { BookOpen, ClipboardList, BarChart3, CheckCircle, Clock, XCircle, TrendingUp } from 'lucide-react'
-import { StatCard, PageLoader, StatusBadge, Badge } from '@/components/ui'
+import { ClipboardList, BarChart3, CheckCircle, Clock, XCircle, TrendingUp, Layers } from 'lucide-react'
+import { PageLoader, StatusBadge } from '@/components/ui'
+import { DashCard } from '@/components/shared/DashCard'
+import { DonutPaketGuru, type PaketRingkas } from '@/components/guru/DonutPaketGuru'
 import { apiRequest, formatDate, nilaiColor } from '@/lib/utils'
 
 interface GuruDashData {
   stats: {
-    totalSoal: number
-    soalDisetujui: number
-    soalMenunggu: number
-    soalDitolak: number
     totalPaket: number
+    paketDisetujui: number
+    paketMenunggu: number
+    paketDitolak: number
+    paketDraft: number
     totalNilai: number
     rataRataNilai: number
   }
+  paketSemua: PaketRingkas[]
   paketTerbaru: Array<{
     id: string
     nama_mapel: string
@@ -61,24 +64,25 @@ export default function GuruDashboard() {
   const stats = data?.stats
 
   return (
-    <div className="space-y-8 animate-fade-in">
+    <div className="space-y-6 animate-fade-in">
       <div>
         <h1 className="page-title">Selamat Datang, {namaGuru}</h1>
         <p className="page-subtitle">Kelola soal dan pantau perkembangan siswa Anda</p>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard label="Total Soal" value={stats?.totalSoal ?? 0} icon={BookOpen} color="bg-brand-500" />
-        <StatCard label="Soal Disetujui" value={stats?.soalDisetujui ?? 0} icon={CheckCircle} color="bg-emerald-500" />
-        <StatCard label="Menunggu Validasi" value={stats?.soalMenunggu ?? 0} icon={Clock} color="bg-amber-500" />
-        <StatCard label="Ditolak" value={stats?.soalDitolak ?? 0} icon={XCircle} color="bg-red-500" />
-      </div>
+      {/* Kartu informasi ramping di kiri + diagram status paket di kanan
+          (susunan sama dengan beranda admin). Di HP: kartu 2 kolom, diagram di bawahnya. */}
+      <div className="grid gap-4 lg:grid-cols-[230px_1fr] lg:items-start">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-1">
+          <DashCard label="Total Paket Soal" value={stats?.totalPaket ?? 0} icon={Layers} gradient="from-brand-500 to-brand-700" sub="Semua paket Anda" />
+          <DashCard label="Total Paket Disetujui" value={stats?.paketDisetujui ?? 0} icon={CheckCircle} gradient="from-emerald-500 to-teal-600" sub="Siap dipakai ujian" />
+          <DashCard label="Menunggu Validasi" value={stats?.paketMenunggu ?? 0} icon={Clock} gradient="from-amber-400 to-amber-600" sub="Menunggu persetujuan admin" />
+          <DashCard label="Ditolak" value={stats?.paketDitolak ?? 0} icon={XCircle} gradient="from-rose-500 to-pink-600" sub="Perlu diperbaiki" />
+          <DashCard label="Rekap Nilai" value={stats?.totalNilai ?? 0} icon={BarChart3} gradient="from-cyan-500 to-sky-600" sub="Nilai siswa" />
+          <DashCard label="Rata-rata Nilai" value={stats?.rataRataNilai ?? 0} icon={TrendingUp} gradient="from-indigo-500 to-violet-600" sub="Semua ujian" />
+        </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <StatCard label="Total Paket" value={stats?.totalPaket ?? 0} icon={ClipboardList} color="bg-purple-500" />
-        <StatCard label="Rekap Nilai" value={stats?.totalNilai ?? 0} icon={BarChart3} color="bg-cyan-500" />
-        <StatCard label="Rata-rata Nilai" value={stats?.rataRataNilai ?? 0} icon={TrendingUp} color="bg-indigo-500" />
+        <DonutPaketGuru paket={data?.paketSemua ?? []} />
       </div>
 
       <div className="grid lg:grid-cols-2 gap-6">
