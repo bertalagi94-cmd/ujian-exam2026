@@ -166,6 +166,7 @@ export function namaBerkasPdf(p: {
   jenjangLabel: string | null
   kelas: string
   mapel: string
+  guru?: string
   tanggal: string
 }): string {
   const bersih = (s: string) => s.replace(/[^a-z0-9]+/gi, '_').replace(/^_+|_+$/g, '')
@@ -174,6 +175,7 @@ export function namaBerkasPdf(p: {
     INFO_TAHAP[p.tahap].berkas,
     p.hanyaBelum ? 'HanyaYangBelum' : '',
     p.jenjangLabel ? bersih(p.jenjangLabel) : 'SemuaJenjang',
+    p.guru ? bersih(p.guru) : '',
     p.mapel ? bersih(p.mapel) : '',
     p.kelas ? bersih(p.kelas) : '',
     p.tanggal,
