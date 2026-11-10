@@ -89,6 +89,7 @@ export function DonutPaketGuru({ paket, className }: { paket: PaketRingkas[]; cl
     return h
   }, [paket])
 
+  const semuaSelesai = total > 0 && hitung.DISETUJUI === total
   const persen = total ? Math.round((hitung.DISETUJUI / total) * 100) : 0
   const persenTampil = useHitungNaik(persen)
 
@@ -244,6 +245,7 @@ export function DonutPaketGuru({ paket, className }: { paket: PaketRingkas[]; cl
 
           {/* ── Legenda + detail ── */}
           <div className="min-w-0 space-y-3">
+            {!semuaSelesai && (
             <div className="grid grid-cols-1 gap-1.5 min-[420px]:grid-cols-2">
               {SEGMEN.map(s => (
                 <button
@@ -265,8 +267,11 @@ export function DonutPaketGuru({ paket, className }: { paket: PaketRingkas[]; cl
                 </button>
               ))}
             </div>
+            )}
 
-            {infoDipilih ? (
+            {semuaSelesai ? (
+              <PesanSoalSelesai untuk="guru" />
+            ) : infoDipilih ? (
               <div className="rounded-xl border border-slate-100 bg-white/80 p-3 animate-fade-in">
                 <div className="mb-2 flex items-start justify-between gap-2">
                   <div className="min-w-0">
@@ -298,8 +303,6 @@ export function DonutPaketGuru({ paket, className }: { paket: PaketRingkas[]; cl
                   ))}
                 </div>
               </div>
-            ) : total > 0 && hitung.DISETUJUI === total ? (
-              <PesanSoalSelesai untuk="guru" />
             ) : (
               <div className="flex items-center gap-2 rounded-xl border border-dashed border-slate-200 px-3 py-2.5 text-xs text-slate-500">
                 <MousePointerClick className="h-4 w-4 flex-shrink-0 text-brand-500" />
