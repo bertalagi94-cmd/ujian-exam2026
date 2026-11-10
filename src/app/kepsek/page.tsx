@@ -96,8 +96,10 @@ export default function KepsekDashboard() {
   }, [load, loadSiteInfo])
 
   // Refresh data tiap 30 detik agar status sesi tetap akurat
+  // HEMAT VERCEL (10 Nov 2026, tahap 3): dilewati saat tab tersembunyi (dulu terus
+  // memanggil server di tab latar); tab yang tampil lagi diperbarui oleh tick berikutnya.
   useEffect(() => {
-    const i = setInterval(load, 30000)
+    const i = setInterval(() => { if (!document.hidden) void load() }, 30000)
     return () => clearInterval(i)
   }, [load])
 

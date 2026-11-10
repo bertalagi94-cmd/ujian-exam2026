@@ -13,10 +13,18 @@ import { apiRequest } from '@/lib/utils'
 //    (berhenti saat tab tidak aktif; sekali langsung saat tab tampil lagi).
 // Nada sengaja menenangkan; bisa ditutup, dan muncul lagi hanya untuk sesi
 // pemantauan yang BARU. Tidak tampil untuk admin yang sedang "melihat sebagai".
-// HEMAT VERCEL (10 Nov 2026): dulu 20 dtk. Banner ini hanya informasi, jadi
-// terlambat tampil sampai 60 dtk tidak masalah; memangkas invocation route ini ±2/3.
+// HEMAT VERCEL (10 Nov 2026, tahap 3): dulu polling sendiri ke /api/siswa/dipantau
+// (20 dtk, lalu 60 dtk). Sekarang di luar halaman ujian statusnya ikut respons
+// /api/notif yang SUDAH dipolling sidebar siswa (field `dipantau`/`dipantau_sid`,
+// diteruskan lewat event 'dipantau-status' yang sama dengan halaman ujian), jadi
+// banner tidak menambah request sama sekali. Banner hanya memanggil
+// /api/siswa/dipantau sendiri sebagai CADANGAN: sekali bila event dari sidebar
+// tidak datang dalam AWAL_TUNGGU_MS setelah halaman dibuka (mis. /api/notif gagal),
+// lalu paling sering sekali per FALLBACK_BASI_MS selama tidak ada event.
 // Di halaman ujian tidak ada polling (status ikut respons cek-sesi), tidak berubah.
-const POLL_MS = 60_000
+const AWAL_TUNGGU_MS = 8_000
+const FALLBACK_CEK_MS = 120_000
+const FALLBACK_BASI_MS = 300_000
 
 export function DipantauBanner() {
   const pathname = usePathname()
@@ -24,6 +32,8 @@ export function DipantauBanner() {
   const [sid, setSid] = useState<string | null>(null)
   const [ditutupSid, setDitutupSid] = useState<string | null>(null)
   const viewAsRef = useRef(false)
+  // Kapan terakhir status dipantau diterima (dari sidebar, cek-sesi, atau cek sendiri).
+  const statusTerakhirRef = useRef(0)
 
   useEffect(() => {
     try { viewAsRef.current = !!JSON.parse(localStorage.getItem('user') ?? 'null')?.viewAs } catch { /* abaikan */ }
@@ -32,27 +42,43 @@ export function DipantauBanner() {
   const cek = useCallback(() => {
     if (viewAsRef.current || !localStorage.getItem('token')) return
     apiRequest<{ dipantau: boolean; sid?: string }>('/api/siswa/dipantau', { timeoutMs: 8_000 })
-      .then(d => setSid(d.dipantau ? d.sid ?? 'aktif' : null))
+      .then(d => {
+        statusTerakhirRef.current = Date.now()
+        setSid(d.dipantau ? d.sid ?? 'aktif' : null)
+      })
       .catch(() => {})
   }, [])
 
-  // Cek sekali setiap masuk halaman baru + polling di luar halaman ujian.
+  // Halaman ujian: cek sekali saat masuk (selanjutnya status ikut respons cek-sesi).
+  // Halaman lain: status datang dari sidebar (lihat event di bawah); cek sendiri
+  // hanya sebagai cadangan.
   useEffect(() => {
-    cek()
-    if (isUjian) return
-    let id: ReturnType<typeof setInterval> | null = setInterval(cek, POLL_MS)
+    if (isUjian) { cek(); return }
+    const sejak = Date.now()
+    const awal = setTimeout(() => {
+      if (statusTerakhirRef.current < sejak) cek()
+    }, AWAL_TUNGGU_MS)
+    const periksaBasi = () => {
+      if (Date.now() - Math.max(statusTerakhirRef.current, sejak) >= FALLBACK_BASI_MS) cek()
+    }
+    let id: ReturnType<typeof setInterval> | null = setInterval(periksaBasi, FALLBACK_CEK_MS)
     const onVis = () => {
       if (document.hidden) { if (id) { clearInterval(id); id = null } }
-      else { cek(); if (!id) id = setInterval(cek, POLL_MS) }
+      else { periksaBasi(); if (!id) id = setInterval(periksaBasi, FALLBACK_CEK_MS) }
     }
     document.addEventListener('visibilitychange', onVis)
-    return () => { if (id) clearInterval(id); document.removeEventListener('visibilitychange', onVis) }
+    return () => {
+      clearTimeout(awal)
+      if (id) clearInterval(id)
+      document.removeEventListener('visibilitychange', onVis)
+    }
   }, [cek, isUjian])
 
   // Status dari polling cek-sesi di halaman ujian.
   useEffect(() => {
     const onStatus = (e: Event) => {
       if (viewAsRef.current) return
+      statusTerakhirRef.current = Date.now()
       const d = (e as CustomEvent<{ dipantau?: boolean; sid?: string }>).detail
       setSid(d?.dipantau ? d.sid ?? 'aktif' : null)
     }

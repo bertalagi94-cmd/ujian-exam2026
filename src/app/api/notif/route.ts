@@ -6,10 +6,17 @@
 //   yang belum dilihat guru ini
 // - SISWA: jumlah kisi-kisi TERKIRIM baru untuk kelasnya yang belum dilihat
 //   (pengecekan sesi ujian yang sudah dibuka TIDAK dilakukan di sini; siswa
-//   mengeceknya lewat tombol "Mulai Ujian")
+//   mengeceknya lewat tombol "Mulai Ujian"), + status "sedang dipantau admin"
+//   (`dipantau`, `dipantau_sid`).
+//   HEMAT VERCEL (10 Nov 2026): status dipantau dulu diambil lewat polling
+//   terpisah ke /api/siswa/dipantau (tiap 60 dtk per siswa). Sekarang ikut di
+//   respons ini, yang memang sudah dipolling sidebar siswa. Field lama TIDAK
+//   berubah; /api/siswa/dipantau tetap ada sebagai cadangan.
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRoleAktif } from '@/lib/status-akun'
+import { createAdminClient } from '@/lib/supabase'
+import { sidDipantauUntuk } from '@/lib/dipantau'
 import { getGuruSekolahScope } from '@/lib/kepsek-scope'
 import { getKelasAdminKelas, adminKelasAktif, antreanSuperAdmin, adaKelasTanpaAdminKelas } from '@/lib/admin-kelas'
 
@@ -144,22 +151,36 @@ export async function GET(req: NextRequest) {
     // di atas — timestamp per-akun di tabel siswa (migrasi 30), bandingkan
     // dengan kisi-kisi TERKIRIM (siswa tidak boleh lihat DRAFT) untuk
     // kelasnya.
-    if (!user.kelas) return NextResponse.json({ kisiKisiBaru: 0 })
+    // Status "sedang dipantau admin": aturan SAMA dengan /api/siswa/dipantau
+    // (token Lihat-sebagai tidak pernah dianggap dipantau; gagal = tidak dipantau
+    // supaya badge kisi-kisi tidak ikut error). Dimulai sekarang agar berjalan
+    // bersamaan dengan query di bawah (peta dipantau di-cache 4 dtk per instance).
+    const dipantauPromise: Promise<string | null> = user.viewAs || !user.nis
+      ? Promise.resolve(null)
+      : sidDipantauUntuk(createAdminClient(), String(user.nis)).catch(() => null)
+    const statusDipantau = async () => {
+      const sid = await dipantauPromise
+      return { dipantau: !!sid, dipantau_sid: sid ?? undefined }
+    }
 
-    const { data: siswaRow } = await db
-      .from('siswa')
-      .select('kisi_kisi_terakhir_dilihat')
-      .eq('nis', user.nis)
-      .maybeSingle()
+    if (!user.kelas) return NextResponse.json({ kisiKisiBaru: 0, ...(await statusDipantau()) })
 
-    // kisi_kisi.kelas_id adalah ID tabel kelas, sedangkan user.kelas dari
-    // token berisi NAMA kelas — resolve dulu (pola sama seperti di
-    // src/app/api/siswa/kisi-kisi/route.ts).
-    const { data: kelasRow } = await db
-      .from('kelas')
-      .select('id')
-      .eq('nama', String(user.kelas))
-      .maybeSingle()
+    // Dua query ini saling bebas, jadi dijalankan bersamaan (hasil identik).
+    const [{ data: siswaRow }, { data: kelasRow }] = await Promise.all([
+      db
+        .from('siswa')
+        .select('kisi_kisi_terakhir_dilihat')
+        .eq('nis', user.nis)
+        .maybeSingle(),
+      // kisi_kisi.kelas_id adalah ID tabel kelas, sedangkan user.kelas dari
+      // token berisi NAMA kelas — resolve dulu (pola sama seperti di
+      // src/app/api/siswa/kisi-kisi/route.ts).
+      db
+        .from('kelas')
+        .select('id')
+        .eq('nama', String(user.kelas))
+        .maybeSingle(),
+    ])
     const kelasId = kelasRow?.id ?? String(user.kelas)
 
     let q = db
@@ -172,7 +193,7 @@ export async function GET(req: NextRequest) {
     }
     const { count } = await q
 
-    return NextResponse.json({ kisiKisiBaru: count ?? 0 })
+    return NextResponse.json({ kisiKisiBaru: count ?? 0, ...(await statusDipantau()) })
   }
 
   return NextResponse.json({})

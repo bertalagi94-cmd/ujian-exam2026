@@ -7,6 +7,7 @@ import { getKepsekScope } from '@/lib/kepsek-scope'
 import { ambilInfoIzin, izinDiperlukan, tolakJikaBelumDiizinkan } from '@/lib/izin-layar-pantau'
 import { computeLiveLeaderboardUntukSesi, LiveLeaderboardSesi } from '@/lib/leaderboard-live'
 import { langgan } from '@/lib/layar-pantau-hub'
+import { intDariEnv } from '@/lib/batas-konkurensi'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -51,10 +52,32 @@ export const maxDuration = 60
 
 const ENCODER = new TextEncoder()
 const ALLOWED_ROLES = ['GURU', 'KEPSEK', 'ADMIN']
-const SAFETY_REFRESH_MS = 8000   // jaring pengaman: tetap update meski tak ada event Realtime yang masuk
+// HEMAT VERCEL (10 Nov 2026, tahap 3): jaring pengaman ADAPTIF. Dulu tetap 8 dtk
+// untuk semua keadaan, termasuk saat tidak ada ujian sama sekali (layar dibiarkan
+// terbuka seharian): tiap 8 dtk 1-3 query per penonton. Sekarang:
+//  - papan terisi, Realtime BELUM tersambung  -> 8 dtk  (sama seperti dulu; satu-satunya sumber update)
+//  - papan terisi, Realtime tersambung        -> 20 dtk (perubahan datang lewat event, ini hanya cadangan)
+//  - papan kosong 1x (menunggu konfirmasi)    -> 8 dtk  (klien butuh 2 hasil kosong berturut-turut)
+//  - papan kosong >=2x, Realtime tersambung   -> 45 dtk
+//  - papan kosong >=2x, Realtime belum        -> 20 dtk
+// Sesi baru yang dimulai tetap ditangkap seketika oleh event sesi_ujian bila Realtime
+// aktif. PENTING: kalau tabel belum dimasukkan ke publication supabase_realtime
+// (lihat SYARAT SETUP di atas), status bisa tampak "tersambung" padahal tidak ada
+// event; update jadi sekitar 20 dtk (papan terisi) / 45 dtk (kosong). Untuk
+// kembali ke perilaku lama, ganti semuanya jadi 8000.
+const SAFETY_REFRESH_MS = 8000
+const SAFETY_TERSAMBUNG_MS = 20_000
+const SAFETY_KOSONG_MS = 45_000
+const SAFETY_KOSONG_TANPA_RT_MS = 20_000
 const DEBOUNCE_MS = 800          // gabungkan burst perubahan (banyak siswa submit hampir bersamaan) jadi satu recompute
 const MIN_GAP_MS = 2000          // HEMAT CPU: jarak minimum antar recompute per koneksi (throttle, dengan recompute penutup di akhir burst)
-const MAX_STREAM_MS = 55_000     // tutup rapi sebelum batas durasi fungsi serverless; EventSource auto-reconnect
+// Tutup rapi sebelum batas durasi fungsi serverless; EventSource auto-reconnect.
+// HEMAT VERCEL (tahap 3): tiap sambung ulang = 1 invocation. Bawaan TETAP 55 dtk
+// (cocok dengan maxDuration = 60 di bawah). Kalau Fluid compute aktif di proyek
+// (Vercel > Settings > Functions) dan Anda ingin invocation turun ~5x, lakukan
+// DUA langkah sekaligus: (1) ubah `maxDuration` di bawah menjadi 300, (2) set env
+// LAYAR_PANTAU_STREAM_MAKS_MS=280000 lalu redeploy. Jangan ubah salah satu saja.
+const MAX_STREAM_MS = intDariEnv('LAYAR_PANTAU_STREAM_MAKS_MS', 55_000, 20_000, 280_000)
 
 export async function GET(req: NextRequest) {
   const token = req.nextUrl.searchParams.get('token') ?? ''
@@ -92,7 +115,7 @@ export async function GET(req: NextRequest) {
 
   let closed = false
   let debounceTimer: ReturnType<typeof setTimeout> | null = null
-  let safetyTimer: ReturnType<typeof setInterval> | null = null
+  let safetyTimer: ReturnType<typeof setTimeout> | null = null
   let hardCloseTimer: ReturnType<typeof setTimeout> | null = null
   let berhentiLanggan: (() => void) | null = null
 
@@ -108,7 +131,7 @@ export async function GET(req: NextRequest) {
       }
 
       // FIX (race condition): pushBoards() bisa dipanggil dari 3 sumber
-      // berbeda (muatan awal, debounce recompute, safetyTimer tiap 8 detik)
+      // berbeda (muatan awal, debounce recompute, safetyTimer berkala)
       // dan bisa saling tumpang tindih karena masing-masing menunggu
       // beberapa query async. Tanpa penanda generasi, hasil yang MULAI lebih
       // dulu tapi SELESAI belakangan bisa menimpa hasil yang lebih baru yang
@@ -150,6 +173,10 @@ export async function GET(req: NextRequest) {
         return sesiTerlihat.has(sesiId)
       }
 
+      // Keadaan untuk interval pengaman adaptif (lihat SAFETY_* di atas).
+      let realtimeTersambung = false
+      let kosongBeruntun = 0
+
       let terakhirJalan = 0
       const pushBoards = async () => {
         if (closed) return
@@ -169,6 +196,7 @@ export async function GET(req: NextRequest) {
           const { boards, scopeWarning, sesiIds } = await ambilBoardsUntukViewer(db, user!, yayasanId)
           if (sesiIds) sesiTerlihat = new Set(sesiIds)
           if (closed || myGen !== gen) return // sudah ditutup / ada panggilan lebih baru, buang hasil basi ini
+          kosongBeruntun = boards.length === 0 ? kosongBeruntun + 1 : 0
           const signature = JSON.stringify({ boards, scopeWarning })
           if (boards.length > 0 && signature === lastSignature) return
           lastSignature = signature
@@ -201,7 +229,7 @@ export async function GET(req: NextRequest) {
         if (closed) return
         closed = true
         if (debounceTimer) clearTimeout(debounceTimer)
-        if (safetyTimer) clearInterval(safetyTimer)
+        if (safetyTimer) clearTimeout(safetyTimer)
         if (hardCloseTimer) clearTimeout(hardCloseTimer)
         if (berhentiLanggan) { berhentiLanggan(); berhentiLanggan = null }
         try { controller.close() } catch {}
@@ -224,12 +252,29 @@ export async function GET(req: NextRequest) {
       // dilakukan di sini karena daftar sesi yang terlihat berbeda per akun.
       berhentiLanggan = langgan({
         onEvent: (tabel, payload) => { if (eventRelevan(tabel, payload)) scheduleRecompute() },
-        onStatus: (status) => send('status', { realtime: status }),
+        onStatus: (status) => {
+          realtimeTersambung = status === 'tersambung'
+          send('status', { realtime: status })
+        },
       })
 
       // Jaring pengaman: tetap recompute berkala walau TIDAK ada event
       // Realtime yang masuk.
-      safetyTimer = setInterval(pushBoards, SAFETY_REFRESH_MS)
+      // Dijadwalkan ulang setelah tiap pembaruan selesai (bukan setInterval tetap)
+      // supaya jedanya bisa menyesuaikan keadaan terbaru dan tidak pernah menumpuk.
+      const jedaPengaman = (): number => {
+        if (kosongBeruntun >= 2) return realtimeTersambung ? SAFETY_KOSONG_MS : SAFETY_KOSONG_TANPA_RT_MS
+        if (kosongBeruntun === 1) return SAFETY_REFRESH_MS
+        return realtimeTersambung ? SAFETY_TERSAMBUNG_MS : SAFETY_REFRESH_MS
+      }
+      const jadwalkanPengaman = () => {
+        if (closed) return
+        safetyTimer = setTimeout(async () => {
+          await pushBoards()
+          jadwalkanPengaman()
+        }, jedaPengaman())
+      }
+      jadwalkanPengaman()
 
       // Tutup stream secara rapi sebelum batas durasi fungsi serverless
       // tercapai. EventSource di browser otomatis menyambung ulang.
@@ -241,7 +286,7 @@ export async function GET(req: NextRequest) {
     cancel() {
       closed = true
       if (debounceTimer) clearTimeout(debounceTimer)
-      if (safetyTimer) clearInterval(safetyTimer)
+      if (safetyTimer) clearTimeout(safetyTimer)
       if (hardCloseTimer) clearTimeout(hardCloseTimer)
       if (berhentiLanggan) { berhentiLanggan(); berhentiLanggan = null }
     },

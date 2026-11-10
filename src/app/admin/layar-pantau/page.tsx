@@ -40,11 +40,13 @@ export default function AdminLayarPantauIzinPage() {
     }
   }, [])
 
-  // Muat awal + segarkan tiap 5 detik (hanya saat tab terlihat) supaya
-  // permintaan baru dari guru langsung muncul.
+  // Muat awal + segarkan tiap 15 detik (hanya saat tab terlihat) supaya
+  // permintaan baru dari guru cepat muncul.
+  // HEMAT VERCEL (10 Nov 2026, tahap 3): dulu 5 detik. Halaman ini sering dibiarkan
+  // terbuka seharian; permintaan izin guru tidak butuh sedetik-detik.
   useEffect(() => {
     muat()
-    const id = setInterval(() => { if (!document.hidden) muat(true) }, 5000)
+    const id = setInterval(() => { if (!document.hidden) muat(true) }, 15000)
     return () => clearInterval(id)
   }, [muat])
 

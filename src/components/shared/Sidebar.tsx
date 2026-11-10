@@ -16,7 +16,6 @@ import { useSidebarCollapsedPref } from '@/lib/sidebar-collapsed-pref'
 // dipakai untuk badge jumlah paket tertunda di menu SiswaSidebar.
 import { ambilSemuaPaketTertunda } from '@/lib/ujian-outbox'
 import { hapusCadanganLihatSebagai } from '@/lib/lihat-sebagai'
-import { SesiDibukaPopup } from '@/components/shared/SesiDibukaPopup'
 
 interface NavItem {
   label: string
@@ -424,12 +423,24 @@ export function Sidebar({ navItems, role, roleColor, roleLabel, accent = '#0891b
 // menjadi salah satu route dengan invocation terbanyak di luar jam ujian.
 // Badge admin/guru tidak perlu sedetik-detik: setelah aksi lokal (setujui/tolak
 // paket, buka kisi-kisi) badge sudah langsung diperbarui lewat event
-// 'notif-changed'. Siswa tetap lebih rapat karena badge "ujian dibuka" cukup
-// sensitif waktu.
+// 'notif-changed'.
+// HEMAT VERCEL (10 Nov 2026, tahap 3): badge "ujian dibuka" sudah dihapus, jadi
+// satu-satunya isi untuk siswa tinggal badge kisi-kisi baru (tidak sensitif waktu)
+// + status "sedang dipantau admin" (hanya banner informasi; dulu dipolling
+// sendiri tiap 60 dtk lewat /api/siswa/dipantau, sekarang menumpang respons ini).
+// Naikkan angka ini kalau ingin lebih hemat; turunkan kalau banner dipantau
+// harus tampil lebih cepat.
 const NOTIF_INTERVAL_MS: Record<'ADMIN' | 'GURU' | 'SISWA', number> = {
   ADMIN: 90_000,
   GURU: 90_000,
-  SISWA: 45_000,
+  SISWA: 180_000,
+}
+
+// Bentuk respons GET /api/notif: angka badge + (khusus SISWA) status dipantau.
+interface NotifResponse {
+  dipantau?: boolean
+  dipantau_sid?: string
+  [kunci: string]: number | boolean | string | undefined
 }
 
 function useBadgeCounts(role: 'ADMIN' | 'GURU' | 'SISWA') {
@@ -449,8 +460,18 @@ function useBadgeCounts(role: 'ADMIN' | 'GURU' | 'SISWA') {
     const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
     if (!token) return
     lastFetchRef.current = Date.now()
-    apiRequest<Record<string, number>>('/api/notif', { timeoutMs: 8_000 })
-      .then(d => setCounts(d))
+    apiRequest<NotifResponse>('/api/notif', { timeoutMs: 8_000 })
+      .then(d => {
+        const { dipantau, dipantau_sid, ...angka } = d
+        setCounts(angka as Record<string, number>)
+        // Teruskan status "sedang dipantau admin" ke DipantauBanner (layout
+        // siswa) lewat event yang sama dengan yang dipakai halaman ujian.
+        if (typeof dipantau === 'boolean') {
+          window.dispatchEvent(new CustomEvent('dipantau-status', {
+            detail: { dipantau, sid: dipantau_sid },
+          }))
+        }
+      })
       .catch(() => {})
   }, []) // stable — no deps needed since we use ref
 
@@ -720,7 +741,6 @@ export function KepsekSidebar() {
 export function SiswaSidebar() {
   const counts = useBadgeCounts('SISWA')
   const pathname = usePathname()
-  const [adaJadwalHariIni, setAdaJadwalHariIni] = useState(true) // default true agar tidak kedip saat load
   // FIX (belum ada antrean "ujian belum terkirim" yang permanen — temuan #2):
   // badge jumlah paket tertunda di menu, dibaca dari outbox lokal (bukan
   // state global) — konsisten dengan cara halaman /siswa/pengiriman-tertunda
@@ -728,37 +748,6 @@ export function SiswaSidebar() {
   // latar belakang (mulaiPenjagaOutbox, lihat siswa/layout.tsx) berhasil
   // mengirim ulang paketnya, tanpa siswa perlu me-refresh halaman.
   const [jumlahTertunda, setJumlahTertunda] = useState(0)
-
-  useEffect(() => {
-    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
-    if (!token) return
-    apiRequest<{ data?: { tanggal: string; sudah_ikut: boolean; status: string }[]; zonaWaktu?: { utcOffsetJam: number } }>(
-      '/api/siswa/jadwal',
-      { timeoutMs: 8_000, cache: 'no-store' }
-    )
-      .then(json => {
-        const zonaOffset = (json.zonaWaktu?.utcOffsetJam ?? 7) as number
-        const shifted = new Date(Date.now() + zonaOffset * 60 * 60 * 1000)
-        const today = shifted.toISOString().slice(0, 10)
-        // FIX BUG (menu "Mulai Ujian" tidak muncul untuk sesi susulan):
-        // sebelumnya filter di sini HANYA mengandalkan `j.tanggal === today`
-        // — sama persis dengan bug yang sudah diperbaiki di
-        // src/app/siswa/ujian/page.tsx (lihat komentar panjang di sana) dan
-        // src/app/siswa/jadwal/page.tsx, tapi perbaikannya waktu itu tidak
-        // ikut diterapkan di sini. Akibatnya: untuk sesi susulan yang dibuka
-        // admin/pengawas pada jadwal yang tanggal ASLINYA sudah lewat (lihat
-        // /api/admin/susulan — hanya `jadwal.status` yang di-set 'BERJALAN',
-        // `jadwal.tanggal` sengaja tidak diubah), menu "Mulai Ujian" di
-        // sidebar tetap disembunyikan walau siswa sebenarnya bisa masuk lewat
-        // halaman /siswa/ujian atau /siswa/jadwal. Sekarang disamakan: sesi
-        // dengan status BERJALAN ikut dihitung apa pun tanggalnya.
-        const jadwalHariIni = (json.data ?? []).filter((j) =>
-          (j.tanggal?.slice(0, 10) === today || j.status === 'BERJALAN') && !j.sudah_ikut && j.status !== 'SELESAI'
-        )
-        setAdaJadwalHariIni(jadwalHariIni.length > 0)
-      })
-      .catch(() => {})
-  }, [])
 
   useEffect(() => {
     let nis: string | undefined
@@ -799,13 +788,14 @@ export function SiswaSidebar() {
   // Urutan: hal yang mendesak di atas (pengiriman tertunda, mulai ujian), lalu
   // persiapan (jadwal, kisi-kisi), lalu hasil (nilai), dan profil di paling bawah.
   const navItems: NavItem[] = [
-    // Badge angka = jumlah sesi yang sudah dibuka pengawas tapi belum diikuti
-    // siswa (sama dengan badge di "Mulai Ujian"), supaya terlihat dari halaman manapun.
-    { label: 'Beranda', href: '/siswa', icon: LayoutDashboard, badge: counts.ujianDibuka || undefined },
+    { label: 'Beranda', href: '/siswa', icon: LayoutDashboard },
     ...(jumlahTertunda > 0
       ? [{ label: 'Pengiriman Tertunda', href: '/siswa/pengiriman-tertunda', icon: Send, badge: jumlahTertunda } as NavItem]
       : []),
-    ...(adaJadwalHariIni ? [{ label: 'Mulai Ujian', href: '/siswa/ujian', icon: BookOpen, badge: counts.ujianDibuka || undefined } as NavItem] : []),
+    // Menu ini SELALU tampil. Sidebar tidak lagi mengecek jadwal/sesi otomatis
+    // saat login; ada-tidaknya sesi ujian dicek halaman /siswa/ujian ketika
+    // siswa menekan tombol ini.
+    { label: 'Mulai Ujian', href: '/siswa/ujian', icon: BookOpen },
     { label: 'Jadwal', href: '/siswa/jadwal', icon: Calendar },
     {
       label: 'Kisi-kisi',
@@ -819,16 +809,12 @@ export function SiswaSidebar() {
   ]
 
   return (
-    <>
-      <Sidebar
-        role="SISWA"
-        roleColor="bg-cyan-600"
-        roleLabel="Siswa"
-        accent="#0891b2"
-        navItems={navItems}
-      />
-      {/* Popup sekali per login bila ada sesi yang sudah dibuka & belum diikuti. */}
-      <SesiDibukaPopup jumlah={counts.ujianDibuka} />
-    </>
+    <Sidebar
+      role="SISWA"
+      roleColor="bg-cyan-600"
+      roleLabel="Siswa"
+      accent="#0891b2"
+      navItems={navItems}
+    />
   )
 }

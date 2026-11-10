@@ -426,8 +426,9 @@ export function JadwalTab({ onBukaMode }: { onBukaMode?: () => void }) {
   }, [])
 
   // Auto-refresh data dari server setiap 30 detik
+  // HEMAT VERCEL (10 Nov 2026, tahap 3): dilewati saat tab tersembunyi.
   useEffect(() => {
-    intervalRef.current = setInterval(() => load(true), 30000)
+    intervalRef.current = setInterval(() => { if (!document.hidden) void load(true) }, 30000)
     return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
   }, [load])
 

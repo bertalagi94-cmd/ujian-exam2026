@@ -35,6 +35,9 @@ import type { LiveLeaderboardSesi } from '@/lib/leaderboard-live'
 
 const SESSION_KEY = 'layarPantauSession'
 const FALLBACK_POLL_MS = 3000  // hanya dipakai kalau EventSource tidak didukung sama sekali
+// HEMAT VERCEL (tahap 3): tab tersembunyi > 60 dtk -> stream ditutup, diganti polling 60 dtk.
+const TUTUP_STREAM_TERSEMBUNYI_MS = 60_000
+const POLL_TERSEMBUNYI_MS = 60_000
 const ROTASI_MS = 12000
 const ROLE_LABEL: Record<string, string> = { GURU: 'Guru', KEPSEK: 'Kepala Sekolah', ADMIN: 'Admin' }
 
@@ -194,7 +197,7 @@ function GerbangIzin({ session, onLogout }: { session: Session; onLogout: () => 
 // ─────────────────────────────────────────────────────────────────────────
 // Info "berapa kelas sedang ujian" di form login (publik, sebelum login) —
 // supaya guru tidak buang waktu login kalau memang belum ada ujian berjalan.
-// Diperbarui tiap 15 detik selama tab terlihat.
+// Diperbarui tiap 30 detik selama tab terlihat.
 // ─────────────────────────────────────────────────────────────────────────
 function InfoKelasUjian() {
   const [jumlah, setJumlah] = useState<number | null | undefined>(undefined) // undefined = memuat
@@ -212,7 +215,8 @@ function InfoKelasUjian() {
       }
     }
     muat()
-    const id = setInterval(muat, 15000)
+    // HEMAT VERCEL (tahap 3): dulu 15 dtk. Hanya info "berapa kelas sedang ujian".
+    const id = setInterval(muat, 30000)
     return () => { batal = true; clearInterval(id) }
   }, [])
 
@@ -713,52 +717,91 @@ function PapanLive({ session, onLogout, onIzinHilang }: { session: Session; onLo
       return () => { cancelled = true; if (fallbackId) clearInterval(fallbackId) }
     }
 
-    setConnStatus('connecting')
-    es = new EventSource(`/api/layar-pantau/stream?token=${encodeURIComponent(session.token)}`)
+    const bukaStream = () => {
+      setConnStatus('connecting')
+      const sumber = new EventSource(`/api/layar-pantau/stream?token=${encodeURIComponent(session.token)}`)
+      es = sumber
 
-    es.addEventListener('boards', (ev) => {
-      if (cancelled) return
-      try {
-        const json: DataResponse = JSON.parse((ev as MessageEvent).data)
-        terapkanDataBaru(json)
-        setConnStatus('live')
-      } catch {
-        // Payload tidak valid — abaikan event ini, tunggu event berikutnya.
-      }
-    })
+      sumber.addEventListener('boards', (ev) => {
+        if (cancelled) return
+        try {
+          const json: DataResponse = JSON.parse((ev as MessageEvent).data)
+          terapkanDataBaru(json)
+          setConnStatus('live')
+        } catch {
+          // Payload tidak valid — abaikan event ini, tunggu event berikutnya.
+        }
+      })
 
-    es.addEventListener('status', (ev) => {
-      if (cancelled) return
-      try {
-        const payload = JSON.parse((ev as MessageEvent).data) as { realtime: string }
-        if (payload.realtime === 'tersambung') setConnStatus('live')
-        else setConnStatus('reconnecting')
-      } catch {}
-    })
+      sumber.addEventListener('status', (ev) => {
+        if (cancelled) return
+        try {
+          const payload = JSON.parse((ev as MessageEvent).data) as { realtime: string }
+          if (payload.realtime === 'tersambung') setConnStatus('live')
+          else setConnStatus('reconnecting')
+        } catch {}
+      })
 
-    es.addEventListener('izin', () => {
-      if (!cancelled) onIzinHilang?.()
-    })
+      sumber.addEventListener('izin', () => {
+        if (!cancelled) onIzinHilang?.()
+      })
 
-    es.addEventListener('error', () => {
-      // Server menolak sambungan (mis. 403 karena izin dicabut) → EventSource
-      // berstatus CLOSED dan tidak akan mencoba lagi; periksa lewat /data.
-      if (!cancelled && es && es.readyState === 2) ambilSekali()
-      // Native EventSource 'error' — bisa berarti koneksi putus SAMA SEKALI
-      // (token expired/401 → tidak akan reconnect sendiri) atau cuma
-      // hambatan sementara (browser akan otomatis mencoba lagi). Kita
-      // tidak bisa membedakan status HTTP dari sini, jadi tampilkan sebagai
-      // "menyambung ulang" — kalau memang 401/403, endpoint /data biasa
-      // (dipanggil saat boards event berikutnya gagal) akan men-trigger logout.
-      if (!cancelled) setConnStatus('reconnecting')
-    })
+      sumber.addEventListener('error', () => {
+        // Server menolak sambungan (mis. 403 karena izin dicabut) → EventSource
+        // berstatus CLOSED dan tidak akan mencoba lagi; periksa lewat /data.
+        if (!cancelled && sumber.readyState === 2) ambilSekali()
+        // Native EventSource 'error' — bisa berarti koneksi putus SAMA SEKALI
+        // (token expired/401 → tidak akan reconnect sendiri) atau cuma
+        // hambatan sementara (browser akan otomatis mencoba lagi). Kita
+        // tidak bisa membedakan status HTTP dari sini, jadi tampilkan sebagai
+        // "menyambung ulang" — kalau memang 401/403, endpoint /data biasa
+        // (dipanggil saat boards event berikutnya gagal) akan men-trigger logout.
+        if (!cancelled) setConnStatus('reconnecting')
+      })
+    }
+
+    bukaStream()
 
     // Muatan awal instan lewat endpoint biasa juga (double-safety) — kalau
     // browser lambat membuka EventSource, layar tidak kosong menunggu.
     ambilSekali()
 
+    // HEMAT VERCEL (10 Nov 2026, tahap 3): tab/jendela yang TERSEMBUNYI lebih dari
+    // TUTUP_STREAM_TERSEMBUNYI_MS tidak butuh stream live (tiap koneksi menahan satu
+    // fungsi Vercel terbuka + menyambung ulang ~tiap menit). Stream ditutup dan
+    // diganti polling ringan /data tiap POLL_TERSEMBUNYI_MS (jadi layar yang salah
+    // dilaporkan "hidden" oleh browser TV tetap terisi, hanya tidak realtime).
+    // Begitu tab tampil lagi: stream dibuka ulang + muat segar seketika.
+    // Layar TV yang selalu terlihat TIDAK terpengaruh sama sekali.
+    let timerSembunyi: ReturnType<typeof setTimeout> | null = null
+    let pollTersembunyiId: ReturnType<typeof setInterval> | null = null
+    const onVisibility = () => {
+      if (cancelled) return
+      if (document.hidden) {
+        if (!timerSembunyi && es) {
+          timerSembunyi = setTimeout(() => {
+            timerSembunyi = null
+            es?.close()
+            es = null
+            if (!pollTersembunyiId) pollTersembunyiId = setInterval(ambilSekali, POLL_TERSEMBUNYI_MS)
+          }, TUTUP_STREAM_TERSEMBUNYI_MS)
+        }
+      } else {
+        if (timerSembunyi) { clearTimeout(timerSembunyi); timerSembunyi = null }
+        if (pollTersembunyiId) { clearInterval(pollTersembunyiId); pollTersembunyiId = null }
+        if (!es) {
+          bukaStream()
+          ambilSekali()
+        }
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+
     return () => {
       cancelled = true
+      document.removeEventListener('visibilitychange', onVisibility)
+      if (timerSembunyi) clearTimeout(timerSembunyi)
+      if (pollTersembunyiId) clearInterval(pollTersembunyiId)
       es?.close()
       if (fallbackId) clearInterval(fallbackId)
     }

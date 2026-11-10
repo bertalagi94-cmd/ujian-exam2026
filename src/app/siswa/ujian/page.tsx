@@ -1429,8 +1429,14 @@ export default function SiswaUjianPage() {
   useEffect(() => {
     if (phase !== 'UJIAN' && phase !== 'ESSAY_INFO' && phase !== 'ESSAY_KERJAKAN') return
     if (essayInfoBelumSiap) return
-    // Titik awal sama seperti dulu: cek-sesi pertama JEDA_CEK_SESI_MS setelah masuk fase ini.
-    kontakSesiRef.current = Date.now()
+    // Titik awal: cek-sesi pertama JEDA_CEK_SESI_MS setelah masuk fase ini, DIMAJUKAN
+    // acak 0-40% jeda (HEMAT VERCEL tahap 3: jitter). Tanpa ini ratusan siswa yang
+    // masuk bersamaan menembak server pada detik yang sama tiap menit, memaksa
+    // Vercel membuka banyak instance baru (cache kosong, CPU cold start). Jitter
+    // hanya MEMAJUKAN tick pertama, tidak pernah menundanya, jadi jarak maksimum
+    // antar kontak server (heartbeat, deteksi kunci/tutup) tidak bertambah.
+    const majuMs = Math.floor(Math.random() * JEDA_CEK_SESI_MS * 0.4)
+    kontakSesiRef.current = Date.now() - majuMs
     cekSesiNyataRef.current = Date.now()
     sesiPollRef.current = setInterval(() => {
       const sekarang = Date.now()
@@ -1532,7 +1538,7 @@ export default function SiswaUjianPage() {
   // ── Auto sync ─────────────────────────────────────────────────────────────
   useEffect(() => {
     if (phase !== 'UJIAN') return
-    syncRef.current = setInterval(() => {
+    const tickAutosync = () => {
       const ok = syncOkTerakhirRef.current
       if (
         ok &&
@@ -1540,9 +1546,21 @@ export default function SiswaUjianPage() {
         ok.sig === buatSigJawaban(jawabanRef.current, jawabanRevisiRef.current)
       ) return // tidak ada perubahan sejak sync berhasil terakhir
       void syncJawaban()
-    }, JEDA_AUTOSYNC_MS)
+    }
+    // HEMAT VERCEL (tahap 3): jitter. Tick pertama jatuh acak 10-30 dtk setelah
+    // masuk fase UJIAN (dulu tepat 30 dtk), lalu tetap tiap JEDA_AUTOSYNC_MS.
+    // Hanya memajukan (tidak pernah menunda) dan tidak menambah jumlah request,
+    // hanya menyebar waktunya supaya siswa yang mulai serentak tidak menembak
+    // server pada detik yang sama. Minimum 10 dtk memberi waktu resume/merge
+    // jawaban dari server selesai sebelum autosync pertama.
+    const faseMs = 10_000 + Math.floor(Math.random() * (JEDA_AUTOSYNC_MS - 10_000))
+    const awalId = setTimeout(() => {
+      tickAutosync()
+      syncRef.current = setInterval(tickAutosync, JEDA_AUTOSYNC_MS)
+    }, faseMs)
     return () => {
-      clearInterval(syncRef.current!)
+      clearTimeout(awalId)
+      if (syncRef.current) clearInterval(syncRef.current)
       if (syncCepatTimerRef.current) { clearTimeout(syncCepatTimerRef.current); syncCepatTimerRef.current = null }
       syncCepatMulaiRef.current = 0
     }
