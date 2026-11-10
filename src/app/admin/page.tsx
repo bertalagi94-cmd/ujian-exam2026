@@ -9,6 +9,7 @@ import {
 import { PageLoader, StatusBadge } from '@/components/ui'
 import { apiRequest, cn, nilaiColor, fetchPublik } from '@/lib/utils'
 import { SesiBelumDitutupAdmin } from '@/components/shared/SesiBelumDitutupAdmin'
+import { DonutKelengkapanSoal } from '@/components/admin/DonutKelengkapanSoal'
 
 interface DashboardData {
   stats: {
@@ -40,7 +41,8 @@ interface DashboardData {
 }
 
 // ── Kartu informasi ringkas ─────────────────────────────────────────────────
-// Tinggi dibuat tetap ±2 cm (76px) dengan gradasi warna per kartu. Kelas
+// Versi ramping (52px) ditumpuk di sisi kiri, diagram kelengkapan di kanan.
+// Gradasi warna per kartu tetap. Kelas
 // gradient ditulis lengkap (bukan dirakit dari string) supaya terbaca Tailwind.
 function DashCard({
   label, value, sub, icon: Icon, gradient, className,
@@ -54,33 +56,30 @@ function DashCard({
 }) {
   return (
     <div
+      title={sub ? `${label} · ${sub}` : label}
       className={cn(
-        'group relative h-[76px] overflow-hidden rounded-2xl px-4 flex items-center gap-3 text-white',
+        'group relative h-[52px] overflow-hidden rounded-xl px-3 flex items-center gap-2.5 text-white',
         'bg-gradient-to-br shadow-md shadow-slate-900/10 ring-1 ring-white/25',
-        'transition-all duration-300 hover:-translate-y-0.5 hover:shadow-xl',
+        'transition-all duration-300 hover:translate-x-0.5 hover:shadow-lg',
         gradient,
         className,
       )}
     >
       {/* dekorasi latar */}
-      <span aria-hidden className="pointer-events-none absolute -right-6 -top-10 h-28 w-28 rounded-full bg-white/15" />
-      <span aria-hidden className="pointer-events-none absolute right-10 -bottom-12 h-20 w-20 rounded-full bg-white/10" />
+      <span aria-hidden className="pointer-events-none absolute -right-5 -top-8 h-20 w-20 rounded-full bg-white/15" />
       <Icon
         aria-hidden
-        className="pointer-events-none absolute right-3 bottom-1.5 h-12 w-12 -rotate-12 text-white/20 transition-transform duration-300 group-hover:scale-110 group-hover:-rotate-6"
+        className="pointer-events-none absolute right-1.5 bottom-0.5 h-9 w-9 -rotate-12 text-white/20 transition-transform duration-300 group-hover:scale-110 group-hover:-rotate-6"
       />
 
-      {/* kotak ikon disembunyikan di HP agar label tidak terpotong */}
-      <div className="relative hidden h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-white/20 ring-1 ring-white/30 backdrop-blur-sm sm:flex">
-        <Icon className="h-5 w-5" />
+      <div className="relative hidden h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-white/20 ring-1 ring-white/30 backdrop-blur-sm sm:flex">
+        <Icon className="h-4 w-4" />
       </div>
-      <div className="relative min-w-0 flex-1">
-        <div className="truncate text-[11px] font-semibold uppercase tracking-wide text-white/85">{label}</div>
-        <div className="flex items-baseline gap-1.5">
-          <span className="text-2xl font-extrabold leading-tight tabular-nums">{value}</span>
-          {sub && <span className="hidden truncate text-[10px] font-medium text-white/75 sm:inline">{sub}</span>}
-        </div>
+      {/* label di kiri, angka di kanan — satu baris ramping */}
+      <div className="relative min-w-0 flex-1 truncate text-[10.5px] font-semibold uppercase leading-tight tracking-wide text-white/90">
+        {label}
       </div>
+      <span className="relative flex-shrink-0 pr-1 text-xl font-extrabold leading-none tabular-nums">{value}</span>
     </div>
   )
 }
@@ -170,8 +169,9 @@ export default function AdminDashboard() {
       {/* Sesi yang sudah lewat waktunya tapi belum ditutup pengawas (null jika tidak ada) */}
       <SesiBelumDitutupAdmin />
 
-      {/* Kartu informasi (tinggi ±2 cm) */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+      {/* Kartu informasi ramping di kiri + diagram kelengkapan soal di kanan */}
+      <div className="grid gap-4 lg:grid-cols-[230px_1fr] lg:items-start">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-1">
         <DashCard label="Total Siswa" value={stats?.totalSiswa ?? 0} icon={GraduationCap} gradient="from-brand-500 to-brand-700" />
         <DashCard label="Total Guru" value={stats?.totalGuru ?? 0} icon={Users} gradient="from-emerald-500 to-teal-600" />
         <DashCard label="Jumlah Kelas" value={stats?.totalKelas ?? 0} icon={School} gradient="from-blue-500 to-indigo-600" sub="Rombel" />
@@ -180,7 +180,10 @@ export default function AdminDashboard() {
         <DashCard label="Jadwal Aktif" value={stats?.jadwalAktif ?? 0} icon={Calendar} gradient="from-sky-400 to-sky-600" sub="Ujian mendatang" />
         <DashCard label="Paket Menunggu" value={stats?.paketMenunggu ?? 0} icon={ClipboardCheck} gradient="from-amber-400 to-amber-600" sub="Perlu validasi" />
         <DashCard label="Total Nilai" value={stats?.totalNilai ?? 0} icon={TrendingUp} gradient="from-indigo-500 to-violet-600" sub="Ujian selesai" />
-        <DashCard label="Rata-rata Nilai" value={`${stats?.rataRataNilai ?? 0}`} icon={BarChart3} gradient="from-rose-500 to-pink-600" sub="Semua ujian" className="col-span-2 md:col-span-1" />
+        <DashCard label="Rata-rata Nilai" value={`${stats?.rataRataNilai ?? 0}`} icon={BarChart3} gradient="from-rose-500 to-pink-600" sub="Semua ujian" className="col-span-2 sm:col-span-1" />
+      </div>
+
+      <DonutKelengkapanSoal />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
