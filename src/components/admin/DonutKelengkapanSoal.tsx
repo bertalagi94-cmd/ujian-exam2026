@@ -5,7 +5,7 @@
 // jadi angkanya selalu konsisten dengan laporan. Satu "unit" = satu kombinasi
 // mapel + kelas. Persentase kelengkapan = unit berstatus DISETUJUI / seluruh unit.
 //
-// Animasi: cincin berputar pelan (berhenti saat disentuh/dipilih agar mudah
+// Animasi: donat membesar halus saat kursor diarahkan, cincin berputar pelan (berhenti saat disentuh/dipilih agar mudah
 // diklik), segmen "tergambar" saat pertama muncul, angka tengah menghitung naik,
 // titik cahaya mengorbit, dan cincin putus-putus tipis berputar berlawanan arah.
 // Semua animasi dimatikan otomatis bila perangkat memilih "kurangi gerakan".
@@ -118,11 +118,16 @@ export function DonutKelengkapanSoal({ className }: { className?: string }) {
         .dks-cincin-luar { transform-origin: 110px 110px; animation: dks-putar-balik 45s linear infinite; }
         .dks-orbit { transform-origin: 110px 110px; animation: dks-putar 9s linear infinite; }
         .dks-halo { transform-origin: 110px 110px; animation: dks-denyut 4s ease-in-out infinite; }
+        .dks-wrap { transition: transform .55s cubic-bezier(.34,1.56,.64,1), filter .55s ease; will-change: transform; }
+        .dks-wrap:hover { transform: scale(1.1); filter: drop-shadow(0 14px 24px rgba(79,70,229,.28)); z-index: 5; }
+        .dks-wrap:hover .dks-halo { animation-duration: 1.8s; }
+        .dks-wrap:hover .dks-orbit { animation-duration: 4s; }
         .dks-wrap:hover .dks-cincin, .dks-wrap[data-pilih="1"] .dks-cincin { animation-play-state: paused; }
         .dks-seg { transition: stroke-dasharray 1.3s cubic-bezier(.22,1,.36,1), stroke-width .35s ease, opacity .35s ease, filter .35s ease; cursor: pointer; }
         @media (prefers-reduced-motion: reduce) {
           .dks-cincin,.dks-cincin-luar,.dks-orbit,.dks-halo { animation: none; }
           .dks-seg { transition: none; }
+          .dks-wrap, .dks-wrap:hover { transition: none; transform: none; }
         }
       `}</style>
 
