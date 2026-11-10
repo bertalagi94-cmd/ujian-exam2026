@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   FileBarChart, RefreshCw, Download, Search, ChevronDown, ChevronRight,
-  ClipboardList, PlayCircle, CheckCircle2, School as SchoolIcon,
+  ClipboardList, PlayCircle, CheckCircle2, School as SchoolIcon, Filter as FilterIcon,
 } from 'lucide-react'
 import { Toast, Spinner, EmptyState } from '@/components/ui'
 import { apiRequest, formatDate } from '@/lib/utils'
@@ -112,6 +112,11 @@ export default function AdminLaporanPage() {
   const [loading, setLoading] = useState(true)
   const [downloading, setDownloading] = useState<string | null>(null) // sekolahId yang sedang di-download, atau 'ALL'
   const [search, setSearch] = useState('')
+  // Filter per kelas / per mapel ('' = semua). Dicocokkan lewat NAMA supaya kelas
+  // atau mapel bernama sama di beberapa jenjang ikut tampil bersamaan.
+  const [filterKelas, setFilterKelas] = useState('')
+  const [filterMapel, setFilterMapel] = useState('')
+  const [panelFilterBuka, setPanelFilterBuka] = useState(false)
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
 
@@ -135,21 +140,52 @@ export default function AdminLaporanPage() {
 
   useEffect(() => { load() }, [load])
 
-  // Filter pencarian (client-side) — dipakai untuk preview DAN untuk PDF yang di-generate
+  // Pilihan dropdown filter dibuat SALING MENYESUAIKAN: daftar mapel hanya berisi
+  // mapel yang ada di kelas terpilih, dan daftar kelas hanya berisi kelas yang
+  // punya mapel terpilih — jadi tidak ada kombinasi yang berujung tabel kosong.
+  const urutNama = (a: string, b: string) => a.localeCompare(b, 'id', { numeric: true })
+  const opsiKelas = useMemo(() => {
+    const set = new Set<string>()
+    for (const g of data) for (const r of g.rows) {
+      if (!filterMapel || r.namaMapel === filterMapel) set.add(r.namaKelas)
+    }
+    return [...set].sort(urutNama)
+  }, [data, filterMapel])
+  const opsiMapel = useMemo(() => {
+    const set = new Set<string>()
+    for (const g of data) for (const r of g.rows) {
+      if (!filterKelas || r.namaKelas === filterKelas) set.add(r.namaMapel)
+    }
+    return [...set].sort(urutNama)
+  }, [data, filterKelas])
+
+  // Pilihan yang sudah tidak ada lagi (mis. setelah Refresh atau setelah filter
+  // lain diganti) otomatis dikembalikan ke "Semua".
+  useEffect(() => { if (filterKelas && !opsiKelas.includes(filterKelas)) setFilterKelas('') }, [opsiKelas, filterKelas])
+  useEffect(() => { if (filterMapel && !opsiMapel.includes(filterMapel)) setFilterMapel('') }, [opsiMapel, filterMapel])
+
+  const jumlahFilterAktif = (filterKelas ? 1 : 0) + (filterMapel ? 1 : 0)
+  const resetFilter = () => { setFilterKelas(''); setFilterMapel('') }
+
+  // Filter kelas + mapel + pencarian (client-side) — dipakai untuk preview DAN
+  // untuk PDF yang di-generate (PDF hanya memuat baris yang sedang tampil).
   const filteredData = useMemo(() => {
     const q = search.trim().toLowerCase()
-    if (!q) return data
+    if (!q && !filterKelas && !filterMapel) return data
     return data
       .map(g => ({
         ...g,
         rows: g.rows.filter(r =>
-          r.namaMapel.toLowerCase().includes(q) ||
-          r.namaKelas.toLowerCase().includes(q) ||
-          r.namaGuru.toLowerCase().includes(q)
+          (!filterKelas || r.namaKelas === filterKelas) &&
+          (!filterMapel || r.namaMapel === filterMapel) &&
+          (!q ||
+            r.namaMapel.toLowerCase().includes(q) ||
+            r.namaKelas.toLowerCase().includes(q) ||
+            r.namaGuru.toLowerCase().includes(q))
         ),
       }))
       .filter(g => g.rows.length > 0)
-  }, [data, search])
+  }, [data, search, filterKelas, filterMapel])
 
   const toggleCollapse = (key: string) => setCollapsed(prev => ({ ...prev, [key]: !prev[key] }))
 
@@ -507,21 +543,75 @@ export default function AdminLaporanPage() {
         </p>
       )}
 
-      {/* Search */}
-      <div className="relative max-w-md">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-        <input
-          className="input pl-9"
-          placeholder="Cari mapel, kelas, atau nama guru..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-        />
+      {/* Search + tombol Filter */}
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative flex-1 min-w-[220px] max-w-md">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <input
+              className="input pl-9"
+              placeholder="Cari mapel, kelas, atau nama guru..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+          </div>
+          <button
+            type="button"
+            className={`btn-secondary flex items-center gap-2 ${jumlahFilterAktif > 0 ? 'ring-2 ring-brand-500/40' : ''}`}
+            onClick={() => setPanelFilterBuka(v => !v)}
+            aria-expanded={panelFilterBuka}
+            disabled={loading || data.length === 0}
+          >
+            <FilterIcon className="w-4 h-4" />
+            Filter
+            {jumlahFilterAktif > 0 && (
+              <span className="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1 rounded-full bg-brand-600 text-white text-xs font-semibold">
+                {jumlahFilterAktif}
+              </span>
+            )}
+          </button>
+          {jumlahFilterAktif > 0 && (
+            <button type="button" className="text-sm text-brand-600 hover:underline" onClick={resetFilter}>
+              Reset filter
+            </button>
+          )}
+        </div>
+
+        {panelFilterBuka && (
+          <div className="card p-4 grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-2xl">
+            <div>
+              <label className="label">Filter per Kelas</label>
+              <select className="select" value={filterKelas} onChange={e => setFilterKelas(e.target.value)}>
+                <option value="">Semua kelas</option>
+                {opsiKelas.map(k => <option key={k} value={k}>{k}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="label">Filter per Mapel</label>
+              <select className="select" value={filterMapel} onChange={e => setFilterMapel(e.target.value)}>
+                <option value="">Semua mapel</option>
+                {opsiMapel.map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </div>
+            <p className="sm:col-span-2 text-xs text-muted">
+              Pilihan kelas dan mapel saling menyesuaikan. Hasil filter juga dipakai saat Download PDF.
+            </p>
+          </div>
+        )}
       </div>
 
       {loading ? (
         <div className="flex justify-center py-16"><Spinner size="lg" /></div>
       ) : filteredData.length === 0 ? (
-        <EmptyState icon={FileBarChart} title="Tidak ada data" description="Belum ada kombinasi mapel + kelas yang bisa dilaporkan, atau pencarian tidak menemukan hasil." />
+        <EmptyState
+          icon={FileBarChart}
+          title="Tidak ada data"
+          description={
+            jumlahFilterAktif > 0 || search.trim()
+              ? 'Tidak ada kombinasi mapel + kelas yang cocok dengan pencarian atau filter. Coba ubah atau reset filter.'
+              : 'Belum ada kombinasi mapel + kelas yang bisa dilaporkan.'
+          }
+        />
       ) : (
         <div className="space-y-5">
           {filteredData.map(g => {
