@@ -16,6 +16,7 @@ import { useSidebarCollapsedPref } from '@/lib/sidebar-collapsed-pref'
 // dipakai untuk badge jumlah paket tertunda di menu SiswaSidebar.
 import { ambilSemuaPaketTertunda } from '@/lib/ujian-outbox'
 import { hapusCadanganLihatSebagai } from '@/lib/lihat-sebagai'
+import { SesiDibukaPopup } from '@/components/shared/SesiDibukaPopup'
 
 interface NavItem {
   label: string
@@ -227,17 +228,46 @@ export function Sidebar({ navItems, role, roleColor, roleLabel, accent = '#0891b
   // Ambil logo & nama sekolah dari Pengaturan (endpoint publik yang sama
   // dipakai halaman login), supaya sidebar admin/guru/kepsek/siswa ikut
   // menampilkan logo custom, bukan ikon default terus-menerus.
-  const loadSiteInfo = useCallback(() => {
+  //
+  // HEMAT VERCEL (10 Nov 2026): hasilnya (nama + logo, jarang berubah) disimpan
+  // 10 menit di sessionStorage tab ini, supaya tiap muat ulang halaman tidak
+  // memanggil /api/public/pengaturan lagi. Cache hanya dipakai untuk akun
+  // (token) yang sama, dan DILEWATI saat event 'pengaturan-changed' (admin baru
+  // menyimpan pengaturan) sehingga perubahan di tab sendiri tetap langsung
+  // terlihat. Kalau sessionStorage tidak tersedia, perilakunya seperti dulu.
+  const loadSiteInfo = useCallback((lewatCache = false) => {
+    const CACHE_KEY = 'site_info_cache_v1'
+    const TTL_MS = 10 * 60_000
+    let tokenTail = ''
+    try { tokenTail = (localStorage.getItem('token') ?? '').slice(-16) } catch { /* abaikan */ }
+
+    if (!lewatCache && tokenTail) {
+      try {
+        const raw = sessionStorage.getItem(CACHE_KEY)
+        if (raw) {
+          const c = JSON.parse(raw) as { ts?: number; tokenTail?: string; info?: SiteInfo }
+          if (c?.info && c.tokenTail === tokenTail && typeof c.ts === 'number' && Date.now() - c.ts < TTL_MS) {
+            setSiteInfo(c.info)
+            return
+          }
+        }
+      } catch { /* cache rusak: ambil dari server */ }
+    }
+
     fetchPublik('/api/public/pengaturan')
       .then(r => r.json())
       .then(json => {
         if (json?.data) {
-          setSiteInfo({
+          const info: SiteInfo = {
             namaSekolah: json.data.namaSekolah ?? '',
             // Prioritas: logo SEKOLAH akun yang sedang login dulu, baru logo
             // aplikasi global sebagai cadangan jika sekolah belum upload logo.
             logoUrl: json.data.logoUrl || json.data.logoAplikasi || '',
-          })
+          }
+          setSiteInfo(info)
+          if (tokenTail) {
+            try { sessionStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now(), tokenTail, info })) } catch { /* abaikan */ }
+          }
         }
       })
       .catch(() => {})
@@ -247,8 +277,9 @@ export function Sidebar({ navItems, role, roleColor, roleLabel, accent = '#0891b
     loadSiteInfo()
     // Pengaturan bisa diubah admin di halaman lain tanpa reload — dengarkan
     // event yang sama yang sudah dipakai dashboard admin (lihat pengaturan/page.tsx).
-    window.addEventListener('pengaturan-changed', loadSiteInfo)
-    return () => window.removeEventListener('pengaturan-changed', loadSiteInfo)
+    const paksaMuat = () => loadSiteInfo(true)
+    window.addEventListener('pengaturan-changed', paksaMuat)
+    return () => window.removeEventListener('pengaturan-changed', paksaMuat)
   }, [loadSiteInfo])
 
   // BUG FIX #2: logout() was recreated every render, which caused subtle
@@ -409,10 +440,15 @@ function useBadgeCounts(role: 'ADMIN' | 'GURU' | 'SISWA') {
   // and the interval was reset — causing "polling storm" during navigation.
   // Use a ref for role so the callback is stable.
   const roleRef = useRef(role)
+  // HEMAT VERCEL (10 Nov 2026): waktu fetch terakhir, dipakai agar tab yang
+  // berkali-kali berpindah (siswa buka-tutup aplikasi lain) tidak memicu
+  // fetch baru tiap kali tab tampil kembali.
+  const lastFetchRef = useRef(0)
 
   const fetch_ = useCallback(() => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
     if (!token) return
+    lastFetchRef.current = Date.now()
     apiRequest<Record<string, number>>('/api/notif', { timeoutMs: 8_000 })
       .then(d => setCounts(d))
       .catch(() => {})
@@ -443,8 +479,9 @@ function useBadgeCounts(role: 'ADMIN' | 'GURU' | 'SISWA') {
           id = null
         }
       } else {
-        // Tab aktif kembali — fetch langsung sekali, lalu mulai polling lagi
-        fetch_()
+        // Tab aktif kembali — fetch langsung sekali (dilewati kalau data baru
+        // saja diambil <20 dtk lalu), lalu mulai polling lagi
+        if (Date.now() - lastFetchRef.current > 20_000) fetch_()
         if (id === null) {
           id = setInterval(fetch_, intervalMs)
         }
@@ -683,6 +720,7 @@ export function KepsekSidebar() {
 export function SiswaSidebar() {
   const counts = useBadgeCounts('SISWA')
   const pathname = usePathname()
+  const [adaJadwalHariIni, setAdaJadwalHariIni] = useState(true) // default true agar tidak kedip saat load
   // FIX (belum ada antrean "ujian belum terkirim" yang permanen — temuan #2):
   // badge jumlah paket tertunda di menu, dibaca dari outbox lokal (bukan
   // state global) — konsisten dengan cara halaman /siswa/pengiriman-tertunda
@@ -690,6 +728,37 @@ export function SiswaSidebar() {
   // latar belakang (mulaiPenjagaOutbox, lihat siswa/layout.tsx) berhasil
   // mengirim ulang paketnya, tanpa siswa perlu me-refresh halaman.
   const [jumlahTertunda, setJumlahTertunda] = useState(0)
+
+  useEffect(() => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
+    if (!token) return
+    apiRequest<{ data?: { tanggal: string; sudah_ikut: boolean; status: string }[]; zonaWaktu?: { utcOffsetJam: number } }>(
+      '/api/siswa/jadwal',
+      { timeoutMs: 8_000, cache: 'no-store' }
+    )
+      .then(json => {
+        const zonaOffset = (json.zonaWaktu?.utcOffsetJam ?? 7) as number
+        const shifted = new Date(Date.now() + zonaOffset * 60 * 60 * 1000)
+        const today = shifted.toISOString().slice(0, 10)
+        // FIX BUG (menu "Mulai Ujian" tidak muncul untuk sesi susulan):
+        // sebelumnya filter di sini HANYA mengandalkan `j.tanggal === today`
+        // — sama persis dengan bug yang sudah diperbaiki di
+        // src/app/siswa/ujian/page.tsx (lihat komentar panjang di sana) dan
+        // src/app/siswa/jadwal/page.tsx, tapi perbaikannya waktu itu tidak
+        // ikut diterapkan di sini. Akibatnya: untuk sesi susulan yang dibuka
+        // admin/pengawas pada jadwal yang tanggal ASLINYA sudah lewat (lihat
+        // /api/admin/susulan — hanya `jadwal.status` yang di-set 'BERJALAN',
+        // `jadwal.tanggal` sengaja tidak diubah), menu "Mulai Ujian" di
+        // sidebar tetap disembunyikan walau siswa sebenarnya bisa masuk lewat
+        // halaman /siswa/ujian atau /siswa/jadwal. Sekarang disamakan: sesi
+        // dengan status BERJALAN ikut dihitung apa pun tanggalnya.
+        const jadwalHariIni = (json.data ?? []).filter((j) =>
+          (j.tanggal?.slice(0, 10) === today || j.status === 'BERJALAN') && !j.sudah_ikut && j.status !== 'SELESAI'
+        )
+        setAdaJadwalHariIni(jadwalHariIni.length > 0)
+      })
+      .catch(() => {})
+  }, [])
 
   useEffect(() => {
     let nis: string | undefined
@@ -730,14 +799,13 @@ export function SiswaSidebar() {
   // Urutan: hal yang mendesak di atas (pengiriman tertunda, mulai ujian), lalu
   // persiapan (jadwal, kisi-kisi), lalu hasil (nilai), dan profil di paling bawah.
   const navItems: NavItem[] = [
-    { label: 'Beranda', href: '/siswa', icon: LayoutDashboard },
+    // Badge angka = jumlah sesi yang sudah dibuka pengawas tapi belum diikuti
+    // siswa (sama dengan badge di "Mulai Ujian"), supaya terlihat dari halaman manapun.
+    { label: 'Beranda', href: '/siswa', icon: LayoutDashboard, badge: counts.ujianDibuka || undefined },
     ...(jumlahTertunda > 0
       ? [{ label: 'Pengiriman Tertunda', href: '/siswa/pengiriman-tertunda', icon: Send, badge: jumlahTertunda } as NavItem]
       : []),
-    // Menu ini SELALU tampil. Sidebar tidak lagi mengecek jadwal/sesi otomatis
-    // saat login; ada-tidaknya sesi ujian dicek halaman /siswa/ujian ketika
-    // siswa menekan tombol ini.
-    { label: 'Mulai Ujian', href: '/siswa/ujian', icon: BookOpen },
+    ...(adaJadwalHariIni ? [{ label: 'Mulai Ujian', href: '/siswa/ujian', icon: BookOpen, badge: counts.ujianDibuka || undefined } as NavItem] : []),
     { label: 'Jadwal', href: '/siswa/jadwal', icon: Calendar },
     {
       label: 'Kisi-kisi',
@@ -751,12 +819,16 @@ export function SiswaSidebar() {
   ]
 
   return (
-    <Sidebar
-      role="SISWA"
-      roleColor="bg-cyan-600"
-      roleLabel="Siswa"
-      accent="#0891b2"
-      navItems={navItems}
-    />
+    <>
+      <Sidebar
+        role="SISWA"
+        roleColor="bg-cyan-600"
+        roleLabel="Siswa"
+        accent="#0891b2"
+        navItems={navItems}
+      />
+      {/* Popup sekali per login bila ada sesi yang sudah dibuka & belum diikuti. */}
+      <SesiDibukaPopup jumlah={counts.ujianDibuka} />
+    </>
   )
 }

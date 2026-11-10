@@ -9,11 +9,14 @@ import { apiRequest } from '@/lib/utils'
 // Sumber status:
 //  - Di halaman ujian: event 'dipantau-status' dari polling cek-sesi (10 detik,
 //    sudah ada) → tidak menambah request.
-//  - Di halaman lain: polling ringan /api/siswa/dipantau tiap 20 detik
-//    (berhenti saat tab tidak aktif).
+//  - Di halaman lain: polling ringan /api/siswa/dipantau tiap 60 detik
+//    (berhenti saat tab tidak aktif; sekali langsung saat tab tampil lagi).
 // Nada sengaja menenangkan; bisa ditutup, dan muncul lagi hanya untuk sesi
 // pemantauan yang BARU. Tidak tampil untuk admin yang sedang "melihat sebagai".
-const POLL_MS = 20_000
+// HEMAT VERCEL (10 Nov 2026): dulu 20 dtk. Banner ini hanya informasi, jadi
+// terlambat tampil sampai 60 dtk tidak masalah; memangkas invocation route ini ±2/3.
+// Di halaman ujian tidak ada polling (status ikut respons cek-sesi), tidak berubah.
+const POLL_MS = 60_000
 
 export function DipantauBanner() {
   const pathname = usePathname()
