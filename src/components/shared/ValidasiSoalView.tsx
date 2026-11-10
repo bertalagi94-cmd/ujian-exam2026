@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { CheckCircle, XCircle, Eye, BookOpen, RotateCcw } from 'lucide-react'
+import { CheckCircle, XCircle, Eye, BookOpen, RotateCcw, User, CalendarClock } from 'lucide-react'
 import { Modal, StatusBadge, EmptyState, Spinner, Toast, Badge } from '@/components/ui'
 import { apiRequest, formatDateTime } from '@/lib/utils'
 import { PaketSoal, Soal, PaketEssay, SoalEssay } from '@/types'
@@ -269,10 +269,10 @@ export function ValidasiSoalView({
           bolak-balik. Badge sengaja tetap tampil walau tab yang sedang aktif
           BUKAN "Menunggu Validasi", supaya info ini tidak hilang begitu saja
           hanya karena admin sedang melihat tab Disetujui/Ditolak. */}
-      <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-fit">
+      <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-full sm:w-fit">
         <button
           onClick={() => setJenisSoal('PG')}
-          className={`relative px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+          className={`relative flex-1 sm:flex-none px-4 py-2 rounded-lg text-sm font-medium transition-all ${
             jenisSoal === 'PG' ? 'bg-white shadow-card text-slate-900' : 'text-slate-500 hover:text-slate-700'
           }`}
         >
@@ -285,7 +285,7 @@ export function ValidasiSoalView({
         </button>
         <button
           onClick={() => setJenisSoal('ESSAY')}
-          className={`relative px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+          className={`relative flex-1 sm:flex-none px-4 py-2 rounded-lg text-sm font-medium transition-all ${
             jenisSoal === 'ESSAY' ? 'bg-white shadow-card text-slate-900' : 'text-slate-500 hover:text-slate-700'
           }`}
         >
@@ -301,17 +301,17 @@ export function ValidasiSoalView({
       {/* Tabs — FIX: badge jumlah juga ditambahkan khusus di tab "Menunggu
           Validasi" untuk jenis soal yang sedang aktif, sebagai penegasan
           angka yang sama dengan badge toggle di atas. */}
-      <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-fit">
+      <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-full sm:w-fit">
         {tabs.map(t => (
           <button key={t.key}
             onClick={() => setActiveTab(t.key)}
-            className={`relative px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+            className={`relative flex-1 sm:flex-none whitespace-nowrap px-2 sm:px-4 py-2 rounded-lg text-xs sm:text-sm font-medium transition-all ${
               activeTab === t.key
                 ? 'bg-white shadow-card text-slate-900'
                 : 'text-slate-500 hover:text-slate-700'
             }`}
           >
-            {t.label}
+            {t.key === 'MENUNGGU' ? <><span className="sm:hidden">Menunggu</span><span className="hidden sm:inline">Menunggu Validasi</span></> : t.label}
             {t.key === 'MENUNGGU' && pendingCounts[jenisSoal] > 0 && (
               <span className="ml-1.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-amber-500 text-white text-[10px] font-bold align-middle">
                 {pendingCounts[jenisSoal] > 99 ? '99+' : pendingCounts[jenisSoal]}
@@ -344,46 +344,59 @@ export function ValidasiSoalView({
           <EmptyState message={`Tidak ada paket dengan status ${activeTab}`} icon={BookOpen} />
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-2">
           {pakets.map(p => (
-            <div key={p.id} className="card">
-              <div className="flex items-start gap-4 flex-wrap">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap mb-1">
-                    <span className="font-semibold text-slate-900">{p.nama_mapel}</span>
-                    <span className="badge-blue text-xs">Kelas {p.nama_kelas}</span>
-                    <StatusBadge status={p.status} />
+            <div key={p.id} className="card !p-3 sm:!p-4">
+              <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:gap-4">
+                {/* Info paket — ringkas, tiap baris tidak melebar */}
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5">
+                    <span className="min-w-0 truncate text-sm font-semibold text-slate-900 sm:text-base">{p.nama_mapel}</span>
+                    <span className="badge-blue flex-shrink-0 text-[11px]">{p.nama_kelas}</span>
+                    {activeTab === 'MENUNGGU' && <span className="flex-shrink-0"><StatusBadge status={p.status} /></span>}
                   </div>
-                  <div className="text-sm text-slate-500">
-                    Guru: <span className="font-medium text-slate-700">{p.nama_guru}</span>
-                    &nbsp;· {p.jumlah_soal} soal
-                    &nbsp;· Mode {p.mode_jawaban === 'KERTAS' ? 'Kertas' : 'Digital'}
-                    {jenisSoal === 'ESSAY' && (p as PaketEssay).durasi_menit ? <>&nbsp;· Usulan durasi {(p as PaketEssay).durasi_menit} menit</> : null}
-                    &nbsp;· Dikirim {formatDateTime(p.tanggal)}
+
+                  <div className="mt-1 flex items-center gap-1 text-xs text-slate-600">
+                    <User className="h-3 w-3 flex-shrink-0 text-slate-400" />
+                    <span className="truncate font-medium">{p.nama_guru}</span>
                   </div>
+
+                  <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-500">
+                    <span className="rounded bg-slate-100 px-1.5 py-0.5 font-medium text-slate-600">{p.jumlah_soal} soal</span>
+                    <span className="rounded bg-slate-100 px-1.5 py-0.5 font-medium text-slate-600">{p.mode_jawaban === 'KERTAS' ? 'Kertas' : 'Digital'}</span>
+                    {jenisSoal === 'ESSAY' && (p as PaketEssay).durasi_menit ? (
+                      <span className="rounded bg-slate-100 px-1.5 py-0.5 font-medium text-slate-600">{(p as PaketEssay).durasi_menit} mnt</span>
+                    ) : null}
+                    <span className="inline-flex items-center gap-1 text-slate-400">
+                      <CalendarClock className="h-3 w-3" />{formatDateTime(p.tanggal)}
+                    </span>
+                  </div>
+
                   {p.catatan && (
-                    <div className="mt-2 text-xs text-slate-600 bg-slate-50 rounded-lg px-3 py-2">
+                    <div className="mt-1.5 line-clamp-2 break-words rounded-lg bg-slate-50 px-2.5 py-1.5 text-[11px] text-slate-600">
                       Catatan: {p.catatan}
                     </div>
                   )}
                 </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
+
+                {/* Tombol aksi: sebaris penuh di HP, di sisi kanan di layar lebar */}
+                <div className="flex w-full items-center gap-1.5 sm:w-auto sm:flex-shrink-0">
                   <button onClick={() => openPreview(p)}
-                    className="btn-secondary btn-sm">
+                    className="btn-secondary btn-sm flex-1 justify-center sm:flex-none">
                     <Eye className="w-3.5 h-3.5" /> Preview
                   </button>
                   {activeTab === 'MENUNGGU' && (
                     <>
                       <button
                         onClick={() => { setActionId(p.id); setActionType('SETUJUI') }}
-                        className="btn-success btn-sm"
+                        className="btn-success btn-sm flex-1 justify-center sm:flex-none"
                         disabled={saving}
                       >
                         <CheckCircle className="w-3.5 h-3.5" /> Setujui
                       </button>
                       <button
                         onClick={() => { setActionId(p.id); setActionType('TOLAK') }}
-                        className="btn-danger btn-sm"
+                        className="btn-danger btn-sm flex-1 justify-center sm:flex-none"
                         disabled={saving}
                       >
                         <XCircle className="w-3.5 h-3.5" /> Tolak
@@ -393,10 +406,10 @@ export function ValidasiSoalView({
                   {activeTab === 'DISETUJUI' && (
                     <button
                       onClick={() => { setActionId(p.id); setActionType('BATAL_SETUJUI'); setCatatanTolak('') }}
-                      className="btn-sm border border-amber-400 text-amber-700 bg-amber-50 hover:bg-amber-100 transition-colors flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium"
+                      className="btn-sm flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-amber-400 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-100 sm:flex-none"
                       disabled={saving}
                     >
-                      <RotateCcw className="w-3.5 h-3.5" /> Batalkan Persetujuan
+                      <RotateCcw className="w-3.5 h-3.5" /> Batalkan<span className="hidden sm:inline">&nbsp;Persetujuan</span>
                     </button>
                   )}
                 </div>
