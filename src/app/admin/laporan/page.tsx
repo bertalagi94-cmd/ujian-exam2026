@@ -7,82 +7,13 @@ import {
 } from 'lucide-react'
 import { Toast, Spinner, EmptyState } from '@/components/ui'
 import { apiRequest, formatDate } from '@/lib/utils'
+import type { JenjangGroup, LaporanResponse, Tahap } from '@/lib/laporan-pdf'
+import {
+  DAFTAR_TAHAP, INFO_TAHAP, STATUS_SOAL_LABEL, STATUS_KISI_LABEL,
+  bangunPdfLaporan, hitungRingkas, namaBerkasPdf,
+} from '@/lib/laporan-pdf'
 
-// ── Tipe data (harus selaras dengan response /api/admin/laporan-lengkap) ─────
-interface JadwalItem {
-  tanggal: string
-  sesi: number
-  jamMulai: string
-  jamSelesai: string
-  namaPengawas: string
-  durasi: number
-  statusJadwal: string
-}
-interface RowLaporan {
-  mapelId: string
-  namaMapel: string
-  namaGuru: string
-  kelasId: string
-  namaKelas: string
-  pra: {
-    statusSoal: string
-    jumlahSoal: number
-    distribusi: { mudah: number; sedang: number; sukar: number }
-    catatanPenolakan: string | null
-    statusKisiKisi: string
-    jadwal: JadwalItem[]
-    adaEssay: boolean
-    modeJawabanEssay: 'DIGITAL' | 'KERTAS' | null
-  }
-  saat: {
-    adaSesiBerjalan: boolean
-    totalSiswaKelas: number
-    siswaTerdaftar: number
-    siswaSelesai: number
-    pelanggaranBelumDitindak: number
-  }
-  setelah: {
-    adaJadwalSelesai: boolean
-    totalNilai: number
-    rataRata: number
-    jumlahLulus: number
-    jumlahTidakLulus: number
-    sudahDikirimWali: number
-    adaDikembalikan: boolean
-    pelanggaranFinal: number
-  }
-}
-interface JenjangGroup {
-  sekolahId: string | null
-  label: string
-  namaSekolah: string
-  npsn: string
-  namaKepsek: string
-  nipKepsek: string
-  alamat: string
-  kota: string
-  tahunAjaran: string
-  logoUrl: string
-  rows: RowLaporan[]
-}
-interface LaporanResponse {
-  generatedAt: string
-  data: JenjangGroup[]
-}
-
-// ── Label & warna status (dipakai di preview & PDF) ──────────────────────────
-const STATUS_SOAL_LABEL: Record<string, string> = {
-  BELUM_DIBUAT: 'Belum Dibuat', DRAFT: 'Draft', MENUNGGU: 'Menunggu Validasi',
-  DISETUJUI: 'Disetujui', DITOLAK: 'Ditolak',
-}
-// Versi ringkas khusus untuk PDF (kolom Status Soal sempit) — tampilan web
-// tetap memakai STATUS_SOAL_LABEL yang lengkap di atas, tidak diubah.
-const STATUS_SOAL_LABEL_PDF: Record<string, string> = {
-  ...STATUS_SOAL_LABEL, MENUNGGU: 'Menunggu',
-}
-const STATUS_KISI_LABEL: Record<string, string> = {
-  BELUM_DIBUAT: 'Belum Dibuat', DRAFT: 'Draft', TERKIRIM: 'Terkirim',
-}
+// ── Warna status untuk preview di halaman (label & tipe ada di '@/lib/laporan-pdf') ──
 type PillColor = 'green' | 'yellow' | 'red' | 'slate' | 'blue'
 const STATUS_SOAL_COLOR: Record<string, PillColor> = {
   BELUM_DIBUAT: 'slate', DRAFT: 'slate', MENUNGGU: 'yellow', DISETUJUI: 'green', DITOLAK: 'red',
@@ -97,14 +28,11 @@ const PILL_CLASS: Record<PillColor, string> = {
   slate: 'bg-slate-100 text-slate-600 ring-1 ring-slate-400/20',
   blue: 'bg-blue-50 text-blue-700 ring-1 ring-blue-600/20',
 }
-// Warna RGB (dipakai jsPDF, bukan Tailwind) senada dengan pill di atas
-const PILL_RGB: Record<PillColor, [number, number, number]> = {
-  green: [16, 150, 90], yellow: [180, 130, 10], red: [200, 45, 45], slate: [100, 116, 139], blue: [37, 99, 235],
-}
-
 function Pill({ label, color }: { label: string; color: PillColor }) {
   return <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${PILL_CLASS[color]}`}>{label}</span>
 }
+
+const kunciJenjang = (g: JenjangGroup) => g.sekolahId ?? '__tanpa_jenjang__'
 
 export default function AdminLaporanPage() {
   const [data, setData] = useState<JenjangGroup[]>([])
@@ -117,6 +45,10 @@ export default function AdminLaporanPage() {
   const [filterKelas, setFilterKelas] = useState('')
   const [filterMapel, setFilterMapel] = useState('')
   const [panelFilterBuka, setPanelFilterBuka] = useState(false)
+  // Download PDF: tiap tahap (Pra/Saat/Setelah Ujian) = 1 file terpisah.
+  const [panelUnduhBuka, setPanelUnduhBuka] = useState(false)
+  const [hanyaBelum, setHanyaBelum] = useState(false)
+  const [jenjangUnduh, setJenjangUnduh] = useState('ALL')
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
 
@@ -189,21 +121,34 @@ export default function AdminLaporanPage() {
 
   const toggleCollapse = (key: string) => setCollapsed(prev => ({ ...prev, [key]: !prev[key] }))
 
-  // ───────────────────────────────────────────────────────────────────────────
-  // GENERATOR PDF (jsPDF, client-side) — kop sekolah per jenjang + 3 tabel
-  // berwarna (Pra Ujian / Saat Ujian / Setelah Ujian), sesuai jenjang masing2
-  // supaya data antar jenjang TIDAK PERNAH tercampur dalam satu tabel.
-  // ───────────────────────────────────────────────────────────────────────────
-  async function downloadPdf(target: JenjangGroup[], scope: string) {
-    setDownloading(scope)
+  // ── Download PDF per tahap ──────────────────────────────────────────────────
+  // Cakupan file = baris yang sedang tampil (ikut pencarian + Filter kelas/mapel),
+  // dipersempit lagi oleh pilihan jenjang. Detail tabel ada di '@/lib/laporan-pdf'.
+  const opsiJenjang = useMemo(
+    () => filteredData.map(g => ({ key: kunciJenjang(g), label: g.label })),
+    [filteredData]
+  )
+  useEffect(() => {
+    if (jenjangUnduh !== 'ALL' && !opsiJenjang.some(o => o.key === jenjangUnduh)) setJenjangUnduh('ALL')
+  }, [opsiJenjang, jenjangUnduh])
+
+  const targetUnduh = useMemo(
+    () => (jenjangUnduh === 'ALL' ? filteredData : filteredData.filter(g => kunciJenjang(g) === jenjangUnduh)),
+    [filteredData, jenjangUnduh]
+  )
+  const ringkasTahap = useMemo(() => hitungRingkas(targetUnduh.flatMap(g => g.rows)), [targetUnduh])
+  const cakupanTeks = [
+    `Kelas: ${filterKelas || 'Semua'}`,
+    `Mapel: ${filterMapel || 'Semua'}`,
+    search.trim() ? `Pencarian: "${search.trim()}"` : '',
+  ].filter(Boolean).join('  |  ')
+
+  async function unduhPdf(tahap: Tahap) {
+    setDownloading(tahap)
     try {
       const { jsPDF } = await import('jspdf')
-      const doc = new jsPDF({ unit: 'mm', format: 'a4' })
-      const pageW = 210, pageH = 297
-      const lm = 15, rm = 15, w = pageW - lm - rm
       const logoCache = new Map<string, string>()
-
-      async function getLogoB64(url: string): Promise<string | null> {
+      const ambilLogo = async (url: string): Promise<string | null> => {
         if (!url) return null
         if (logoCache.has(url)) return logoCache.get(url)!
         try {
@@ -221,283 +166,27 @@ export default function AdminLaporanPage() {
         }
       }
 
-      // Format tanggal ringkas (DD/MM/YYYY) khusus untuk kolom Jadwal di PDF —
-      // formatDate() dari '@/lib/utils' memakai nama bulan penuh ("12 September
-      // 2026") yang terlalu lebar untuk kolom ini dan menyebabkan teks meluber
-      // ke luar tepi halaman.
-      function fmtTglSingkatPdf(iso: string): string {
-        const d = new Date(iso)
-        if (isNaN(d.getTime())) return '-'
-        return d.toLocaleDateString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric' })
+      const doc = await bangunPdfLaporan(jsPDF, {
+        tahap,
+        hanyaBelum,
+        target: targetUnduh,
+        cakupan: cakupanTeks,
+        dicetak: generatedAt ? formatDate(generatedAt) : '-',
+        ambilLogo,
+      })
+      if (!doc) {
+        showToast(hanyaBelum ? 'Tidak ada data yang belum lengkap pada cakupan ini' : 'Tidak ada data untuk diunduh', 'error')
+        return
       }
-
-      function ensureSpace(y: number, needed: number): number {
-        if (y + needed > pageH - 15) {
-          doc.addPage()
-          return 20
-        }
-        return y
-      }
-
-      function pillRect(x: number, y: number, text: string, color: PillColor) {
-        const [r, g, b] = PILL_RGB[color]
-        doc.setFontSize(7.5)
-        const tw = doc.getTextWidth(text)
-        const boxW = tw + 4
-        doc.setFillColor(r, g, b)
-        doc.roundedRect(x, y - 3.2, boxW, 4.6, 1, 1, 'F')
-        doc.setTextColor(255, 255, 255)
-        doc.text(text, x + 2, y)
-        doc.setTextColor(20, 20, 20)
-        return boxW
-      }
-
-      function sectionBanner(y: number, title: string, rgb: [number, number, number]): number {
-        doc.setFillColor(rgb[0], rgb[1], rgb[2])
-        doc.roundedRect(lm, y, w, 8, 1.5, 1.5, 'F')
-        doc.setTextColor(255, 255, 255)
-        doc.setFont('helvetica', 'bold')
-        doc.setFontSize(11)
-        doc.text(title, lm + 4, y + 5.6)
-        doc.setTextColor(20, 20, 20)
-        doc.setFont('helvetica', 'normal')
-        return y + 12
-      }
-
-      // Header kolom tabel generik
-      function tableHeader(y: number, cols: { label: string; width: number }[], rgb: [number, number, number]): number {
-        let cx = lm
-        doc.setDrawColor(255, 255, 255)
-        doc.setFont('helvetica', 'bold')
-        doc.setFontSize(8)
-        for (const c of cols) {
-          // PENTING: warna isi (fill) HARUS di-set ulang di setiap kolom.
-          // jsPDF memakai satu state warna 'fill' yang sama untuk rect() dan
-          // untuk warna teks (text color). Begitu doc.text() dipanggil dengan
-          // warna putih, state fill jadi putih dan tertinggal (bocor) ke
-          // rect() kolom berikutnya -> kolom ke-2 dst tergambar putih di atas
-          // putih (tidak kelihatan). Reset di sini memastikan setiap kotak
-          // kolom selalu memakai warna banner yang benar, apa pun yang
-          // terjadi di kolom sebelumnya.
-          doc.setFillColor(rgb[0], rgb[1], rgb[2])
-          doc.rect(cx, y, c.width, 7, 'F')
-          doc.setTextColor(255, 255, 255)
-          doc.text(c.label, cx + 2, y + 4.7)
-          cx += c.width
-        }
-        // Garis pembatas antar kolom + bingkai luar header (garis putih tipis
-        // di atas warna banner) supaya kolom header terlihat terpisah rapi.
-        doc.setDrawColor(255, 255, 255)
-        doc.setLineWidth(0.2)
-        let bx = lm
-        for (const c of cols) { doc.line(bx, y, bx, y + 7); bx += c.width }
-        doc.line(bx, y, bx, y + 7)
-        doc.setDrawColor(0, 0, 0)
-        doc.setTextColor(20, 20, 20)
-        doc.setFont('helvetica', 'normal')
-        return y + 7
-      }
-
-      // Garis kotak (grid) untuk satu baris data — dipanggil setelah teks baris
-      // ditulis, supaya setiap sel tabel punya garis pembatas yang jelas.
-      function drawRowGrid(yTop: number, rowH: number, cols: { width: number }[]) {
-        doc.setDrawColor(210, 210, 210)
-        doc.setLineWidth(0.15)
-        let cx = lm
-        for (const c of cols) { doc.line(cx, yTop, cx, yTop + rowH); cx += c.width }
-        doc.line(cx, yTop, cx, yTop + rowH)
-        doc.line(lm, yTop + rowH, cx, yTop + rowH)
-        doc.setDrawColor(0, 0, 0)
-      }
-
-      for (let gi = 0; gi < target.length; gi++) {
-        const g = target[gi]
-        if (gi > 0) doc.addPage()
-        let y = 18
-
-        // ── Kop sekolah (spesifik per jenjang, supaya tidak tertukar) ──────
-        const logoB64 = await getLogoB64(g.logoUrl)
-        if (logoB64) {
-          try { doc.addImage(logoB64, 'PNG', lm, y - 4, 18, 18) } catch { /* lewati kalau gagal decode */ }
-        }
-        doc.setFont('helvetica', 'bold')
-        doc.setFontSize(14)
-        doc.text((g.namaSekolah || 'NAMA SEKOLAH').toUpperCase(), pageW / 2, y + 2, { align: 'center' })
-        doc.setFont('helvetica', 'normal')
-        doc.setFontSize(9)
-        doc.text(`NPSN: ${g.npsn || '-'}  |  ${g.alamat || '-'}${g.kota ? ', ' + g.kota : ''}`, pageW / 2, y + 7, { align: 'center' })
-        doc.text(`Tahun Ajaran: ${g.tahunAjaran || '-'}`, pageW / 2, y + 11, { align: 'center' })
-        y += 15
-        doc.setLineWidth(0.8); doc.line(lm, y, lm + w, y)
-        doc.setLineWidth(0.3); doc.line(lm, y + 1.2, lm + w, y + 1.2)
-        y += 6
-
-        // Banner jenjang + judul laporan
-        doc.setFillColor(8, 47, 73)
-        doc.roundedRect(lm, y, w, 9, 1.5, 1.5, 'F')
-        doc.setTextColor(255, 255, 255)
-        doc.setFont('helvetica', 'bold')
-        doc.setFontSize(11)
-        doc.text(`LAPORAN LENGKAP PERSIAPAN & PELAKSANAAN UJIAN — JENJANG ${g.label.toUpperCase()}`, lm + 4, y + 6)
-        doc.setTextColor(20, 20, 20)
-        doc.setFont('helvetica', 'normal')
-        y += 13
-        doc.setFontSize(8.5)
-        doc.setTextColor(90, 90, 90)
-        doc.text(`Dicetak: ${generatedAt ? formatDate(generatedAt) : '-'}  |  Total kombinasi mapel + kelas: ${g.rows.length}`, lm, y)
-        doc.setTextColor(20, 20, 20)
-        y += 6
-
-        // ── SEKSI 1: PRA UJIAN (biru) ──────────────────────────────────────
-        y = ensureSpace(y, 16)
-        y = sectionBanner(y, '1. PRA UJIAN — Persiapan Soal, Kisi-kisi & Jadwal', [37, 99, 235])
-        // Lebar kolom diukur dari label terpanjang yang benar-benar dipakai
-        // (STATUS_SOAL_LABEL_PDF / STATUS_KISI_LABEL) memakai doc.getTextWidth,
-        // supaya badge status tidak pernah nabrak kolom sebelah.
-        const praCols = [
-          { label: 'Mapel', width: 26 },
-          { label: 'Kelas', width: 16 },
-          { label: 'Guru', width: 24 },
-          { label: 'Status Soal', width: 22 },
-          { label: 'Jml (M/S/Sk)', width: 18 },
-          { label: 'Kisi-kisi', width: 20 },
-          { label: 'Mode Jwb Essay', width: 24 },
-          { label: 'Jadwal', width: w - (26 + 16 + 24 + 22 + 18 + 20 + 24) },
-        ]
-        y = ensureSpace(y, 10)
-        y = tableHeader(y, praCols, [37, 99, 235])
-        doc.setFontSize(7.5)
-        for (let i = 0; i < g.rows.length; i++) {
-          const r = g.rows[i]
-          const rowH = 8
-          y = ensureSpace(y, rowH + 12)
-          if (y === 20) y = tableHeader(y, praCols, [37, 99, 235]) // header ulang di halaman baru
-          const rowTopY = y
-          if (i % 2 === 1) { doc.setFillColor(240, 245, 255); doc.rect(lm, y, w, rowH, 'F') }
-          let cx = lm
-          doc.text(r.namaMapel.slice(0, 14), cx + 2, y + 5); cx += praCols[0].width
-          doc.text(r.namaKelas.slice(0, 10), cx + 2, y + 5); cx += praCols[1].width
-          doc.text(r.namaGuru.slice(0, 15), cx + 2, y + 5); cx += praCols[2].width
-          pillRect(cx + 1, y + 5.4, STATUS_SOAL_LABEL_PDF[r.pra.statusSoal] ?? r.pra.statusSoal, STATUS_SOAL_COLOR[r.pra.statusSoal] ?? 'slate'); cx += praCols[3].width
-          doc.text(`${r.pra.jumlahSoal} (${r.pra.distribusi.mudah}/${r.pra.distribusi.sedang}/${r.pra.distribusi.sukar})`, cx + 2, y + 5); cx += praCols[4].width
-          pillRect(cx + 1, y + 5.4, STATUS_KISI_LABEL[r.pra.statusKisiKisi] ?? r.pra.statusKisiKisi, STATUS_KISI_COLOR[r.pra.statusKisiKisi] ?? 'slate'); cx += praCols[5].width
-          // Kolom baru: Mode Jawaban Essay — kalau mapel+kelas ini punya paket
-          // essay, tampilkan mode (Kertas/Digital) sesuai yang diatur guru;
-          // kalau tidak ada paket essay sama sekali, tampilkan keterangan
-          // "Tidak ada soal essay".
-          if (r.pra.adaEssay) {
-            pillRect(cx + 1, y + 5.4, r.pra.modeJawabanEssay === 'KERTAS' ? 'Kertas' : 'Digital', r.pra.modeJawabanEssay === 'KERTAS' ? 'yellow' : 'blue')
-          } else {
-            doc.setTextColor(140, 140, 140)
-            doc.setFontSize(6.8)
-            doc.text('Tidak ada soal essay', cx + 2, y + 5)
-            doc.setTextColor(20, 20, 20)
-            doc.setFontSize(7.5)
-          }
-          cx += praCols[6].width
-          // Format ringkas khusus PDF (DD/MM/YYYY, tanpa nama bulan & tanpa
-          // "(sesi N)") — versi lengkap formatDate() terlalu lebar untuk
-          // kolom Jadwal dan sebelumnya bisa meluber sampai lewat tepi
-          // halaman.
-          const jadwalTxt = r.pra.jadwal.length
-            ? `${r.pra.jadwal.length} sesi, ${fmtTglSingkatPdf(r.pra.jadwal[0].tanggal)}`
-            : 'Belum dijadwalkan'
-          doc.text(jadwalTxt, cx + 2, y + 5)
-          drawRowGrid(rowTopY, rowH, praCols)
-          y += rowH
-          if (r.pra.catatanPenolakan) {
-            doc.setTextColor(180, 45, 45)
-            doc.setFontSize(6.8)
-            doc.text(`Catatan penolakan: ${r.pra.catatanPenolakan.slice(0, 110)}`, lm + 2, y + 3)
-            doc.setTextColor(20, 20, 20)
-            doc.setFontSize(7.5)
-            y += 4.5
-          }
-        }
-        y += 6
-
-        // ── SEKSI 2: SAAT UJIAN (oranye) ────────────────────────────────────
-        y = ensureSpace(y, 16)
-        y = sectionBanner(y, '2. SAAT UJIAN — Progres Pelaksanaan', [217, 119, 6])
-        const saatCols = [
-          { label: 'Mapel', width: 32 },
-          { label: 'Kelas', width: 22 },
-          { label: 'Status', width: 24 },
-          { label: 'Peserta / Total Siswa', width: 38 },
-          { label: 'Selesai Mengerjakan', width: 38 },
-          { label: 'Pelanggaran Belum Ditindak', width: w - (32 + 22 + 24 + 38 + 38) },
-        ]
-        y = ensureSpace(y, 10)
-        y = tableHeader(y, saatCols, [217, 119, 6])
-        doc.setFontSize(7.5)
-        for (let i = 0; i < g.rows.length; i++) {
-          const r = g.rows[i]
-          const rowH = 7
-          y = ensureSpace(y, rowH)
-          if (y === 20) y = tableHeader(y, saatCols, [217, 119, 6])
-          const rowTopY = y
-          if (i % 2 === 1) { doc.setFillColor(255, 247, 235); doc.rect(lm, y, w, rowH, 'F') }
-          let cx = lm
-          doc.text(r.namaMapel.slice(0, 18), cx + 2, y + 4.7); cx += saatCols[0].width
-          doc.text(r.namaKelas.slice(0, 13), cx + 2, y + 4.7); cx += saatCols[1].width
-          const statusSaat = r.saat.adaSesiBerjalan ? 'BERJALAN' : (r.saat.siswaTerdaftar > 0 ? 'SELESAI' : 'BELUM MULAI')
-          const statusSaatColor: PillColor = r.saat.adaSesiBerjalan ? 'blue' : (r.saat.siswaTerdaftar > 0 ? 'green' : 'slate')
-          pillRect(cx + 1, y + 4.9, statusSaat, statusSaatColor); cx += saatCols[2].width
-          doc.text(`${r.saat.siswaTerdaftar} / ${r.saat.totalSiswaKelas}`, cx + 2, y + 4.7); cx += saatCols[3].width
-          doc.text(`${r.saat.siswaSelesai}`, cx + 2, y + 4.7); cx += saatCols[4].width
-          if (r.saat.pelanggaranBelumDitindak > 0) {
-            doc.setTextColor(200, 45, 45); doc.setFont('helvetica', 'bold')
-            doc.text(`${r.saat.pelanggaranBelumDitindak}`, cx + 2, y + 4.7)
-            doc.setFont('helvetica', 'normal'); doc.setTextColor(20, 20, 20)
-          } else {
-            doc.text('0', cx + 2, y + 4.7)
-          }
-          drawRowGrid(rowTopY, rowH, saatCols)
-          y += rowH
-        }
-        y += 6
-
-        // ── SEKSI 3: SETELAH UJIAN (hijau) ─────────────────────────────────
-        y = ensureSpace(y, 16)
-        y = sectionBanner(y, '3. SETELAH UJIAN — Rekap Hasil & Tindak Lanjut', [22, 163, 74])
-        const setelahCols = [
-          { label: 'Mapel', width: 28 },
-          { label: 'Kelas', width: 20 },
-          { label: 'Rata-rata', width: 20 },
-          { label: 'Lulus/Tdk', width: 22 },
-          { label: 'Kirim Wali', width: 28 },
-          { label: 'Dikembalikan', width: 26 },
-          { label: 'Pelanggaran', width: w - (28 + 20 + 20 + 22 + 28 + 26) },
-        ]
-        y = ensureSpace(y, 10)
-        y = tableHeader(y, setelahCols, [22, 163, 74])
-        doc.setFontSize(7.5)
-        for (let i = 0; i < g.rows.length; i++) {
-          const r = g.rows[i]
-          const rowH = 7
-          y = ensureSpace(y, rowH)
-          if (y === 20) y = tableHeader(y, setelahCols, [22, 163, 74])
-          const rowTopY = y
-          if (i % 2 === 1) { doc.setFillColor(236, 253, 245); doc.rect(lm, y, w, rowH, 'F') }
-          let cx = lm
-          doc.text(r.namaMapel.slice(0, 15), cx + 2, y + 4.7); cx += setelahCols[0].width
-          doc.text(r.namaKelas.slice(0, 12), cx + 2, y + 4.7); cx += setelahCols[1].width
-          doc.text(r.setelah.totalNilai > 0 ? String(r.setelah.rataRata) : '-', cx + 2, y + 4.7); cx += setelahCols[2].width
-          doc.text(`${r.setelah.jumlahLulus}/${r.setelah.jumlahTidakLulus}`, cx + 2, y + 4.7); cx += setelahCols[3].width
-          const kirimTxt = r.setelah.totalNilai > 0 ? `${r.setelah.sudahDikirimWali}/${r.setelah.totalNilai}` : '-'
-          const kirimColor: PillColor = r.setelah.totalNilai === 0 ? 'slate'
-            : r.setelah.sudahDikirimWali === r.setelah.totalNilai ? 'green' : 'yellow'
-          pillRect(cx + 1, y + 4.9, kirimTxt, kirimColor); cx += setelahCols[4].width
-          doc.text(r.setelah.adaDikembalikan ? 'Ya, direvisi' : '-', cx + 2, y + 4.7); cx += setelahCols[5].width
-          doc.text(`${r.setelah.pelanggaranFinal}`, cx + 2, y + 4.7)
-          drawRowGrid(rowTopY, rowH, setelahCols)
-          y += rowH
-        }
-      }
-
-      const filenamePart = target.length === 1 ? (target[0].label || 'jenjang').replace(/[^a-z0-9]+/gi, '_') : 'semua_jenjang'
-      doc.save(`Laporan_Lengkap_Ujian_${filenamePart}_${new Date().toISOString().slice(0, 10)}.pdf`)
-      showToast('PDF berhasil diunduh')
+      doc.save(namaBerkasPdf({
+        tahap,
+        hanyaBelum,
+        jenjangLabel: jenjangUnduh === 'ALL' ? null : (targetUnduh[0]?.label ?? null),
+        kelas: filterKelas,
+        mapel: filterMapel,
+        tanggal: new Date().toISOString().slice(0, 10),
+      }))
+      showToast(`PDF ${INFO_TAHAP[tahap].tombol} berhasil diunduh`)
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'Gagal membuat PDF', 'error')
     } finally {
@@ -528,11 +217,11 @@ export default function AdminLaporanPage() {
           </button>
           <button
             className="btn-primary flex items-center gap-2"
-            onClick={() => downloadPdf(filteredData, 'ALL')}
-            disabled={loading || filteredData.length === 0 || downloading !== null}
+            onClick={() => setPanelUnduhBuka(v => !v)}
+            aria-expanded={panelUnduhBuka}
+            disabled={loading || filteredData.length === 0}
           >
-            {downloading === 'ALL' ? <Spinner size="sm" /> : <Download className="w-4 h-4" />}
-            Download PDF Semua Jenjang
+            <Download className="w-4 h-4" /> Download PDF
           </button>
         </div>
       </div>
@@ -541,6 +230,61 @@ export default function AdminLaporanPage() {
         <p className="text-xs text-muted">
           Data dihitung: {new Date(generatedAt).toLocaleString('id-ID')} · Total kombinasi mapel + kelas: {totalKombinasi}
         </p>
+      )}
+
+      {/* Panel Download PDF — 1 file per tahap */}
+      {panelUnduhBuka && (
+        <div className="card p-4 space-y-4 max-w-3xl">
+          <div>
+            <p className="font-semibold text-slate-800">Download PDF per tahap</p>
+            <p className="text-xs text-muted">
+              Setiap tahap diunduh sebagai file terpisah. Cakupan mengikuti pencarian dan Filter di bawah: {cakupanTeks}.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-end gap-4">
+            {opsiJenjang.length > 1 && (
+              <div className="min-w-[200px]">
+                <label className="label">Jenjang</label>
+                <select className="select" value={jenjangUnduh} onChange={e => setJenjangUnduh(e.target.value)}>
+                  <option value="ALL">Semua jenjang</option>
+                  {opsiJenjang.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
+                </select>
+              </div>
+            )}
+            <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer select-none pb-2">
+              <input
+                type="checkbox"
+                className="w-4 h-4 rounded border-slate-300"
+                checked={hanyaBelum}
+                onChange={e => setHanyaBelum(e.target.checked)}
+              />
+              Hanya yang belum lengkap / belum tuntas
+            </label>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {DAFTAR_TAHAP.map((t, i) => {
+              const r = ringkasTahap[t]
+              const kosong = hanyaBelum ? r.belum === 0 : r.total === 0
+              return (
+                <button
+                  key={t}
+                  type="button"
+                  className="btn-secondary w-full flex-col items-start gap-0.5 text-left"
+                  onClick={() => unduhPdf(t)}
+                  disabled={downloading !== null || kosong}
+                >
+                  <span className="flex items-center gap-2 font-semibold">
+                    {downloading === t ? <Spinner size="sm" /> : <Download className="w-4 h-4" />}
+                    {i + 1}. {INFO_TAHAP[t].tombol}
+                  </span>
+                  <span className="text-xs font-normal text-muted">
+                    {INFO_TAHAP[t].sub} · {hanyaBelum && r.belum === 0 ? 'semua sudah beres' : `${r.belum} dari ${r.total} belum`}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
       )}
 
       {/* Search + tombol Filter */}
@@ -644,14 +388,6 @@ export default function AdminLaporanPage() {
                       <span className="flex items-center gap-1"><PlayCircle className="w-3.5 h-3.5" />{sesiBerjalan} sesi berjalan</span>
                       <span className="flex items-center gap-1"><CheckCircle2 className="w-3.5 h-3.5" />{belumKirim} nilai belum terkirim</span>
                     </div>
-                    <span
-                      role="button"
-                      className="btn-secondary text-xs py-1.5 px-3 flex items-center gap-1.5"
-                      onClick={(e) => { e.stopPropagation(); downloadPdf([g], g.sekolahId ?? key) }}
-                    >
-                      {downloading === (g.sekolahId ?? key) ? <Spinner size="sm" /> : <Download className="w-3.5 h-3.5" />}
-                      PDF Jenjang Ini
-                    </span>
                   </div>
                 </button>
 
