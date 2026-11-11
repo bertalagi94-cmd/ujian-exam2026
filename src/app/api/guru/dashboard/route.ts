@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRoleAktif } from '@/lib/status-akun'
 import { hitungGrade } from '@/lib/utils'
+import { ambilSemuaBaris } from '@/lib/ambil-semua'
 import { petakanEssayAktifPerSesi } from '@/app/api/guru/kirim-nilai/route'
 
 export async function GET(req: NextRequest) {
@@ -49,8 +50,56 @@ export async function GET(req: NextRequest) {
   const enrichedPaket = enrichedSemua.slice(0, 5)
 
   // Get nilai for mapels taught by this guru
-  const { data: guruMapel } = await db.from('mapel').select('id').eq('guru_id', guruId)
-  const mapelGuruIds = (guruMapel ?? []).map(m => m.id)
+  const { data: guruMapel } = await db.from('mapel').select('id, nama, kelas_list').eq('guru_id', guruId)
+  const mapelGuru = guruMapel ?? []
+  const mapelGuruIds = mapelGuru.map(m => m.id)
+
+  // ── Paket yang BELUM DIBUAT sama sekali ─────────────────────────────────────
+  // Diagram donat harus menunjukkan progres lengkap, jadi selain paket yang sudah
+  // ada (Draft/Menunggu/Disetujui/Ditolak) kita hitung juga kombinasi
+  // mapel + kelas yang DIAMPU guru ini tetapi belum punya paket soal. Penugasan
+  // diambil dari mapel.guru_id + mapel.kelas_list (nama kelas, koma-dipisah) —
+  // sumber yang sama dengan Laporan Lengkap admin, sehingga angkanya konsisten.
+  //
+  // Sebuah kombinasi dianggap "sudah dibuat" bila ADA paket untuk mapel+kelas itu,
+  // dari guru mana pun (mis. mapel pernah diampu guru lain), supaya tidak
+  // salah menandai kombinasi yang sebenarnya sudah punya paket.
+  //
+  // Jika salah satu query gagal, bagian ini DILEWATI (bukan dianggap kosong):
+  // lebih baik donat tanpa segmen "Belum Dibuat" daripada menandai semua
+  // kombinasi sebagai belum dibuat karena error baca.
+  type KombinasiBelumDibuat = { id: string; nama_mapel: string; nama_kelas: string }
+  const belumDibuat: KombinasiBelumDibuat[] = []
+  if (mapelGuruIds.length) {
+    const [{ data: semuaKelas, error: errKelas }, paketAda] = await Promise.all([
+      db.from('kelas').select('id, nama'),
+      ambilSemuaBaris<{ id: string; mapel_id: string; kelas_id: string }>((dari, sampai) =>
+        db
+          .from('paket_soal')
+          .select('id, mapel_id, kelas_id')
+          .in('mapel_id', mapelGuruIds)
+          .order('id', { ascending: true })
+          .range(dari, sampai)
+      ),
+    ])
+    if (!errKelas && !paketAda.error) {
+      const kelasByNama = new Map((semuaKelas ?? []).map(k => [String(k.nama), String(k.id)]))
+      const sudahAda = new Set(paketAda.data.map(p => `${p.mapel_id}::${p.kelas_id}`))
+      const sudahDihitung = new Set<string>()
+      for (const m of mapelGuru) {
+        const namaKelasList = String(m.kelas_list ?? '').split(',').map(x => x.trim()).filter(Boolean)
+        for (const namaKelas of namaKelasList) {
+          const kelasId = kelasByNama.get(namaKelas)
+          if (!kelasId) continue // kelas sudah dihapus tapi masih tercatat di kelas_list — lewati
+          const kunci = `${m.id}::${kelasId}`
+          if (sudahAda.has(kunci) || sudahDihitung.has(kunci)) continue
+          sudahDihitung.add(kunci)
+          belumDibuat.push({ id: `belum::${kunci}`, nama_mapel: m.nama, nama_kelas: namaKelas })
+        }
+      }
+      belumDibuat.sort((a, b) => a.nama_mapel.localeCompare(b.nama_mapel) || a.nama_kelas.localeCompare(b.nama_kelas, undefined, { numeric: true }))
+    }
+  }
 
   // BUG FIX (statistik dashboard tidak konsisten dengan halaman Nilai):
   // sebelumnya query ini pakai .limit(50), lalu limit yang sama itu juga
@@ -111,11 +160,13 @@ export async function GET(req: NextRequest) {
       paketMenunggu,
       paketDitolak,
       paketDraft,
+      paketBelumDibuat: belumDibuat.length,
       totalNilai: nilaiAll?.length ?? 0,
       rataRataNilai,
     },
     paketTerbaru: enrichedPaket,
-    // Seluruh paket (ringkas) untuk detail diagram donat di beranda guru.
+    // Seluruh paket (ringkas) untuk diagram donat di beranda guru, ditambah
+    // kombinasi mapel+kelas yang belum dibuat sama sekali (status BELUM_DIBUAT).
     paketSemua: enrichedSemua.map(p => ({
       id: p.id,
       nama_mapel: p.nama_mapel,
@@ -123,7 +174,14 @@ export async function GET(req: NextRequest) {
       status: p.status,
       jumlah_soal: p.jumlah_soal ?? 0,
       catatan: p.status === 'DITOLAK' ? (p.catatan ?? null) : null,
-    })),
+    })).concat(belumDibuat.map(b => ({
+      id: b.id,
+      nama_mapel: b.nama_mapel,
+      nama_kelas: b.nama_kelas,
+      status: 'BELUM_DIBUAT',
+      jumlah_soal: 0,
+      catatan: null,
+    }))),
     nilaiTerbaru,
   })
 }

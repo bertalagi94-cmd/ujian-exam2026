@@ -14,6 +14,7 @@ interface GuruDashData {
     paketMenunggu: number
     paketDitolak: number
     paketDraft: number
+    paketBelumDibuat: number
     totalNilai: number
     rataRataNilai: number
   }

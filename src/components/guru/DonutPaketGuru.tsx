@@ -4,8 +4,10 @@
 // Tampilan dan animasi sama dengan donat "Kelengkapan Soal" di beranda admin
 // (components/admin/DonutKelengkapanSoal.tsx), tetapi sumber datanya adalah
 // paket soal milik guru yang login (dikirim /api/guru/dashboard lewat props,
-// jadi tidak ada request tambahan). Persentase tengah = paket DISETUJUI /
-// seluruh paket. Klik segmen atau legenda untuk melihat daftar paketnya.
+// jadi tidak ada request tambahan). Satu "unit" = satu kombinasi mapel + kelas
+// yang diampu guru, termasuk yang BELUM DIBUAT sama sekali (status BELUM_DIBUAT,
+// dibentuk oleh API), supaya progres guru terlihat utuh. Persentase tengah =
+// unit DISETUJUI / seluruh unit. Klik segmen atau legenda untuk melihat daftarnya.
 //
 // Semua animasi dimatikan otomatis bila perangkat memilih "kurangi gerakan".
 
@@ -24,13 +26,14 @@ export interface PaketRingkas {
   catatan: string | null
 }
 
-type StatusKey = 'DISETUJUI' | 'MENUNGGU' | 'DRAFT' | 'DITOLAK'
+type StatusKey = 'DISETUJUI' | 'MENUNGGU' | 'DRAFT' | 'DITOLAK' | 'BELUM_DIBUAT'
 
 const LABEL: Record<StatusKey, string> = {
   DISETUJUI: 'Disetujui',
   MENUNGGU: 'Menunggu Validasi',
   DRAFT: 'Draft',
   DITOLAK: 'Ditolak',
+  BELUM_DIBUAT: 'Belum Dibuat',
 }
 
 // Urutan = urutan searah jarum jam dari jam 12.
@@ -39,6 +42,7 @@ const SEGMEN: { key: StatusKey; warna: [string, string]; titik: string; keterang
   { key: 'MENUNGGU',  warna: ['#fbbf24', '#d97706'], titik: 'bg-amber-500',   keterangan: 'Sudah Anda kirim, menunggu validasi admin' },
   { key: 'DRAFT',     warna: ['#60a5fa', '#2563eb'], titik: 'bg-blue-500',    keterangan: 'Masih Anda susun, belum dikirim' },
   { key: 'DITOLAK',   warna: ['#fb7185', '#e11d48'], titik: 'bg-rose-500',    keterangan: 'Dikembalikan validator, perlu diperbaiki' },
+  { key: 'BELUM_DIBUAT', warna: ['#cbd5e1', '#94a3b8'], titik: 'bg-slate-400', keterangan: 'Anda belum membuat paket soal untuk mapel & kelas ini' },
 ]
 
 const R = 84
@@ -80,7 +84,7 @@ export function DonutPaketGuru({ paket, className }: { paket: PaketRingkas[]; cl
 
   const total = paket.length
   const hitung = useMemo(() => {
-    const h: Record<StatusKey, number> = { DISETUJUI: 0, MENUNGGU: 0, DRAFT: 0, DITOLAK: 0 }
+    const h: Record<StatusKey, number> = { DISETUJUI: 0, MENUNGGU: 0, DRAFT: 0, DITOLAK: 0, BELUM_DIBUAT: 0 }
     for (const p of paket) {
       // Status tak dikenal dianggap Draft supaya jumlah segmen selalu = total.
       const k = (p.status in h ? p.status : 'DRAFT') as StatusKey
@@ -148,7 +152,7 @@ export function DonutPaketGuru({ paket, className }: { paket: PaketRingkas[]; cl
           </div>
           <div className="min-w-0">
             <h2 className="font-semibold leading-tight text-slate-900">Status Paket Soal</h2>
-            <p className="text-xs text-slate-400">Paket soal Anda · klik diagram untuk detail</p>
+            <p className="text-xs text-slate-400">Mapel & kelas yang Anda ampu · klik diagram untuk detail</p>
           </div>
         </div>
         <Link href="/guru/paket" className="inline-flex flex-shrink-0 items-center gap-1 text-xs font-medium text-brand-600 hover:underline">
@@ -157,13 +161,13 @@ export function DonutPaketGuru({ paket, className }: { paket: PaketRingkas[]; cl
       </div>
 
       {total === 0 ? (
-        <p className="py-16 text-center text-sm text-slate-400">Belum ada paket soal. Buat paket pertama Anda di menu Paket Soal.</p>
+        <p className="py-16 text-center text-sm text-slate-400">Belum ada mapel atau kelas yang ditugaskan kepada Anda, dan belum ada paket soal. Hubungi admin untuk penugasan mapel, atau buat paket di menu Paket Soal.</p>
       ) : (
         <div className="relative grid items-center gap-5 md:grid-cols-[250px_1fr]">
           {/* ── Diagram ── */}
           <div className="dpg-wrap relative mx-auto aspect-square w-full max-w-[250px]" data-pilih={dipilih ? '1' : '0'}>
             <svg viewBox="0 0 220 220" className="h-full w-full overflow-visible" role="img"
-                 aria-label={`Paket soal disetujui ${persen} persen`}>
+                 aria-label={`Paket soal disetujui ${persen} persen dari seluruh mapel dan kelas yang Anda ampu`}>
               <defs>
                 {SEGMEN.map(s => (
                   <linearGradient key={s.key} id={`dpg-g-${s.key}`} x1="0" y1="0" x2="1" y2="1">
@@ -284,6 +288,11 @@ export function DonutPaketGuru({ paket, className }: { paket: PaketRingkas[]; cl
                     <X className="h-4 w-4" />
                   </button>
                 </div>
+                {infoDipilih.key === 'BELUM_DIBUAT' && (
+                  <Link href="/guru/paket" className="mb-2 inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:underline">
+                    Buat paket soal <ArrowUpRight className="h-3.5 w-3.5" />
+                  </Link>
+                )}
                 <div className="max-h-44 space-y-1 overflow-y-auto pr-1">
                   {detail.map(p => (
                     <div key={p.id} className="flex items-center justify-between gap-2 rounded-lg bg-slate-50 px-2.5 py-1.5 text-xs">
