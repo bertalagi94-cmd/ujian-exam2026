@@ -118,7 +118,7 @@ export default function BkTidakUjianPage() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="page-title flex items-center gap-2">
-            <UserX className="w-6 h-6 text-pink-600" />
+            <UserX className="w-6 h-6 text-green-600" />
             Siswa Tidak Mengikuti Ujian
           </h1>
           <p className="page-subtitle">
@@ -141,12 +141,12 @@ export default function BkTidakUjianPage() {
               sub={`${ringkasan?.siswaTidakIkut ?? 0} siswa`} />
             <StatCard label="Belum Masuk (ujian berjalan)" value={ringkasan?.belumMasuk ?? 0} icon={Clock} color="bg-amber-500" />
             <StatCard label="Di Ruang Khusus" value={ringkasan?.ruangKhusus ?? 0} icon={DoorOpen} color="bg-sky-500" />
-            <StatCard label="Jadwal Dihitung" value={ringkasan?.jumlahJadwal ?? 0} icon={CalendarDays} color="bg-pink-600"
+            <StatCard label="Jadwal Dihitung" value={ringkasan?.jumlahJadwal ?? 0} icon={CalendarDays} color="bg-green-600"
               sub="sesinya sudah dibuka" />
           </div>
 
           <div className="card-sm flex items-start gap-3 text-sm text-slate-600">
-            <Info className="w-4 h-4 mt-0.5 text-pink-600 flex-shrink-0" />
+            <Info className="w-4 h-4 mt-0.5 text-green-600 flex-shrink-0" />
             <div className="space-y-1.5">
               <p className="font-medium text-slate-800">Cara membaca daftar ini</p>
               <p>Satu baris berarti satu siswa pada satu mapel. Status menunjukkan apakah siswa itu benar-benar tidak ikut atau masih punya kesempatan:</p>
@@ -169,8 +169,8 @@ export default function BkTidakUjianPage() {
                 onClick={() => { setFilterStatus(p.nilai); setHalaman(1) }}
                 className={`px-3 py-1.5 rounded-lg border text-sm transition-colors ${
                   filterStatus === p.nilai
-                    ? 'bg-pink-600 border-pink-600 text-white'
-                    : 'bg-white border-slate-200 text-slate-600 hover:border-pink-300'
+                    ? 'bg-green-600 border-green-600 text-white'
+                    : 'bg-white border-slate-200 text-slate-600 hover:border-green-300'
                 }`}
               >
                 {p.label} <span className="opacity-80">({p.jumlah})</span>

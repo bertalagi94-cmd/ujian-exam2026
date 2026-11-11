@@ -126,7 +126,7 @@ export default function BkNilaiPage() {
             <>
               <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
                 <StatCard label="Jumlah Siswa" value={result.summary.jumlahSiswa} icon={Users} color="bg-brand-500" />
-                <StatCard label="Rata-rata Kelas" value={result.summary.rataRata} icon={BarChart3} color="bg-pink-600" />
+                <StatCard label="Rata-rata Kelas" value={result.summary.rataRata} icon={BarChart3} color="bg-green-600" />
                 <StatCard label="Nilai Tertinggi" value={result.summary.nilaiTertinggi} icon={TrendingUp} color="bg-emerald-500" />
                 <StatCard label="Nilai Terendah" value={result.summary.nilaiTerendah} icon={TrendingDown} color="bg-orange-500" />
                 <StatCard label="Perlu Perhatian" value={result.summary.jumlahPerluPerhatian} icon={AlertTriangle} color="bg-amber-500" />
@@ -134,7 +134,7 @@ export default function BkNilaiPage() {
 
               <div className="card">
                 <h2 className="font-semibold text-slate-900 mb-1 flex items-center gap-2">
-                  <BarChart3 className="w-4 h-4 text-pink-600" /> {result.nama_mapel} (Kelas {kelas})
+                  <BarChart3 className="w-4 h-4 text-green-600" /> {result.nama_mapel} (Kelas {kelas})
                 </h2>
                 <p className="text-xs text-slate-500 mb-4">
                   Ditandai bila nilai akhir di bawah KKM, atau tertinggal {result.selisihPerhatian} poin atau lebih dari rata-rata kelas.

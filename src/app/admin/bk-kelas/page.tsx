@@ -77,7 +77,7 @@ export default function KelasBinaanBkPage() {
       {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
       <div>
         <h1 className="page-title flex items-center gap-2">
-          <HeartHandshake className="w-6 h-6 text-pink-600" /> Kelas Binaan BK
+          <HeartHandshake className="w-6 h-6 text-green-600" /> Kelas Binaan BK
         </h1>
         <p className="page-subtitle">
           Tetapkan kelas yang dibina tiap guru BK. Guru BK hanya dapat melihat siswa, pelanggaran, dan nilai dari kelas binaannya.
@@ -107,7 +107,7 @@ export default function KelasBinaanBkPage() {
                 {g.kelas_ids.length > 0 ? (
                   <div className="flex flex-wrap gap-1 mt-1.5">
                     {g.kelas_ids.map(id => (
-                      <span key={id} className="px-2 py-0.5 rounded-md bg-pink-50 border border-pink-200 text-pink-700 text-xs">
+                      <span key={id} className="px-2 py-0.5 rounded-md bg-green-50 border border-green-200 text-green-700 text-xs">
                         Kelas {namaKelas(id)}
                       </span>
                     ))}
@@ -130,7 +130,7 @@ export default function KelasBinaanBkPage() {
               <div className="space-y-1.5">
                 <label className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium ${
                   kelasBisaDipilih.length === 0 ? 'border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed'
-                  : semuaBisaTerpilih ? 'border-pink-500 bg-pink-50 cursor-pointer' : 'border-slate-300 cursor-pointer'}`}>
+                  : semuaBisaTerpilih ? 'border-green-500 bg-green-50 cursor-pointer' : 'border-slate-300 cursor-pointer'}`}>
                   <input
                     type="checkbox"
                     disabled={kelasBisaDipilih.length === 0}
@@ -155,7 +155,7 @@ export default function KelasBinaanBkPage() {
                   <label key={k.id} title={terkunci ? `Dibina ${lain!.nama}` : undefined}
                     className={`flex flex-col gap-0.5 px-3 py-2 rounded-lg border text-sm ${
                       terkunci ? 'border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed'
-                      : pilih.has(k.id) ? 'border-pink-500 bg-pink-50 cursor-pointer' : 'border-slate-200 cursor-pointer'}`}>
+                      : pilih.has(k.id) ? 'border-green-500 bg-green-50 cursor-pointer' : 'border-slate-200 cursor-pointer'}`}>
                     <span className="flex items-center gap-2">
                       <input type="checkbox" disabled={terkunci} checked={pilih.has(k.id)} onChange={() => toggle(k.id)} />
                       {k.nama}

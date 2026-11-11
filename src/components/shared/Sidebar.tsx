@@ -746,9 +746,9 @@ export function BkSidebar() {
   return (
     <Sidebar
       role="BK"
-      roleColor="bg-pink-600"
+      roleColor="bg-green-600"
       roleLabel="Guru BK"
-      accent="#db2777"
+      accent="#16a34a"
       navItems={[
         { label: 'Dashboard', href: '/bk', icon: LayoutDashboard },
         { label: 'Pelanggaran Siswa', href: '/bk/pelanggaran', icon: ShieldAlert, section: 'Pembinaan' },

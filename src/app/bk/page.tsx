@@ -56,7 +56,7 @@ export default function BkDashboardPage() {
     <div className="space-y-6 animate-fade-in">
       <div>
         <h1 className="page-title flex items-center gap-2">
-          <HeartHandshake className="w-6 h-6 text-pink-600" />
+          <HeartHandshake className="w-6 h-6 text-green-600" />
           Dashboard BK
         </h1>
         <p className="page-subtitle">
@@ -70,7 +70,7 @@ export default function BkDashboardPage() {
       {data && !data.scopeWarning && (
         <>
           <div className="card-sm flex items-start gap-3">
-            <div className="w-9 h-9 rounded-xl bg-pink-50 text-pink-600 flex items-center justify-center flex-shrink-0">
+            <div className="w-9 h-9 rounded-xl bg-green-50 text-green-600 flex items-center justify-center flex-shrink-0">
               <School className="w-4.5 h-4.5" />
             </div>
             <div className="min-w-0">
@@ -79,7 +79,7 @@ export default function BkDashboardPage() {
               </p>
               <div className="flex flex-wrap gap-1 mt-1.5">
                 {data.scope.kelas.map(k => (
-                  <span key={k} className="px-2 py-0.5 rounded-md bg-pink-50 border border-pink-200 text-pink-700 text-xs">Kelas {k}</span>
+                  <span key={k} className="px-2 py-0.5 rounded-md bg-green-50 border border-green-200 text-green-700 text-xs">Kelas {k}</span>
                 ))}
               </div>
             </div>
@@ -89,13 +89,13 @@ export default function BkDashboardPage() {
             <StatCard label="Pelanggaran 7 Hari Terakhir" value={data.pelanggaran.mingguIni} icon={ShieldAlert} color="bg-red-500"
               sub={`${data.pelanggaran.bulanIni} dalam 30 hari`} />
             <StatCard label="Belum Ditindaklanjuti" value={data.pelanggaran.belumDitindak} icon={AlertTriangle} color="bg-amber-500" />
-            <StatCard label="Pelanggar Berulang" value={data.jumlahBerulang ?? 0} icon={Repeat} color="bg-pink-600"
+            <StatCard label="Pelanggar Berulang" value={data.jumlahBerulang ?? 0} icon={Repeat} color="bg-green-600"
               sub={`${data.batasBerulang ?? 3}+ pelanggaran / 30 hari`} />
             <StatCard label="Siswa Nilai di Bawah KKM" value={data.nilaiRendah.jumlahSiswa} icon={TrendingDown} color="bg-orange-500" />
           </div>
 
           {tidakUjian && (
-            <Link href="/bk/tidak-ujian" className="card-sm flex items-center gap-3 hover:border-pink-300 transition-colors">
+            <Link href="/bk/tidak-ujian" className="card-sm flex items-center gap-3 hover:border-green-300 transition-colors">
               <div className="w-9 h-9 rounded-xl bg-red-50 text-red-600 flex items-center justify-center flex-shrink-0">
                 <UserX className="w-4.5 h-4.5" />
               </div>
@@ -117,9 +117,9 @@ export default function BkDashboardPage() {
             <div className="card">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="font-semibold text-slate-900 flex items-center gap-2">
-                  <Repeat className="w-4 h-4 text-pink-600" /> Siswa Berulang Kali Melanggar
+                  <Repeat className="w-4 h-4 text-green-600" /> Siswa Berulang Kali Melanggar
                 </h2>
-                <Link href="/bk/pelanggaran" className="text-xs text-pink-600 hover:underline">Lihat semua pelanggaran</Link>
+                <Link href="/bk/pelanggaran" className="text-xs text-green-600 hover:underline">Lihat semua pelanggaran</Link>
               </div>
               {data.berulang.length === 0 ? (
                 <EmptyState message="Tidak ada siswa yang berulang kali melanggar" icon={Users} />
@@ -152,7 +152,7 @@ export default function BkDashboardPage() {
                 <h2 className="font-semibold text-slate-900 flex items-center gap-2">
                   <TrendingDown className="w-4 h-4 text-orange-500" /> Siswa dengan Nilai di Bawah KKM
                 </h2>
-                <Link href="/bk/nilai" className="text-xs text-pink-600 hover:underline">Lihat hasil & nilai</Link>
+                <Link href="/bk/nilai" className="text-xs text-green-600 hover:underline">Lihat hasil & nilai</Link>
               </div>
               {data.nilaiRendah.daftar.length === 0 ? (
                 <EmptyState message="Belum ada siswa dengan nilai di bawah KKM" icon={Users} />
