@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { apiRequest } from '@/lib/utils'
 
-const ROUTES: Record<string, string> = { ADMIN: '/admin', GURU: '/guru', KEPSEK: '/kepsek', SISWA: '/siswa' }
+const ROUTES: Record<string, string> = { ADMIN: '/admin', GURU: '/guru', KEPSEK: '/kepsek', BK: '/bk', SISWA: '/siswa' }
 
 export default function GantiPasswordPage() {
   const [role, setRole] = useState<string>('')

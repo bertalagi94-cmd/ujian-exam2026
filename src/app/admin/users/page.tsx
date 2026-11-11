@@ -13,17 +13,21 @@ import { mulaiLihatSebagai } from '@/lib/lihat-sebagai'
 // berdiri sendiri — kapabilitas mengawasi ujian otomatis aktif di akun GURU
 // ketika admin menugaskannya lewat menu Jadwal Ujian (kolom jadwal.pengawas
 // diisi username guru tersebut). Lihat src/app/guru/mode-pengawas.
-const ALL_ROLES = ['ADMIN', 'GURU', 'KEPSEK'] as const
+// 'BK' = Guru BK: menu sendiri yang hanya-lihat, kelas binaannya diatur di
+// menu "Kelas Binaan BK" (bukan di form ini).
+const ALL_ROLES = ['ADMIN', 'GURU', 'KEPSEK', 'BK'] as const
 const ROLE_TABS = [
   { value: '', label: 'Semua' },
   { value: 'ADMIN', label: 'Admin' },
   { value: 'GURU', label: 'Guru' },
   { value: 'KEPSEK', label: 'Kepsek' },
+  { value: 'BK', label: 'Guru BK' },
 ]
 const roleColors: Record<string, string> = {
   ADMIN: 'badge-red',
   GURU: 'badge-blue',
   KEPSEK: 'badge-purple',
+  BK: 'badge-yellow',
 }
 
 interface ImportUserRow {
@@ -471,7 +475,10 @@ export default function AdminUsersPage() {
                           <span className="text-xs text-amber-600">Belum diset</span>
                         )
                       )}
-                      {u.role !== 'KEPSEK' && u.role !== 'GURU' && (
+                      {u.role === 'BK' && (
+                        <span className="text-xs text-slate-500">Atur di menu Kelas Binaan BK</span>
+                      )}
+                      {u.role !== 'KEPSEK' && u.role !== 'GURU' && u.role !== 'BK' && (
                         <span className="text-slate-300 text-xs">—</span>
                       )}
                     </td>
@@ -485,7 +492,7 @@ export default function AdminUsersPage() {
                           className="btn-ghost btn-icon btn-sm text-blue-600 hover:bg-blue-50">
                           <Pencil className="w-3.5 h-3.5" />
                         </button>
-                        {(u.role === 'GURU' || u.role === 'KEPSEK') && (
+                        {(u.role === 'GURU' || u.role === 'KEPSEK' || u.role === 'BK') && (
                           <button onClick={() => setViewAsUser(u)} title="Lihat sebagai (hanya-baca)"
                             className="btn-ghost btn-icon btn-sm text-emerald-600 hover:bg-emerald-50">
                             <Eye className="w-3.5 h-3.5" />

@@ -23,6 +23,7 @@ export const KETERANGAN_SUDAH_DIGANTI =
 export function labelPeran(role: string): string {
   if (role === 'GURU') return 'Guru'
   if (role === 'KEPSEK') return 'Kepala Sekolah'
+  if (role === 'BK') return 'Guru BK'
   return role
 }
 

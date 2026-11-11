@@ -40,7 +40,7 @@ export const WAJIB_GANTI_PASSWORD_AKTIF = false
 export interface JWTPayload {
   username: string
   nama: string
-  role: 'ADMIN' | 'GURU' | 'KEPSEK' | 'SISWA'
+  role: 'ADMIN' | 'GURU' | 'KEPSEK' | 'BK' | 'SISWA'
   nis?: string
   kelas?: string
   // Yayasan (tenant) pemilik akun ini — lihat src/lib/tenant.ts. Token lama

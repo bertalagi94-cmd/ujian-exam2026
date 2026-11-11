@@ -7,7 +7,8 @@ import {
   LayoutDashboard, Users, BookOpen, Calendar, ClipboardList,
   BarChart3, Settings, LogOut, Menu, X, ChevronRight, ChevronLeft,
   GraduationCap, School, User, FileText, Eye, ShieldAlert,
-  FileBarChart, CheckSquare, Send, CalendarDays, TrendingUp, Radio, UserCheck, KeyRound, DoorOpen
+  FileBarChart, CheckSquare, Send, CalendarDays, TrendingUp, Radio, UserCheck, KeyRound, DoorOpen,
+  HeartHandshake
 } from 'lucide-react'
 import { cn, apiRequest, fetchPublik } from '@/lib/utils'
 import { AuthUser } from '@/types'
@@ -541,6 +542,7 @@ export function AdminSidebar() {
     { label: 'Data Siswa', href: '/admin/siswa', icon: Users },
     { label: 'Data Pengguna', href: '/admin/users', icon: User },
     { label: 'Admin Kelas', href: '/admin/admin-kelas', icon: UserCheck },
+    { label: 'Kelas Binaan BK', href: '/admin/bk-kelas', icon: HeartHandshake },
     { label: 'Mata Pelajaran', href: '/admin/mapel', icon: BookOpen },
     { label: 'Jadwal Ujian', href: '/admin/jadwal', icon: Calendar, section: 'Persiapan Ujian' },
     { label: 'Ruang Khusus', href: '/admin/ruang-khusus', icon: DoorOpen },
@@ -733,6 +735,25 @@ export function KepsekSidebar() {
         { label: 'Kisi-kisi', href: '/kepsek/kisi-kisi', icon: FileText },
         { label: 'Data Kelas', href: '/kepsek/kelas', icon: Users },
         { label: 'Guru & Mapel', href: '/kepsek/guru', icon: BookOpen },
+      ]}
+    />
+  )
+}
+
+// Guru BK: menu sendiri yang hanya-lihat, sengaja TIDAK memuat menu guru
+// (buat soal, kisi-kisi, penilaian, dst). Semua data dibatasi ke kelas binaan.
+export function BkSidebar() {
+  return (
+    <Sidebar
+      role="BK"
+      roleColor="bg-pink-600"
+      roleLabel="Guru BK"
+      accent="#db2777"
+      navItems={[
+        { label: 'Dashboard', href: '/bk', icon: LayoutDashboard },
+        { label: 'Pelanggaran Siswa', href: '/bk/pelanggaran', icon: ShieldAlert, section: 'Pembinaan' },
+        { label: 'Hasil & Nilai', href: '/bk/nilai', icon: BarChart3 },
+        { label: 'Data Siswa & Kelas', href: '/bk/kelas', icon: Users, section: 'Data Binaan' },
       ]}
     />
   )

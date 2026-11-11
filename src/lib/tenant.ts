@@ -50,6 +50,8 @@ export const TABEL_PER_YAYASAN: ReadonlySet<string> = new Set([
   // Migrasi 65: ruang khusus (lab komputer) dan siswa yang diproses ke sana.
   'ruang_khusus',
   'ruang_khusus_siswa',
+  // Migrasi 66: kelas binaan guru BK (role BK).
+  'bk_kelas',
 ])
 
 /**

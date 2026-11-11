@@ -24,6 +24,7 @@ const RUTE_ROLE: Record<string, string> = {
   ADMIN: '/admin',
   GURU: '/guru',
   KEPSEK: '/kepsek',
+  BK: '/bk',
   SISWA: '/siswa',
 }
 

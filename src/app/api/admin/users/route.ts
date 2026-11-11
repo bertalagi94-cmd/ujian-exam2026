@@ -65,11 +65,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Password minimal 6 karakter' }, { status: 400 })
   }
 
-  // Role akun yang sah hanya 4 ini ("Pengawas" bukan role akun — lihat
-  // catatan di src/lib/auth.ts). Divalidasi di server juga, bukan cuma
-  // disembunyikan dari dropdown, supaya tidak bisa dilewati lewat panggilan
-  // API langsung.
-  const VALID_ROLES = ['ADMIN', 'GURU', 'KEPSEK']
+  // Role akun staf yang sah ("Pengawas" bukan role akun — lihat catatan di
+  // src/lib/auth.ts). 'BK' = Guru BK (kelas binaannya diatur di menu Kelas
+  // Binaan BK). Divalidasi di server juga, bukan cuma disembunyikan dari
+  // dropdown, supaya tidak bisa dilewati lewat panggilan API langsung.
+  const VALID_ROLES = ['ADMIN', 'GURU', 'KEPSEK', 'BK']
   if (!VALID_ROLES.includes(role)) {
     return NextResponse.json({ error: `Role tidak valid. Role yang diizinkan: ${VALID_ROLES.join(', ')}` }, { status: 400 })
   }

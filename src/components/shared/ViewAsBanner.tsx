@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { Eye, LogOut } from 'lucide-react'
 import { keluarLihatSebagai } from '@/lib/lihat-sebagai'
 
-const ROLE_LABEL: Record<string, string> = { GURU: 'Guru', KEPSEK: 'Kepala Sekolah', SISWA: 'Siswa' }
+const ROLE_LABEL: Record<string, string> = { GURU: 'Guru', KEPSEK: 'Kepala Sekolah', BK: 'Guru BK', SISWA: 'Siswa' }
 
 function formatSisa(detik: number) {
   const j = Math.floor(detik / 3600)

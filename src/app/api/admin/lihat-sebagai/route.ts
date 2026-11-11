@@ -37,14 +37,14 @@ export async function POST(req: NextRequest) {
   const db = tenantDb(yayasanIdDari(auth.user))
 
   let target:
-    | { username: string; nama: string; role: 'GURU' | 'KEPSEK' | 'SISWA'; nis?: string; kelas?: string }
+    | { username: string; nama: string; role: 'GURU' | 'KEPSEK' | 'BK' | 'SISWA'; nis?: string; kelas?: string }
     | null = null
 
   if (tipe === 'USER') {
     const { data } = await db.from('users').select('username, nama, role').eq('username', id).maybeSingle()
     if (!data) return NextResponse.json({ error: 'Pengguna tidak ditemukan' }, { status: 404 })
-    if (data.role !== 'GURU' && data.role !== 'KEPSEK') {
-      return NextResponse.json({ error: 'Hanya akun Guru, Kepsek, dan Siswa yang bisa dilihat' }, { status: 403 })
+    if (data.role !== 'GURU' && data.role !== 'KEPSEK' && data.role !== 'BK') {
+      return NextResponse.json({ error: 'Hanya akun Guru, Kepsek, Guru BK, dan Siswa yang bisa dilihat' }, { status: 403 })
     }
     target = { username: data.username, nama: data.nama, role: data.role }
   } else {

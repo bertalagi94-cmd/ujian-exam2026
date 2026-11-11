@@ -4,7 +4,7 @@ import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { signToken } from '@/lib/auth'
 import { requireRoleAktif } from '@/lib/status-akun'
 
-// Ganti password SENDIRI untuk akun staf (ADMIN / GURU / KEPSEK). Siswa memakai
+// Ganti password SENDIRI untuk akun staf (ADMIN / GURU / KEPSEK / BK). Siswa memakai
 // /api/siswa/ganti-password. Endpoint ini satu-satunya yang lolos requireRole
 // walau token masih berklaim gantiPassword (password bawaan = username), dan
 // menerbitkan TOKEN BARU tanpa klaim itu supaya pengguna tidak perlu login ulang.
@@ -13,7 +13,7 @@ import { requireRoleAktif } from '@/lib/status-akun'
 const PANJANG_MIN_PASSWORD = 8
 
 export async function PUT(req: NextRequest) {
-  const auth = await requireRoleAktif(req, ['ADMIN', 'GURU', 'KEPSEK'], { izinkanWajibGanti: true })
+  const auth = await requireRoleAktif(req, ['ADMIN', 'GURU', 'KEPSEK', 'BK'], { izinkanWajibGanti: true })
   if ('error' in auth) return auth.error
   const { user } = auth
 

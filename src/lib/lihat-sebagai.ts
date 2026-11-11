@@ -19,13 +19,13 @@ interface ViewAsResponse {
   token: string
   username: string
   nama: string
-  role: 'GURU' | 'KEPSEK' | 'SISWA'
+  role: 'GURU' | 'KEPSEK' | 'BK' | 'SISWA'
   nis?: string
   kelas?: string
   expiresAt: number
 }
 
-const HOME: Record<string, string> = { GURU: '/guru', KEPSEK: '/kepsek', SISWA: '/siswa' }
+const HOME: Record<string, string> = { GURU: '/guru', KEPSEK: '/kepsek', BK: '/bk', SISWA: '/siswa' }
 
 export async function mulaiLihatSebagai(target: TargetLihatSebagai): Promise<void> {
   const data = await apiRequest<ViewAsResponse>('/api/admin/lihat-sebagai', {

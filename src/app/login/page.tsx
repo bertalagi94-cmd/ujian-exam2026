@@ -672,7 +672,7 @@ export default function LoginPage() {
           try { data.kodeSekolah ? localStorage.setItem('kode_sekolah', String(data.kodeSekolah)) : localStorage.removeItem('kode_sekolah') } catch { /* abaikan */ }
           localStorage.setItem('token', data.token)
           localStorage.setItem('user', JSON.stringify({ username: data.username, nama: data.nama, role: data.role, nis: data.nis, kelas: data.kelas }))
-          const roleRoutes: Record<string, string> = { ADMIN: '/admin', GURU: '/guru', KEPSEK: '/kepsek', SISWA: '/siswa' }
+          const roleRoutes: Record<string, string> = { ADMIN: '/admin', GURU: '/guru', KEPSEK: '/kepsek', BK: '/bk', SISWA: '/siswa' }
           router.push(data.wajibGantiPassword ? '/ganti-password' : (roleRoutes[data.role] ?? '/login'))
           return
         }

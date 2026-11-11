@@ -16,7 +16,7 @@ export async function PUT(req: NextRequest, props: Ctx) {
   // Role akun yang sah hanya 4 ini — lihat catatan di POST /api/admin/users
   // dan src/lib/auth.ts. "Pengawas" tidak boleh diset lewat edit juga.
   if (role !== undefined) {
-    const VALID_ROLES = ['ADMIN', 'GURU', 'KEPSEK']
+    const VALID_ROLES = ['ADMIN', 'GURU', 'KEPSEK', 'BK']
     if (!VALID_ROLES.includes(role)) {
       return NextResponse.json({ error: `Role tidak valid. Role yang diizinkan: ${VALID_ROLES.join(', ')}` }, { status: 400 })
     }
@@ -64,6 +64,15 @@ export async function PUT(req: NextRequest, props: Ctx) {
   }).eq('username', params.username)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // Akun yang tidak lagi berperan BK melepas semua kelas binaannya, supaya
+  // kelas itu tidak tetap "dipegang" akun lama dan bisa ditetapkan ke guru BK lain.
+  if (role !== undefined && role !== 'BK') {
+    const { error: bkError } = await db.from('bk_kelas').delete().eq('username', params.username)
+    if (bkError) {
+      return NextResponse.json({ message: 'Data berhasil diperbarui, tapi gagal melepas kelas binaan BK', warning: bkError.message })
+    }
+  }
 
   // Sinkronkan daftar sekolah guru: hapus relasi lama, ganti dengan yang
   // baru dikirim dari form. Kalau role bukan GURU (lagi), atau sekolah_ids
