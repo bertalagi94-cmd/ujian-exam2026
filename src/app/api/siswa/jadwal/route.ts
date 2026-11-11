@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRoleAktif } from '@/lib/status-akun'
 import { getZonaWaktuSekolah, tanggalHariIni } from '@/lib/pengaturan-waktu'
-import { saringJadwalSeagama } from '@/lib/agama'
+import { saringJadwalSeagama, ambilInfoMapelBanyak } from '@/lib/agama'
 
 export async function GET(req: NextRequest) {
   const auth = await requireRoleAktif(req, ['SISWA'])
@@ -17,8 +17,15 @@ export async function GET(req: NextRequest) {
     .order('tanggal', { ascending: false })
     .limit(30)
 
+  // HEMAT QUERY: nama + agama mapel dibaca SEKALI (dulu 2 query `mapel` untuk id
+  // yang sama: satu untuk penyaringan agama, satu untuk nama) lalu dipakai
+  // bersama oleh penyaringan di bawah dan pemetaan nama mapel.
+  const infoMapel = jadwalKelas?.length
+    ? await ambilInfoMapelBanyak(db, jadwalKelas.map(j => j.mapel_id))
+    : new Map()
+
   // Jadwal mapel khusus agama lain (mis. PAK untuk siswa Islam) tidak ditampilkan.
-  const data = jadwalKelas ? await saringJadwalSeagama(db, jadwalKelas, user.nis) : jadwalKelas
+  const data = jadwalKelas ? await saringJadwalSeagama(db, jadwalKelas, user.nis, infoMapel) : jadwalKelas
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   if (!data?.length) {
@@ -28,9 +35,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ data: [], zonaWaktu: { utcOffsetJam: zonaKosong.utcOffsetJam } })
   }
 
-  const mapelIds = [...new Set(data.map(j => j.mapel_id).filter(Boolean))]
-  const { data: mapelList } = await db.from('mapel').select('id, nama').in('id', mapelIds)
-  const mapelMap = Object.fromEntries((mapelList ?? []).map(m => [m.id, m.nama]))
+  const mapelMap: Record<string, string> = Object.fromEntries(
+    [...infoMapel].map(([id, m]) => [id, m.nama])
+  )
 
   // Nama pengawas untuk kolom "Pengawas" di tabel jadwal siswa. jadwal.pengawas
   // berisi username guru; di sini diubah jadi nama tampilan. Kalau nama tidak

@@ -17,10 +17,65 @@ import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRoleAktif } from '@/lib/status-akun'
 import { createAdminClient } from '@/lib/supabase'
 import { sidDipantauUntuk } from '@/lib/dipantau'
+import { cacheGet, cacheSet, cachedFetch } from '@/lib/cache'
+import { ambilSemuaBaris } from '@/lib/ambil-semua'
 import { getGuruSekolahScope } from '@/lib/kepsek-scope'
 import { getKelasAdminKelas, adminKelasAktif, antreanSuperAdmin, adaKelasTanpaAdminKelas } from '@/lib/admin-kelas'
 
 export const dynamic = 'force-dynamic'
+
+// ── HEMAT QUERY untuk polling siswa ──────────────────────────────────────────
+// Endpoint ini dipolling SETIAP tab siswa yang terbuka (tiap 3 menit, lihat
+// NOTIF_INTERVAL_MS di Sidebar.tsx) dan tiap kali satu siswa memuat halaman.
+// Dua dari tiga query badge kisi-kisi hasilnya SAMA untuk semua siswa sekelas,
+// jadi dibagi lewat cache in-memory (per instance server) alih-alih diulang
+// per siswa. Yang tetap dibaca segar tiap polling hanyalah baris siswa itu
+// sendiri (kisi_kisi_terakhir_dilihat), sehingga badge langsung hilang begitu
+// siswa membuka menu Kisi-kisi.
+const TTL_KELAS_ID_DETIK = 300 // nama kelas -> id hampir tidak pernah berubah
+const TTL_KISI_KISI_DETIK = 45 // kisi-kisi baru muncul di badge paling lambat 45 dtk (+ jeda polling)
+
+type DbTenant = ReturnType<typeof tenantDb>
+
+// Nama kelas (dari token) -> id kelas. Hanya hasil yang BERHASIL ditemukan yang
+// di-cache; kalau query gagal / kelas tidak ada, jatuh ke nama kelas (perilaku
+// lama) tanpa menyimpannya, supaya error sesaat tidak "menempel" 5 menit.
+async function idKelasDariNama(db: DbTenant, yayasanId: string, nama: string): Promise<string> {
+  const kunci = `notif:kelas-id:${yayasanId}:${nama}`
+  const hit = cacheGet<string>(kunci)
+  if (hit) return hit
+  const { data, error } = await db.from('kelas').select('id').eq('nama', nama).maybeSingle()
+  const id = !error ? (data as { id?: string } | null)?.id : undefined
+  if (id) {
+    cacheSet(kunci, id, TTL_KELAS_ID_DETIK)
+    return id
+  }
+  return nama
+}
+
+// Waktu update (epoch ms) semua kisi-kisi TERKIRIM sebuah kelas. Satu kelas hanya
+// punya satu baris per mapel (UNIQUE mapel_id+kelas_id), jadi daftarnya kecil.
+// null = gagal dibaca (pemanggil jatuh ke query hitung langsung seperti dulu);
+// kegagalan tidak di-cache.
+async function waktuKisiKisiTerkirim(db: DbTenant, yayasanId: string, kelasId: string): Promise<number[] | null> {
+  try {
+    return await cachedFetch<number[]>(`notif:kisi-kisi:${yayasanId}:${kelasId}`, TTL_KISI_KISI_DETIK, async () => {
+      const { data, error } = await ambilSemuaBaris<{ id: string; updated_at: string | null }>((dari, sampai) =>
+        db
+          .from('kisi_kisi')
+          .select('id, updated_at')
+          .eq('kelas_id', kelasId)
+          .eq('status', 'TERKIRIM')
+          .order('id', { ascending: true })
+          .range(dari, sampai)
+      )
+      if (error) throw new Error(error.message)
+      return data.map(r => (r.updated_at ? Date.parse(r.updated_at) : 0))
+    })
+  } catch {
+    return null
+  }
+}
 
 export async function GET(req: NextRequest) {
   const auth = await requireRoleAktif(req, ['ADMIN', 'GURU', 'SISWA'])
@@ -165,8 +220,8 @@ export async function GET(req: NextRequest) {
 
     if (!user.kelas) return NextResponse.json({ kisiKisiBaru: 0, ...(await statusDipantau()) })
 
-    // Dua query ini saling bebas, jadi dijalankan bersamaan (hasil identik).
-    const [{ data: siswaRow }, { data: kelasRow }] = await Promise.all([
+    // Dua langkah ini saling bebas, jadi dijalankan bersamaan (hasil identik).
+    const [{ data: siswaRow }, kelasId] = await Promise.all([
       db
         .from('siswa')
         .select('kisi_kisi_terakhir_dilihat')
@@ -174,22 +229,29 @@ export async function GET(req: NextRequest) {
         .maybeSingle(),
       // kisi_kisi.kelas_id adalah ID tabel kelas, sedangkan user.kelas dari
       // token berisi NAMA kelas — resolve dulu (pola sama seperti di
-      // src/app/api/siswa/kisi-kisi/route.ts).
-      db
-        .from('kelas')
-        .select('id')
-        .eq('nama', String(user.kelas))
-        .maybeSingle(),
+      // src/app/api/siswa/kisi-kisi/route.ts). Hasilnya di-cache (lihat atas).
+      idKelasDariNama(db, yayasanId, String(user.kelas)),
     ])
-    const kelasId = kelasRow?.id ?? String(user.kelas)
+    const sejak = siswaRow?.kisi_kisi_terakhir_dilihat as string | null | undefined
 
+    // Hitung badge dari daftar waktu update kisi-kisi kelas (di-cache, dibagi ke
+    // semua siswa sekelas): jumlah yang updated_at-nya LEBIH BARU dari terakhir
+    // kali siswa ini membuka menu Kisi-kisi — aturan yang sama dengan query lama.
+    const waktu = await waktuKisiKisiTerkirim(db, yayasanId, kelasId)
+    if (waktu) {
+      const batas = sejak ? Date.parse(sejak) : null
+      const baru = batas === null || Number.isNaN(batas) ? waktu.length : waktu.filter(t => t > batas).length
+      return NextResponse.json({ kisiKisiBaru: baru, ...(await statusDipantau()) })
+    }
+
+    // Cadangan (daftar gagal dibaca): hitung langsung ke database seperti semula.
     let q = db
       .from('kisi_kisi')
       .select('*', { count: 'exact', head: true })
       .eq('kelas_id', kelasId)
       .eq('status', 'TERKIRIM')
-    if (siswaRow?.kisi_kisi_terakhir_dilihat) {
-      q = q.gt('updated_at', siswaRow.kisi_kisi_terakhir_dilihat)
+    if (sejak) {
+      q = q.gt('updated_at', sejak)
     }
     const { count } = await q
 

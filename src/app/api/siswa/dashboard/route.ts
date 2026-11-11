@@ -3,7 +3,7 @@ import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRoleAktif } from '@/lib/status-akun'
 import { petakanEssayAktifPerSesi } from '@/app/api/guru/kirim-nilai/route'
 import { hitungGrade } from '@/lib/utils'
-import { saringJadwalSeagama } from '@/lib/agama'
+import { saringJadwalSeagama, ambilInfoMapelBanyak } from '@/lib/agama'
 
 export async function GET(req: NextRequest) {
   const auth = await requireRoleAktif(req, ['SISWA'])
@@ -16,22 +16,37 @@ export async function GET(req: NextRequest) {
     db.from('nilai').select('*').eq('nis', nis).order('timestamp', { ascending: false }),
     db.from('jadwal').select('*').eq('kelas', user.kelas!).eq('status', 'AKTIF').order('tanggal').limit(5),
   ])
+  // HEMAT QUERY: dulu ada TIGA query `mapel` terpisah untuk id yang hampir sama
+  // (agama utk penyaringan jadwal, nama utk nilai terbaru, nama utk jadwal) dan
+  // semuanya berurutan. Sekarang SATU query (nama + agama) untuk gabungan id nilai
+  // terbaru + jadwal, dijalankan BERSAMAAN dengan peta essay-aktif (keduanya
+  // tidak saling bergantung). Hasil identik; request ke Supabase berkurang 2.
+  const recentNilai = (nilaiAll ?? []).slice(0, 6)
+  const [infoMapel, essayAktifMapAll] = await Promise.all([
+    ambilInfoMapelBanyak(db, [
+      ...recentNilai.map(r => r.mapel_id),
+      ...(jadwalKelas ?? []).map(j => j.mapel_id),
+    ]),
+    // BUG FIX (rekap nilai siswa belum menyesuaikan fitur essay): peta essay-aktif
+    // dihitung untuk SELURUH `nilaiAll` (bukan cuma 6 nilai terbaru) supaya
+    // rata-rata/tertinggi/terendah ikut memakai nilai gabungan begitu dirilis.
+    petakanEssayAktifPerSesi(db, (nilaiAll ?? []).map(n => n.sesi_id)),
+  ])
+  const namaMapel = (id: string | null | undefined) => (id ? infoMapel.get(id)?.nama || id : id)
+
   // Jadwal mapel khusus agama lain tidak ditampilkan di dashboard siswa ini.
-  const jadwal = jadwalKelas ? await saringJadwalSeagama(db, jadwalKelas, nis) : jadwalKelas
+  const jadwal = jadwalKelas ? await saringJadwalSeagama(db, jadwalKelas, nis, infoMapel) : jadwalKelas
 
   // BUG FIX (rekap nilai siswa belum menyesuaikan fitur essay): sama seperti
   // /api/siswa/nilai, kartu statistik dashboard sebelumnya dihitung murni
-  // dari `n.nilai` (PG-only). Peta essay-aktif dihitung untuk SELURUH
-  // `nilaiAll` (bukan cuma 6 nilai terbaru yang ditampilkan di kartu
-  // "Nilai Terbaru") supaya rata-rata/tertinggi/terendah ikut memakai nilai
-  // gabungan begitu dirilis.
+  // dari `n.nilai` (PG-only). Peta essay-aktif (essayAktifMapAll, dihitung di
+  // atas untuk SELURUH `nilaiAll`) dipakai di sini.
   //
   // BUG FIX (nilai remedial guru tidak masuk ke akun siswa): `nilaiFinal`
   // sekarang juga mengutamakan nilai_edit (remedial) kalau ada, PERSIS
   // urutan prioritas & alasan di /api/siswa/nilai/route.ts — nilai_total
   // (PG+Essay) tetap tidak dipakai sebelum dirilis, tapi nilai_edit boleh
   // dipakai kapan saja karena itu keputusan final guru.
-  const essayAktifMapAll = await petakanEssayAktifPerSesi(db, (nilaiAll ?? []).map(n => n.sesi_id))
   const nilaiFinalUntukSiswa = (n: NonNullable<typeof nilaiAll>[number]) => {
     const essayAktif = n.sesi_id ? (essayAktifMapAll.get(n.sesi_id) ?? false) : false
     const essayDirilis = n.dirilis === true
@@ -47,11 +62,7 @@ export async function GET(req: NextRequest) {
     nilaiTerendah: nums.length ? Math.min(...nums) : 0,
   }
 
-  // Enrich nilai with mapel names
-  const recentNilai = (nilaiAll ?? []).slice(0, 6)
-  const mapelIds = [...new Set(recentNilai.map(r => r.mapel_id).filter(Boolean))]
-  const { data: mapelList } = await db.from('mapel').select('id, nama').in('id', mapelIds)
-  const mapelMap = Object.fromEntries((mapelList ?? []).map(m => [m.id, m.nama]))
+  // Enrich nilai with mapel names (dari infoMapel di atas — tanpa query tambahan)
 
   // FIX (keamanan, sama seperti /api/siswa/nilai): endpoint ini juga
   // mengirim seluruh kolom tabel `nilai` ke client SISWA tanpa mengecek
@@ -76,7 +87,7 @@ export async function GET(req: NextRequest) {
       nilai_total: essayDirilis ? r.nilai_total : null,
       dinilai_pada: essayDirilis ? r.dinilai_pada : null,
       dinilai_oleh: essayDirilis ? r.dinilai_oleh : null,
-      nama_mapel: mapelMap[r.mapel_id] ?? r.mapel_id,
+      nama_mapel: namaMapel(r.mapel_id),
       essay_belum_dirilis: essayAktif && !essayDirilis,
       ada_remedial: adaRemedial,
       nilai_final: nilaiFinal,
@@ -85,13 +96,10 @@ export async function GET(req: NextRequest) {
     }
   })
 
-  // Enrich jadwal
-  const jMapelIds = [...new Set((jadwal ?? []).map(j => j.mapel_id).filter(Boolean))]
-  const { data: jMapelList } = await db.from('mapel').select('id, nama').in('id', jMapelIds.length ? jMapelIds : ['__'])
-  const jMapelMap = Object.fromEntries((jMapelList ?? []).map(m => [m.id, m.nama]))
+  // Enrich jadwal (nama dari infoMapel yang sama)
   const enrichedJadwal = (jadwal ?? []).map(j => ({
     ...j,
-    nama_mapel: jMapelMap[j.mapel_id] ?? j.mapel_id,
+    nama_mapel: namaMapel(j.mapel_id),
   }))
 
   return NextResponse.json({

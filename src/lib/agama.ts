@@ -132,6 +132,48 @@ export async function ambilAgamaMapelBanyak(db: DbClient, mapelIds: Array<string
   return hasil
 }
 
+/** Info ringkas satu mapel: nama + daftar agama khusus (kosong = mapel umum). */
+export interface InfoMapel { nama: string; agama: Agama[] }
+
+/**
+ * Versi HEMAT-QUERY: ambil nama DAN agama banyak mapel dalam SATU query.
+ *
+ * Dulu endpoint siswa (dashboard, jadwal) memanggil ambilAgamaMapelBanyak()
+ * untuk penyaringan agama, lalu satu-dua query `mapel` lagi hanya untuk nama —
+ * semuanya untuk id mapel yang sama. Sekarang cukup satu pembacaan, hasilnya
+ * dipakai bersama (lihat parameter `infoMapel` di saringJadwalSeagama).
+ *
+ * Tetap TAHAN-GAGAL seperti ambilAgamaMapelBanyak: kalau kolom `agama` belum
+ * ada (migrasi 61 belum dijalankan) query pertama error, lalu dicoba ulang
+ * tanpa kolom itu — nama tetap terbaca dan semua mapel dianggap umum.
+ */
+export async function ambilInfoMapelBanyak(
+  db: DbClient,
+  mapelIds: Array<string | null | undefined>
+): Promise<Map<string, InfoMapel>> {
+  const hasil = new Map<string, InfoMapel>()
+  const ids = [...new Set(mapelIds.filter((x): x is string => !!x))]
+  if (!ids.length) return hasil
+  type Baris = { id: string; nama: string | null; agama?: unknown }
+  try {
+    let adaKolomAgama = true
+    let baris: Baris[]
+    const percobaan1 = await db.from('mapel').select('id, nama, agama').in('id', ids)
+    if (!percobaan1.error) {
+      baris = (percobaan1.data ?? []) as Baris[]
+    } else {
+      adaKolomAgama = false
+      const percobaan2 = await db.from('mapel').select('id, nama').in('id', ids)
+      if (percobaan2.error) return hasil
+      baris = (percobaan2.data ?? []) as Baris[]
+    }
+    for (const r of baris) {
+      hasil.set(r.id, { nama: r.nama ?? '', agama: adaKolomAgama ? daftarAgamaMapel(r.agama) : [] })
+    }
+  } catch { /* gagal baca -> kosong: nama jatuh ke id, semua mapel dianggap umum */ }
+  return hasil
+}
+
 /** Map nis -> agama baku siswa (hanya yang terisi). Dibaca per potongan 200 NIS. */
 export async function ambilAgamaSiswa(db: DbClient, nisList: string[]): Promise<Map<string, Agama>> {
   const hasil = new Map<string, Agama>()
@@ -168,14 +210,25 @@ export async function saringSiswaSeagama<T extends { nis: string }>(
 /**
  * Saring jadwal untuk SATU siswa: jadwal mapel khusus agama lain disembunyikan.
  * Tanpa jadwal mapel khusus agama -> tidak ada query tambahan.
+ *
+ * `infoMapel` (opsional): hasil ambilInfoMapelBanyak() yang SUDAH dibaca
+ * pemanggil untuk id mapel jadwal ini. Kalau diberikan, tidak ada query
+ * `mapel` lagi di sini (hemat 1 request). Tanpa itu, perilaku seperti semula.
  */
 export async function saringJadwalSeagama<T extends { mapel_id?: string | null }>(
   db: DbClient,
   jadwal: T[],
-  nis: string | null | undefined
+  nis: string | null | undefined,
+  infoMapel?: Map<string, InfoMapel>
 ): Promise<T[]> {
   if (!jadwal.length) return jadwal
-  const agamaMapelMap = await ambilAgamaMapelBanyak(db, jadwal.map(j => j.mapel_id))
+  let agamaMapelMap: Map<string, Agama[]>
+  if (infoMapel) {
+    agamaMapelMap = new Map()
+    for (const [id, info] of infoMapel) if (info.agama.length) agamaMapelMap.set(id, info.agama)
+  } else {
+    agamaMapelMap = await ambilAgamaMapelBanyak(db, jadwal.map(j => j.mapel_id))
+  }
   if (agamaMapelMap.size === 0) return jadwal
   const agamaSiswa = nis ? (await ambilAgamaSiswa(db, [nis])).get(nis) ?? null : null
   return jadwal.filter(j => cocokAgama(j.mapel_id ? agamaMapelMap.get(j.mapel_id) ?? null : null, agamaSiswa))
