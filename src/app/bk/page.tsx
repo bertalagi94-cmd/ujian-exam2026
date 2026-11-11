@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
-import { ShieldAlert, AlertTriangle, Repeat, TrendingDown, School, Users, HeartHandshake } from 'lucide-react'
+import { ShieldAlert, AlertTriangle, Repeat, TrendingDown, School, Users, HeartHandshake, UserX } from 'lucide-react'
 import { apiRequest } from '@/lib/utils'
 import { PageLoader, EmptyState, StatCard, ScopeWarningBanner } from '@/components/ui'
 
@@ -19,11 +19,16 @@ interface DashboardData {
   nilaiRendah: { jumlahSiswa: number; daftar: SiswaNilaiRendah[] }
 }
 
+interface RingkasanTidakUjian { tidakIkut: number; siswaTidakIkut: number; belumMasuk: number }
+
 export default function BkDashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [nama, setNama] = useState('')
+  // Kartu "Siswa Tidak Mengikuti Ujian" dimuat terpisah: bila gagal, dashboard
+  // lain tetap tampil dan kartunya sekadar tidak muncul.
+  const [tidakUjian, setTidakUjian] = useState<RingkasanTidakUjian | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -40,6 +45,9 @@ export default function BkDashboardPage() {
   useEffect(() => {
     load()
     try { setNama(JSON.parse(localStorage.getItem('user') ?? '{}').nama ?? '') } catch { /* abaikan */ }
+    apiRequest<{ ringkasan?: RingkasanTidakUjian }>('/api/bk/tidak-ujian?ringkas=1', { timeoutMs: 30_000 })
+      .then(r => setTidakUjian(r.ringkasan ?? null))
+      .catch(() => setTidakUjian(null))
   }, [load])
 
   if (loading) return <PageLoader />
@@ -85,6 +93,25 @@ export default function BkDashboardPage() {
               sub={`${data.batasBerulang ?? 3}+ pelanggaran / 30 hari`} />
             <StatCard label="Siswa Nilai di Bawah KKM" value={data.nilaiRendah.jumlahSiswa} icon={TrendingDown} color="bg-orange-500" />
           </div>
+
+          {tidakUjian && (
+            <Link href="/bk/tidak-ujian" className="card-sm flex items-center gap-3 hover:border-pink-300 transition-colors">
+              <div className="w-9 h-9 rounded-xl bg-red-50 text-red-600 flex items-center justify-center flex-shrink-0">
+                <UserX className="w-4.5 h-4.5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-slate-800">
+                  {tidakUjian.tidakIkut > 0
+                    ? `${tidakUjian.siswaTidakIkut} siswa tidak mengikuti ujian (${tidakUjian.tidakIkut} mapel)`
+                    : 'Tidak ada siswa yang tercatat tidak mengikuti ujian'}
+                </p>
+                <p className="text-xs text-slate-500">
+                  {tidakUjian.belumMasuk > 0 ? `${tidakUjian.belumMasuk} lainnya belum masuk pada ujian yang sedang berjalan. ` : ''}
+                  Lihat daftar lengkap
+                </p>
+              </div>
+            </Link>
+          )}
 
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
             <div className="card">

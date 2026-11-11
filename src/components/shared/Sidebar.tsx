@@ -8,7 +8,7 @@ import {
   BarChart3, Settings, LogOut, Menu, X, ChevronRight, ChevronLeft,
   GraduationCap, School, User, FileText, Eye, ShieldAlert,
   FileBarChart, CheckSquare, Send, CalendarDays, TrendingUp, Radio, UserCheck, KeyRound, DoorOpen,
-  HeartHandshake
+  HeartHandshake, UserX
 } from 'lucide-react'
 import { cn, apiRequest, fetchPublik } from '@/lib/utils'
 import { AuthUser } from '@/types'
@@ -753,6 +753,7 @@ export function BkSidebar() {
         { label: 'Dashboard', href: '/bk', icon: LayoutDashboard },
         { label: 'Pelanggaran Siswa', href: '/bk/pelanggaran', icon: ShieldAlert, section: 'Pembinaan' },
         { label: 'Hasil & Nilai', href: '/bk/nilai', icon: BarChart3 },
+        { label: 'Siswa Tidak Mengikuti Ujian', href: '/bk/tidak-ujian', icon: UserX },
         { label: 'Data Siswa & Kelas', href: '/bk/kelas', icon: Users, section: 'Data Binaan' },
       ]}
     />
