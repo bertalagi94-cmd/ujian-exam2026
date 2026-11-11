@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import {
   Plus, ChevronDown, ChevronUp, Trash2, ImagePlus, X, ArrowLeft, CheckCircle2, Pencil, Eye, Lock,
   ListChecks, PenSquare, Send, RotateCcw, Copy, Info, ChevronRight, FileUp,
@@ -14,6 +14,7 @@ import { TombolUnduhSoal } from '@/components/shared/TombolUnduhSoal'
 import { useBatasMinMapel } from '@/lib/use-batas-min-soal'
 import { BatasMinSoalInfo } from '@/components/shared/BatasMinSoalInfo'
 import { ImporSelesaiPopup, type ImporSelesaiInfo } from '@/components/shared/ImporSelesaiPopup'
+import { KirimSemuaSoal, type PaketKirim } from '@/components/guru/KirimSemuaSoal'
 import { apiRequest, formatDateTime, generateId } from '@/lib/utils'
 import { PaketSoal, Mapel, Kelas, Soal, PaketEssay, SoalEssay } from '@/types'
 
@@ -2559,13 +2560,13 @@ function PaketBelumKirimBadge({ ringkasan, loading }: { ringkasan: RingkasanSoal
   if (loading || !ringkasan || ringkasan.totalPaket === 0) return null
   if (ringkasan.belumKirim > 0) {
     return (
-      <span className="absolute top-3 right-3 z-10 inline-flex items-center gap-1 rounded-full bg-red-500 text-white text-[10px] font-semibold px-2 py-1 shadow-sm">
+      <span className="absolute top-2.5 right-2.5 sm:top-3 sm:right-3 z-10 inline-flex items-center gap-1 rounded-full bg-red-500 text-white text-[10px] font-semibold px-2 py-1 shadow-sm">
         {ringkasan.belumKirim} Paket Soal Belum Dikirim
       </span>
     )
   }
   return (
-    <span className="absolute top-3 right-3 z-10 inline-flex items-center gap-1 rounded-full bg-emerald-500 text-white text-[10px] font-semibold px-2 py-1 shadow-sm">
+    <span className="absolute top-2.5 right-2.5 sm:top-3 sm:right-3 z-10 inline-flex items-center gap-1 rounded-full bg-emerald-500 text-white text-[10px] font-semibold px-2 py-1 shadow-sm">
       Semua Paket Soal Sudah Terkirim
     </span>
   )
@@ -2575,7 +2576,7 @@ function PaketBelumKirimBadge({ ringkasan, loading }: { ringkasan: RingkasanSoal
 // jadi "+N mapel lainnya" — dijaga kecil supaya kartu tetap proporsional
 // baik di layar HP (sempit, kartu ditumpuk vertikal) maupun laptop/komputer
 // (kartu berdampingan, lebih lega).
-const MAX_MAPEL_TAMPIL = 4
+const MAX_MAPEL_TAMPIL = 3
 
 function RingkasanSoalCard({ ringkasan, loading }: { ringkasan: RingkasanSoal | null; loading: boolean }) {
   if (loading) {
@@ -2587,7 +2588,7 @@ function RingkasanSoalCard({ ringkasan, loading }: { ringkasan: RingkasanSoal | 
   }
   if (!ringkasan || ringkasan.totalMapel === 0) {
     return (
-      <p className="mt-4 pt-4 border-t border-slate-100 text-xs text-slate-400">
+      <p className="mt-3 pt-3 sm:mt-4 sm:pt-4 border-t border-slate-100 text-xs text-slate-400">
         Belum ada soal dibuat.
       </p>
     )
@@ -2595,7 +2596,7 @@ function RingkasanSoalCard({ ringkasan, loading }: { ringkasan: RingkasanSoal | 
   const tampil = ringkasan.perMapel.slice(0, MAX_MAPEL_TAMPIL)
   const sisa = ringkasan.perMapel.length - tampil.length
   return (
-    <div className="mt-4 pt-4 border-t border-slate-100 text-xs">
+    <div className="mt-3 pt-3 sm:mt-4 sm:pt-4 border-t border-slate-100 text-xs">
       <p className="font-semibold text-slate-600 mb-1.5">
         {ringkasan.totalMapel} mapel · {ringkasan.totalSoal} soal dibuat
       </p>
@@ -2787,6 +2788,10 @@ export default function GuruBuatSoalPage() {
   const [ringkasanPg, setRingkasanPg] = useState<RingkasanSoal | null>(null)
   const [ringkasanEssay, setRingkasanEssay] = useState<RingkasanSoal | null>(null)
   const [loadingRingkasan, setLoadingRingkasan] = useState(true)
+  // Daftar paket mentah — dipakai tombol "Kirim Semua Soal" (paket DRAFT/DITOLAK).
+  const [daftarPg, setDaftarPg] = useState<PaketSoal[]>([])
+  const [daftarEssay, setDaftarEssay] = useState<PaketEssay[]>([])
+  const [muatUlang, setMuatUlang] = useState(0)
 
   // Admin bisa menonaktifkan pengisian soal essay (sekolah yang tidak
   // menyelenggarakan ujian essay) lewat Pengaturan > Pengaturan Ujian. Kartu
@@ -2832,11 +2837,27 @@ export default function GuruBuatSoalPage() {
         if (batal) return
         setRingkasanPg(agregasiRingkasan(pg.data ?? []))
         setRingkasanEssay(agregasiRingkasan(essay.data ?? []))
+        setDaftarPg(pg.data ?? [])
+        setDaftarEssay(essay.data ?? [])
       })
       .catch(() => { /* ringkasan bersifat pelengkap — gagal diam-diam, kartu tetap bisa dipakai seperti biasa */ })
       .finally(() => { if (!batal) setLoadingRingkasan(false) })
     return () => { batal = true }
-  }, [kind])
+  }, [kind, muatUlang])
+
+  // Paket yang siap dikirim sekaligus: DRAFT / DITOLAK. Essay dikecualikan kalau
+  // admin menonaktifkan ujian essay (server juga menolaknya).
+  const kandidatKirim = useMemo<PaketKirim[]>(() => {
+    const butuhKirim = (st: string) => st === 'DRAFT' || st === 'DITOLAK'
+    const pg: PaketKirim[] = daftarPg.filter(p => butuhKirim(p.status)).map(p => ({
+      id: p.id, jenis: 'PG', mapel: p.nama_mapel ?? p.mapel_id, kelas: p.nama_kelas ?? p.kelas_id, jumlah: p.jumlah_soal ?? 0,
+    }))
+    const essay: PaketKirim[] = essayNonaktif ? [] : daftarEssay.filter(p => butuhKirim(p.status)).map(p => ({
+      id: p.id, jenis: 'ESSAY', mapel: p.nama_mapel ?? p.mapel_id, kelas: p.nama_kelas ?? p.kelas_id, jumlah: p.jumlah_soal ?? 0,
+    }))
+    const urut = (a: PaketKirim, b: PaketKirim) => a.mapel.localeCompare(b.mapel) || a.kelas.localeCompare(b.kelas, undefined, { numeric: true })
+    return [...pg.sort(urut), ...essay.sort(urut)]
+  }, [daftarPg, daftarEssay, essayNonaktif])
 
   // FIX (kehilangan progres tanpa peringatan): layar PG/Essay di halaman ini
   // adalah "layar semu" lewat state lokal (`kind`), bukan route URL asli —
@@ -2871,7 +2892,7 @@ export default function GuruBuatSoalPage() {
   if (kind === 'info') return <InfoPaketSoalFlow onBack={() => setKind('choice')} />
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-4 sm:space-y-6 animate-fade-in">
       {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
 
       <div>
@@ -2879,7 +2900,9 @@ export default function GuruBuatSoalPage() {
         <p className="page-subtitle">Pilih jenis soal yang ingin dibuat</p>
       </div>
 
-      <div className="max-w-4xl mx-auto space-y-4">
+      <div className="max-w-4xl mx-auto space-y-3 sm:space-y-4">
+        <KirimSemuaSoal kandidat={kandidatKirim} onSelesai={() => setMuatUlang(n => n + 1)} />
+
         {/* UX FIX (guru tidak sadar kartu ini bisa diklik): sebelumnya kartu
             ini gradient penuh dengan CTA berupa teks+panah tipis di bagian
             bawah — dari jauh terlihat seperti banner informasi, bukan tombol.
@@ -2895,7 +2918,7 @@ export default function GuruBuatSoalPage() {
             lebar/flex-grow atau meremukkan konten kartu. items-stretch
             supaya tinggi kartu tetap sama walau salah satu kontennya
             (ringkasan mapel) lebih pendek dari yang lain. */}
-        <div className="flex flex-col sm:flex-row gap-5 items-stretch">
+        <div className="flex flex-col sm:flex-row gap-3 sm:gap-5 items-stretch">
           <button
             onClick={() => setKind('pg')}
             onMouseEnter={() => setHoverKind('pg')}
@@ -2906,22 +2929,22 @@ export default function GuruBuatSoalPage() {
                        bg-white border-2 border-slate-200 hover:border-brand-400
                        shadow-card hover:-translate-y-0.5 active:translate-y-0
                        transition-[transform,box-shadow,border-color,opacity] ${EASE}
-                       p-7 min-h-[220px]
+                       p-4 sm:p-7 sm:min-h-[220px]
                        ${kartuScaleClass('pg')}`}
           >
             <PaketBelumKirimBadge ringkasan={ringkasanPg} loading={loadingRingkasan} />
-            <div className="w-14 h-14 rounded-2xl bg-brand-50 text-brand-600 flex items-center justify-center flex-shrink-0 mb-5">
-              <ListChecks className="w-7 h-7" />
+            <div className="w-11 h-11 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl bg-brand-50 text-brand-600 flex items-center justify-center flex-shrink-0 mb-3 sm:mb-5">
+              <ListChecks className="w-5 h-5 sm:w-7 sm:h-7" />
             </div>
-            <h2 className="text-xl font-bold text-slate-900 mb-1.5">Soal PG</h2>
+            <h2 className="text-lg sm:text-xl font-bold text-slate-900 mb-1">Soal PG</h2>
             <div>
               <p className="text-slate-500 text-sm leading-relaxed">
                 Sistem menilai otomatis begitu siswa selesai mengerjakan.
               </p>
               <RingkasanSoalCard ringkasan={ringkasanPg} loading={loadingRingkasan} />
             </div>
-            <div className="mt-auto pt-6">
-              <span className="inline-flex items-center gap-2 rounded-full bg-brand-600 group-hover:bg-brand-700
+            <div className="mt-auto pt-4 sm:pt-6">
+              <span className="inline-flex w-full sm:w-auto justify-center items-center gap-2 rounded-full bg-brand-600 group-hover:bg-brand-700
                                text-white text-sm font-semibold px-5 py-2.5">
                 <Plus className="w-4 h-4 flex-shrink-0" />
                 <span className="whitespace-nowrap">Buat Soal PG</span>
@@ -2940,13 +2963,13 @@ export default function GuruBuatSoalPage() {
               aria-label="Soal Essay dinonaktifkan oleh admin"
               className="group relative text-left rounded-3xl sm:min-w-0 flex-1 flex flex-col overflow-hidden
                          bg-slate-50 border-2 border-dashed border-slate-300 cursor-not-allowed
-                         p-7 min-h-[220px] sm:scale-100"
+                         p-4 sm:p-7 sm:min-h-[220px] sm:scale-100"
             >
               <div className="opacity-40 grayscale select-none pointer-events-none flex flex-col flex-1">
-                <div className="w-14 h-14 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center flex-shrink-0 mb-5">
-                  <PenSquare className="w-7 h-7" />
+                <div className="w-11 h-11 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center flex-shrink-0 mb-3 sm:mb-5">
+                  <PenSquare className="w-5 h-5 sm:w-7 sm:h-7" />
                 </div>
-                <h2 className="text-xl font-bold text-slate-900 mb-1.5">Soal Essay</h2>
+                <h2 className="text-lg sm:text-xl font-bold text-slate-900 mb-1">Soal Essay</h2>
                 <p className="text-slate-500 text-sm leading-relaxed">
                   Dinilai manual oleh Anda setelah siswa mengumpulkan jawaban.
                 </p>
@@ -2976,22 +2999,22 @@ export default function GuruBuatSoalPage() {
                          bg-white border-2 border-slate-200 hover:border-emerald-400
                          shadow-card hover:-translate-y-0.5 active:translate-y-0
                          transition-[transform,box-shadow,border-color,opacity] ${EASE}
-                         p-7 min-h-[220px]
+                         p-4 sm:p-7 sm:min-h-[220px]
                          ${kartuScaleClass('essay')}`}
             >
               <PaketBelumKirimBadge ringkasan={ringkasanEssay} loading={loadingRingkasan} />
-              <div className="w-14 h-14 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center flex-shrink-0 mb-5">
-                <PenSquare className="w-7 h-7" />
+              <div className="w-11 h-11 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center flex-shrink-0 mb-3 sm:mb-5">
+                <PenSquare className="w-5 h-5 sm:w-7 sm:h-7" />
               </div>
-              <h2 className="text-xl font-bold text-slate-900 mb-1.5">Soal Essay</h2>
+              <h2 className="text-lg sm:text-xl font-bold text-slate-900 mb-1">Soal Essay</h2>
               <div>
                 <p className="text-slate-500 text-sm leading-relaxed">
                   Dinilai manual oleh Anda setelah siswa mengumpulkan jawaban.
                 </p>
                 <RingkasanSoalCard ringkasan={ringkasanEssay} loading={loadingRingkasan} />
               </div>
-              <div className="mt-auto pt-6">
-                <span className="inline-flex items-center gap-2 rounded-full bg-emerald-600 group-hover:bg-emerald-700
+              <div className="mt-auto pt-4 sm:pt-6">
+                <span className="inline-flex w-full sm:w-auto justify-center items-center gap-2 rounded-full bg-emerald-600 group-hover:bg-emerald-700
                                  text-white text-sm font-semibold px-5 py-2.5">
                   <Plus className="w-4 h-4 flex-shrink-0" />
                   <span className="whitespace-nowrap">Buat Soal Essay</span>
@@ -3014,20 +3037,20 @@ export default function GuruBuatSoalPage() {
                        bg-white border-2 border-slate-200 hover:border-indigo-400
                        shadow-card hover:-translate-y-0.5 active:translate-y-0
                        transition-[transform,box-shadow,border-color,opacity] ${EASE}
-                       p-7 min-h-[220px]
+                       p-4 sm:p-7 sm:min-h-[220px]
                        ${kartuScaleClass('info')}`}
           >
-            <div className="w-14 h-14 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center flex-shrink-0 mb-5">
-              <Info className="w-7 h-7" />
+            <div className="w-11 h-11 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center flex-shrink-0 mb-3 sm:mb-5">
+              <Info className="w-5 h-5 sm:w-7 sm:h-7" />
             </div>
-            <h2 className="text-xl font-bold text-slate-900 mb-1.5">Informasi Paket Soal</h2>
+            <h2 className="text-lg sm:text-xl font-bold text-slate-900 mb-1">Informasi Paket Soal</h2>
             <div>
               <p className="text-slate-500 text-sm leading-relaxed">
                 Nama mapel & kelas, status soal, serta kelengkapan PG dan Essay dalam satu tabel.
               </p>
             </div>
-            <div className="mt-auto pt-6">
-              <span className="inline-flex items-center gap-2 rounded-full bg-indigo-600 group-hover:bg-indigo-700
+            <div className="mt-auto pt-4 sm:pt-6">
+              <span className="inline-flex w-full sm:w-auto justify-center items-center gap-2 rounded-full bg-indigo-600 group-hover:bg-indigo-700
                                text-white text-sm font-semibold px-5 py-2.5">
                 <ChevronRight className="w-4 h-4 flex-shrink-0" />
                 <span className="whitespace-nowrap">Lihat Informasi</span>
