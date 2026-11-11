@@ -625,7 +625,9 @@ export default function LoginPage() {
     fetchPublik('/api/public/pengaturan', { sertakanToken: false })
       .then(r => r.json())
       .then(json => {
-        if (json?.data) setSiteInfo({ namaSekolah: json.data.namaSekolah ?? '', kota: json.data.kota ?? '', logoUrl: json.data.logoAplikasi || json.data.logoUrl || '' })
+        // Logo mengikuti sekolah (logoUrl) lebih dulu, sama seperti Sidebar; logo aplikasi
+        // global hanya cadangan kalau sekolah itu belum punya logo.
+        if (json?.data) setSiteInfo({ namaSekolah: json.data.namaSekolah ?? '', kota: json.data.kota ?? '', logoUrl: json.data.logoUrl || json.data.logoAplikasi || '' })
       })
       .catch(() => {})
   }, [])
