@@ -3,6 +3,7 @@ import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRoleAktif } from '@/lib/status-akun'
 import { getZonaWaktuSekolah, tanggalHariIni } from '@/lib/pengaturan-waktu'
 import { getKepsekScope } from '@/lib/kepsek-scope'
+import { cachedFetch } from '@/lib/cache'
 import { petakanEssayAktifPerSesi } from '@/app/api/guru/kirim-nilai/route'
 
 export async function GET(req: NextRequest) {
@@ -91,7 +92,6 @@ export async function GET(req: NextRequest) {
   const [
     { count: totalSiswa },
     { count: totalUjian },
-    { data: nilaiAll },
     { data: jadwalHariIni },
     { data: sesiBerjalan },
   ] = await Promise.all([
@@ -101,9 +101,6 @@ export async function GET(req: NextRequest) {
     kelasScope
       ? db.from('nilai').select('*', { count: 'exact', head: true }).in('kelas', kelasScope)
       : db.from('nilai').select('*', { count: 'exact', head: true }),
-    kelasScope
-      ? db.from('nilai').select('nilai, kelas, mapel_id, lulus, sesi_id, nilai_total, dirilis').in('kelas', kelasScope)
-      : db.from('nilai').select('nilai, kelas, mapel_id, lulus, sesi_id, nilai_total, dirilis'),
     kelasScope
       ? db.from('jadwal').select('*').eq('tanggal', todayStr).in('kelas', kelasScope).order('sesi', { ascending: true })
       : db.from('jadwal').select('*').eq('tanggal', todayStr).order('sesi', { ascending: true }),
@@ -212,54 +209,67 @@ export async function GET(req: NextRequest) {
   // (final, ikut essay) sejak fix di koreksi-essay/route.ts, tapi angka
   // rata-ratanya tidak. Sekarang dipakai nilai efektif yang sama seperti di
   // /api/kepsek/nilai.
-  const essayAktifMap = await petakanEssayAktifPerSesi(db, (nilaiAll ?? []).map(n => n.sesi_id))
-  const nilaiEfektif = (n: { sesi_id: string | null; dirilis?: boolean | null; nilai_total?: number | null; nilai: number }) => {
-    const essayAktif = n.sesi_id ? (essayAktifMap.get(n.sesi_id) ?? false) : false
-    return (essayAktif && n.dirilis === true && n.nilai_total != null) ? n.nilai_total : (n.nilai || 0)
-  }
+  // HEMAT CPU/DB: agregat nilai (rata-rata sekolah, per kelas, per mapel) membaca
+  // SEMUA baris `nilai` lalu menghitungnya di server. Dulu dijalankan ulang tiap
+  // polling dashboard (30 dtk per tab Kepsek/Admin yang terbuka). Sekarang di-cache
+  // 60 dtk per sekolah/cakupan kelas dan dibagi untuk semua pemirsa. Bagian "sedang
+  // berlangsung", jadwal hari ini, dan siswa tidak hadir tetap dihitung segar.
+  const kunciAgregat = `kepsek-dash-nilai:${yayasanId}:${kelasScope ? [...kelasScope].sort().join('|') : '*'}`
+  const { rataRata, nilaiPerKelas, nilaiPerMapel } = await cachedFetch(kunciAgregat, 60, async () => {
+    const { data: nilaiAll } = await (kelasScope
+      ? db.from('nilai').select('nilai, kelas, mapel_id, lulus, sesi_id, nilai_total, dirilis').in('kelas', kelasScope)
+      : db.from('nilai').select('nilai, kelas, mapel_id, lulus, sesi_id, nilai_total, dirilis'))
+    const essayAktifMap = await petakanEssayAktifPerSesi(db, (nilaiAll ?? []).map(n => n.sesi_id))
+    const nilaiEfektif = (n: { sesi_id: string | null; dirilis?: boolean | null; nilai_total?: number | null; nilai: number }) => {
+      const essayAktif = n.sesi_id ? (essayAktifMap.get(n.sesi_id) ?? false) : false
+      return (essayAktif && n.dirilis === true && n.nilai_total != null) ? n.nilai_total : (n.nilai || 0)
+    }
 
-  const nums = (nilaiAll ?? []).map(nilaiEfektif)
-  const rataRata = nums.length ? Math.round(nums.reduce((a, b) => a + b, 0) / nums.length) : 0
+    const nums = (nilaiAll ?? []).map(nilaiEfektif)
+    const rataRata = nums.length ? Math.round(nums.reduce((a, b) => a + b, 0) / nums.length) : 0
 
-  // Per kelas
-  const kelasAgg: Record<string, { sum: number; total: number; lulus: number }> = {}
-  for (const n of (nilaiAll ?? [])) {
-    const k = String(n.kelas)
-    if (!kelasAgg[k]) kelasAgg[k] = { sum: 0, total: 0, lulus: 0 }
-    kelasAgg[k].sum += nilaiEfektif(n)
-    kelasAgg[k].total++
-    if (n.lulus) kelasAgg[k].lulus++
-  }
-  const nilaiPerKelas = Object.entries(kelasAgg)
-    .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([kelas, agg]) => ({
-      kelas,
-      rata: Math.round(agg.sum / agg.total),
-      total: agg.total,
-      lulus: agg.lulus,
-    }))
+    // Per kelas
+    const kelasAgg: Record<string, { sum: number; total: number; lulus: number }> = {}
+    for (const n of (nilaiAll ?? [])) {
+      const k = String(n.kelas)
+      if (!kelasAgg[k]) kelasAgg[k] = { sum: 0, total: 0, lulus: 0 }
+      kelasAgg[k].sum += nilaiEfektif(n)
+      kelasAgg[k].total++
+      if (n.lulus) kelasAgg[k].lulus++
+    }
+    const nilaiPerKelas = Object.entries(kelasAgg)
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([kelas, agg]) => ({
+        kelas,
+        rata: Math.round(agg.sum / agg.total),
+        total: agg.total,
+        lulus: agg.lulus,
+      }))
 
-  // Per mapel
-  const mapelAgg: Record<string, { sum: number; total: number }> = {}
-  for (const n of (nilaiAll ?? [])) {
-    if (!n.mapel_id) continue
-    if (!mapelAgg[n.mapel_id]) mapelAgg[n.mapel_id] = { sum: 0, total: 0 }
-    mapelAgg[n.mapel_id].sum += nilaiEfektif(n)
-    mapelAgg[n.mapel_id].total++
-  }
+    // Per mapel
+    const mapelAgg: Record<string, { sum: number; total: number }> = {}
+    for (const n of (nilaiAll ?? [])) {
+      if (!n.mapel_id) continue
+      if (!mapelAgg[n.mapel_id]) mapelAgg[n.mapel_id] = { sum: 0, total: 0 }
+      mapelAgg[n.mapel_id].sum += nilaiEfektif(n)
+      mapelAgg[n.mapel_id].total++
+    }
 
-  const mapelIds = Object.keys(mapelAgg)
-  const { data: mapelList } = await db.from('mapel').select('id, nama').in('id', mapelIds.length ? mapelIds : ['__'])
-  const mapelMap = Object.fromEntries((mapelList ?? []).map(m => [m.id, m.nama]))
+    const mapelIds = Object.keys(mapelAgg)
+    const { data: mapelList } = await db.from('mapel').select('id, nama').in('id', mapelIds.length ? mapelIds : ['__'])
+    const mapelMap = Object.fromEntries((mapelList ?? []).map(m => [m.id, m.nama]))
 
-  const nilaiPerMapel = Object.entries(mapelAgg)
-    .sort((a, b) => b[1].total - a[1].total)
-    .slice(0, 15)
-    .map(([id, agg]) => ({
-      nama: mapelMap[id] ?? id,
-      rata: Math.round(agg.sum / agg.total),
-      total: agg.total,
-    }))
+    const nilaiPerMapel = Object.entries(mapelAgg)
+      .sort((a, b) => b[1].total - a[1].total)
+      .slice(0, 15)
+      .map(([id, agg]) => ({
+        nama: mapelMap[id] ?? id,
+        rata: Math.round(agg.sum / agg.total),
+        total: agg.total,
+      }))
+
+    return { rataRata, nilaiPerKelas, nilaiPerMapel }
+  })
 
   return NextResponse.json({
     stats: { totalSiswa: totalSiswa ?? 0, totalGuru: totalGuru ?? 0, totalUjian: totalUjian ?? 0, rataRata },

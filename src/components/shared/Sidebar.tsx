@@ -432,8 +432,8 @@ export function Sidebar({ navItems, role, roleColor, roleLabel, accent = '#0891b
 // Naikkan angka ini kalau ingin lebih hemat; turunkan kalau banner dipantau
 // harus tampil lebih cepat.
 const NOTIF_INTERVAL_MS: Record<'ADMIN' | 'GURU' | 'SISWA', number> = {
-  ADMIN: 90_000,
-  GURU: 90_000,
+  ADMIN: 120_000,
+  GURU: 180_000,
   SISWA: 180_000,
 }
 
