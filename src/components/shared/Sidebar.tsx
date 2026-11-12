@@ -488,7 +488,8 @@ function useBadgeCounts(role: 'ADMIN' | 'GURU' | 'SISWA') {
   // Solusi: pause interval saat hidden, resume + langsung fetch sekali
   // saat tab aktif kembali supaya badge langsung terupdate.
   useEffect(() => {
-    fetch_()
+    // Fetch pertama ditunda supaya konten halaman (dashboard) dimuat lebih dulu.
+    const tAwal = setTimeout(fetch_, 2500)
 
     const intervalMs = NOTIF_INTERVAL_MS[roleRef.current] ?? 90_000
     let id: ReturnType<typeof setInterval> | null = setInterval(fetch_, intervalMs)
@@ -521,6 +522,7 @@ function useBadgeCounts(role: 'ADMIN' | 'GURU' | 'SISWA') {
     window.addEventListener('notif-changed', fetch_)
 
     return () => {
+      clearTimeout(tAwal)
       if (id !== null) clearInterval(id)
       document.removeEventListener('visibilitychange', onVisibility)
       window.removeEventListener('notif-changed', fetch_)
@@ -589,29 +591,23 @@ export function GuruSidebar() {
     const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
     if (!token) return
 
-    apiRequest<{ isWaliKelas?: boolean }>('/api/guru/wali-kelas', { timeoutMs: 8_000 })
-      .then(d => { if (d.isWaliKelas) setIsWaliKelas(true) })
-      .catch(() => {})
-
-    apiRequest<{ hasJadwal?: boolean; data?: unknown[] }>('/api/guru/jadwal-pengawasan', { timeoutMs: 8_000 })
-      .then(d => { if (d.hasJadwal || (d.data && d.data.length > 0)) setHasPengawasan(true) })
-      .catch(() => {})
-
-    apiRequest<{ isAdminKelas?: boolean }>('/api/guru/admin-kelas/saya', { timeoutMs: 8_000 })
-      .then(d => { if (d.isAdminKelas) setIsAdminKelas(true) })
-      .catch(() => {})
-
-    // Menu "Pengawas Ruang Khusus" hanya muncul untuk guru yang ditunjuk admin
-    // sebagai pengawas sebuah ruang khusus yang masih aktif.
-    apiRequest<{ adaRuang?: boolean }>('/api/guru/ruang-khusus', { timeoutMs: 8_000 })
-      .then(d => { if (d.adaRuang) setIsPengawasRuang(true) })
-      .catch(() => {})
-
-    // Menu "Analisis Ujian PG" hanya tampil kalau guru ini sudah punya hasil
-    // ujian (minimal satu sesi SELESAI untuk mapel yang diampunya).
-    apiRequest<{ adaSesi?: boolean }>('/api/guru/analisis-ujian?only_kelas=1', { timeoutMs: 8_000 })
-      .then(d => { if (d.adaSesi) setAdaHasilUjian(true) })
-      .catch(() => {})
+    // PERBAIKAN BEBAN LOGIN: 5 request terpisah digabung jadi 1 (/api/guru/menu-info)
+    // dan ditunda sebentar supaya dashboard tampil lebih dulu.
+    const t = setTimeout(() => {
+      apiRequest<{
+        isWaliKelas?: boolean; hasPengawasan?: boolean; isAdminKelas?: boolean
+        adaRuang?: boolean; adaSesi?: boolean
+      }>('/api/guru/menu-info', { timeoutMs: 12_000 })
+        .then(d => {
+          if (d.isWaliKelas) setIsWaliKelas(true)
+          if (d.hasPengawasan) setHasPengawasan(true)
+          if (d.isAdminKelas) setIsAdminKelas(true)
+          if (d.adaRuang) setIsPengawasRuang(true)
+          if (d.adaSesi) setAdaHasilUjian(true)
+        })
+        .catch(() => {})
+    }, 1500)
+    return () => clearTimeout(t)
   }, [])
 
   // BUG FIX #3b: This effect ran every time `pathname` changed AND every time

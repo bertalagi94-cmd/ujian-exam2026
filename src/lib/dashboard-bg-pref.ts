@@ -15,10 +15,10 @@ const STORAGE_KEY = 'dashboardTransparentBg'
 const LOCAL_EVENT = 'dashboard-bg-pref-changed'
 
 function readPref(): boolean {
-  if (typeof window === 'undefined') return true
+  if (typeof window === 'undefined') return false
   const raw = window.localStorage.getItem(STORAGE_KEY)
-  // Belum pernah diatur sama sekali -> default aktif.
-  return raw === null ? true : raw === '1'
+  // Belum pernah diatur sama sekali -> default MATI (blur layar penuh berat di HP kelas menengah/bawah).
+  return raw === null ? false : raw === '1'
 }
 
 /**
@@ -30,7 +30,7 @@ function readPref(): boolean {
 export function useDashboardBgPref(): [boolean, (value: boolean) => void] {
   // Default true dulu (server render / awal mount) supaya tidak ada
   // "kedipan" dari transparan -> polos saat localStorage baru dibaca.
-  const [enabled, setEnabledState] = useState(true)
+  const [enabled, setEnabledState] = useState(false)
 
   useEffect(() => {
     setEnabledState(readPref())
