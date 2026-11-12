@@ -225,7 +225,7 @@ function ModalSusulanAdmin({
                   <option value="">— Pilih guru —</option>
                   {guruList.map(g => (
                     <option key={g.username} value={g.username}>
-                      {g.nama}{g.username === jadwal.pengawas ? ' (pengawas asli — disarankan)' : ''}
+                      {g.nama}{g.role === 'BK' ? ' (Guru BK)' : ''}{g.username === jadwal.pengawas ? ' (pengawas asli — disarankan)' : ''}
                     </option>
                   ))}
                 </select>
@@ -591,7 +591,8 @@ export default function AdminJadwalPage() {
     ]).then(([m, k, u]) => {
       setMapelList(m.data)
       setKelasList(k.data)
-      setGuruList(u.data.filter(u => u.role === 'GURU'))
+      // Pengawas boleh Guru biasa ATAU Guru BK.
+      setGuruList(u.data.filter(u => u.role === 'GURU' || u.role === 'BK'))
     })
   }, [])
 
@@ -1591,7 +1592,7 @@ export default function AdminJadwalPage() {
                     onChange={e => setFormWatch(prev => ({ ...prev, pengawas: e.target.value }))}>
                     <option value="">- Pilih Pengawas -</option>
                     {available.map(p => (
-                      <option key={p.username} value={p.username}>{p.nama}</option>
+                      <option key={p.username} value={p.username}>{p.nama}{p.role === 'BK' ? ' (Guru BK)' : ''}</option>
                     ))}
                   </select>
                   {excluded && selectedMapelId && (

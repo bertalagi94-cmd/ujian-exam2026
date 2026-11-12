@@ -39,7 +39,7 @@ import { ambilTargetSiswaSesi } from '@/lib/target-siswa-sesi'
 // dipakai apa adanya untuk otorisasi login, tidak disentuh sama sekali).
 export async function GET(req: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
-  const auth = await requireRoleAktif(req, ['GURU', 'ADMIN'])
+  const auth = await requireRoleAktif(req, ['GURU', 'BK', 'ADMIN'])
   if ('error' in auth) return auth.error
 
   const db = tenantDb(yayasanIdDari(auth.user))
@@ -49,7 +49,7 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
   // mengecek apakah guru pemanggil memang pengawas sesi ini — sehingga guru
   // mana pun bisa melihat daftar siswa sesi ujian guru lain kalau memanggil
   // API ini langsung. ADMIN tetap tidak dibatasi.
-  if (auth.user.role === 'GURU') {
+  if (auth.user.role !== 'ADMIN') {
     const sah = await verifySesiOwnershipCached(db, sesiId, auth.user.username, yayasanIdDari(auth.user))
     if (!sah) {
       return NextResponse.json({ error: 'Anda bukan pengawas sesi ini' }, { status: 403 })

@@ -4,7 +4,7 @@ import { requireRoleAktif } from '@/lib/status-akun'
 import { getZonaWaktuSekolah, tanggalHariIni } from '@/lib/pengaturan-waktu'
 
 export async function GET(req: NextRequest) {
-  const auth = await requireRoleAktif(req, ['GURU'])
+  const auth = await requireRoleAktif(req, ['GURU', 'BK'])
   if ('error' in auth) return auth.error
   const { user } = auth
 

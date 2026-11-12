@@ -28,7 +28,7 @@ const PREFIX_NILAI_NOL_PG = 'Ujian dihentikan karena pelanggaran'
 
 export async function POST(req: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params
-  const auth = await requireRoleAktif(req, ['GURU', 'ADMIN'])
+  const auth = await requireRoleAktif(req, ['GURU', 'BK', 'ADMIN'])
   if ('error' in auth) return auth.error
 
   const db = tenantDb(yayasanIdDari(auth.user))
@@ -40,7 +40,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
   const alasan = String(body.alasan ?? '').trim().slice(0, 300)
   if (!nis) return NextResponse.json({ error: 'NISN diperlukan' }, { status: 400 })
 
-  if (auth.user.role === 'GURU') {
+  if (auth.user.role !== 'ADMIN') {
     const sah = await verifySesiOwnership(db, sesiId, auth.user.username)
     if (!sah) return NextResponse.json({ error: 'Anda bukan pengawas sesi ini' }, { status: 403 })
   }

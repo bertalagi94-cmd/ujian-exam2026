@@ -3,6 +3,8 @@
 import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { BkSidebar } from '@/components/shared/Sidebar'
+import { SesiTerlupaPopup } from '@/components/shared/SesiTerlupaPopup'
+import { PengingatTutupSesi } from '@/components/shared/PengingatTutupSesi'
 import { TopBarControls } from '@/components/shared/TopBarControls'
 import { ViewAsBanner } from '@/components/shared/ViewAsBanner'
 import { DashboardPhotoBackground } from '@/components/shared/DashboardPhotoBackground'
@@ -43,7 +45,12 @@ export default function BkLayout({ children }: { children: React.ReactNode }) {
       <div className="relative z-10 flex w-full">
         <BkSidebar />
         <TopBarControls accent="#16a34a" />
-        <main className="flex-1 min-w-0 p-6 lg:p-8 pt-16 lg:pt-16">{children}</main>
+        <main className="flex-1 min-w-0 p-6 lg:p-8 pt-16 lg:pt-16">
+          {/* Hanya muncul untuk Guru BK yang sedang bertugas mengawas */}
+          <PengingatTutupSesi />
+          {children}
+        </main>
+        <SesiTerlupaPopup />
       </div>
     </div>
   )

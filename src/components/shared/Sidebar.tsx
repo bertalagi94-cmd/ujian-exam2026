@@ -739,6 +739,20 @@ export function KepsekSidebar() {
 // Guru BK: menu sendiri yang hanya-lihat, sengaja TIDAK memuat menu guru
 // (buat soal, kisi-kisi, penilaian, dst). Semua data dibatasi ke kelas binaan.
 export function BkSidebar() {
+  // Guru BK yang ditunjuk admin sebagai pengawas (jadwal ujian / susulan) mendapat
+  // menu "Jadwal Mengawas Saya". Dicek ringan 1x, ditunda supaya halaman tampil dulu.
+  const [hasPengawasan, setHasPengawasan] = useState(false)
+  useEffect(() => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
+    if (!token) return
+    const t = setTimeout(() => {
+      apiRequest<{ hasJadwal?: boolean; data?: unknown[] }>('/api/guru/jadwal-pengawasan', { timeoutMs: 8_000 })
+        .then(d => { if (d.hasJadwal || (d.data && d.data.length > 0)) setHasPengawasan(true) })
+        .catch(() => {})
+    }, 1500)
+    return () => clearTimeout(t)
+  }, [])
+
   return (
     <Sidebar
       role="BK"
@@ -751,6 +765,9 @@ export function BkSidebar() {
         { label: 'Hasil & Nilai', href: '/bk/nilai', icon: BarChart3 },
         { label: 'Siswa Tidak Mengikuti Ujian', href: '/bk/tidak-ujian', icon: UserX },
         { label: 'Data Siswa & Kelas', href: '/bk/kelas', icon: Users, section: 'Data Binaan' },
+        ...(hasPengawasan
+          ? [{ label: 'Jadwal Mengawas Saya', href: '/bk/jadwal-pengawasan', icon: Calendar, section: 'Tugas Tambahan' }]
+          : []),
       ]}
     />
   )

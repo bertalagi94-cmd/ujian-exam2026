@@ -22,13 +22,13 @@ import { ambilMaksReset, hitungSemuaKodeReset } from '@/lib/reset-berurutan'
 // giliran (lihat verifikasi-reset). Menampilkan R3 lebih awal tidak berguna.
 export async function GET(req: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
-  const auth = await requireRoleAktif(req, ['GURU', 'ADMIN'])
+  const auth = await requireRoleAktif(req, ['GURU', 'BK', 'ADMIN'])
   if ('error' in auth) return auth.error
 
   const db = tenantDb(yayasanIdDari(auth.user))
   const sesiId = params.id
 
-  if (auth.user.role === 'GURU') {
+  if (auth.user.role !== 'ADMIN') {
     // Sengaja versi TANPA cache: ini membuka rahasia, jangan andalkan keputusan lama.
     const sah = await verifySesiOwnership(db, sesiId, auth.user.username)
     if (!sah) return NextResponse.json({ error: 'Anda bukan pengawas sesi ini' }, { status: 403 })

@@ -18,7 +18,7 @@ import { hitungKodeDarurat, seedKodeDarurat } from '@/lib/essay-amplop-server'
 import { PANJANG_KODE_DARURAT, MAKS_PERCOBAAN_SERVER } from '@/lib/essay-amplop-shared'
 
 export async function GET(req: NextRequest) {
-  const auth = await requireRoleAktif(req, ['GURU'])
+  const auth = await requireRoleAktif(req, ['GURU', 'BK'])
   if ('error' in auth) return auth.error
   const { user } = auth
 

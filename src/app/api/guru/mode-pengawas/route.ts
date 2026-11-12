@@ -19,7 +19,7 @@ function generateKodeSesi7(): string {
 }
 
 export async function GET(req: NextRequest) {
-  const auth = await requireRoleAktif(req, ['GURU'])
+  const auth = await requireRoleAktif(req, ['GURU', 'BK'])
   if ('error' in auth) return auth.error
   const { user } = auth
 
@@ -275,7 +275,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const auth = await requireRoleAktif(req, ['GURU'])
+  const auth = await requireRoleAktif(req, ['GURU', 'BK'])
   if ('error' in auth) return auth.error
   const { user } = auth
 

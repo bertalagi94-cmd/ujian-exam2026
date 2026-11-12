@@ -15,7 +15,7 @@ import { requireRoleAktif } from '@/lib/status-akun'
 import { verifySesiOwnership } from '@/lib/sesi-ownership'
 
 export async function POST(req: NextRequest) {
-  const auth = await requireRoleAktif(req, ['GURU'])
+  const auth = await requireRoleAktif(req, ['GURU', 'BK'])
   if ('error' in auth) return auth.error
   const { user } = auth
 

@@ -7,7 +7,7 @@ import { adaSesiBerjalanLain } from '@/lib/sesi-utama'
 import { setelahSesiDitutup } from '@/lib/ruang-khusus'
 
 export async function POST(req: NextRequest) {
-  const auth = await requireRoleAktif(req, ['GURU'])
+  const auth = await requireRoleAktif(req, ['GURU', 'BK'])
   if ('error' in auth) return auth.error
 
   const db = tenantDb(yayasanIdDari(auth.user))

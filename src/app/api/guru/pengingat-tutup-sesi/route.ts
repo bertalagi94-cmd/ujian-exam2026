@@ -15,7 +15,7 @@ import { muatPengingatSesi } from '@/lib/sesi-belum-ditutup'
 // masih punya siswa berstatus AKTIF (mis. siswa menutup aplikasi di tengah
 // ujian) tetap diingatkan di sini.
 export async function GET(req: NextRequest) {
-  const auth = await requireRoleAktif(req, ['GURU'])
+  const auth = await requireRoleAktif(req, ['GURU', 'BK'])
   if ('error' in auth) return auth.error
 
   try {

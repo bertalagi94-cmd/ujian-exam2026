@@ -21,7 +21,7 @@ function generateKode7(): string {
 }
 
 export async function POST(req: NextRequest) {
-  const auth = await requireRoleAktif(req, ['GURU', 'ADMIN'])
+  const auth = await requireRoleAktif(req, ['GURU', 'BK', 'ADMIN'])
   if ('error' in auth) return auth.error
 
   const db = tenantDb(yayasanIdDari(auth.user))

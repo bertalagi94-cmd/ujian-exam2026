@@ -4,7 +4,7 @@ import { requireRoleAktif } from '@/lib/status-akun'
 import { verifySesiOwnershipCached } from '@/lib/sesi-ownership'
 
 export async function GET(req: NextRequest) {
-  const auth = await requireRoleAktif(req, ['GURU', 'ADMIN'])
+  const auth = await requireRoleAktif(req, ['GURU', 'BK', 'ADMIN'])
   if ('error' in auth) return auth.error
 
   const db = tenantDb(yayasanIdDari(auth.user))
@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
   // FIX: sebelumnya GURU bisa memanggil endpoint ini tanpa sesiId (atau
   // dengan sesiId milik guru lain) dan tetap mendapat data pelanggaran —
   // tidak ada pengecekan kepemilikan sesi. ADMIN tetap tidak dibatasi.
-  if (auth.user.role === 'GURU') {
+  if (auth.user.role !== 'ADMIN') {
     if (!sesiId) {
       return NextResponse.json({ error: 'sesiId diperlukan' }, { status: 400 })
     }
