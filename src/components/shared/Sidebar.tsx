@@ -741,14 +741,23 @@ export function KepsekSidebar() {
 export function BkSidebar() {
   // Guru BK yang ditunjuk admin sebagai pengawas (jadwal ujian / susulan) mendapat
   // menu "Jadwal Mengawas Saya". Dicek ringan 1x, ditunda supaya halaman tampil dulu.
+  // Hasilnya DIINGAT di perangkat (per akun) supaya menu tetap muncul saat aplikasi
+  // dibuka ulang dalam keadaan OFFLINE (pengecekan ke server tentu gagal saat offline).
   const [hasPengawasan, setHasPengawasan] = useState(false)
   useEffect(() => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
     if (!token) return
+    let kunci = ''
+    try { kunci = `bk-punya-tugas-mengawas:${JSON.parse(localStorage.getItem('user') ?? '{}').username ?? ''}` } catch { /* abaikan */ }
+    try { if (kunci && localStorage.getItem(kunci) === '1') setHasPengawasan(true) } catch { /* abaikan */ }
     const t = setTimeout(() => {
       apiRequest<{ hasJadwal?: boolean; data?: unknown[] }>('/api/guru/jadwal-pengawasan', { timeoutMs: 8_000 })
-        .then(d => { if (d.hasJadwal || (d.data && d.data.length > 0)) setHasPengawasan(true) })
-        .catch(() => {})
+        .then(d => {
+          const ada = !!(d.hasJadwal || (d.data && d.data.length > 0))
+          setHasPengawasan(ada)
+          try { if (kunci) localStorage.setItem(kunci, ada ? '1' : '0') } catch { /* abaikan */ }
+        })
+        .catch(() => {}) // gagal/offline: pertahankan nilai yang diingat
     }, 1500)
     return () => clearTimeout(t)
   }, [])

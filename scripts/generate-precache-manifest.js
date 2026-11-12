@@ -55,6 +55,11 @@ const RUTE_PRECACHE = [
   '/siswa',
   '/siswa/ujian',
   '/siswa/pengiriman-tertunda',
+  // Guru BK yang ditunjuk sebagai pengawas: APK membuka "/" lalu mengarahkan BK
+  // ke "/bk", jadi keduanya wajib ada di precache supaya aplikasi bisa dibuka
+  // ulang saat offline dan langsung ke halaman mengawas.
+  '/bk',
+  '/bk/jadwal-pengawasan',
 ]
 
 function bacaJson(p) {
