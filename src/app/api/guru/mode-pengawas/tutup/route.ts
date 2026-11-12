@@ -5,6 +5,7 @@ import { verifySesiOwnership } from '@/lib/sesi-ownership'
 import { finalisasiNilaiPaksa } from '@/lib/finalisasi-nilai'
 import { adaSesiBerjalanLain } from '@/lib/sesi-utama'
 import { setelahSesiDitutup } from '@/lib/ruang-khusus'
+import { catatAktivitas } from '@/lib/aktivitas'
 
 export async function POST(req: NextRequest) {
   const auth = await requireRoleAktif(req, ['GURU', 'BK'])
@@ -67,6 +68,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Sesi ini sudah tidak berstatus BERJALAN (mungkin sudah ditutup).' }, { status: 409 })
   }
 
+  // Jejak audit: SIAPA menutup sesi. Sebelumnya tidak tercatat sama sekali
+  // (simulasi 12 Nov 2026: penutup XI TKJ A dan XI MPLB tidak bisa dilacak).
+  catatAktivitas(
+    db,
+    auth.user.username,
+    'TUTUP_SESI',
+    `sesi=${sesiId}; peran=${auth.user.role}; cara=pengawas`
+  )
+
   let peringatan: string[] = []
 
   // Sesi ruang khusus: lepas siswa yang tidak pernah masuk, tutup ruang bila sesi terakhir.
@@ -98,7 +108,7 @@ export async function POST(req: NextRequest) {
   // jawaban yang sempat tersinkron ke server — lihat src/lib/finalisasi-nilai.ts.
   const { data: siswaBelumSelesai, error: errFetchSiswa } = await db
     .from('siswa_ujian')
-    .select('nis')
+    .select('nis, status')
     .eq('sesi_id', sesiId)
     .in('status', ['AKTIF', 'RESET'])
 
@@ -125,6 +135,17 @@ export async function POST(req: NextRequest) {
   }
 
   const nisPerluDinilai = (siswaBelumSelesai ?? []).map(s => s.nis)
+
+  // Rincian saat ditutup: berapa siswa yang masih AKTIF dan berapa yang sedang
+  // RESET (menunggu kode) ikut dinilai paksa dari jawaban yang ada di server.
+  const jumlahReset = (siswaBelumSelesai ?? []).filter(s => s.status === 'RESET').length
+  catatAktivitas(
+    db,
+    auth.user.username,
+    'TUTUP_SESI_RINCIAN',
+    `sesi=${sesiId}; dinilai_paksa=${nisPerluDinilai.length}; di_antaranya_reset=${jumlahReset}`
+  )
+
   const hasilFinalisasi = await finalisasiNilaiPaksa(db, sesiId, nisPerluDinilai)
 
   if (!hasilFinalisasi.ok) {

@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { BookOpen, Clock, AlertTriangle, CheckCircle, ChevronLeft, ChevronRight, Send, Maximize, KeyRound, LogOut, RefreshCw, Calendar, CheckCircle2 } from 'lucide-react'
 import { apiRequest, fetchPublik } from '@/lib/utils'
-import { startExamLock, endExamLock, onExamLockLost } from '@/lib/exam-lock'
+import { startExamLock, endExamLock, onExamLockLost, isNativeApp, getExamLockStatus } from '@/lib/exam-lock'
 import { Soal } from '@/types'
 import { Confirm, Spinner } from '@/components/ui'
 import {
@@ -139,6 +139,32 @@ const CEK_SESI_MAKS_JEDA_MS = 60_000
 // perubahan). Tetap dipaksa kirim minimal tiap 3 menit sebagai jaring pengaman.
 const JEDA_AUTOSYNC_MS = 30_000
 const AUTOSYNC_DIAM_MAKS_MS = 180_000
+
+// ── AMBANG PELANGGARAN TAB_SWITCH / WINDOW_BLUR ──────────────────────────────
+// Siswa baru dianggap melanggar kalau halaman ujian hilang dari layar/fokus
+// SELAMA >= nilai ini. Sebelumnya setiap event blur/visibilitychange (sekilas
+// pun, mis. dialog sistem, notifikasi, layar berkedip) langsung membuat siswa
+// RESET dan menghentikan sync jawabannya -- pada simulasi 12 Nov 2026, 54 dari
+// 193 siswa (28%) RESET dan 39+3 di antaranya dari dua jenis ini.
+// INI KEPUTUSAN KEBIJAKAN SEKOLAH. 3000 = 3 detik. Isi 0 untuk kembali ke
+// perilaku lama (lapor seketika). Pelanggaran EXIT_FULLSCREEN dan LOCK_RELEASED
+// TIDAK memakai ambang ini.
+const AMBANG_PELANGGARAN_MS = 3000
+
+// Ringkasan konteks perangkat untuk kolom detail pelanggaran dan device_info:
+// supaya simulasi berikutnya bisa dianalisis per perangkat (APK vs browser, model HP).
+function modelPerangkat(): string {
+  try {
+    const m = /Android\s[\d.]+;\s*([^;)]+)/.exec(navigator.userAgent)
+    return (m?.[1] ?? '').trim().slice(0, 40)
+  } catch { return '' }
+}
+function konteksPelanggaran(): string {
+  try {
+    const model = modelPerangkat()
+    return ` [${isNativeApp() ? 'APK' : 'WEB'} lock:${getExamLockStatus()} vis:${document.visibilityState}${model ? ` model:${model}` : ''}]`
+  } catch { return '' }
+}
 
 // Sidik jari isi jawaban + revisinya, untuk mendeteksi "ada yang berubah".
 function buatSigJawaban(jawaban: JawabanMap, revisi: Record<string, number>): string {
@@ -1090,30 +1116,110 @@ export default function SiswaUjianPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, essayInfoBelumSiap])
 
-  // ── Anti-cheat: tab switch / visibilitychange ─────────────────────────────
+  // ── Anti-cheat: tab switch + window blur (satu efek, dengan ambang durasi) ──
+  // Dulu dua efek terpisah yang masing-masing melapor SEKETIKA. Sekarang satu
+  // pelacak "halaman hilang": mulai saat blur/visibilitychange hidden, selesai
+  // saat siswa kembali (visible/focus). Pelanggaran hanya dilapor bila lamanya
+  // >= AMBANG_PELANGGARAN_MS. Lama diukur dengan selisih Date.now(), BUKAN
+  // setTimeout, karena timer dibekukan di latar belakang. setTimeout hanya
+  // jaring pengaman untuk kasus halaman tetap terlihat tetapi tidak fokus
+  // (mis. split-screen) sehingga tidak ada event "kembali" yang pernah datang.
   useEffect(() => {
     if (phase !== 'UJIAN' && phase !== 'ESSAY_INFO' && phase !== 'ESSAY_KERJAKAN') return
     if (essayInfoBelumSiap) return
-    // Cooldown mencegah event ganda (visibilitychange + blur keduanya fire sekaligus)
-    let visCooldown: ReturnType<typeof setTimeout> | null = null
-    function onVisibilityChange() {
-      if (!document.hidden) return
+    let hilangSejak: number | null = null
+    let pernahHidden = false
+    let sudahDilaporkan = false
+    let timerJaring: ReturnType<typeof setTimeout> | null = null
+
+    function hentikanTimer() {
+      if (timerJaring) { clearTimeout(timerJaring); timerJaring = null }
+    }
+    function lapor(lamaMs: number) {
       if (pelanggaranActiveRef.current) return
-      if (visCooldown) return
       pelanggaranActiveRef.current = true
       pelanggRef.current++
-      laporPelanggaran('TAB_SWITCH', `Berpindah tab/aplikasi ke-${pelanggRef.current}`)
-      setWarningMsg('⚠ Berpindah tab atau aplikasi terdeteksi!')
+      const ket = `${(lamaMs / 1000).toFixed(1)} dtk, ${pernahHidden ? 'hidden' : 'blur'}`
+      if (pernahHidden) {
+        laporPelanggaran('TAB_SWITCH', `Berpindah tab/aplikasi ke-${pelanggRef.current} (${ket})`)
+        setWarningMsg('⚠ Berpindah tab atau aplikasi terdeteksi!')
+      } else {
+        laporPelanggaran('WINDOW_BLUR', `Keluar dari aplikasi ujian ke-${pelanggRef.current} (${ket})`)
+        setWarningMsg('⚠ Anda keluar dari aplikasi ujian!')
+      }
       setShowWarningOverlay(true)
-      visCooldown = setTimeout(() => { visCooldown = null }, 2000)
     }
+    function hilang() {
+      if (document.hidden) pernahHidden = true
+      if (hilangSejak !== null) return
+      hilangSejak = Date.now()
+      sudahDilaporkan = false
+      if (AMBANG_PELANGGARAN_MS <= 0) {
+        sudahDilaporkan = true
+        lapor(0)
+        return
+      }
+      hentikanTimer()
+      timerJaring = setTimeout(() => {
+        timerJaring = null
+        if (hilangSejak === null || sudahDilaporkan) return
+        // Hanya lapor kalau halaman MEMANG masih hilang saat timer berbunyi.
+        if (!(document.hidden || !document.hasFocus())) return
+        sudahDilaporkan = true
+        lapor(Date.now() - hilangSejak)
+      }, AMBANG_PELANGGARAN_MS + 150)
+    }
+    function kembali() {
+      if (document.hidden) return // masih tersembunyi: belum benar-benar kembali
+      if (hilangSejak === null) return
+      const lama = Date.now() - hilangSejak
+      const dilaporkanTimer = sudahDilaporkan
+      hentikanTimer()
+      if (!dilaporkanTimer && lama >= AMBANG_PELANGGARAN_MS) lapor(lama)
+      hilangSejak = null
+      pernahHidden = false
+      sudahDilaporkan = false
+    }
+    function onVisibilityChange() {
+      if (document.hidden) hilang()
+      else kembali()
+    }
+    function onBlur() { hilang() }
+    function onFocus() { kembali() }
+
     document.addEventListener('visibilitychange', onVisibilityChange)
+    window.addEventListener('blur', onBlur)
+    window.addEventListener('focus', onFocus)
     return () => {
       document.removeEventListener('visibilitychange', onVisibilityChange)
-      if (visCooldown) clearTimeout(visCooldown)
+      window.removeEventListener('blur', onBlur)
+      window.removeEventListener('focus', onFocus)
+      hentikanTimer()
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, essayInfoBelumSiap])
+
+  // ── Catat jenis perangkat (APK/web + model) SEKALI per tab ───────────────────
+  // siswa.device_info dulu tidak pernah terisi. Dikirim dengan jeda acak 5-45
+  // detik setelah ujian mulai supaya ratusan siswa tidak menulis serentak, dan
+  // gagal diam-diam (tidak boleh memengaruhi ujian). Tidak diulang selama
+  // isinya sama di tab ini (sessionStorage).
+  useEffect(() => {
+    if (phase !== 'UJIAN') return
+    let info = ''
+    try {
+      const model = modelPerangkat()
+      info = `${isNativeApp() ? 'APK' : 'WEB'}${model ? ` ${model}` : ''} | ${navigator.userAgent}`.slice(0, 200)
+    } catch { return }
+    const kunci = 'deviceInfoTerkirim'
+    try { if (sessionStorage.getItem(kunci) === info) return } catch { /* abaikan */ }
+    const t = setTimeout(() => {
+      apiRequest('/api/siswa/device-info', { method: 'POST', body: JSON.stringify({ info }) })
+        .then(() => { try { sessionStorage.setItem(kunci, info) } catch { /* abaikan */ } })
+        .catch(() => { /* best effort */ })
+    }, 5_000 + Math.random() * 40_000)
+    return () => clearTimeout(t)
+  }, [phase])
 
   // ── Anti-cheat: blokir klik kanan ────────────────────────────────────────
   useEffect(() => {
@@ -1187,29 +1293,7 @@ export default function SiswaUjianPage() {
     }
   }, [phase, essayInfoBelumSiap])
 
-  // ── Anti-cheat: blokir window blur (pindah aplikasi di HP) ───────────────
-  useEffect(() => {
-    if (phase !== 'UJIAN' && phase !== 'ESSAY_INFO' && phase !== 'ESSAY_KERJAKAN') return
-    if (essayInfoBelumSiap) return
-    // Cooldown timer untuk mencegah event blur/visibilitychange terpicu berganda
-    let blurCooldown: ReturnType<typeof setTimeout> | null = null
-    function onBlur() {
-      if (pelanggaranActiveRef.current) return
-      if (blurCooldown) return // masih dalam cooldown 2 detik
-      pelanggaranActiveRef.current = true
-      pelanggRef.current++
-      laporPelanggaran('WINDOW_BLUR', `Keluar dari aplikasi ujian ke-${pelanggRef.current}`)
-      setWarningMsg('⚠ Anda keluar dari aplikasi ujian!')
-      setShowWarningOverlay(true)
-      blurCooldown = setTimeout(() => { blurCooldown = null }, 2000)
-    }
-    window.addEventListener('blur', onBlur)
-    return () => {
-      window.removeEventListener('blur', onBlur)
-      if (blurCooldown) clearTimeout(blurCooldown)
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase, essayInfoBelumSiap])
+  // (Deteksi window blur sekarang digabung ke efek tab switch di atas.)
 
   // ── Anti-cheat (APK Android): penguncian native terlepas ─────────────────
   // Siswa yang melepas screen pinning (tahan Back + Recent) atau masuk
@@ -1900,7 +1984,7 @@ export default function SiswaUjianPage() {
     // sementara, penjaga latar belakang (mulaiPenjagaPelanggaran di
     // siswa/layout.tsx) akan mengulang otomatis begitu koneksi pulih. Lihat
     // src/lib/pelanggaran-outbox.ts untuk detail siklusnya.
-    const res = await antrekanPelanggaran(currentSesi.sesiId, user.nis, jenis, detail)
+    const res = await antrekanPelanggaran(currentSesi.sesiId, user.nis, jenis, detail + konteksPelanggaran())
     if (!res) return // tertunda (offline/gagal sementara) — lihat catatan UX di pelanggaran-outbox.ts
 
     // FIX BUG A: simpan batasPelanggaran dari response supaya halaman

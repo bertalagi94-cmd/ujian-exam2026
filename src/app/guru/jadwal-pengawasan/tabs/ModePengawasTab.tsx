@@ -1575,6 +1575,12 @@ export function ModePengawasTab() {
         // pengawas bisa memutuskan sendiri: lanjut tutup atau batal dulu untuk
         // menunggu/menghubungi siswa yang bersangkutan.
         const siswaBelumLogin = siswaTutupList.filter(s => s.status === 'BELUM_LOGIN')
+        // Siswa RESET (menunggu kode dari pengawas) tidak ikut daftar "masih
+        // mengerjakan", padahal saat sesi ditutup mereka dinilai paksa dari
+        // jawaban di server -- dan selama RESET sync jawaban mereka DITOLAK,
+        // jadi jawaban terakhir bisa kurang. Pada simulasi 12 Nov 2026 ini
+        // 28% peserta dan penutup sesi tidak diberi tahu.
+        const siswaMenungguReset = siswaTutupList.filter(s => s.status === 'RESET')
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
             <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 animate-fade-in">
@@ -1612,6 +1618,30 @@ export function ModePengawasTab() {
                 <p className="text-xs text-slate-400 text-center mb-3">Tidak ada siswa yang sedang mengerjakan saat ini.</p>
               )}
 
+              {/* Siswa yang sedang menunggu kode reset: akan dinilai dari jawaban
+                  yang SUDAH tersimpan di server (bisa kurang dari yang mereka
+                  kerjakan). Beri kesempatan memberi kode reset dulu. */}
+              {siswaMenungguReset.length > 0 && (
+                <div className="mb-3">
+                  <div className="text-xs font-semibold text-amber-600 uppercase tracking-wide mb-2 text-center">
+                    {siswaMenungguReset.length} Siswa Menunggu Kode Reset
+                  </div>
+                  <div className="space-y-1 max-h-40 overflow-y-auto bg-amber-50 rounded-xl p-2">
+                    {siswaMenungguReset.map(sw => (
+                      <div key={sw.nis} className="flex items-center gap-2 px-2 py-1.5 bg-white rounded-lg text-sm">
+                        <span className="font-medium text-slate-800 truncate flex-1">{sw.nama}</span>
+                        <span className="text-xs text-slate-400 font-mono">{sw.nis}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-xs text-amber-700 text-center mt-2">
+                    Siswa di atas terkena pelanggaran dan belum memasukkan kode reset. Jawaban mereka tidak
+                    tersimpan selama menunggu, jadi nilai mereka bisa lebih rendah dari yang sebenarnya.
+                    Berikan kode reset dulu bila mereka masih berhak melanjutkan.
+                  </p>
+                </div>
+              )}
+
               {/* FIX (fitur diminta): peringatan siswa yang belum login sama
                   sekali — terpisah dari "Masih Mengerjakan" karena dampak &
                   keputusannya berbeda (siswa ini belum sempat mulai ujian
@@ -1637,13 +1667,13 @@ export function ModePengawasTab() {
                 </div>
               )}
 
-              {siswaMasihAktif.length === 0 && siswaBelumLogin.length === 0 && (
+              {siswaMasihAktif.length === 0 && siswaBelumLogin.length === 0 && siswaMenungguReset.length === 0 && (
                 <p className="text-xs text-slate-400 text-center mb-3">Semua siswa sudah login dan tidak ada yang sedang mengerjakan.</p>
               )}
 
               <p className="text-xs text-slate-400 text-center mb-6">
-                {siswaMasihAktif.length > 0
-                  ? 'Siswa yang masih mengerjakan akan otomatis dianggap selesai dengan jawaban terakhir yang tersimpan. Tindakan ini tidak dapat dibatalkan.'
+                {siswaMasihAktif.length > 0 || siswaMenungguReset.length > 0
+                  ? 'Siswa yang masih mengerjakan atau menunggu kode reset akan otomatis dianggap selesai dengan jawaban terakhir yang tersimpan. Tindakan ini tidak dapat dibatalkan.'
                   : 'Tindakan ini tidak dapat dibatalkan.'}
               </p>
               <div className="flex gap-3">

@@ -4,6 +4,7 @@ import { setelahSesiDitutup } from '@/lib/ruang-khusus'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRoleAktif } from '@/lib/status-akun'
 import { finalisasiNilaiPaksa } from '@/lib/finalisasi-nilai'
+import { catatAktivitas } from '@/lib/aktivitas'
 
 interface Ctx { params: Promise<{ id: string }> }
 
@@ -89,6 +90,15 @@ export async function POST(req: NextRequest, props: Ctx) {
     return NextResponse.json({ error: 'Sesi ini sudah tidak berstatus BERJALAN' }, { status: 400 })
   }
 
+  // Jejak audit di log_aktivitas (selain info_json sesi di atas), seragam dengan
+  // penutupan oleh pengawas: aksi TUTUP_SESI.
+  catatAktivitas(
+    db,
+    auth.user.username,
+    'TUTUP_SESI',
+    `sesi=${sesiId}; peran=${auth.user.role}; cara=tutup-paksa-admin`
+  )
+
   let peringatan: string[] = []
 
   // Sesi ruang khusus: lepas siswa yang tidak pernah masuk, tutup ruang bila sesi terakhir.
@@ -117,7 +127,7 @@ export async function POST(req: NextRequest, props: Ctx) {
   // tersinkron, bukan dibiarkan menggantung tanpa baris nilai.
   const { data: siswaBelumSelesai, error: errFetchSiswa } = await db
     .from('siswa_ujian')
-    .select('nis')
+    .select('nis, status')
     .eq('sesi_id', sesiId)
     .in('status', ['AKTIF', 'RESET'])
 
@@ -143,6 +153,15 @@ export async function POST(req: NextRequest, props: Ctx) {
   }
 
   const nisPerluDinilai = (siswaBelumSelesai ?? []).map(s => s.nis)
+
+  const jumlahReset = (siswaBelumSelesai ?? []).filter(s => s.status === 'RESET').length
+  catatAktivitas(
+    db,
+    auth.user.username,
+    'TUTUP_SESI_RINCIAN',
+    `sesi=${sesiId}; dinilai_paksa=${nisPerluDinilai.length}; di_antaranya_reset=${jumlahReset}`
+  )
+
   const hasilFinalisasi = await finalisasiNilaiPaksa(db, sesiId, nisPerluDinilai)
 
   // FIX: hasil finalisasi sekarang benar-benar diperiksa. Kalau gagal, admin

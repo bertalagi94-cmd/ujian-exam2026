@@ -9,6 +9,14 @@ import { resolveEssayInfoJson } from '@/lib/gabungKirim'
 import { isKonflikSesiBerjalan } from '@/lib/sesi-unik'
 import { cariSesiKelasBerjalan, pilihSesiUntukPengawas } from '@/lib/sesi-utama'
 
+// Tanpa ini Vercel memakai default 300 detik. Polling pengawas yang menggantung
+// saat database jenuh ikut menumpuk dan memperparah keadaan (simulasi 12 Nov
+// 2026). GET hanya beberapa query baca; POST (buka sesi) sekitar selusin query
+// berurutan lalu SATU insert di akhir, jadi terpotong sebelum insert aman
+// (tidak ada yang tercipta, pengawas tinggal mengulang). 20 dtk memberi ruang
+// untuk POST tanpa membiarkan polling menggantung 5 menit.
+export const maxDuration = 20
+
 function generateKodeSesi7(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
   let code = ''

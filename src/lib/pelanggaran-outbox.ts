@@ -193,6 +193,10 @@ async function kirimPelanggaranTanpaKunci(entri: PelanggaranTertunda): Promise<H
         jenis: current.jenis,
         detail: current.detail,
         eventId: current.eventId,
+        // Waktu kejadian ASLI di perangkat. Server mencatatnya di `detail`
+        // (created_at = waktu tiba, jadi kejadian yang tertahan lalu terkirim
+        // bergelombang tampak serempak tanpa ini).
+        waktuKejadian: current.dibuatIso,
         // Perangkat diambil SAAT KIRIM (bukan disimpan di entri) supaya entri lama
         // yang sudah antre di IndexedDB juga ikut membawa identitas perangkat.
         deviceId: getDeviceId(),

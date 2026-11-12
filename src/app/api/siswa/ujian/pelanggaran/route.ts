@@ -29,22 +29,44 @@ import { cekDeviceSiswa, pesanDevice } from '@/lib/device-guard'
 // Kalau RPC gagal/tidak tersedia: 503 (BUKAN fallback ke jalur lama yang tidak
 // atomik). Client menyimpan kejadian dan boleh mengulang.
 
+// Batas durasi fungsi. Tanpa ini Vercel (Hobby + Fluid Compute) memakai default
+// 300 detik: saat database jenuh, satu request pelanggaran bisa menggantung
+// berpuluh detik per query dan menumpuk (terlihat di log simulasi 12 Nov 2026:
+// timeout 300 detik di route ini). Klien SUDAH menyimpan kejadian di antrean
+// lokal dan mengulang otomatis atas 5xx, jadi gagal cepat itu aman.
+export const maxDuration = 15
+
 const PANJANG_MAKS_TEKS = 500
 const POLA_EVENT_ID = /^[A-Za-z0-9_.:-]{8,80}$/
+
+// Waktu kejadian ASLI dari perangkat (outbox menyimpannya di `dibuatIso`).
+// created_at di tabel pelanggaran = waktu TIBA di server, sehingga kejadian yang
+// tertahan lalu terkirim bergelombang tampak serempak. Waktu asli dititipkan di
+// akhir kolom `detail` (tanpa migrasi SQL). Jam perangkat tidak tepercaya, maka
+// hanya dicatat sebagai keterangan -- tidak dipakai untuk keputusan apa pun.
+function sufiksWaktuKejadian(raw: unknown): string {
+  if (typeof raw !== 'string' || raw.length > 40) return ''
+  const t = Date.parse(raw)
+  if (!Number.isFinite(t)) return ''
+  const sekarang = Date.now()
+  if (t > sekarang + 5 * 60_000 || t < sekarang - 48 * 3600_000) return ''
+  const tunda = Math.max(0, Math.round((sekarang - t) / 1000))
+  return ` | kejadian=${new Date(t).toISOString()} tunda=${tunda}s`
+}
 
 export async function POST(req: NextRequest) {
   const auth = await requireRoleAktif(req, ['SISWA'])
   if ('error' in auth) return auth.error
   const { user } = auth
 
-  let body: { sesiId?: unknown; jenis?: unknown; detail?: unknown; eventId?: unknown; deviceId?: unknown }
+  let body: { sesiId?: unknown; jenis?: unknown; detail?: unknown; eventId?: unknown; deviceId?: unknown; waktuKejadian?: unknown }
   try {
     body = await req.json()
   } catch {
     return NextResponse.json({ error: 'Body tidak valid' }, { status: 400 })
   }
 
-  const { sesiId, jenis, detail, eventId, deviceId } = body
+  const { sesiId, jenis, detail, eventId, deviceId, waktuKejadian } = body
   if (typeof sesiId !== 'string' || !sesiId || typeof jenis !== 'string' || !jenis) {
     return NextResponse.json({ error: 'sesiId dan jenis diperlukan' }, { status: 400 })
   }
@@ -78,12 +100,19 @@ export async function POST(req: NextRequest) {
 
   const maksReset = await ambilMaksReset(db, yayasanIdDari(auth.user))
 
+  // detail + waktu kejadian asli, dipotong supaya tetap muat di batas kolom.
+  const sufiks = sufiksWaktuKejadian(waktuKejadian)
+  const detailAsli = typeof detail === 'string' ? detail : ''
+  const detailFinal = detailAsli || sufiks
+    ? detailAsli.slice(0, Math.max(0, PANJANG_MAKS_TEKS - sufiks.length)) + sufiks
+    : null
+
   const { data, error } = await db.rpc('catat_pelanggaran_atomik', {
     p_sesi_id: sesiId,
     p_nis: user.nis!,
     p_id: generateId('PEL'),
     p_jenis: jenis.slice(0, 100),
-    p_detail: typeof detail === 'string' ? detail.slice(0, PANJANG_MAKS_TEKS) : null,
+    p_detail: detailFinal,
     p_event_id: typeof eventId === 'string' ? eventId : null,
     p_maks_reset: maksReset,
   })
