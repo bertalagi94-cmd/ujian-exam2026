@@ -129,6 +129,9 @@ async function kirimSatuKaliLogin(
     })
     const data = await res.json().catch(() => null)
     if (res.ok && data) return { jenis: 'ok', data }
+    // Maintenance (503 + maintenance:true) BUKAN gangguan sementara: tampilkan
+    // pesan developer apa adanya, jangan diulang otomatis.
+    if (data?.maintenance === true) return { jenis: 'gagal', pesan: data.error || 'Sistem sedang maintenance.' }
     const sementara = res.status === 502 || res.status === 503 || res.status === 504 || data?.sementara === true
     if (sementara) {
       const hint = Number(data?.tungguDetik)

@@ -123,40 +123,22 @@ function catatGagalIp(ip: string): void {
 // berjalan kalau akun ada, jadi waktu respons membocorkan username/NIS valid.
 const DUMMY_HASH = bcrypt.hashSync('tidak-dipakai-sebagai-password', 10)
 
-// Format nilai <input type="datetime-local"> ("YYYY-MM-DDTHH:mm") menjadi
-// teks berbahasa Indonesia, mis. "12 September 2026, 08.00". Sengaja di-parse
-// langsung dari string (bukan lewat `new Date(...)`) supaya angka jam/menit
-// yang tampil PERSIS sama dengan yang diketik admin di form pengaturan —
-// datetime-local tidak menyimpan info zona waktu, jadi konversi lewat Date()
-// berisiko bergeser kalau timezone server berbeda dari WITA.
-function formatJadwalMaintenance(raw?: string): string | null {
-  if (!raw) return null
-  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(raw)
-  if (!match) return null
-  const [, tahun, bulan, tanggal, jam, menit] = match
-  const NAMA_BULAN = [
-    'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
-    'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember',
-  ]
-  const namaBulan = NAMA_BULAN[parseInt(bulan, 10) - 1] ?? bulan
-  return `${parseInt(tanggal, 10)} ${namaBulan} ${tahun}, ${jam}.${menit}`
+// Pesan maintenance yang tampil ke pengguna = PERSIS teks yang diinput developer
+// di Panel Developer (kunci maintenancePesan). Tidak ditambah rentang jadwal
+// apa pun supaya yang terlihat di login sama dengan yang diketik developer.
+// Teks bawaan hanya dipakai bila developer membiarkan pesan kosong.
+function buildPesanMaintenance(pengaturan: Record<string, string>): string {
+  const pesan = String(pengaturan['maintenancePesan'] ?? '').trim()
+  return pesan || 'Sistem sedang dalam perbaikan. Silakan coba beberapa saat lagi.'
 }
 
-// Susun pesan maintenance lengkap dengan rentang waktu (jika diisi admin di
-// Pengaturan → Maintenance). Sebelumnya rentang waktu ini disimpan
-// (maintenanceMulai/maintenanceSelesai) tapi tidak pernah ikut ditampilkan
-// ke pengguna — pesan error hanya berisi maintenancePesan.
-function buildPesanMaintenance(pengaturan: Record<string, string>): string {
-  const pesanDasar = pengaturan['maintenancePesan'] || 'Sistem sedang dalam perbaikan. Silakan coba beberapa saat lagi.'
-  const mulai = formatJadwalMaintenance(pengaturan['maintenanceMulai'])
-  const selesai = formatJadwalMaintenance(pengaturan['maintenanceSelesai'])
-
-  let rentang = ''
-  if (mulai && selesai) rentang = ` Jadwal: ${mulai} s.d. ${selesai} WITA.`
-  else if (mulai) rentang = ` Mulai: ${mulai} WITA.`
-  else if (selesai) rentang = ` Perkiraan selesai: ${selesai} WITA.`
-
-  return `${pesanDasar}${rentang}`
+// Respons maintenance diberi penanda `maintenance: true` agar halaman login
+// tidak menganggapnya "server penuh" (503) lalu mengulang otomatis.
+function responMaintenance(pengaturan: Record<string, string>) {
+  return NextResponse.json(
+    { error: buildPesanMaintenance(pengaturan), maintenance: true },
+    { status: 503 }
+  )
 }
 
 // Ambil semua pengaturan YAYASAN ini sekaligus, cache 60 detik.
@@ -313,7 +295,7 @@ export async function POST(req: NextRequest) {
 
       // Diizinkan login saat maintenance: hanya ADMIN.
       if (sedangMaintenance && user.role !== 'ADMIN') {
-        return NextResponse.json({ error: buildPesanMaintenance(pengaturan) }, { status: 503 })
+        return responMaintenance(pengaturan)
       }
 
       // Password bawaan (password == username, hasil reset admin / akun baru):
@@ -337,7 +319,7 @@ export async function POST(req: NextRequest) {
       if (!yayasanAktif) return NextResponse.json({ error: PESAN_NONAKTIF }, { status: 403 })
 
       if (sedangMaintenance) {
-        return NextResponse.json({ error: buildPesanMaintenance(pengaturan) }, { status: 503 })
+        return responMaintenance(pengaturan)
       }
 
       const token = signToken({ username: siswa.nis, nama: siswa.nama, role: 'SISWA', nis: siswa.nis, kelas: siswa.kelas, yayasanId: yayasanTarget })
