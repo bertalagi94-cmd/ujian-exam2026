@@ -21,6 +21,7 @@
 //    dilewati. Tabel tanpa baris "Soal" diabaikan.
 
 import JSZip from 'jszip'
+import { ommlKeTeks, buatKonteksRumus, PESAN_CATATAN_RUMUS } from '@/lib/omml-ke-teks'
 
 export type JenisImpor = 'pg' | 'essay'
 export type HurufOpsi = 'a' | 'b' | 'c' | 'd' | 'e'
@@ -165,62 +166,8 @@ function naikTurun(teks: string, mode: 'sup' | 'sub'): string {
 }
 
 // ───────────────────────── Persamaan Word (OMML) ─────────────────────────
-
-const OMML_ABAIKAN = new Set([
-  'rPr', 'ctrlPr', 'fPr', 'dPr', 'radPr', 'naryPr', 'sSupPr', 'sSubPr', 'sSubSupPr', 'accPr',
-  'barPr', 'funcPr', 'boxPr', 'groupChrPr', 'eqArrPr', 'mPr', 'limLowPr', 'limUppPr', 'phantPr',
-])
-
-function mathTeks(n: N): string {
-  const nama = ln(n)
-  if (OMML_ABAIKAN.has(nama)) return ''
-  const sub = (k: string) => anakNamed(n, k).map(mathTeks).join('')
-
-  switch (nama) {
-    case 't':
-      return n.textContent ?? ''
-    case 'sSup':
-      return sub('e') + naikTurun(sub('sup'), 'sup')
-    case 'sSub':
-      return sub('e') + naikTurun(sub('sub'), 'sub')
-    case 'sSubSup':
-      return sub('e') + naikTurun(sub('sub'), 'sub') + naikTurun(sub('sup'), 'sup')
-    case 'f': {
-      const a = sub('num')
-      const b = sub('den')
-      const bungkus = (s: string) => (/^[\w.,]+$/.test(s) ? s : `(${s})`)
-      return `${bungkus(a)}/${bungkus(b)}`
-    }
-    case 'rad': {
-      const deg = sub('deg')
-      return `${deg ? naikTurun(deg, 'sup') : ''}√(${sub('e')})`
-    }
-    case 'nary': {
-      const chr = anakNamed(n, 'naryPr')[0]
-      const c = chr ? anakNamed(chr, 'chr')[0] : undefined
-      const simbol = (c && attrLocal(c, 'val')) || '∫'
-      const bawah = sub('sub')
-      const atas = sub('sup')
-      return `${simbol}${bawah ? `_(${bawah})` : ''}${atas ? `^(${atas})` : ''}${sub('e')}`
-    }
-    case 'd': {
-      const pr = anakNamed(n, 'dPr')[0]
-      const val = (k: string, def: string) => {
-        const el = pr ? anakNamed(pr, k)[0] : undefined
-        const v = el ? attrLocal(el, 'val') : null
-        return v === null || v === undefined ? def : v
-      }
-      const buka = val('begChr', '(')
-      const tutup = val('endChr', ')')
-      const pisah = val('sepChr', '|')
-      return buka + anakNamed(n, 'e').map(mathTeks).join(pisah) + tutup
-    }
-    case 'func':
-      return sub('fName') + sub('e')
-    default:
-      return anak(n).map(mathTeks).join('')
-  }
-}
+// Konversi persamaan ke teks satu baris ada di src/lib/omml-ke-teks.ts
+// (dipakai bersama oleh fitur tempel dari Word supaya hasilnya sama).
 
 // ───────────────────────── konteks baca ─────────────────────────
 
@@ -265,6 +212,12 @@ interface IsiSel {
   teks: string
   gambar: GambarRef[]
   adaMath: boolean
+  /** Peringatan tentang rumus yang tidak bisa persis sama dengan di Word. */
+  catatanMath: string[]
+}
+
+function tambahCatatan(isi: IsiSel, pesan: string[]) {
+  for (const m of pesan) if (!isi.catatanMath.includes(m)) isi.catatanMath.push(m)
 }
 
 const PERINGATAN_OBJEK =
@@ -372,10 +325,13 @@ function bacaInline(parent: N, ktx: Konteks, isi: IsiSel): string {
         break
       }
       case 'oMathPara':
-      case 'oMath':
+      case 'oMath': {
         isi.adaMath = true
-        out += mathTeks(c)
+        const kr = buatKonteksRumus()
+        out += ommlKeTeks(c, kr)
+        tambahCatatan(isi, [...kr.catatan].map(k => PESAN_CATATAN_RUMUS[k]))
         break
+      }
       case 'AlternateContent':
         for (const x of pilihAlternate(c)) {
           if (ln(x) === 'r') out += bacaRun(x, ktx, isi)
@@ -424,7 +380,7 @@ function bersihkan(s: string): string {
 }
 
 function bacaSel(tc: N, ktx: Konteks): IsiSel {
-  const isi: IsiSel = { teks: '', gambar: [], adaMath: false }
+  const isi: IsiSel = { teks: '', gambar: [], adaMath: false, catatanMath: [] }
   const baris: string[] = []
   bacaBlok(tc, ktx, isi, baris)
   isi.teks = bersihkan(baris.join('\n'))
@@ -468,13 +424,14 @@ function bacaTabel(tbl: N, ktx: Konteks): TabelTerbaca {
     }
     // Jika guru menggabung/memecah sel sehingga ada >2 kolom, gabungkan semua
     // sel di kanan label supaya isinya tidak hilang.
-    const gabung: IsiSel = { teks: '', gambar: [], adaMath: false }
+    const gabung: IsiSel = { teks: '', gambar: [], adaMath: false, catatanMath: [] }
     const potongan: string[] = []
     for (const s of sel.slice(1)) {
       const x = bacaSel(s, ktx)
       if (x.teks) potongan.push(x.teks)
       gabung.gambar.push(...x.gambar)
       gabung.adaMath = gabung.adaMath || x.adaMath
+      tambahCatatan(gabung, x.catatanMath)
     }
     gabung.teks = potongan.join('\n')
     isi.set(label, gabung)
@@ -679,6 +636,8 @@ export async function bacaDocxPg(data: ArrayBuffer | Uint8Array, opsi?: OpsiBaca
     }
     // Pilihan A–E ditempel sekaligus ke satu sel (baris A): pecah per baris.
     pecahOpsiDariSelA(opsiBaca, peringatan)
+    // Rumus yang tampilannya tidak bisa persis sama dengan di Word.
+    for (const sel of isi.values()) for (const m of sel.catatanMath) if (!peringatan.includes(m)) peringatan.push(m)
     const selKunci = isi.get('kunci')
     const k = parseKunci(selKunci?.teks ?? '')
     if (k.banyak) galat.push('Kunci berisi lebih dari satu huruf. Isi satu huruf saja.')
@@ -759,6 +718,7 @@ export async function bacaDocxEssay(data: ArrayBuffer | Uint8Array, opsi?: OpsiB
     if (selGambar?.teks) peringatan.push('Baris Gambar Soal berisi teks; teks itu diabaikan (tulis pertanyaan di baris Soal).')
     const gambar = pilihGambar(selGambar, 'Gambar Soal', peringatan) ?? pilihGambar(selSoal, 'Soal', peringatan)
     if (!selSoal.teks && !gambar) galat.push('Soal belum diisi (teks atau gambar).')
+    for (const sel of isi.values()) for (const m of sel.catatanMath) if (!peringatan.includes(m)) peringatan.push(m)
 
     const b = parseBobot(isi.get('bobot')?.teks ?? '')
     let bobot: number | null = null
