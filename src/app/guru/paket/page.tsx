@@ -15,6 +15,7 @@ import { useBatasMinMapel } from '@/lib/use-batas-min-soal'
 import { BatasMinSoalInfo } from '@/components/shared/BatasMinSoalInfo'
 import { ImporSelesaiPopup, type ImporSelesaiInfo } from '@/components/shared/ImporSelesaiPopup'
 import { KirimSemuaSoal, type PaketKirim } from '@/components/guru/KirimSemuaSoal'
+import { UnduhSemuaSoal, type PaketUnduh } from '@/components/guru/UnduhSemuaSoal'
 import { apiRequest, formatDateTime, generateId } from '@/lib/utils'
 import { PaketSoal, Mapel, Kelas, Soal, PaketEssay, SoalEssay } from '@/types'
 
@@ -2859,6 +2860,20 @@ export default function GuruBuatSoalPage() {
     return [...pg.sort(urut), ...essay.sort(urut)]
   }, [daftarPg, daftarEssay, essayNonaktif])
 
+  // Semua paket (PG + Essay) yang sudah berisi soal — dipakai tombol "Unduh Semua Paket".
+  const kandidatUnduh = useMemo<PaketUnduh[]>(() => {
+    const pg: PaketUnduh[] = daftarPg.map(p => ({
+      id: p.id, jenis: 'PG', mapel: p.nama_mapel ?? p.mapel_id, kelas: p.nama_kelas ?? p.kelas_id,
+      jumlah: p.jumlah_soal ?? 0, status: p.status,
+    }))
+    const essay: PaketUnduh[] = daftarEssay.map(p => ({
+      id: p.id, jenis: 'ESSAY', mapel: p.nama_mapel ?? p.mapel_id, kelas: p.nama_kelas ?? p.kelas_id,
+      jumlah: p.jumlah_soal ?? 0, status: p.status, durasiMenit: p.durasi_final_admin ?? p.durasi_menit,
+    }))
+    const urut = (a: PaketUnduh, b: PaketUnduh) => a.mapel.localeCompare(b.mapel) || a.kelas.localeCompare(b.kelas, undefined, { numeric: true })
+    return [...pg.sort(urut), ...essay.sort(urut)]
+  }, [daftarPg, daftarEssay])
+
   // FIX (kehilangan progres tanpa peringatan): layar PG/Essay di halaman ini
   // adalah "layar semu" lewat state lokal (`kind`), bukan route URL asli —
   // artinya refresh atau menutup tab di tengah proses akan membuang isian
@@ -2901,7 +2916,12 @@ export default function GuruBuatSoalPage() {
       </div>
 
       <div className="max-w-4xl mx-auto space-y-3 sm:space-y-4">
-        <KirimSemuaSoal kandidat={kandidatKirim} onSelesai={() => setMuatUlang(n => n + 1)} />
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch">
+          <div className="flex-1 min-w-0">
+            <KirimSemuaSoal kandidat={kandidatKirim} onSelesai={() => setMuatUlang(n => n + 1)} />
+          </div>
+          <UnduhSemuaSoal paket={kandidatUnduh} onToast={(msg, type) => showToast(msg, type)} />
+        </div>
 
         {/* UX FIX (guru tidak sadar kartu ini bisa diklik): sebelumnya kartu
             ini gradient penuh dengan CTA berupa teks+panah tipis di bagian
