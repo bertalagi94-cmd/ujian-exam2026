@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { FileText, Plus, Send, Save, Edit2, Trash2, X, ChevronDown, Users, Clock, BookOpen, GraduationCap, Lock, Eye } from 'lucide-react'
+import { FileText, Plus, Send, Save, Edit2, Trash2, X, ChevronDown, Users, Clock, BookOpen, GraduationCap, Lock, Eye, Copy } from 'lucide-react'
 import { apiRequest, formatDateTime } from '@/lib/utils'
 
 interface KisiKisi {
@@ -55,7 +55,21 @@ export default function GuruKisiKisiPage() {
   const [formKelas, setFormKelas] = useState('')
   const [konten, setKonten] = useState('')
 
+  // Mode DUPLIKAT: isi dari kisi-kisi milik sendiri disalin ke satu atau
+  // beberapa kelas lain (mapel yang sama). Null = bukan mode duplikat.
+  const [duplikatDari, setDuplikatDari] = useState<KisiKisi | null>(null)
+  const [kelasDipilih, setKelasDipilih] = useState<string[]>([])
+
   const kelasList = mapelAmpu.find(m => m.id === formMapel)?.kelas ?? []
+
+  // Kelas yang MASIH BOLEH dipilih untuk sebuah mapel = kelas yang belum
+  // punya kisi-kisi untuk mapel itu. (Database hanya mengizinkan satu
+  // kisi-kisi per kombinasi mapel + kelas.)
+  const kelasTersediaUntuk = (mapelId: string) =>
+    (mapelAmpu.find(m => m.id === mapelId)?.kelas ?? []).filter(
+      k => !kisiList.some(x => x.mapel_id === mapelId && x.kelas_id === k.id)
+    )
+  const kelasTersedia = kelasTersediaUntuk(formMapel)
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -83,6 +97,8 @@ export default function GuruKisiKisiPage() {
 
   function openBuat() {
     setEditing(null)
+    setDuplikatDari(null)
+    setKelasDipilih([])
     setFormMapel('')
     setFormKelas('')
     setKonten('')
@@ -90,7 +106,26 @@ export default function GuruKisiKisiPage() {
     setView('form')
   }
 
+  // Duplikat: isi disalin dari kisi-kisi sumber (hanya milik sendiri, karena
+  // isi milik rekan guru memang tidak dikirim ke browser).
+  function openDuplikat(k: KisiKisi) {
+    setEditing(null)
+    setDuplikatDari(k)
+    setKelasDipilih([])
+    setFormMapel(k.mapel_id)
+    setFormKelas('')
+    setKonten(k.konten)
+    setError('')
+    setView('form')
+  }
+
+  function toggleKelasDipilih(id: string) {
+    setKelasDipilih(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]))
+  }
+
   function openEdit(k: KisiKisi) {
+    setDuplikatDari(null)
+    setKelasDipilih([])
     setEditing(k)
     setFormMapel(k.mapel_id)
     setFormKelas(k.kelas_id)
@@ -114,17 +149,67 @@ export default function GuruKisiKisiPage() {
     setSelectedKelasDetail(null)
     setPreview(null)
     setEditing(null)
+    setDuplikatDari(null)
+    setKelasDipilih([])
     setError('')
   }
 
   function backToKelasDetail() {
     setPreview(null)
     setEditing(null)
+    setDuplikatDari(null)
+    setKelasDipilih([])
     setView('kelas-detail')
     setError('')
   }
 
+  // Simpan hasil duplikat ke SEMUA kelas yang dicentang, satu per satu lewat
+  // endpoint pembuatan biasa (aturan server tetap berlaku: kepemilikan
+  // mapel-kelas dan larangan dobel). Kelas yang gagal dilaporkan, yang
+  // berhasil tetap tersimpan.
+  async function handleSaveDuplikat(status: 'DRAFT' | 'TERKIRIM') {
+    if (!duplikatDari) return
+    if (kelasDipilih.length === 0 || !konten.trim()) {
+      setError('Pilih minimal satu kelas tujuan dan pastikan konten kisi-kisi tidak kosong')
+      return
+    }
+    setSaving(true)
+    setError('')
+    const namaKelasDari = (id: string) => kelasList.find(k => k.id === id)?.nama ?? id
+    const gagal: string[] = []
+    let sukses = 0
+    for (const kelasId of kelasDipilih) {
+      try {
+        await apiRequest('/api/guru/kisi-kisi', {
+          method: 'POST',
+          body: JSON.stringify({ mapel_id: formMapel, kelas_id: kelasId, konten, status }),
+        })
+        sukses++
+      } catch (e: unknown) {
+        gagal.push(`${namaKelasDari(kelasId)} (${e instanceof Error ? e.message : 'gagal'})`)
+      }
+    }
+    await fetchData()
+    setSaving(false)
+    if (gagal.length === 0) {
+      showSuccess(
+        status === 'TERKIRIM'
+          ? `Kisi-kisi diduplikat dan dikirim ke ${sukses} kelas`
+          : `Kisi-kisi diduplikat ke ${sukses} kelas sebagai draft`
+      )
+      setDuplikatDari(null)
+      setKelasDipilih([])
+      setView(selectedKelas ? 'kelas-detail' : 'cards')
+    } else {
+      // Tetap di form: kelas yang sudah berhasil otomatis hilang dari daftar
+      // pilihan karena kisi-kisinya sudah ada, sisanya bisa dicoba lagi.
+      setKelasDipilih(prev => prev.filter(id => gagal.some(g => g.startsWith(namaKelasDari(id) + ' ('))))
+      setError(`${sukses} kelas berhasil. Gagal: ${gagal.join('; ')}`)
+    }
+  }
+
   async function handleSave(status: 'DRAFT' | 'TERKIRIM') {
+    if (duplikatDari) return handleSaveDuplikat(status)
     if (!formMapel || !formKelas || !konten.trim()) {
       setError('Mapel, kelas, dan konten kisi-kisi wajib diisi')
       return
@@ -220,10 +305,15 @@ export default function GuruKisiKisiPage() {
         </div>
 
         {preview.is_mine && (
-          <div className="mt-4">
+          <div className="mt-4 flex flex-wrap gap-2">
             <button onClick={() => openEdit(preview)} className="btn-secondary flex items-center gap-2">
               <Edit2 className="w-4 h-4" /> Edit Kisi-kisi
             </button>
+            {kelasTersediaUntuk(preview.mapel_id).length > 0 && (
+              <button onClick={() => openDuplikat(preview)} className="btn-secondary flex items-center gap-2">
+                <Copy className="w-4 h-4" /> Duplikat ke Kelas Lain
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -242,7 +332,7 @@ export default function GuruKisiKisiPage() {
             <X className="w-4 h-4" /> Batal
           </button>
           <h1 className="text-lg font-bold text-slate-800">
-            {editing ? 'Edit Kisi-kisi' : 'Buat Kisi-kisi Baru'}
+            {editing ? 'Edit Kisi-kisi' : duplikatDari ? 'Duplikat Kisi-kisi' : 'Buat Kisi-kisi Baru'}
           </h1>
         </div>
 
@@ -254,9 +344,9 @@ export default function GuruKisiKisiPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1.5">Mata Pelajaran</label>
-              {editing ? (
+              {editing || duplikatDari ? (
                 <div className="input-field bg-slate-50 text-slate-500 cursor-not-allowed select-none">
-                  {editing.nama_mapel}
+                  {editing ? editing.nama_mapel : duplikatDari?.nama_mapel}
                 </div>
               ) : (
                 <div className="relative">
@@ -266,9 +356,14 @@ export default function GuruKisiKisiPage() {
                     className="input-field appearance-none pr-9 cursor-pointer"
                   >
                     <option value="">-- Pilih Mapel --</option>
-                    {mapelAmpu.map(m => (
-                      <option key={m.id} value={m.id}>{m.nama}</option>
-                    ))}
+                    {mapelAmpu.map(m => {
+                      const habis = kelasTersediaUntuk(m.id).length === 0
+                      return (
+                        <option key={m.id} value={m.id} disabled={habis}>
+                          {m.nama}{habis ? ' — semua kelas sudah ada kisi-kisi' : ''}
+                        </option>
+                      )
+                    })}
                   </select>
                   <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
                 </div>
@@ -279,10 +374,16 @@ export default function GuruKisiKisiPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1.5">Kelas</label>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                {duplikatDari ? 'Salin ke Kelas' : 'Kelas'}
+              </label>
               {editing ? (
                 <div className="input-field bg-slate-50 text-slate-500 cursor-not-allowed select-none">
                   {editing.nama_kelas}
+                </div>
+              ) : duplikatDari ? (
+                <div className="input-field bg-slate-50 text-slate-500 select-none">
+                  Dari: {duplikatDari.nama_kelas}
                 </div>
               ) : (
                 <div className="relative">
@@ -290,18 +391,75 @@ export default function GuruKisiKisiPage() {
                     value={formKelas}
                     onChange={e => setFormKelas(e.target.value)}
                     className="input-field appearance-none pr-9 cursor-pointer disabled:opacity-50"
-                    disabled={!formMapel}
+                    disabled={!formMapel || kelasTersedia.length === 0}
                   >
-                    <option value="">-- Pilih Kelas --</option>
-                    {kelasList.map(k => (
+                    <option value="">
+                      {formMapel && kelasTersedia.length === 0 ? '-- Semua kelas sudah ada kisi-kisi --' : '-- Pilih Kelas --'}
+                    </option>
+                    {kelasTersedia.map(k => (
                       <option key={k.id} value={k.id}>{k.nama}</option>
                     ))}
                   </select>
                   <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
                 </div>
               )}
+              {!editing && !duplikatDari && formMapel && kelasTersedia.length === 0 && (
+                <p className="text-xs text-amber-600 mt-1">
+                  Semua kelas untuk mapel ini sudah punya kisi-kisi. Gunakan tombol Edit untuk mengubahnya.
+                </p>
+              )}
             </div>
           </div>
+
+          {/* Mode duplikat: pilih satu atau banyak kelas tujuan. Hanya kelas
+              yang BELUM punya kisi-kisi untuk mapel ini yang ditampilkan. */}
+          {duplikatDari && (
+            <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50/60 p-3">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <p className="text-sm font-medium text-slate-700">
+                  Pilih kelas tujuan <span className="text-slate-400">({kelasDipilih.length} dipilih)</span>
+                </p>
+                {kelasTersedia.length > 1 && (
+                  <button
+                    type="button"
+                    className="text-xs font-medium text-emerald-700 hover:underline"
+                    onClick={() =>
+                      setKelasDipilih(kelasDipilih.length === kelasTersedia.length ? [] : kelasTersedia.map(k => k.id))
+                    }
+                  >
+                    {kelasDipilih.length === kelasTersedia.length ? 'Hapus semua pilihan' : 'Pilih semua'}
+                  </button>
+                )}
+              </div>
+              {kelasTersedia.length === 0 ? (
+                <p className="text-xs text-amber-600">Tidak ada kelas lain yang belum punya kisi-kisi untuk mapel ini.</p>
+              ) : (
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  {kelasTersedia.map(k => (
+                    <label
+                      key={k.id}
+                      className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors ${
+                        kelasDipilih.includes(k.id)
+                          ? 'border-emerald-400 bg-emerald-50 text-emerald-800'
+                          : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 accent-emerald-600"
+                        checked={kelasDipilih.includes(k.id)}
+                        onChange={() => toggleKelasDipilih(k.id)}
+                      />
+                      <span className="truncate">{k.nama}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
+              <p className="mt-2 text-[11px] text-slate-400">
+                Isi di bawah boleh disesuaikan dulu sebelum disimpan; perubahan itu berlaku untuk semua kelas yang dipilih.
+              </p>
+            </div>
+          )}
 
           {sudahAda && (
             <div className="mb-4 p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-700 text-sm">
@@ -326,7 +484,7 @@ export default function GuruKisiKisiPage() {
           <div className="flex flex-wrap items-center gap-3">
             <button
               onClick={() => handleSave('DRAFT')}
-              disabled={saving || sudahAda}
+              disabled={saving || sudahAda || (!!duplikatDari && kelasDipilih.length === 0)}
               className="btn-secondary flex items-center gap-2 disabled:opacity-50"
             >
               <Save className="w-4 h-4" />
@@ -334,11 +492,11 @@ export default function GuruKisiKisiPage() {
             </button>
             <button
               onClick={() => handleSave('TERKIRIM')}
-              disabled={saving || sudahAda}
+              disabled={saving || sudahAda || (!!duplikatDari && kelasDipilih.length === 0)}
               className="btn-primary flex items-center gap-2 disabled:opacity-50"
             >
               <Send className="w-4 h-4" />
-              {saving ? 'Mengirim...' : 'Kirim ke Siswa'}
+              {saving ? 'Mengirim...' : duplikatDari && kelasDipilih.length > 1 ? `Kirim ke Siswa (${kelasDipilih.length} kelas)` : 'Kirim ke Siswa'}
             </button>
             <p className="text-xs text-slate-400 flex-1 min-w-[200px]">
               Draft hanya terlihat oleh rekan guru, belum tampil ke siswa.
@@ -396,6 +554,7 @@ export default function GuruKisiKisiPage() {
                     onPreview={() => openPreview(k)}
                     onEdit={() => openEdit(k)}
                     onDelete={() => handleDelete(k.id, k.nama_mapel, k.nama_kelas)}
+                    onDuplicate={kelasTersediaUntuk(k.mapel_id).length > 0 ? () => openDuplikat(k) : undefined}
                     canEdit
                   />
                 ))}
@@ -537,12 +696,14 @@ export default function GuruKisiKisiPage() {
 
 // Row item dalam tampilan detail kelas
 function KisiKisiRow({
-  item, onPreview, onEdit, onDelete, canEdit,
+  item, onPreview, onEdit, onDelete, onDuplicate, canEdit,
 }: {
   item: KisiKisi
   onPreview: () => void
   onEdit?: () => void
   onDelete?: () => void
+  /** Kosong bila semua kelas untuk mapel ini sudah punya kisi-kisi. */
+  onDuplicate?: () => void
   canEdit: boolean
 }) {
   return (
@@ -579,6 +740,11 @@ function KisiKisiRow({
         {canEdit && onEdit && (
           <button onClick={onEdit} className="btn-ghost btn-icon btn-sm" title="Edit">
             <Edit2 className="w-4 h-4" />
+          </button>
+        )}
+        {canEdit && onDuplicate && (
+          <button onClick={onDuplicate} className="btn-ghost btn-icon btn-sm" title="Duplikat ke kelas lain">
+            <Copy className="w-4 h-4" />
           </button>
         )}
         {canEdit && onDelete && (
