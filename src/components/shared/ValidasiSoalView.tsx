@@ -1,8 +1,8 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
-import { CheckCircle, XCircle, Eye, BookOpen, RotateCcw, User, CalendarClock } from 'lucide-react'
-import { Modal, StatusBadge, EmptyState, Spinner, Toast, Badge } from '@/components/ui'
+import { useState, useEffect, useCallback, useMemo } from 'react'
+import { CheckCircle, XCircle, Eye, BookOpen, RotateCcw, User, CalendarClock, Search, FilterX } from 'lucide-react'
+import { Modal, StatusBadge, EmptyState, Spinner, Toast, Badge, SearchInput } from '@/components/ui'
 import { apiRequest, formatDateTime } from '@/lib/utils'
 import { PaketSoal, Soal, PaketEssay, SoalEssay } from '@/types'
 import { DURASI_ESSAY_MIN_DEFAULT, DURASI_ESSAY_MAX_DEFAULT } from '@/lib/durasi-ujian'
@@ -126,6 +126,57 @@ export function ValidasiSoalView({
   useEffect(() => { load() }, [load])
   useEffect(() => { loadPendingCounts() }, [loadPendingCounts])
 
+  // ── PENCARIAN & FILTER ────────────────────────────────────────────────────
+  // Berlaku di semua tab (Menunggu / Disetujui / Ditolak) dan untuk PG maupun
+  // Essay. Penyaringan dilakukan di browser dari daftar paket yang sudah
+  // dimuat (tidak menambah beban server). Daftar dipotong per 20 paket
+  // supaya halaman tetap ringan saat paket sudah ratusan.
+  const UKURAN_HALAMAN = 20
+  const [cari, setCari] = useState('')
+  const [filterMapel, setFilterMapel] = useState('')
+  const [filterKelas, setFilterKelas] = useState('')
+  const [filterGuru, setFilterGuru] = useState('')
+  const [jumlahTampil, setJumlahTampil] = useState(UKURAN_HALAMAN)
+
+  // Pilihan filter berbeda per tab/jenis soal, jadi dikosongkan saat pindah.
+  useEffect(() => {
+    setCari(''); setFilterMapel(''); setFilterKelas(''); setFilterGuru('')
+    setJumlahTampil(UKURAN_HALAMAN)
+  }, [jenisSoal, activeTab])
+
+  const opsiFilter = useMemo(() => {
+    const urut = (arr: (string | undefined)[]) =>
+      [...new Set(arr.filter((x): x is string => !!x))].sort((a, b) => a.localeCompare(b, 'id', { numeric: true }))
+    return {
+      mapel: urut(pakets.map(p => p.nama_mapel)),
+      kelas: urut(pakets.map(p => p.nama_kelas)),
+      guru: urut(pakets.map(p => p.nama_guru)),
+    }
+  }, [pakets])
+
+  const filterAktif = !!(cari.trim() || filterMapel || filterKelas || filterGuru)
+
+  const paketTersaring = useMemo(() => {
+    const kata = cari.trim().toLowerCase()
+    return pakets.filter(p => {
+      if (filterMapel && p.nama_mapel !== filterMapel) return false
+      if (filterKelas && p.nama_kelas !== filterKelas) return false
+      if (filterGuru && p.nama_guru !== filterGuru) return false
+      if (kata) {
+        const teks = `${p.nama_mapel ?? ''} ${p.nama_kelas ?? ''} ${p.nama_guru ?? ''} ${p.catatan ?? ''}`.toLowerCase()
+        if (!teks.includes(kata)) return false
+      }
+      return true
+    })
+  }, [pakets, cari, filterMapel, filterKelas, filterGuru])
+
+  const paketTampil = paketTersaring.slice(0, jumlahTampil)
+
+  function resetFilter() {
+    setCari(''); setFilterMapel(''); setFilterKelas(''); setFilterGuru('')
+    setJumlahTampil(UKURAN_HALAMAN)
+  }
+
   async function openPreview(p: CombinedPaket) {
     setPreviewPaket(p)
     setLoadingSoal(true)
@@ -202,7 +253,9 @@ export function ValidasiSoalView({
 
   async function handleSetujuiSemua() {
     setBulkSaving(true)
-    const target = [...pakets]
+    // Yang disetujui = paket yang sedang TERSARING (sama dengan angka di tombol).
+    // Tanpa filter, itu berarti semua paket menunggu.
+    const target = [...paketTersaring]
     setBulkProgress({ done: 0, total: target.length })
     let sukses = 0
     let gagal = 0
@@ -238,7 +291,7 @@ export function ValidasiSoalView({
   // baru "disetujui semua" balik lagi ke status Draft.
   const mapelKelasDuplikat = (() => {
     const seen = new Map<string, number>()
-    for (const p of pakets) {
+    for (const p of paketTersaring) {
       const kunci = `${p.mapel_id}__${p.kelas_id}`
       seen.set(kunci, (seen.get(kunci) ?? 0) + 1)
     }
@@ -325,15 +378,69 @@ export function ValidasiSoalView({
           massal, admin harus klik "Setujui" satu-satu kalau ada banyak
           paket menunggu. Hanya muncul di tab Menunggu Validasi saat ada
           LEBIH DARI 1 paket. */}
-      {activeTab === 'MENUNGGU' && pakets.length > 1 && (
+      {activeTab === 'MENUNGGU' && paketTersaring.length > 1 && (
         <div className="flex justify-end">
           <button
             onClick={() => setBulkConfirmOpen(true)}
             className="btn-success btn-sm"
             disabled={saving}
           >
-            <CheckCircle className="w-3.5 h-3.5" /> Setujui Semua ({pakets.length})
+            <CheckCircle className="w-3.5 h-3.5" /> {filterAktif ? 'Setujui yang Tampil' : 'Setujui Semua'} ({paketTersaring.length})
           </button>
+        </div>
+      )}
+
+      {/* Bar pencarian & filter — muncul di semua tab selama ada paket. */}
+      {!loading && pakets.length > 0 && (
+        <div className="card !p-3 space-y-2.5">
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <SearchInput
+              value={cari}
+              onChange={v => { setCari(v); setJumlahTampil(UKURAN_HALAMAN) }}
+              placeholder="Cari mapel, kelas, guru, atau catatan..."
+              className="flex-1 min-w-[200px]"
+            />
+            <select
+              value={filterMapel}
+              onChange={e => { setFilterMapel(e.target.value); setJumlahTampil(UKURAN_HALAMAN) }}
+              className="select w-full sm:w-44"
+              aria-label="Filter mata pelajaran"
+            >
+              <option value="">Semua Mapel</option>
+              {opsiFilter.mapel.map(n => <option key={n} value={n}>{n}</option>)}
+            </select>
+            <select
+              value={filterKelas}
+              onChange={e => { setFilterKelas(e.target.value); setJumlahTampil(UKURAN_HALAMAN) }}
+              className="select w-full sm:w-36"
+              aria-label="Filter kelas"
+            >
+              <option value="">Semua Kelas</option>
+              {opsiFilter.kelas.map(n => <option key={n} value={n}>{n}</option>)}
+            </select>
+            <select
+              value={filterGuru}
+              onChange={e => { setFilterGuru(e.target.value); setJumlahTampil(UKURAN_HALAMAN) }}
+              className="select w-full sm:w-44"
+              aria-label="Filter guru"
+            >
+              <option value="">Semua Guru</option>
+              {opsiFilter.guru.map(n => <option key={n} value={n}>{n}</option>)}
+            </select>
+          </div>
+          <div className="flex items-center justify-between gap-2 text-xs text-slate-500">
+            <span>
+              Menampilkan <strong className="text-slate-700">{Math.min(paketTampil.length, paketTersaring.length)}</strong> dari{' '}
+              <strong className="text-slate-700">{paketTersaring.length}</strong> paket
+              {filterAktif && <> (total {pakets.length})</>}
+            </span>
+            {filterAktif && (
+              <button type="button" onClick={resetFilter}
+                className="inline-flex items-center gap-1 rounded-lg px-2 py-1 font-medium text-slate-600 hover:bg-slate-100">
+                <FilterX className="h-3.5 w-3.5" /> Reset filter
+              </button>
+            )}
+          </div>
         </div>
       )}
 
@@ -343,9 +450,13 @@ export function ValidasiSoalView({
         <div className="card">
           <EmptyState message={`Tidak ada paket dengan status ${activeTab}`} icon={BookOpen} />
         </div>
+      ) : paketTersaring.length === 0 ? (
+        <div className="card">
+          <EmptyState message="Tidak ada paket yang cocok dengan pencarian atau filter" icon={Search} />
+        </div>
       ) : (
         <div className="space-y-2">
-          {pakets.map(p => (
+          {paketTampil.map(p => (
             <div key={p.id} className="card !p-3 sm:!p-4">
               <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:gap-4">
                 {/* Info paket — ringkas, tiap baris tidak melebar */}
@@ -416,6 +527,15 @@ export function ValidasiSoalView({
               </div>
             </div>
           ))}
+          {paketTersaring.length > paketTampil.length && (
+            <div className="flex justify-center pt-2">
+              <button type="button" className="btn-secondary btn-sm"
+                onClick={() => setJumlahTampil(n => n + UKURAN_HALAMAN)}>
+                Tampilkan {Math.min(UKURAN_HALAMAN, paketTersaring.length - paketTampil.length)} lagi
+                {' '}(sisa {paketTersaring.length - paketTampil.length})
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -612,7 +732,7 @@ export function ValidasiSoalView({
       <Modal
         open={bulkConfirmOpen}
         onClose={() => { if (!bulkSaving) setBulkConfirmOpen(false) }}
-        title={`Setujui Semua Paket (${pakets.length})`}
+        title={`${filterAktif ? 'Setujui Paket yang Tampil' : 'Setujui Semua Paket'} (${paketTersaring.length})`}
         size="sm"
         footer={
           <>
@@ -620,15 +740,17 @@ export function ValidasiSoalView({
               Batal
             </button>
             <button onClick={handleSetujuiSemua} className="btn-success" disabled={bulkSaving}>
-              {bulkSaving ? <Spinner size="sm" /> : 'Ya, Setujui Semua'}
+              {bulkSaving ? <Spinner size="sm" /> : (filterAktif ? 'Ya, Setujui yang Tampil' : 'Ya, Setujui Semua')}
             </button>
           </>
         }
       >
         <div className="space-y-3">
           <p className="text-sm text-slate-600">
-            {pakets.length} paket {jenisSoal === 'ESSAY' ? 'Soal Essay' : 'Soal PG'} yang sedang menunggu akan
+            {paketTersaring.length} paket {jenisSoal === 'ESSAY' ? 'Soal Essay' : 'Soal PG'}{' '}
+            {filterAktif ? 'yang sesuai pencarian/filter saat ini' : 'yang sedang menunggu'} akan
             disetujui satu per satu secara berurutan. Semua soal di dalamnya langsung bisa dipakai untuk ujian.
+            {filterAktif && <> Paket lain yang tidak tampil <strong>tidak</strong> ikut disetujui.</>}
           </p>
           {mapelKelasDuplikat && (
             <div className="flex items-start gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
