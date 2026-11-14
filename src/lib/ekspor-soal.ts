@@ -777,3 +777,25 @@ export async function unduhSoalWord(o: OpsiEksporSoal): Promise<string> {
   simpanBlob(blob, nama)
   return nama
 }
+
+// ── Versi "kembalikan Blob" (untuk Unduh Semua → ZIP) ───────────────────────
+// Sama persis dengan unduhSoalPdf / unduhSoalWord, hanya saja file TIDAK
+// langsung diunduh: Blob dan nama file dikembalikan supaya bisa dimasukkan
+// ke satu ZIP. Font PDF boleh dimuat sekali lalu dipakai ulang untuk semua paket.
+export async function buatBlobSoalPdf(o: OpsiEksporSoal, font?: FontPdf): Promise<{ blob: Blob; nama: string }> {
+  const [aset, f] = await Promise.all([siapkanAset(o), font ? Promise.resolve(font) : muatFontPdf()])
+  const doc = await bangunPdf(o, aset, f)
+  return { blob: doc.output('blob'), nama: namaFileSoal(o, 'pdf') }
+}
+
+export async function buatBlobSoalWord(o: OpsiEksporSoal): Promise<{ blob: Blob; nama: string }> {
+  const aset = await siapkanAset(o)
+  const doc = await bangunDocx(o, aset)
+  const { Packer } = await import('docx')
+  return { blob: await Packer.toBlob(doc), nama: namaFileSoal(o, 'docx') }
+}
+
+/** Simpan Blob apa pun sebagai unduhan (dipakai ZIP Unduh Semua). */
+export function unduhBlob(blob: Blob, nama: string) {
+  simpanBlob(blob, nama)
+}
