@@ -27,6 +27,23 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Sigma, X } from 'lucide-react'
 import { rapikanTeksSoal } from '@/lib/rapikan-soal'
+import { teksDariHtmlWord } from '@/lib/tempel-word'
+
+// Info singkat yang muncul sebentar di pojok layar. Dipakai saat rumus Word
+// dikonversi saat tempel — palet simbol sering sedang tertutup, jadi pesan di
+// dalam palet tidak akan terlihat.
+function tampilkanInfoTempel(teks: string) {
+  if (typeof document === 'undefined') return
+  document.getElementById('info-tempel-word')?.remove()
+  const el = document.createElement('div')
+  el.id = 'info-tempel-word'
+  el.setAttribute('role', 'status')
+  el.className =
+    'fixed bottom-4 left-1/2 z-[9999] w-[92vw] max-w-md -translate-x-1/2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 shadow-lg'
+  el.textContent = teks
+  document.body.appendChild(el)
+  window.setTimeout(() => el.remove(), 7000)
+}
 
 interface Simbol {
   s: string
@@ -187,11 +204,26 @@ export function PaletSimbol({ className = '' }: { className?: string }) {
     const onPaste = (e: ClipboardEvent) => {
       const el = e.target
       if (!bisaDiisi(el)) return
-      const asal = e.clipboardData?.getData('text/plain')
+      // Salinan dari Word: HTML di clipboard masih menyimpan persamaan lengkap,
+      // sedangkan teks datarnya sudah kehilangan struktur (pecahan, akar, dst.).
+      let dariWord: ReturnType<typeof teksDariHtmlWord> = null
+      try {
+        const html = e.clipboardData?.getData('text/html')
+        if (html) dariWord = teksDariHtmlWord(html)
+      } catch { dariWord = null }
+      const asal = dariWord ? dariWord.teks : e.clipboardData?.getData('text/plain')
       if (!asal) return
       const hasil = rapikanTeksSoal(asal, { satuBaris: el instanceof HTMLInputElement })
-      if (hasil === asal) return
+      if (!dariWord && hasil === asal) return
       e.preventDefault()
+      if (dariWord) {
+        tampilkanInfoTempel(
+          `${dariWord.jumlahRumus} rumus dari Word diubah menjadi teks satu baris.` +
+            (dariWord.catatan.length > 0
+              ? ' Ada bagian (matriks/sistem/vektor/garis atas) yang tampilannya bisa berbeda dari Word — periksa hasilnya, atau sisipkan sebagai gambar.'
+              : ' Periksa hasilnya sebelum disimpan.')
+        )
+      }
       // insertText menjaga riwayat Ctrl+Z; fallback ke penulisan nilai langsung.
       let ok = false
       try { ok = document.execCommand('insertText', false, hasil) } catch { ok = false }
