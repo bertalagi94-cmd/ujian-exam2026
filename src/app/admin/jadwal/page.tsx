@@ -653,6 +653,27 @@ export default function AdminJadwalPage() {
   // di memori (state `jadwal`), jadi tidak perlu panggilan API tambahan.
   // Ini HANYA peringatan di sisi tampilan; validasi sebenarnya tetap di
   // backend (route.ts) supaya tidak bisa dilewati lewat request langsung.
+  // UJIAN AGAMA GABUNGAN (aturan sama dengan src/lib/agama-gabungan.ts di server):
+  // dua jadwal mapel agama yang kelas, tanggal, jam, dan pengawasnya SAMA dan
+  // agamanya tidak beririsan BUKAN bentrok -- satu pengawas membuka keduanya
+  // bersamaan. Perbandingan agama ditulis lokal (tanpa mengimpor lib/agama yang
+  // berhubungan dengan server) hanya untuk peringatan tampilan; server tetap
+  // yang memutuskan.
+  const agamaMapelSet = (mapelId?: string | null): Set<string> => {
+    const m = mapelList.find(x => x.id === mapelId)
+    return new Set(String(m?.agama ?? '').split(',').map(a => a.trim().toLowerCase()).filter(Boolean))
+  }
+  const sekutuAgama = (j: Jadwal): boolean => {
+    const { tanggal, jam_mulai, jam_selesai, kelas, pengawas } = formWatch
+    if (!pengawas || !kelas || !tanggal || !jam_mulai || !jam_selesai) return false
+    if (j.pengawas !== pengawas || j.kelas !== kelas) return false
+    if (j.tanggal.slice(0, 10) !== tanggal || j.jam_mulai !== jam_mulai || j.jam_selesai !== jam_selesai) return false
+    const a = agamaMapelSet(selectedMapelId)
+    const b = agamaMapelSet(j.mapel_id)
+    if (a.size === 0 || b.size === 0) return false
+    return ![...a].some(x => b.has(x))
+  }
+
   const konflikKelas = (() => {
     const { tanggal, jam_mulai, jam_selesai, kelas } = formWatch
     if (!tanggal || !jam_mulai || !jam_selesai || !kelas) return null
@@ -660,7 +681,8 @@ export default function AdminJadwalPage() {
       j.id !== editData?.id &&
       j.kelas === kelas &&
       j.tanggal.slice(0, 10) === tanggal &&
-      jam_mulai < j.jam_selesai && jam_selesai > j.jam_mulai
+      jam_mulai < j.jam_selesai && jam_selesai > j.jam_mulai &&
+      !sekutuAgama(j)
     ) ?? null
   })()
 
@@ -671,9 +693,13 @@ export default function AdminJadwalPage() {
       j.id !== editData?.id &&
       j.pengawas === pengawas &&
       j.tanggal.slice(0, 10) === tanggal &&
-      jam_mulai < j.jam_selesai && jam_selesai > j.jam_mulai
+      jam_mulai < j.jam_selesai && jam_selesai > j.jam_mulai &&
+      !sekutuAgama(j)
     ) ?? null
   })()
+
+  // Jadwal agama lain yang akan berjalan bersamaan (untuk catatan hijau di form).
+  const jadwalSekutuForm = jadwal.filter(j => j.id !== editData?.id && sekutuAgama(j))
 
   async function handleSave(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -1487,6 +1513,16 @@ export default function AdminJadwalPage() {
               <p className="mt-1.5 text-xs text-slate-400">
                 Hanya menampilkan kelas yang diampu untuk mapel ini{!editData?.id ? ' dan belum memiliki jadwal' : ''}.
               </p>
+            )}
+            {jadwalSekutuForm.length > 0 && !konflikKelas && (
+              <div className="mt-1.5 flex items-start gap-2 p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-700">
+                <CheckCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                <span>
+                  Ujian Agama Gabungan: berjalan bersamaan dengan{' '}
+                  <strong>{jadwalSekutuForm.map(j => j.nama_mapel ?? j.mapel_id).join(', ')}</strong>{' '}
+                  (kelas, jam, dan pengawas sama, agama berbeda). Pengawas cukup menekan Mulai sekali.
+                </span>
+              </div>
             )}
             {konflikKelas && (
               <div className="mt-1.5 flex items-start gap-2 p-2.5 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700">

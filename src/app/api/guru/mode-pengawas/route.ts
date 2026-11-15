@@ -8,6 +8,7 @@ import { cekSesiBentrokKelas, pesanBentrokKelas } from '@/lib/sesi-kelas'
 import { resolveEssayInfoJson } from '@/lib/gabungKirim'
 import { isKonflikSesiBerjalan } from '@/lib/sesi-unik'
 import { cariSesiKelasBerjalan, pilihSesiUntukPengawas } from '@/lib/sesi-utama'
+import { cariJadwalSekutu, idJadwalSekutu } from '@/lib/agama-gabungan'
 
 // Tanpa ini Vercel memakai default 300 detik. Polling pengawas yang menggantung
 // saat database jenuh ikut menumpuk dan memperparah keadaan (simulasi 12 Nov
@@ -213,6 +214,16 @@ export async function GET(req: NextRequest) {
     namaAdminPenutupPaksaMap = Object.fromEntries((adminList ?? []).map(a => [a.username, a.nama]))
   }
 
+  // ── 5e. UJIAN AGAMA GABUNGAN (lib/agama-gabungan.ts): jadwal "sekutu" = kelas,
+  // jam, pengawas sama + mapel agama dengan agama tidak beririsan. UI memakainya
+  // supaya SATU klik Mulai/Tutup berlaku untuk semua sesi agama di kelas itu.
+  // Jadwal tanpa kembaran waktu tidak memicu query tambahan sama sekali.
+  const sekutuMap: Record<string, string[]> = {}
+  await Promise.all(jadwalList.map(async j => {
+    const ids = await idJadwalSekutu(db, j, jadwalList)
+    if (ids.size > 0) sekutuMap[j.id] = [...ids]
+  }))
+
   // ── 6. Enrich tiap jadwal ─────────────────────────────────────────────────
   const enrichedJadwal = jadwalList.map(j => {
     const sesiUntukJadwal = (sesiList).filter(s => s.jadwal_id === j.id)
@@ -245,6 +256,8 @@ export async function GET(req: NextRequest) {
       nama_kelas: kelasMap[j.kelas] ?? j.kelas,
       status_soal: statusSoalDetail.status,
       status_soal_guru: statusSoalDetail.namaGuru,
+      // id jadwal sekutu agama (kosong = ujian biasa); lihat 5e.
+      sekutu_agama_ids: sekutuMap[j.id] ?? [],
       // Jika sesi sudah diambil-alih pengawas lain, jangan kirim detail sesi
       // (kode sesi, dll) ke pengawas asli — cukup info ringkas untuk pesan.
       sesi_ujian: sesiTerkait && !diambilAlih ? {
@@ -327,7 +340,10 @@ export async function POST(req: NextRequest) {
     .eq('pengawas', user.username)
     .neq('id', jadwalId)
 
-  const jadwalLainIds = (jadwalLainSaya ?? []).map(j => j.id)
+  // UJIAN AGAMA GABUNGAN: sesi jadwal sekutu (kelas, jam, pengawas sama; mapel
+  // agama berbeda) memang dibuka bersamaan oleh satu pengawas -- bukan tabrakan.
+  const sekutuPengawas = new Set((await cariJadwalSekutu(db, jadwal)).map(k => String(k.id)))
+  const jadwalLainIds = (jadwalLainSaya ?? []).map(j => j.id).filter(id => !sekutuPengawas.has(String(id)))
   if (jadwalLainIds.length > 0) {
     const { data: sesiLainBerjalan } = await db
       .from('sesi_ujian')

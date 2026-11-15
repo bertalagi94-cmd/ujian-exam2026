@@ -23,6 +23,7 @@
 // dibuka sampai sesi yang sedang berjalan itu ditutup.
 
 import { createAdminClient } from '@/lib/supabase'
+import { cariBentrokNyata, KOLOM_JADWAL_GRUP, type JadwalGrup } from '@/lib/agama-gabungan'
 
 type DbClient = ReturnType<typeof createAdminClient>
 
@@ -44,7 +45,7 @@ export async function cekSesiBentrokKelas(
   kelasNama: string,
   jadwalIdBaru: string
 ): Promise<SesiBentrokKelas | null> {
-  const { data: sesiBerjalanKelas } = await db
+  const { data: sesiBerjalanDaftar } = await db
     .from('sesi_ujian')
     .select('id, kode_sesi, jadwal_id, mapel_id')
     .eq('kelas', String(kelasNama))
@@ -54,10 +55,37 @@ export async function cekSesiBentrokKelas(
     // sudah lepas dari kelas, dan sesinya bisa masih berjalan ketika kelas
     // sudah pindah ke mapel berikutnya.
     .is('ruang_khusus_id', null)
-    .limit(1)
-    .maybeSingle()
+    .limit(20)
 
-  if (!sesiBerjalanKelas) return null
+  const daftarSesi = sesiBerjalanDaftar ?? []
+  if (daftarSesi.length === 0) return null
+
+  // UJIAN AGAMA GABUNGAN (src/lib/agama-gabungan.ts): sesi dari jadwal "sekutu
+  // agama" (kelas, jam, pengawas sama; mapel khusus agama dengan agama tidak
+  // beririsan) berjalan bersamaan dan BUKAN bentrokan. Mapel umum tetap ketat.
+  let sesiBerjalanKelas = daftarSesi[0]
+  {
+    const idJadwal = [jadwalIdBaru, ...daftarSesi.map(s => s.jadwal_id).filter(Boolean)] as string[]
+    const { data: barisJadwal } = await db
+      .from('jadwal')
+      .select(KOLOM_JADWAL_GRUP)
+      .in('id', idJadwal)
+    const peta = new Map<string, JadwalGrup>(
+      ((barisJadwal ?? []) as Array<JadwalGrup & { id: string }>).map(j => [j.id, j])
+    )
+    const jadwalBaru = peta.get(jadwalIdBaru)
+    let bentrokNyata: (typeof daftarSesi)[number] | null = null
+    for (const s of daftarSesi) {
+      const j = s.jadwal_id ? peta.get(s.jadwal_id) : undefined
+      // Data jadwal tidak lengkap -> perlakukan sebagai bentrok (perilaku lama).
+      if (!jadwalBaru || !j || await cariBentrokNyata(db, jadwalBaru, [j])) {
+        bentrokNyata = s
+        break
+      }
+    }
+    if (!bentrokNyata) return null
+    sesiBerjalanKelas = bentrokNyata
+  }
 
   const { data: mapel } = await db
     .from('mapel')

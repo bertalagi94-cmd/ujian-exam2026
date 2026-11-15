@@ -9,6 +9,7 @@ import { cachedFetch } from '@/lib/cache'
 import { ambilMaksReset, MAKS_RESET_ABSOLUT } from '@/lib/reset-berurutan'
 import { AntreanPenuhError, buatSemuaAmplopReset } from '@/lib/reset-amplop-server'
 import { cekSiswaBolehMapel, labelAgamaMapel } from '@/lib/agama'
+import { arahkanSiswaKeSesiAgama } from '@/lib/agama-gabungan'
 
 // Threshold: kalau last_heartbeat device lama lebih muda dari ini,
 // anggap device lama masih aktif → tolak login device baru.
@@ -93,6 +94,33 @@ export async function POST(req: NextRequest) {
   // Sesi ruang hanya bisa dimasuki lewat kode ruang, bukan kode_sesi internalnya.
   if (sesi.ruang_khusus_id && !lewatKodeRuang) {
     return NextResponse.json({ valid: false, message: 'Kode sesi tidak ditemukan atau ujian sudah selesai.' })
+  }
+
+  // UJIAN AGAMA GABUNGAN (src/lib/agama-gabungan.ts): beberapa mapel agama untuk
+  // kelas yang sama dibuka serentak oleh satu pengawas. Kode dari sesi MANA PUN
+  // di kelas itu diterima, lalu siswa diarahkan ke sesi yang sesuai agamanya.
+  // Ujian biasa (bukan grup agama) langsung lolos tanpa perubahan perilaku.
+  if (!sesi.ruang_khusus_id) {
+    const arah = await arahkanSiswaKeSesiAgama(db, String(yayasanIdDari(auth.user)), sesi, String(nis))
+    if (arah.tipe === 'tolak') {
+      return NextResponse.json({ valid: false, message: arah.pesan })
+    }
+    if (arah.tipe === 'pindah') {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: sesiTujuan } = await db
+        .from('sesi_ujian')
+        .select(KOLOM_SESI_VALIDASI)
+        .eq('id', arah.sesiId)
+        .eq('status', 'BERJALAN')
+        .maybeSingle() as { data: any }
+      if (!sesiTujuan) {
+        return NextResponse.json({
+          valid: false,
+          message: 'Sesi ujian untuk agama Anda belum dibuka. Minta pengawas membuka sesinya, lalu coba lagi.',
+        })
+      }
+      sesi = sesiTujuan
+    }
   }
 
   // Siswa yang sudah dipindah ke ruang khusus LEPAS dari sesi kelas: token kelas

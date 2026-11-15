@@ -5,6 +5,7 @@ import { generateId } from '@/lib/utils'
 import { pastikanLokasiSekolahLengkap } from '@/lib/pengaturan-waktu'
 import { bacaBatasDurasiEssay, tentukanDurasiEssay, validasiDurasiEssayAdmin } from '@/lib/durasi-ujian'
 import { ambilAgamaMapel, ambilAgamaMapelBanyak, ambilAgamaSiswa, cocokAgama, saringSiswaSeagama } from '@/lib/agama'
+import { cariBentrokNyata } from '@/lib/agama-gabungan'
 
 // Baca & validasi durasi essay yang diisi admin di form jadwal.
 // Kosong = "ikuti usulan guru" (disimpan sebagai NULL). Batas min/maks diambil
@@ -54,6 +55,18 @@ async function cekSudahPernahDinilai(
   const nisUnik = new Set(((nilaiList ?? []) as { nis: string }[]).map(n => n.nis))
   return { sudahAda: nisUnik.size > 0, jumlahSiswa: nisUnik.size }
 }
+
+// Nilai jadwal yang sedang diedit (dasar untuk digabung dengan isian `update`).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function jadwalSaatIni(db: any, id: string) {
+  const { data } = await db
+    .from('jadwal')
+    .select('mapel_id, kelas, tanggal, pengawas, jam_mulai, jam_selesai')
+    .eq('id', id)
+    .maybeSingle()
+  return (data ?? {}) as Record<string, unknown>
+}
+
 
 export async function GET(req: NextRequest) {
   const auth = await requireRoleAktif(req, ['ADMIN', 'GURU', 'KEPSEK', 'SISWA'])
@@ -400,14 +413,15 @@ export async function POST(req: NextRequest) {
   if (body.pengawas && body.tanggal && body.jam_mulai && body.jam_selesai) {
     const { data: jadwalPengawas } = await db
       .from('jadwal')
-      .select('id, jam_mulai, jam_selesai')
+      .select('id, mapel_id, kelas, tanggal, pengawas, jam_mulai, jam_selesai')
       .eq('pengawas', body.pengawas)
       .eq('tanggal', body.tanggal)
 
-    const typedJadwalPengawas = (jadwalPengawas ?? []) as { id: string; jam_mulai: string; jam_selesai: string }[]
-    const bentrok = typedJadwalPengawas.find(j => {
-      return body.jam_mulai < j.jam_selesai && body.jam_selesai > j.jam_mulai
-    })
+    const typedJadwalPengawas = (jadwalPengawas ?? []) as { id: string; mapel_id: string; kelas: string; tanggal: string; pengawas: string | null; jam_mulai: string; jam_selesai: string }[]
+    // UJIAN AGAMA GABUNGAN: jadwal sekutu agama (kelas, jam, pengawas sama;
+    // mapel agama berbeda tanpa irisan) bukan bentrok. Lihat lib/agama-gabungan.ts.
+    const bentrokJam = typedJadwalPengawas.filter(j => body.jam_mulai < j.jam_selesai && body.jam_selesai > j.jam_mulai)
+    const bentrok = await cariBentrokNyata(db, body, bentrokJam)
 
     if (bentrok) {
       return NextResponse.json(
@@ -423,14 +437,16 @@ export async function POST(req: NextRequest) {
   if (body.kelas && body.tanggal && body.jam_mulai && body.jam_selesai) {
     const { data: jadwalKelas } = await db
       .from('jadwal')
-      .select('id, mapel_id, jam_mulai, jam_selesai')
+      .select('id, mapel_id, kelas, tanggal, pengawas, jam_mulai, jam_selesai')
       .eq('kelas', String(body.kelas))
       .eq('tanggal', body.tanggal)
 
-    const typedJadwalKelas = (jadwalKelas ?? []) as { id: string; mapel_id: string; jam_mulai: string; jam_selesai: string }[]
-    const bentrokKelas = typedJadwalKelas.find(j => {
-      return body.jam_mulai < j.jam_selesai && body.jam_selesai > j.jam_mulai
-    })
+    const typedJadwalKelas = (jadwalKelas ?? []) as { id: string; mapel_id: string; kelas: string; tanggal: string; pengawas: string | null; jam_mulai: string; jam_selesai: string }[]
+    const bentrokKelas = await cariBentrokNyata(
+      db,
+      body,
+      typedJadwalKelas.filter(j => body.jam_mulai < j.jam_selesai && body.jam_selesai > j.jam_mulai)
+    )
 
     if (bentrokKelas) {
       const { data: mapelBentrok } = await (db as any)
@@ -564,15 +580,18 @@ export async function PUT(req: NextRequest) {
   if (update.pengawas && update.tanggal && update.jam_mulai && update.jam_selesai) {
     const { data: jadwalPengawas } = await db
       .from('jadwal')
-      .select('id, jam_mulai, jam_selesai')
+      .select('id, mapel_id, kelas, tanggal, pengawas, jam_mulai, jam_selesai')
       .eq('pengawas', update.pengawas)
       .eq('tanggal', update.tanggal)
       .neq('id', id)
 
-    const typedJadwalPengawas2 = (jadwalPengawas ?? []) as { id: string; jam_mulai: string; jam_selesai: string }[]
-    const bentrok = typedJadwalPengawas2.find(j => {
-      return update.jam_mulai < j.jam_selesai && update.jam_selesai > j.jam_mulai
-    })
+    const typedJadwalPengawas2 = (jadwalPengawas ?? []) as { id: string; mapel_id: string; kelas: string; tanggal: string; pengawas: string | null; jam_mulai: string; jam_selesai: string }[]
+    const bentrokJam2 = typedJadwalPengawas2.filter(j => update.jam_mulai < j.jam_selesai && update.jam_selesai > j.jam_mulai)
+    const bentrok = await cariBentrokNyata(
+      db,
+      { ...(await jadwalSaatIni(db, id)), ...update, id },
+      bentrokJam2
+    )
 
     if (bentrok) {
       return NextResponse.json(
@@ -586,15 +605,17 @@ export async function PUT(req: NextRequest) {
   if (update.kelas && update.tanggal && update.jam_mulai && update.jam_selesai) {
     const { data: jadwalKelas } = await db
       .from('jadwal')
-      .select('id, mapel_id, jam_mulai, jam_selesai')
+      .select('id, mapel_id, kelas, tanggal, pengawas, jam_mulai, jam_selesai')
       .eq('kelas', String(update.kelas))
       .eq('tanggal', update.tanggal)
       .neq('id', id)
 
-    const typedJadwalKelas2 = (jadwalKelas ?? []) as { id: string; mapel_id: string; jam_mulai: string; jam_selesai: string }[]
-    const bentrokKelas = typedJadwalKelas2.find(j => {
-      return update.jam_mulai < j.jam_selesai && update.jam_selesai > j.jam_mulai
-    })
+    const typedJadwalKelas2 = (jadwalKelas ?? []) as { id: string; mapel_id: string; kelas: string; tanggal: string; pengawas: string | null; jam_mulai: string; jam_selesai: string }[]
+    const bentrokKelas = await cariBentrokNyata(
+      db,
+      { ...(await jadwalSaatIni(db, id)), ...update, id },
+      typedJadwalKelas2.filter(j => update.jam_mulai < j.jam_selesai && update.jam_selesai > j.jam_mulai)
+    )
 
     if (bentrokKelas) {
       const { data: mapelBentrok } = await (db as any)

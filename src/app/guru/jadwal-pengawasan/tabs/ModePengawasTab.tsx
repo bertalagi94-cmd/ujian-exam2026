@@ -66,6 +66,10 @@ interface JadwalHariIni {
   diambil_alih_pengawas: { username: string; nama: string } | null
   status_soal?: 'BELUM_ADA' | 'DRAFT' | 'MENUNGGU' | 'DITOLAK' | 'DISETUJUI'
   status_soal_guru?: string | null
+  // UJIAN AGAMA GABUNGAN: id jadwal agama lain yang waktunya sama dengan jadwal
+  // ini (kelas, jam, pengawas sama). Kosong = ujian biasa. Lihat
+  // src/lib/agama-gabungan.ts dan GET /api/guru/mode-pengawas.
+  sekutu_agama_ids?: string[]
 }
 
 interface SiswaAktif {
@@ -744,7 +748,33 @@ export function ModePengawasTab() {
         '/api/guru/mode-pengawas',
         { method: 'POST', body: JSON.stringify({ jadwalId: j.id }) }
       )
-      showToast(res.sudahAda ? 'Sesi sudah berjalan — kode ditampilkan.' : 'Sesi ujian berhasil dibuka!')
+      // UJIAN AGAMA GABUNGAN: satu klik Mulai membuka juga sesi agama lain di
+      // kelas ini (jam & pengawas sama). Satu per satu supaya penjaga di server
+      // (soal disetujui, tanggal, bentrok) tetap berlaku untuk tiap sesi. Yang
+      // gagal tidak membatalkan yang sudah terbuka; pengawas diberi tahu mana
+      // yang gagal dan bisa menekan Mulai lagi di kartunya.
+      const gagalSekutu: string[] = []
+      for (const idSekutu of j.sekutu_agama_ids ?? []) {
+        const js = jadwal.find(x => x.id === idSekutu)
+        if (js?.sesi_ujian?.status === 'BERJALAN') continue
+        try {
+          await apiRequest('/api/guru/mode-pengawas', { method: 'POST', body: JSON.stringify({ jadwalId: idSekutu }) })
+        } catch (e: unknown) {
+          gagalSekutu.push(`${js?.nama_mapel ?? 'mapel agama lain'}: ${e instanceof Error ? e.message : 'gagal dibuka'}`)
+        }
+      }
+      if (gagalSekutu.length > 0) {
+        showToast(`Sesi dibuka, TAPI ada sesi agama yang gagal dibuka — ${gagalSekutu.join(' | ')}`, 'error')
+      } else {
+        const jumlahSekutu = (j.sekutu_agama_ids ?? []).length
+        showToast(
+          res.sudahAda && jumlahSekutu === 0
+            ? 'Sesi sudah berjalan — kode ditampilkan.'
+            : jumlahSekutu > 0
+              ? `Sesi ujian agama dibuka (${jumlahSekutu + 1} sesi sekaligus)!`
+              : 'Sesi ujian berhasil dibuka!'
+        )
+      }
       await load(true)
     } catch (err: unknown) {
       const data = (err as { data?: { essayBelumSiap?: boolean; essayStatus?: string; essayGuruNama?: string | null } })?.data
@@ -1105,6 +1135,27 @@ export function ModePengawasTab() {
                       </div>
                     </div>
                   )}
+
+                  {/* UJIAN AGAMA GABUNGAN: jelaskan perilaku Mulai/Tutup & kode ke pengawas */}
+                  {(j.sekutu_agama_ids?.length ?? 0) > 0 && !isDone && !diambilAlih && (() => {
+                    const lainnya = (j.sekutu_agama_ids ?? [])
+                      .map(id => jadwal.find(x => x.id === id))
+                      .filter((x): x is JadwalHariIni => !!x)
+                    const masihJalan = lainnya.filter(x => x.sesi_ujian?.status === 'BERJALAN')
+                    return (
+                      <div className="flex items-start gap-2 text-xs text-slate-600 bg-emerald-50/70 border border-emerald-100 px-3.5 py-2.5 rounded-xl mb-4">
+                        <Users className="w-3.5 h-3.5 flex-shrink-0 mt-0.5 text-emerald-500" />
+                        <span>
+                          <strong>Ujian Agama Gabungan.</strong>{' '}
+                          {!isRunning
+                            ? <>Menekan <strong>Mulai Ujian</strong> membuka juga {lainnya.length} sesi agama lain di kelas ini ({lainnya.map(x => x.nama_mapel).join(', ')}).</>
+                            : <>Cukup bagikan <strong>satu kode</strong> ke seluruh siswa kelas ini: sistem mengarahkan tiap siswa ke ujian sesuai agamanya.
+                                {masihJalan.length > 0 && <> Sesi agama lain yang masih berjalan: {masihJalan.map(x => x.nama_mapel).join(', ')}.</>}
+                                {' '}Tutup tiap sesi setelah siswanya selesai.</>}
+                        </span>
+                      </div>
+                    )
+                  })()}
 
                   {/* Pengingat menutup sesi — ditampilkan selama sesi berjalan supaya
                       guru tidak lupa menutupnya sendiri setelah ujian selesai.
