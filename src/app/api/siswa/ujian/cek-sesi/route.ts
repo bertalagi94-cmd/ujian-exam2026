@@ -74,11 +74,14 @@ export async function GET(req: NextRequest) {
     const waktuHeartbeat = new Date().toISOString()
     after(async () => {
       try {
-        await db
+        const { error } = await db
           .from('siswa_ujian')
           .update({ last_heartbeat: waktuHeartbeat })
           .eq('sesi_id', sesiId)
           .eq('nis', nis)
+        // supabase-js TIDAK melempar saat query gagal (mis. 522): errornya ada di
+        // hasil. Tanpa pemeriksaan ini kegagalan tulis heartbeat tidak terlihat.
+        if (error) console.error('[cek-sesi] heartbeat gagal ditulis:', nis, error.message?.slice(0, 120))
       } catch (e) {
         console.error('[cek-sesi] gagal menulis heartbeat:', e instanceof Error ? e.message : e)
       }

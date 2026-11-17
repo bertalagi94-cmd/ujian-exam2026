@@ -27,6 +27,10 @@ import {
 } from '@/lib/pg-paket-offline'
 import { healthCheckStorage } from '@/lib/ujian-offline-storage'
 import { trustedNow } from '@/lib/clock-offset'
+import {
+  setSisaWaktuUjian, setWaktuTerpakaiUjian, getSisaWaktuUjian, getWaktuTerpakaiUjian, resetWaktuUjian, useBelumCukupWaktu,
+} from '@/lib/waktu-ujian-store'
+import { JamSisaWaktu, HitungMundurMinSubmit } from '@/components/siswa/JamUjian'
 // FIX (gambar soal belum jadi asset offline): lihat src/lib/gambar-offline.ts.
 import { precacheGambarSoal, simpanGambarBase64 } from '@/lib/gambar-offline'
 // P0 (audit reset offline R1/R2/R3): simpan & verifikasi amplop reset secara
@@ -386,7 +390,6 @@ export default function SiswaUjianPage() {
   const [sesiInfo, setSesiInfo] = useState<SesiInfo | null>(null)
   const [jawaban, setJawaban] = useState<JawabanMap>({})
   const [currentIdx, setCurrentIdx] = useState(0)
-  const [sisaWaktu, setSisaWaktu] = useState(0)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   // FIX BUG P0 #4 (audit): pesan progres saat gambar soal WAJIB diunduh
@@ -568,7 +571,11 @@ export default function SiswaUjianPage() {
 
   // Waktu terpakai (detik) — diupdate tiap detik bersama countdown,
   // digunakan untuk menegakkan batas minimal waktu sebelum submit.
-  const [waktuTerpakai, setWaktuTerpakai] = useState(0)
+  // PERF: detik berjalan TIDAK lagi disimpan di useState halaman (itu merender ulang
+  // seluruh halaman tiap detik). Lihat src/lib/waktu-ujian-store.ts. Halaman hanya
+  // berlangganan boolean ini, yang berubah sekali saja saat batas minimal terlewati.
+  const belumCukupWaktuSubmit = useBelumCukupWaktu((sesiInfo?.minSubmitMenit ?? 0) * 60)
+  useEffect(() => { resetWaktuUjian(); return () => resetWaktuUjian() }, [])
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const syncRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -1567,8 +1574,6 @@ export default function SiswaUjianPage() {
   }, [phase, pendingResetSesiId])
 
   // ── Timer ─────────────────────────────────────────────────────────────────
-  const sisaWaktuRef = useRef(0)
-  useEffect(() => { sisaWaktuRef.current = sisaWaktu }, [sisaWaktu])
 
   useEffect(() => {
     if (phase !== 'UJIAN') return
@@ -1595,8 +1600,8 @@ export default function SiswaUjianPage() {
       if (currentSesi?.waktu_mulai && currentSesi.durasi) {
         const terpakaiDetik = Math.floor((trustedNow() - new Date(currentSesi.waktu_mulai).getTime()) / 1000)
         const sisaBaru = Math.max(0, currentSesi.durasi * 60 - terpakaiDetik)
-        setSisaWaktu(sisaBaru)
-        setWaktuTerpakai(terpakaiDetik)
+        setSisaWaktuUjian(sisaBaru)
+        setWaktuTerpakaiUjian(terpakaiDetik)
         if (sisaBaru <= 0) {
           clearInterval(timerRef.current!)
           setTimeout(() => handleSelesai(true), 0)
@@ -1604,15 +1609,15 @@ export default function SiswaUjianPage() {
       } else {
         // Fallback (seharusnya tidak terjadi selama phase UJIAN, tapi
         // dijaga supaya UI tidak macet total kalau sesiInfo belum terisi).
-        setSisaWaktu(prev => {
-          if (prev <= 1) {
-            clearInterval(timerRef.current!)
-            setTimeout(() => handleSelesai(true), 0)
-            return 0
-          }
-          return prev - 1
-        })
-        setWaktuTerpakai(prev => prev + 1)
+        const prev = getSisaWaktuUjian()
+        if (prev <= 1) {
+          clearInterval(timerRef.current!)
+          setTimeout(() => handleSelesai(true), 0)
+          setSisaWaktuUjian(0)
+        } else {
+          setSisaWaktuUjian(prev - 1)
+        }
+        setWaktuTerpakaiUjian(getWaktuTerpakaiUjian() + 1)
       }
     }, 1000)
     return () => clearInterval(timerRef.current!)
@@ -2167,8 +2172,8 @@ export default function SiswaUjianPage() {
       }
 
       const terpakai1 = Math.floor((trustedNow() - new Date(res.waktu_mulai).getTime()) / 1000)
-      setSisaWaktu(Math.max(0, res.durasi * 60 - terpakai1))
-      setWaktuTerpakai(terpakai1)
+      setSisaWaktuUjian(Math.max(0, res.durasi * 60 - terpakai1))
+      setWaktuTerpakaiUjian(terpakai1)
       setPhase('UJIAN')
       setTimeout(() => {
         requestFullscreen(document.documentElement).catch(() => {})
@@ -2290,8 +2295,8 @@ export default function SiswaUjianPage() {
         // hanya jika tidak ada (misalnya versi API lama).
         const waktuAcuan = res.waktu_mulai ?? sesiRes.waktu_mulai
         const terpakai2 = Math.floor((trustedNow() - new Date(waktuAcuan).getTime()) / 1000)
-        setSisaWaktu(Math.max(0, sesiRes.durasi * 60 - terpakai2))
-        setWaktuTerpakai(terpakai2)
+        setSisaWaktuUjian(Math.max(0, sesiRes.durasi * 60 - terpakai2))
+        setWaktuTerpakaiUjian(terpakai2)
 
         // FIX Bug #2: reset pelanggaranActiveRef agar event anti-cheat
         // berikutnya (keluar fullscreen, ganti tab, blur) kembali aktif.
@@ -2387,8 +2392,8 @@ export default function SiswaUjianPage() {
     sesiInfoRef.current = info
     setSesiInfo(info)
     setJawaban(backup.v)
-    setWaktuTerpakai(terpakai)
-    setSisaWaktu(sisa)
+    setWaktuTerpakaiUjian(terpakai)
+    setSisaWaktuUjian(sisa)
     setJaringanBermasalah(true)
     setPhase('UJIAN')
 
@@ -3022,7 +3027,7 @@ export default function SiswaUjianPage() {
       if (acuan) {
         const terpakai = Math.floor((trustedNow() - new Date(acuan).getTime()) / 1000)
         sisaSetelahReset = Math.max(0, currentSesi.durasi * 60 - terpakai)
-        setSisaWaktu(sisaSetelahReset)
+        setSisaWaktuUjian(sisaSetelahReset)
       }
       setKodeReset('')
       setKodeResetError('')
@@ -5270,18 +5275,10 @@ export default function SiswaUjianPage() {
                 )}
               </div>
             </div>
-            <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-mono font-bold text-base flex-shrink-0 transition-colors ${
-              sisaWaktu < 300 ? 'bg-red-600 text-white ring-2 ring-red-200 shadow-md' :
-              sisaWaktu < 600 ? 'bg-white text-amber-600 shadow-sm' :
-              'bg-white/90 text-brand-700 shadow-sm'
-            }`}>
-              <Clock className="w-3.5 h-3.5" />
-              {formatWaktu(sisaWaktu)}
-            </div>
+            <JamSisaWaktu />
             <button
               onClick={() => {
-                const minDetik = (sesiInfo?.minSubmitMenit ?? 0) * 60
-                const belumCukupWaktu = minDetik > 0 && waktuTerpakai < minDetik
+                const belumCukupWaktu = belumCukupWaktuSubmit
                 if (totalDijawab < soalList.length) {
                   // Arahkan ke soal pertama yang belum dijawab
                   const idxBelum = soalList.findIndex(s => !jawaban[s.id])
@@ -5292,26 +5289,19 @@ export default function SiswaUjianPage() {
               }}
               className={`btn-sm flex items-center gap-1.5 font-semibold transition-all flex-shrink-0 ${
                 (() => {
-                  const minDetik = (sesiInfo?.minSubmitMenit ?? 0) * 60
-                  const belumCukupWaktu = minDetik > 0 && waktuTerpakai < minDetik
+                  const belumCukupWaktu = belumCukupWaktuSubmit
                   return (totalDijawab < soalList.length || belumCukupWaktu)
                     ? 'bg-white/20 text-white/70 cursor-not-allowed border border-white/25'
                     : 'btn-success'
                 })()
               }`}
-              disabled={submitting || ((sesiInfo?.minSubmitMenit ?? 0) > 0 && waktuTerpakai < (sesiInfo?.minSubmitMenit ?? 0) * 60)}
+              disabled={submitting || belumCukupWaktuSubmit}
               title={
                 totalDijawab < soalList.length
                   ? `${soalList.length - totalDijawab} soal belum dijawab`
-                  : (() => {
-                      const minDetik = (sesiInfo?.minSubmitMenit ?? 0) * 60
-                      const sisa = minDetik - waktuTerpakai
-                      if (sisa > 0) {
-                        const m = Math.floor(sisa / 60), d = sisa % 60
-                        return `Tunggu ${m}:${String(d).padStart(2,'0')} lagi sebelum bisa submit`
-                      }
-                      return 'Selesaikan ujian'
-                    })()
+                  : belumCukupWaktuSubmit
+                    ? 'Tunggu batas waktu minimal sebelum bisa submit (hitung mundur ada di bawah)'
+                    : 'Selesaikan ujian'
               }
             >
               <Send className="w-3.5 h-3.5" />
@@ -5320,18 +5310,7 @@ export default function SiswaUjianPage() {
             </button>
           </div>
           {/* Indikator countdown batas minimal submit */}
-          {(() => {
-            const minDetik = (sesiInfo?.minSubmitMenit ?? 0) * 60
-            const sisa = minDetik - waktuTerpakai
-            if (sisa <= 0) return null
-            const m = Math.floor(sisa / 60), d = sisa % 60
-            return (
-              <div className="relative z-[1] text-[11px] mt-1 flex items-center gap-1 text-amber-200 font-medium">
-                <Clock className="w-3 h-3" />
-                Tombol kirim akan aktif dalam {m}:{String(d).padStart(2, '0')} menit
-              </div>
-            )
-          })()}
+          <HitungMundurMinSubmit minDetik={(sesiInfo?.minSubmitMenit ?? 0) * 60} />
           <div className={`relative z-[1] text-[11px] mt-1.5 flex items-center gap-1 ${
             syncStatus === 'error' ? 'text-red-200 font-semibold' :
             syncStatus === 'syncing' ? 'text-amber-200' :

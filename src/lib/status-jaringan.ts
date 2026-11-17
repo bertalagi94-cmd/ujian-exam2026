@@ -86,12 +86,32 @@ async function siklus(paksa = false): Promise<void> {
   }
 }
 
+// BACKOFF saat OFFLINE (perbaikan pasca insiden 16 Nov 2026): dulu denyut tetap
+// tiap 3 dtk selama OFFLINE. Saat server hanya LAMBAT (bukan putus), ratusan
+// klien serentak menyatakan diri OFFLINE lalu masing-masing memanggil /health
+// tiap 3 dtk -- menambah puluhan request per detik tepat ketika server paling
+// lemah. Sekarang jeda membesar bertahap (3, 6, 12, 20 dtk) + jitter acak
+// supaya klien tidak berdenyut serempak. Deteksi pemulihan tetap <= 20 dtk.
+// Status CHECKING (baru gagal sekali) tetap rapat 3 dtk agar putus-nyambung
+// singkat cepat terkonfirmasi.
+const JEDA_BACKOFF_OFFLINE_MS = [3_000, 6_000, 12_000, 20_000]
+const JITTER_MAKS = 0.3
+
+function jedaDenyutBerikut(): number {
+  if (status === 'ONLINE') return INTERVAL_ONLINE_MS
+  if (status === 'CHECKING') return INTERVAL_OFFLINE_MS
+  // OFFLINE: indeks = berapa kali gagal SETELAH ambang offline tercapai
+  const idx = Math.min(Math.max(0, gagalBerturut - GAGAL_UNTUK_OFFLINE), JEDA_BACKOFF_OFFLINE_MS.length - 1)
+  const dasar = JEDA_BACKOFF_OFFLINE_MS[idx]
+  return Math.round(dasar * (1 + Math.random() * JITTER_MAKS))
+}
+
 function jadwalkan(): void {
   if (timer) clearTimeout(timer)
   timer = setTimeout(async () => {
     await siklus()
     if (refCount > 0) jadwalkan()
-  }, status === 'ONLINE' ? INTERVAL_ONLINE_MS : INTERVAL_OFFLINE_MS)
+  }, jedaDenyutBerikut())
 }
 
 let terakhirPeriksaPaksaMs = 0
