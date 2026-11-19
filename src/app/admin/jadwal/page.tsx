@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   Plus, Pencil, Trash2, Calendar, FileText, Download, PackageOpen,
   CheckCircle, Clock, AlertCircle, XCircle, HelpCircle, AlertTriangle,
-  ClipboardList, RotateCcw, Copy, X, UserX, BarChart3
+  ClipboardList, RotateCcw, Copy, X, UserX, Users, BarChart3
 } from 'lucide-react'
 import { Modal, Confirm, StatusBadge, SearchInput, EmptyState, Spinner, Toast, Pagination } from '@/components/ui'
 import { apiRequest, formatDate } from '@/lib/utils'
@@ -370,7 +370,7 @@ function ModalSusulanAdmin({
 }
 
 // ── Rangkuman Kesiapan Ujian ──────────────────────────────────────
-type RangkumanSection = 'siap' | 'status' | 'jadwal' | 'guru'
+type RangkumanSection = 'siap' | 'status' | 'jadwal' | 'guru' | 'mengawas'
 type StatusSoalKey = 'DISETUJUI' | 'MENUNGGU' | 'DRAFT' | 'DITOLAK' | 'BELUM_ADA'
 
 // Urutan & warna kartu/filter status soal. Label mengikuti SoalStatusBadge
@@ -538,6 +538,8 @@ export default function AdminJadwalPage() {
   const [rangkumanSection, setRangkumanSection] = useState<RangkumanSection>('siap')
   const [rangkumanFilter, setRangkumanFilter] = useState<'SEMUA' | StatusSoalKey>('SEMUA')
   const [rangkumanCari, setRangkumanCari] = useState('')
+  // username guru yang rincian tanggal mengawasnya sedang dibuka (tab Rekap Mengawas)
+  const [guruTerbuka, setGuruTerbuka] = useState<string | null>(null)
   // true kalau form jadwal dibuka dari tombol "Buat Jadwal" di Rangkuman, supaya
   // setelah disimpan/dibatalkan admin dikembalikan ke Rangkuman (alur kerja berurutan).
   const [kembaliKeRangkuman, setKembaliKeRangkuman] = useState(false)
@@ -547,6 +549,7 @@ export default function AdminJadwalPage() {
     setRangkumanSection(section)
     setRangkumanFilter('SEMUA')
     setRangkumanCari('')
+    setGuruTerbuka(null)
     setRangkumanLoading(true)
     try {
       const res = await apiRequest<RangkumanJadwal>('/api/admin/jadwal/rangkuman')
@@ -1917,6 +1920,7 @@ export default function AdminJadwalPage() {
             { key: 'siap',   label: 'Siap Dijadwalkan',    count: r.siap_dijadwalkan,        icon: CheckCircle, aktif: 'bg-emerald-100 border-emerald-300 text-emerald-800' },
             { key: 'status', label: 'Status Soal',         count: r.total,                   icon: FileText,    aktif: 'bg-blue-100 border-blue-300 text-blue-800' },
             { key: 'jadwal', label: 'Belum Dijadwalkan',   count: belumDijadwalkanCount,     icon: Calendar,    aktif: 'bg-amber-100 border-amber-300 text-amber-800' },
+            { key: 'mengawas', label: 'Nama Guru & Total Mengawas', count: d.rekap_mengawas.length, icon: Users, aktif: 'bg-indigo-100 border-indigo-300 text-indigo-800' },
             { key: 'guru',   label: 'Guru Belum Mengawas', count: d.guru_belum_mengawas.length, icon: UserX,    aktif: 'bg-purple-100 border-purple-300 text-purple-800' },
           ]
 
@@ -1983,7 +1987,9 @@ export default function AdminJadwalPage() {
               </div>
 
               {/* Pencarian (untuk tab yang berisi daftar mapel) */}
-              {rangkumanSection !== 'guru' && (
+              {rangkumanSection === 'mengawas' ? (
+                <SearchInput value={rangkumanCari} onChange={setRangkumanCari} placeholder="Cari nama guru..." />
+              ) : rangkumanSection !== 'guru' && (
                 <SearchInput value={rangkumanCari} onChange={setRangkumanCari} placeholder="Cari mapel, kelas, atau nama guru..." />
               )}
 
@@ -2057,6 +2063,72 @@ export default function AdminJadwalPage() {
                     </div>
                   )
                 )}
+
+                {rangkumanSection === 'mengawas' && (() => {
+                  const q = rangkumanCari.trim().toLowerCase()
+                  const rekapTampil = d.rekap_mengawas.filter(g => !q || g.nama.toLowerCase().includes(q) || g.username.toLowerCase().includes(q))
+                  if (d.rekap_mengawas.length === 0) return <KosongRangkuman pesan="Belum ada data guru" />
+                  if (rekapTampil.length === 0) return <p className="py-10 text-center text-sm text-slate-400">Tidak ada hasil untuk &quot;{rangkumanCari}&quot;.</p>
+                  const fmtHari = (t: string) => new Date(`${t}T00:00:00Z`).toLocaleDateString('id-ID', {
+                    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC',
+                  })
+                  return (
+                    <div className="space-y-1.5">
+                      <p className="text-sm text-slate-500 mb-2">
+                        Klik angka <strong className="text-slate-700">total</strong> untuk melihat hari/tanggal guru tersebut mengawas.
+                      </p>
+                      {rekapTampil.map((g, i) => {
+                        const terbuka = guruTerbuka === g.username
+                        return (
+                          <div key={g.username} className="rounded-xl border border-slate-100 bg-slate-50/60 overflow-hidden">
+                            <div className="flex items-center gap-3 px-3 py-2.5">
+                              <div className="w-7 h-7 rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold flex items-center justify-center flex-shrink-0">
+                                {i + 1}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p className="font-medium text-slate-800 text-sm truncate">{g.nama}</p>
+                                <p className="text-xs text-slate-400 truncate">{g.username}</p>
+                              </div>
+                              <button
+                                type="button"
+                                disabled={g.total === 0}
+                                onClick={() => setGuruTerbuka(terbuka ? null : g.username)}
+                                aria-expanded={terbuka}
+                                className={`flex-shrink-0 rounded-full border px-3 py-1 text-xs font-bold transition-colors ${
+                                  g.total === 0
+                                    ? 'bg-white border-slate-200 text-slate-400 cursor-default'
+                                    : terbuka
+                                      ? 'bg-indigo-600 border-indigo-600 text-white'
+                                      : 'bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100'
+                                }`}
+                              >
+                                {g.total}× mengawas
+                              </button>
+                            </div>
+                            {terbuka && (
+                              <div className="border-t border-slate-100 bg-white px-3 py-2.5">
+                                <p className="text-xs text-slate-500 mb-2">
+                                  {g.jumlah_hari} hari · {g.total} jadwal
+                                </p>
+                                <ul className="space-y-1.5">
+                                  {g.jadwal.map((t, idx) => (
+                                    <li key={`${t.tanggal}-${t.sesi}-${t.kelas}-${idx}`} className="flex items-start justify-between gap-3 text-xs">
+                                      <span className="font-semibold text-slate-700">{fmtHari(t.tanggal)}</span>
+                                      <span className="text-right text-slate-500">
+                                        {t.nama_mapel} · {t.kelas}
+                                        {t.jam_mulai && t.jam_selesai ? ` · ${t.jam_mulai}–${t.jam_selesai}` : ''}
+                                      </span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )
+                })()}
 
                 {rangkumanSection === 'guru' && (
                   d.guru_belum_mengawas.length === 0 ? (
