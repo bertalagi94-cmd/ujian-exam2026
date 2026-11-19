@@ -25,6 +25,25 @@ export interface ItemGuruBelumMengawas {
   nama: string
 }
 
+// Satu tugas mengawas (satu jadwal) milik seorang guru.
+export interface ItemTugasMengawas {
+  tanggal: string // YYYY-MM-DD
+  sesi: number | null
+  jam_mulai: string | null
+  jam_selesai: string | null
+  nama_mapel: string
+  kelas: string
+}
+
+// Satu baris di tab "Rekap Mengawas": guru + berapa kali mengawas + rinciannya.
+export interface ItemRekapMengawas {
+  username: string
+  nama: string
+  total: number
+  jumlah_hari: number
+  jadwal: ItemTugasMengawas[]
+}
+
 // Satu baris = satu kombinasi mapel x kelas, lengkap dengan status soal DAN
 // status jadwalnya. Dipakai tab "Siap Dijadwalkan" dan "Status Soal" di
 // modal Rangkuman.
@@ -52,6 +71,7 @@ export interface RangkumanJadwal {
   belum_dijadwalkan: ItemBelumDijadwalkan[]
   belum_ada_soal: ItemBelumAdaSoal[]
   guru_belum_mengawas: ItemGuruBelumMengawas[]
+  rekap_mengawas: ItemRekapMengawas[]
   kesiapan: ItemKesiapan[]
   ringkasan: RingkasanKesiapan
 }
@@ -75,12 +95,15 @@ export async function getRangkumanJadwal(yayasanId: string): Promise<RangkumanJa
 
   const [{ data: mapelRaw }, { data: jadwalRaw }, { data: guruRaw }] = await Promise.all([
     (db as any).from('mapel').select('id, nama, kelas_list, guru_id'),
-    (db as any).from('jadwal').select('mapel_id, kelas, pengawas, tanggal'),
+    (db as any).from('jadwal').select('mapel_id, kelas, pengawas, tanggal, sesi, jam_mulai, jam_selesai'),
     (db as any).from('users').select('username, nama, status').eq('role', 'GURU'),
   ])
 
   const mapelList = (mapelRaw ?? []) as { id: string; nama: string; kelas_list: string | null; guru_id: string | null }[]
-  const jadwalList = (jadwalRaw ?? []) as { mapel_id: string; kelas: string; pengawas: string | null; tanggal: string | null }[]
+  const jadwalList = (jadwalRaw ?? []) as {
+    mapel_id: string; kelas: string; pengawas: string | null; tanggal: string | null
+    sesi: number | null; jam_mulai: string | null; jam_selesai: string | null
+  }[]
   const guruList = (guruRaw ?? []) as { username: string; nama: string; status: string }[]
 
   // Semua kombinasi mapel x kelas yang diampu.
@@ -156,8 +179,42 @@ export async function getRangkumanJadwal(yayasanId: string): Promise<RangkumanJa
     .filter(g => g.status !== 'NONAKTIF' && !guruPernahMengawas.has(g.username))
     .map(g => ({ username: g.username, nama: g.nama }))
 
+  // Rekap mengawas: semua guru aktif + jumlah jadwal yang mereka awasi
+  // (diurutkan terbanyak dulu) beserta rincian tanggalnya.
+  const namaMapel = new Map(mapelList.map(m => [m.id, m.nama]))
+  const tugasPerGuru = new Map<string, ItemTugasMengawas[]>()
+  for (const j of jadwalList) {
+    if (!j.pengawas || !j.tanggal) continue
+    const arr = tugasPerGuru.get(j.pengawas) ?? []
+    arr.push({
+      tanggal: String(j.tanggal).slice(0, 10),
+      sesi: j.sesi ?? null,
+      jam_mulai: j.jam_mulai,
+      jam_selesai: j.jam_selesai,
+      nama_mapel: namaMapel.get(j.mapel_id) ?? j.mapel_id,
+      kelas: j.kelas,
+    })
+    tugasPerGuru.set(j.pengawas, arr)
+  }
+  const rekapMengawas: ItemRekapMengawas[] = guruList
+    .filter(g => g.status !== 'NONAKTIF' || tugasPerGuru.has(g.username))
+    .map(g => {
+      const jadwal = (tugasPerGuru.get(g.username) ?? []).sort((a, b) =>
+        a.tanggal.localeCompare(b.tanggal) || (a.sesi ?? 0) - (b.sesi ?? 0)
+      )
+      return {
+        username: g.username,
+        nama: g.nama,
+        total: jadwal.length,
+        jumlah_hari: new Set(jadwal.map(t => t.tanggal)).size,
+        jadwal,
+      }
+    })
+    .sort((a, b) => b.total - a.total || a.nama.localeCompare(b.nama, 'id'))
+
   return {
     belum_dijadwalkan: belumDijadwalkan,
+    rekap_mengawas: rekapMengawas,
     belum_ada_soal: belumAdaSoal,
     guru_belum_mengawas: guruBelumMengawas,
     kesiapan,
