@@ -4,12 +4,13 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   Plus, Pencil, Trash2, Calendar, FileText, Download, PackageOpen,
   CheckCircle, Clock, AlertCircle, XCircle, HelpCircle, AlertTriangle,
-  ClipboardList, RotateCcw, Copy, X, UserX, BarChart3
+  ClipboardList, RotateCcw, Copy, X, UserX, BarChart3, FileSpreadsheet
 } from 'lucide-react'
 import { Modal, Confirm, StatusBadge, SearchInput, EmptyState, Spinner, Toast, Pagination } from '@/components/ui'
 import { apiRequest, formatDate } from '@/lib/utils'
 import { Jadwal, Mapel, Kelas, User } from '@/types'
 import type { RangkumanJadwal, ItemKesiapan } from '@/lib/rangkuman'
+import { eksporJadwalExcel, eksporJadwalPdf } from '@/lib/ekspor-jadwal'
 import { DURASI_ESSAY_DEFAULT_MENIT, DURASI_ESSAY_MAX_DEFAULT, DURASI_ESSAY_MIN_DEFAULT, labelDurasiTotal } from '@/lib/durasi-ujian'
 
 const PER_PAGE = 20
@@ -503,6 +504,7 @@ export default function AdminJadwalPage() {
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
 
   const [cetakMassalOpen, setCetakMassalOpen] = useState(false)
+  const [eksporJadwalBusy, setEksporJadwalBusy] = useState<'excel' | 'pdf' | null>(null)
   const [cetakMode, setCetakMode] = useState<{ daftarHadir: boolean; beritaAcara: boolean }>({ daftarHadir: true, beritaAcara: true })
   const [cetakTanggal, setCetakTanggal] = useState('')
   const [tanggalList, setTanggalList] = useState<string[]>([])
@@ -626,6 +628,31 @@ export default function AdminJadwalPage() {
   })
 
   const paginated = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE)
+
+  // Unduh DAFTAR jadwal (bukan dokumen daftar hadir/berita acara). Mengikuti
+  // pencarian & filter status yang sedang aktif; dibuat di browser, tanpa
+  // request ke server.
+  async function handleEksporJadwal(jenis: 'excel' | 'pdf') {
+    if (filtered.length === 0) { showToast('Tidak ada jadwal untuk diunduh', 'error'); return }
+    setEksporJadwalBusy(jenis)
+    try {
+      if (jenis === 'excel') {
+        await eksporJadwalExcel(filtered)
+      } else {
+        const ket = [
+          filterStatus ? `Status: ${filterStatus}` : '',
+          search ? `Mapel: "${search}"` : '',
+        ].filter(Boolean).join(' | ')
+        await eksporJadwalPdf(filtered, { subjudul: ket || undefined })
+      }
+      showToast(`${filtered.length} jadwal diunduh`)
+    } catch (e) {
+      console.error('Ekspor jadwal gagal:', e)
+      showToast('Gagal mengunduh jadwal', 'error')
+    } finally {
+      setEksporJadwalBusy(null)
+    }
+  }
 
   // Buka modal Tambah (tanpa argumen) atau Edit (dengan data jadwal).
   // Mengganti pola lama yang menulis 4 setState terpisah di setiap tombol,
@@ -1104,6 +1131,14 @@ export default function AdminJadwalPage() {
           </button>
           <button onClick={() => setCetakMassalOpen(true)} className="btn-secondary btn-sm">
             <PackageOpen className="w-4 h-4" /> Download Massal
+          </button>
+          <button onClick={() => handleEksporJadwal('excel')} disabled={eksporJadwalBusy !== null || loading}
+            className="btn-secondary btn-sm">
+            {eksporJadwalBusy === 'excel' ? <Spinner size="sm" /> : <FileSpreadsheet className="w-4 h-4" />} Jadwal Excel
+          </button>
+          <button onClick={() => handleEksporJadwal('pdf')} disabled={eksporJadwalBusy !== null || loading}
+            className="btn-secondary btn-sm">
+            {eksporJadwalBusy === 'pdf' ? <Spinner size="sm" /> : <FileText className="w-4 h-4" />} Jadwal PDF
           </button>
           {(() => {
             const belumSiap = jadwal.filter(j => j.status_soal !== 'DISETUJUI')
