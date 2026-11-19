@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { CalendarDays, CheckCircle, Clock, PlayCircle, Users, UserCheck, AlertCircle, RefreshCw } from 'lucide-react'
 import { apiRequest, cn } from '@/lib/utils'
-import { EmptyState, PageLoader, StatCard } from '@/components/ui'
+import { EmptyState, PageLoader } from '@/components/ui'
 
 type StatusJadwal = 'AKTIF' | 'BERJALAN' | 'SELESAI'
 
@@ -37,10 +37,10 @@ interface Respons {
   hariIni: string
 }
 
-const STATUS_CONFIG: Record<StatusJadwal, { label: string; cls: string; icon: React.ReactNode }> = {
-  AKTIF:    { label: 'Akan Datang', cls: 'bg-blue-100 text-blue-700 border-blue-200', icon: <Clock className="w-3.5 h-3.5" /> },
-  BERJALAN: { label: 'Sedang Berlangsung', cls: 'bg-amber-100 text-amber-700 border-amber-200', icon: <PlayCircle className="w-3.5 h-3.5" /> },
-  SELESAI:  { label: 'Selesai', cls: 'bg-emerald-100 text-emerald-700 border-emerald-200', icon: <CheckCircle className="w-3.5 h-3.5" /> },
+const STATUS_CONFIG: Record<StatusJadwal, { label: string; pendek: string; cls: string; icon: React.ReactNode }> = {
+  AKTIF:    { label: 'Akan Datang', pendek: 'Akan datang', cls: 'bg-blue-100 text-blue-700 border-blue-200', icon: <Clock className="w-3.5 h-3.5" /> },
+  BERJALAN: { label: 'Sedang Berlangsung', pendek: 'Berlangsung', cls: 'bg-amber-100 text-amber-700 border-amber-200', icon: <PlayCircle className="w-3.5 h-3.5" /> },
+  SELESAI:  { label: 'Selesai', pendek: 'Selesai', cls: 'bg-emerald-100 text-emerald-700 border-emerald-200', icon: <CheckCircle className="w-3.5 h-3.5" /> },
 }
 
 // Tanggal dari server berupa 'YYYY-MM-DD' (tanpa zona). Diformat dengan
@@ -174,27 +174,38 @@ export default function JadwalMapelSayaPage() {
   }
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        {judul}
-        <button onClick={load} disabled={loading} className="btn-secondary btn-sm">
+    <div className="space-y-4 sm:space-y-6 animate-fade-in">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="page-title">Jadwal Mapel Saya</h1>
+          <p className="page-subtitle">Jadwal ujian mapel yang Anda ampu, beserta kelas, waktu, dan pengawasnya.</p>
+        </div>
+        <button
+          onClick={load}
+          disabled={loading}
+          aria-label="Muat ulang"
+          className="btn-secondary btn-sm flex-shrink-0"
+        >
           <RefreshCw className={cn('w-4 h-4', loading && 'animate-spin')} />
-          Muat ulang
+          <span className="hidden sm:inline">Muat ulang</span>
         </button>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard label="Total Jadwal" value={ringkasan.total} icon={CalendarDays} color="bg-brand-500" />
-        <StatCard label="Akan Datang" value={ringkasan.akanDatang} icon={Clock} color="bg-blue-500" />
-        <StatCard label="Sedang Berlangsung" value={ringkasan.berjalan} icon={PlayCircle} color="bg-amber-500" />
-        <StatCard label="Selesai" value={ringkasan.selesai} icon={CheckCircle} color="bg-emerald-500" />
+      {/* Ringkasan ringkas: 4 angka sejajar, muat di layar HP */}
+      <div className="grid grid-cols-4 gap-2 sm:gap-4">
+        <RingkasTile label="Total" value={ringkasan.total} cls="text-slate-800" />
+        <RingkasTile label="Akan datang" value={ringkasan.akanDatang} cls="text-blue-600" />
+        <RingkasTile label="Berlangsung" value={ringkasan.berjalan} cls="text-amber-600" />
+        <RingkasTile label="Selesai" value={ringkasan.selesai} cls="text-emerald-600" />
       </div>
 
-      <div className="card py-4 flex gap-3 flex-wrap">
+      {/* Filter: 2 kolom sejajar di HP */}
+      <div className="grid grid-cols-2 gap-2 sm:flex sm:gap-3">
         <select
           value={filterMapel}
           onChange={e => setFilterMapel(e.target.value)}
           className="select w-full sm:w-56"
+          aria-label="Filter mapel"
         >
           <option value="">Semua Mapel</option>
           {mapelList.map(m => <option key={m.id} value={m.id}>{m.nama}</option>)}
@@ -203,10 +214,11 @@ export default function JadwalMapelSayaPage() {
           value={filterStatus}
           onChange={e => setFilterStatus(e.target.value as '' | StatusJadwal)}
           className="select w-full sm:w-52"
+          aria-label="Filter status"
         >
           <option value="">Semua Status</option>
           <option value="AKTIF">Akan Datang</option>
-          <option value="BERJALAN">Sedang Berlangsung</option>
+          <option value="BERJALAN">Berlangsung</option>
           <option value="SELESAI">Selesai</option>
         </select>
       </div>
@@ -221,9 +233,9 @@ export default function JadwalMapelSayaPage() {
         </div>
       ) : (
         perBulan.map(([bulan, daftar]) => (
-          <section key={bulan} className="space-y-3">
-            <h2 className="text-sm font-semibold text-slate-600 capitalize">{labelBulan(bulan)}</h2>
-            <div className="space-y-2.5">
+          <section key={bulan} className="space-y-2">
+            <h2 className="text-xs font-bold text-slate-600 uppercase tracking-wider">{labelBulan(bulan)}</h2>
+            <div className="space-y-2">
               {daftar.map(j => {
                 const t = bagianTanggal(j.tanggal)
                 const st = STATUS_CONFIG[j.status] ?? STATUS_CONFIG.AKTIF
@@ -232,54 +244,53 @@ export default function JadwalMapelSayaPage() {
                   <div
                     key={j.id}
                     className={cn(
-                      'card flex items-stretch gap-4 py-3.5',
+                      'card flex items-stretch gap-3 p-3 sm:p-4',
                       hariIniKah && 'ring-2 ring-emerald-300'
                     )}
                   >
+                    {/* Blok tanggal */}
                     <div
                       className={cn(
-                        'w-14 flex-shrink-0 rounded-xl flex flex-col items-center justify-center py-1',
+                        'w-12 sm:w-14 flex-shrink-0 rounded-xl flex flex-col items-center justify-center py-1.5',
                         hariIniKah ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-700'
                       )}
                       title={t.lengkap}
                     >
                       <span className="text-[10px] uppercase tracking-wide opacity-80">{t.hariPendek}</span>
-                      <span className="text-xl font-bold leading-none">{t.tgl}</span>
+                      <span className="text-lg sm:text-xl font-bold leading-none">{t.tgl}</span>
                       <span className="text-[10px] uppercase opacity-80">{t.bulanPendek}</span>
                     </div>
 
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <p className="font-semibold text-slate-800 truncate">{j.nama_mapel}</p>
-                        <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 text-slate-600 px-2 py-0.5 text-xs font-medium">
+                      {/* Mapel + kelas */}
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="font-semibold text-slate-800 text-sm sm:text-base leading-snug">{j.nama_mapel}</p>
+                        <span className="inline-flex flex-shrink-0 items-center gap-1 rounded-full bg-slate-100 text-slate-600 px-2 py-0.5 text-xs font-semibold">
                           <Users className="w-3 h-3" /> {j.nama_kelas}
                         </span>
-                        {hariIniKah && (
-                          <span className="rounded-full bg-emerald-600 text-white px-2 py-0.5 text-[10px] font-bold">
-                            Hari ini
-                          </span>
-                        )}
                       </div>
-                      <p className="text-sm text-slate-500 mt-1 flex items-center gap-x-3 gap-y-0.5 flex-wrap">
+
+                      {/* Jam · sesi */}
+                      <p className="mt-1 text-xs sm:text-sm text-slate-500 flex items-center gap-x-2.5 gap-y-0.5 flex-wrap">
                         <span className="inline-flex items-center gap-1">
-                          <Clock className="w-3.5 h-3.5" />
-                          {j.jam_mulai} – {j.jam_selesai}
-                          {j.durasi ? ` (${j.durasi} menit)` : ''}
+                          <Clock className="w-3.5 h-3.5 text-slate-400" />
+                          {j.jam_mulai}–{j.jam_selesai}
                         </span>
                         {j.sesi != null && <span>Sesi {j.sesi}</span>}
-                        <span>{t.hari}</span>
+                        {j.durasi ? <span>{j.durasi} mnt</span> : null}
                       </p>
-                      <p className="text-xs text-slate-400 mt-1 inline-flex items-center gap-1">
-                        <UserCheck className="w-3.5 h-3.5" />
-                        Pengawas: {j.nama_pengawas ?? 'Belum ditentukan'}
-                      </p>
-                    </div>
 
-                    <div className="flex-shrink-0 self-start">
-                      <span className={cn('inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium', st.cls)}>
-                        {st.icon}
-                        {st.label}
-                      </span>
+                      {/* Pengawas (kiri) + status (kanan) */}
+                      <div className="mt-1.5 flex items-center justify-between gap-2">
+                        <p className="min-w-0 text-xs text-slate-500 inline-flex items-center gap-1">
+                          <UserCheck className="w-3.5 h-3.5 flex-shrink-0 text-slate-400" />
+                          <span className="truncate">{j.nama_pengawas ?? 'Pengawas belum ditentukan'}</span>
+                        </p>
+                        <span className={cn('inline-flex flex-shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium', st.cls)}>
+                          {st.icon}
+                          {hariIniKah && j.status === 'AKTIF' ? 'Hari ini' : st.pendek}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 )
@@ -288,6 +299,15 @@ export default function JadwalMapelSayaPage() {
           </section>
         ))
       )}
+    </div>
+  )
+}
+
+function RingkasTile({ label, value, cls }: { label: string; value: number; cls: string }) {
+  return (
+    <div className="card p-2.5 sm:p-4 text-center">
+      <div className={cn('text-xl sm:text-2xl font-bold leading-none', cls)}>{value}</div>
+      <div className="mt-1 text-[10px] sm:text-xs text-slate-500 leading-tight">{label}</div>
     </div>
   )
 }
