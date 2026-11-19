@@ -4,13 +4,14 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   Plus, Pencil, Trash2, Calendar, FileText, Download, PackageOpen,
   CheckCircle, Clock, AlertCircle, XCircle, HelpCircle, AlertTriangle,
-  ClipboardList, RotateCcw, Copy, X, UserX, BarChart3, FileSpreadsheet
+  ClipboardList, RotateCcw, Copy, X, UserX, BarChart3
 } from 'lucide-react'
 import { Modal, Confirm, StatusBadge, SearchInput, EmptyState, Spinner, Toast, Pagination } from '@/components/ui'
 import { apiRequest, formatDate } from '@/lib/utils'
 import { Jadwal, Mapel, Kelas, User } from '@/types'
+import type { Sekolah as SekolahRow } from '@/types'
+import { eksporJadwalPdf } from '@/lib/ekspor-jadwal'
 import type { RangkumanJadwal, ItemKesiapan } from '@/lib/rangkuman'
-import { eksporJadwalExcel, eksporJadwalPdf } from '@/lib/ekspor-jadwal'
 import { DURASI_ESSAY_DEFAULT_MENIT, DURASI_ESSAY_MAX_DEFAULT, DURASI_ESSAY_MIN_DEFAULT, labelDurasiTotal } from '@/lib/durasi-ujian'
 
 const PER_PAGE = 20
@@ -504,7 +505,11 @@ export default function AdminJadwalPage() {
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
 
   const [cetakMassalOpen, setCetakMassalOpen] = useState(false)
-  const [eksporJadwalBusy, setEksporJadwalBusy] = useState<'excel' | 'pdf' | null>(null)
+  // Unduh jadwal (PDF + kop + tanda tangan) per jenjang/sekolah.
+  const [sekolahList, setSekolahList] = useState<SekolahRow[]>([])
+  const [eksporOpen, setEksporOpen] = useState(false)
+  const [eksporSekolahId, setEksporSekolahId] = useState('')
+  const [eksporBusy, setEksporBusy] = useState(false)
   const [cetakMode, setCetakMode] = useState<{ daftarHadir: boolean; beritaAcara: boolean }>({ daftarHadir: true, beritaAcara: true })
   const [cetakTanggal, setCetakTanggal] = useState('')
   const [tanggalList, setTanggalList] = useState<string[]>([])
@@ -585,6 +590,13 @@ export default function AdminJadwalPage() {
   }, [])
 
   useEffect(() => { load() }, [load])
+  // Daftar sekolah/jenjang untuk kop surat & dropdown unduh jadwal. Dipisah dari
+  // Promise.all di bawah supaya kegagalannya tidak mengganggu halaman jadwal.
+  useEffect(() => {
+    apiRequest<{ data: SekolahRow[] }>('/api/admin/sekolah')
+      .then(r => setSekolahList(r.data ?? []))
+      .catch(() => { /* fitur unduh jadwal saja yang terdampak */ })
+  }, [])
   useEffect(() => {
     Promise.all([
       apiRequest<{ data: Mapel[] }>('/api/admin/mapel'),
@@ -629,28 +641,45 @@ export default function AdminJadwalPage() {
 
   const paginated = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE)
 
-  // Unduh DAFTAR jadwal (bukan dokumen daftar hadir/berita acara). Mengikuti
-  // pencarian & filter status yang sedang aktif; dibuat di browser, tanpa
-  // request ke server.
-  async function handleEksporJadwal(jenis: 'excel' | 'pdf') {
-    if (filtered.length === 0) { showToast('Tidak ada jadwal untuk diunduh', 'error'); return }
-    setEksporJadwalBusy(jenis)
+  // ── Unduh jadwal per jenjang ────────────────────────────────────────────────
+  // jadwal.kelas menyimpan NAMA kelas; jenjang didapat dari kelas.sekolah_id.
+  const kunciKelas = (n?: string | null) => String(n ?? '').trim().toUpperCase()
+  const TANPA_JENJANG = '__TANPA_JENJANG__'
+  const sekolahIdPerKelas: Record<string, string> = {}
+  for (const k of kelasList) if (k.sekolah_id) sekolahIdPerKelas[kunciKelas(k.nama)] = k.sekolah_id
+  const jadwalPerJenjang: Record<string, Jadwal[]> = {}
+  for (const j of jadwal) {
+    const id = sekolahIdPerKelas[kunciKelas(j.kelas)] ?? TANPA_JENJANG
+    ;(jadwalPerJenjang[id] ??= []).push(j)
+  }
+  const opsiJenjang = [
+    ...sekolahList
+      .filter(sk => (jadwalPerJenjang[sk.id]?.length ?? 0) > 0)
+      .map(sk => ({ id: sk.id, teks: `${sk.label} — ${sk.nama_sekolah}`, jumlah: jadwalPerJenjang[sk.id].length })),
+    ...((jadwalPerJenjang[TANPA_JENJANG]?.length ?? 0) > 0
+      ? [{ id: TANPA_JENJANG, teks: 'Kelas belum diatur jenjangnya', jumlah: jadwalPerJenjang[TANPA_JENJANG].length }]
+      : []),
+  ]
+
+  function bukaEksporJadwal() {
+    setEksporSekolahId(opsiJenjang[0]?.id ?? '')
+    setEksporOpen(true)
+  }
+
+  async function handleEksporJadwal() {
+    const data = jadwalPerJenjang[eksporSekolahId] ?? []
+    if (data.length === 0) { showToast('Tidak ada jadwal untuk jenjang ini', 'error'); return }
+    setEksporBusy(true)
     try {
-      if (jenis === 'excel') {
-        await eksporJadwalExcel(filtered)
-      } else {
-        const ket = [
-          filterStatus ? `Status: ${filterStatus}` : '',
-          search ? `Mapel: "${search}"` : '',
-        ].filter(Boolean).join(' | ')
-        await eksporJadwalPdf(filtered, { subjudul: ket || undefined })
-      }
-      showToast(`${filtered.length} jadwal diunduh`)
+      const sk = sekolahList.find(x => x.id === eksporSekolahId)
+      await eksporJadwalPdf(data, sk ?? {})
+      setEksporOpen(false)
+      showToast(`${data.length} jadwal diunduh`)
     } catch (e) {
-      console.error('Ekspor jadwal gagal:', e)
-      showToast('Gagal mengunduh jadwal', 'error')
+      console.error('Unduh jadwal gagal:', e)
+      showToast('Gagal membuat PDF jadwal', 'error')
     } finally {
-      setEksporJadwalBusy(null)
+      setEksporBusy(false)
     }
   }
 
@@ -1132,13 +1161,8 @@ export default function AdminJadwalPage() {
           <button onClick={() => setCetakMassalOpen(true)} className="btn-secondary btn-sm">
             <PackageOpen className="w-4 h-4" /> Download Massal
           </button>
-          <button onClick={() => handleEksporJadwal('excel')} disabled={eksporJadwalBusy !== null || loading}
-            className="btn-secondary btn-sm">
-            {eksporJadwalBusy === 'excel' ? <Spinner size="sm" /> : <FileSpreadsheet className="w-4 h-4" />} Jadwal Excel
-          </button>
-          <button onClick={() => handleEksporJadwal('pdf')} disabled={eksporJadwalBusy !== null || loading}
-            className="btn-secondary btn-sm">
-            {eksporJadwalBusy === 'pdf' ? <Spinner size="sm" /> : <FileText className="w-4 h-4" />} Jadwal PDF
+          <button onClick={bukaEksporJadwal} disabled={loading || jadwal.length === 0} className="btn-secondary btn-sm">
+            <FileText className="w-4 h-4" /> Unduh Jadwal
           </button>
           {(() => {
             const belumSiap = jadwal.filter(j => j.status_soal !== 'DISETUJUI')
@@ -1377,6 +1401,36 @@ export default function AdminJadwalPage() {
           </>
         )}
       </div>
+
+      {/* Modal Unduh Jadwal (PDF per jenjang) */}
+      <Modal open={eksporOpen} onClose={() => setEksporOpen(false)}
+        title="Unduh Jadwal Ujian" size="sm"
+        footer={
+          <>
+            <button onClick={() => setEksporOpen(false)} className="btn-secondary">Batal</button>
+            <button onClick={handleEksporJadwal} className="btn-primary" disabled={!eksporSekolahId || eksporBusy}>
+              {eksporBusy ? <Spinner size="sm" /> : <Download className="w-4 h-4" />}
+              {eksporBusy ? 'Membuat PDF...' : 'Unduh PDF'}
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-slate-500">
+            Pilih jenjang. File PDF memuat kop surat sekolah, jadwal (hari/tanggal, sesi, jam, mapel, kelas, pengawas),
+            serta tanda tangan Kepala Madrasah dan Ketua Panitia Ujian.
+          </p>
+          <div>
+            <label className="label">Jenjang / Sekolah</label>
+            <select value={eksporSekolahId} onChange={e => setEksporSekolahId(e.target.value)} className="select w-full">
+              {opsiJenjang.length === 0 && <option value="">-- Belum ada jadwal --</option>}
+              {opsiJenjang.map(o => (
+                <option key={o.id} value={o.id}>{o.teks} ({o.jumlah} jadwal)</option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </Modal>
 
       {/* Modal Cetak Massal */}
       <Modal open={cetakMassalOpen} onClose={() => setCetakMassalOpen(false)}
