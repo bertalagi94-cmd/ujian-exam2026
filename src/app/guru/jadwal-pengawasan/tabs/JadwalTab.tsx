@@ -1,8 +1,8 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Calendar, Clock, BookOpen, Users, CheckCircle, PlayCircle, AlertCircle, RefreshCw, ClipboardList, X, UserX, RotateCcw, Copy } from 'lucide-react'
-import { apiRequest, formatDate } from '@/lib/utils'
+import { Calendar, Clock, Users, CheckCircle, PlayCircle, AlertCircle, RefreshCw, ClipboardList, X, UserX, RotateCcw, Copy } from 'lucide-react'
+import { apiRequest } from '@/lib/utils'
 import { PageLoader, Spinner } from '@/components/ui'
 
 interface JadwalPengawasan {
@@ -39,9 +39,17 @@ interface SusulanResult {
 }
 
 const STATUS_CONFIG = {
-  AKTIF:    { label: 'Akan Datang', cls: 'bg-blue-100 text-blue-700 border-blue-200',    icon: <Clock className="w-3.5 h-3.5" /> },
-  BERJALAN: { label: 'Sedang Berlangsung', cls: 'bg-amber-100 text-amber-700 border-amber-200', icon: <PlayCircle className="w-3.5 h-3.5" /> },
-  SELESAI:  { label: 'Selesai', cls: 'bg-emerald-100 text-emerald-700 border-emerald-200', icon: <CheckCircle className="w-3.5 h-3.5" /> },
+  AKTIF:    { label: 'Akan Datang', pendek: 'Akan datang', cls: 'bg-blue-100 text-blue-700 border-blue-200',    icon: <Clock className="w-3.5 h-3.5" /> },
+  BERJALAN: { label: 'Sedang Berlangsung', pendek: 'Berlangsung', cls: 'bg-amber-100 text-amber-700 border-amber-200', icon: <PlayCircle className="w-3.5 h-3.5" /> },
+  SELESAI:  { label: 'Selesai', pendek: 'Selesai', cls: 'bg-emerald-100 text-emerald-700 border-emerald-200', icon: <CheckCircle className="w-3.5 h-3.5" /> },
+}
+
+// Format tanggal ringkas, mis. "Kam, 19 Nov 2026". Pakai UTC supaya tidak
+// bergeser sehari di perangkat dengan zona waktu lain.
+function tanggalPendek(tanggal: string): string {
+  return new Date(`${tanggal}T00:00:00Z`).toLocaleDateString('id-ID', {
+    weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC',
+  })
 }
 
 function groupByMonth(list: JadwalPengawasan[]) {
@@ -435,37 +443,36 @@ export function JadwalTab({ onBukaMode }: { onBukaMode?: () => void }) {
   if (loading) return <PageLoader />
 
   const grouped = groupByMonth(jadwal)
-  const upcoming = jadwal.filter(j => j.status === 'AKTIF' && !isPast(j.tanggal, zonaWaktu, now))
-  const total = jadwal.length
-  const selesai = jadwal.filter(j => j.status === 'SELESAI').length
-  const berjalan = jadwal.filter(j => j.status === 'BERJALAN').length
+  const totalMengawas = jadwal.length
+  const jumlahHari = new Set(jadwal.map(j => j.tanggal)).size
 
   return (
-    <div className="space-y-6 sm:space-y-8 animate-fade-in pb-10">
-      {/* Baris atas: penjelasan singkat + Refresh (judul halaman ada di induk).
-          Penjelasan ditaruh di kartu putih supaya tetap terbaca di atas foto
-          latar dashboard (teks abu-abu polos jadi pudar di sana). */}
-      <div className="flex items-stretch gap-2.5">
-        <p className="card flex-1 min-w-0 py-2.5 px-3.5 text-sm text-slate-600">
-          Daftar jadwal ujian yang Anda awasi. Saat harinya tiba, tekan <strong className="text-slate-800">Mulai Sesi</strong>.
-        </p>
+    <div className="space-y-5 sm:space-y-6 animate-fade-in pb-10">
+      {/* Ringkasan singkat: total mengawas & jumlah hari */}
+      <div className="card flex items-center gap-3 py-3 px-3.5 sm:px-5">
+        <div className="grid grid-cols-2 flex-1 divide-x divide-slate-100">
+          <div className="pr-3">
+            <div className="text-2xl sm:text-3xl font-bold text-indigo-600 leading-none">
+              {totalMengawas}<span className="text-sm font-semibold text-slate-400 ml-1">kali</span>
+            </div>
+            <div className="text-xs text-slate-500 mt-1">Total mengawas</div>
+          </div>
+          <div className="pl-3 sm:pl-5">
+            <div className="text-2xl sm:text-3xl font-bold text-slate-800 leading-none">
+              {jumlahHari}<span className="text-sm font-semibold text-slate-400 ml-1">hari</span>
+            </div>
+            <div className="text-xs text-slate-500 mt-1">Jumlah hari</div>
+          </div>
+        </div>
         <button
           onClick={() => load(true)}
           disabled={refreshing}
           aria-label="Refresh jadwal"
-          className="flex items-center gap-2 px-3 rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 text-sm font-medium transition-colors flex-shrink-0"
+          className="flex items-center gap-2 p-2.5 sm:px-3 rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 text-sm font-medium transition-colors flex-shrink-0"
         >
           <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
           <span className="hidden sm:inline">Refresh</span>
         </button>
-      </div>
-
-      {/* Stat Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-        <MiniStat bg="bg-indigo-50" icon={<Calendar className="w-5 h-5 text-indigo-600" />} label="Total Jadwal" value={total} />
-        <MiniStat bg="bg-blue-50" icon={<Clock className="w-5 h-5 text-blue-600" />} label="Akan Datang" value={upcoming.length} />
-        <MiniStat bg="bg-amber-50" icon={<PlayCircle className="w-5 h-5 text-amber-600" />} label="Berlangsung" value={berjalan} />
-        <MiniStat bg="bg-emerald-50" icon={<CheckCircle className="w-5 h-5 text-emerald-600" />} label="Selesai" value={selesai} />
       </div>
 
       {/* Empty state */}
@@ -494,67 +501,67 @@ export function JadwalTab({ onBukaMode }: { onBukaMode?: () => void }) {
               {items.map(j => {
                 const cfg = STATUS_CONFIG[j.status] ?? STATUS_CONFIG.AKTIF
                 const today = isToday(j.tanggal, zonaWaktu, now)
-                const dayName = new Date(j.tanggal).toLocaleDateString('id-ID', { weekday: 'long' })
+                const tgl = tanggalPendek(j.tanggal)
                 const isSelesai = j.status === 'SELESAI'
 
                 return (
                   <div
                     key={j.id}
-                    className={`bg-white border rounded-2xl shadow-sm hover:shadow-md transition-all overflow-hidden
+                    className={`bg-white border rounded-2xl shadow-sm overflow-hidden
                       ${today ? 'border-indigo-200 ring-2 ring-indigo-100' : 'border-slate-100'}`}
                   >
                     <div className="flex items-stretch">
-                      {/* Left accent */}
-                      <div className={`w-1.5 flex-shrink-0 rounded-l-2xl ${
+                      {/* Garis aksen kiri */}
+                      <div className={`w-1.5 flex-shrink-0 ${
                         j.status === 'BERJALAN' ? 'bg-amber-400' :
                         j.status === 'SELESAI'  ? 'bg-emerald-400' :
                         today ? 'bg-indigo-500' : 'bg-slate-200'
                       }`} />
 
-                      <div className="flex-1 p-4">
-                        <div className="flex items-start justify-between gap-3 flex-wrap">
-                          <div className="flex-1 min-w-0">
-                            {/* Mapel + Kelas */}
-                            <div className="flex items-center gap-2 flex-wrap mb-2">
-                              <span className="font-bold text-slate-900">{j.nama_mapel}</span>
-                              <span className="text-slate-300">·</span>
-                              <span className="text-sm text-slate-600 flex items-center gap-1">
-                                <Users className="w-3.5 h-3.5" />
-                                Kelas {j.nama_kelas}
-                              </span>
+                      <div className="flex-1 min-w-0 p-3 sm:p-4">
+                        {/* Baris 1: mapel + kelas, status di kanan */}
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="font-bold text-slate-900 text-sm sm:text-base leading-snug">{j.nama_mapel}</p>
+                            <p className="mt-0.5 flex items-center gap-1.5 text-xs text-slate-500">
+                              <Users className="w-3 h-3" />
+                              Kelas {j.nama_kelas}
                               {today && (
-                                <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 font-semibold">
-                                  Hari Ini
+                                <span className="px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 text-[10px] font-bold leading-none">
+                                  Hari ini
                                 </span>
                               )}
-                            </div>
-
-                            {/* Info grid */}
-                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                              <InfoItem icon={<Calendar className="w-3.5 h-3.5" />} label="Tanggal" value={`${dayName}, ${formatDate(j.tanggal)}`} />
-                              <InfoItem icon={<BookOpen className="w-3.5 h-3.5" />} label="Sesi" value={`Sesi ${j.sesi}`} />
-                              <InfoItem icon={<Clock className="w-3.5 h-3.5" />} label="Jam" value={`${j.jam_mulai} – ${j.jam_selesai}`} />
-                              <InfoItem icon={<Clock className="w-3.5 h-3.5" />} label="Durasi" value={`${j.durasi} menit`} />
-                            </div>
+                            </p>
                           </div>
-
-                          {/* Status badge */}
-                          <span className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border font-medium flex-shrink-0 ${cfg.cls}`}>
+                          <span className={`flex items-center gap-1 text-[11px] px-2 py-1 rounded-full border font-medium flex-shrink-0 ${cfg.cls}`}>
                             {cfg.icon}
-                            {cfg.label}
+                            {cfg.pendek}
                           </span>
                         </div>
 
-                        {/* Today reminder + tombol mulai */}
+                        {/* Baris 2: tanggal · jam · sesi — satu baris ringkas */}
+                        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-600">
+                          <span className="inline-flex items-center gap-1 font-semibold text-slate-700">
+                            <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                            {tgl}
+                          </span>
+                          <span className="inline-flex items-center gap-1">
+                            <Clock className="w-3.5 h-3.5 text-slate-400" />
+                            {j.jam_mulai}–{j.jam_selesai}
+                          </span>
+                          <span className="text-slate-500">Sesi {j.sesi} · {j.durasi} mnt</span>
+                        </div>
+
+                        {/* Hari ini: pengingat + tombol mulai */}
                         {today && j.status === 'AKTIF' && (() => {
                           const bisa = canStartSesi(j.tanggal, j.jam_mulai, j.jam_selesai, now, zonaWaktu)
                           const menit = menitMenunggu(j.tanggal, j.jam_mulai, now, zonaWaktu)
                           if (bisa) {
                             return (
-                              <div className="mt-3 flex items-center justify-between gap-3 flex-wrap">
+                              <div className="mt-3 flex flex-col sm:flex-row sm:items-center gap-2">
                                 <div className="flex items-center gap-2 text-xs text-emerald-700 bg-emerald-50 px-3 py-2 rounded-xl flex-1">
                                   <PlayCircle className="w-3.5 h-3.5 flex-shrink-0" />
-                                  {menit <= 0 ? 'Ujian sudah dimulai!' : `${menit} menit lagi — Anda sudah bisa memulai sesi`}
+                                  {menit <= 0 ? 'Ujian sudah dimulai!' : `${menit} menit lagi — sudah bisa mulai sesi`}
                                 </div>
                                 <button
                                   type="button"
@@ -570,19 +577,19 @@ export function JadwalTab({ onBukaMode }: { onBukaMode?: () => void }) {
                           return (
                             <div className="mt-3 flex items-center gap-2 text-xs text-indigo-600 bg-indigo-50 px-3 py-2 rounded-xl">
                               <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
-                              Ujian hari ini — tombol mulai tersedia <strong className="mx-1">{menit} menit lagi</strong> (15 mnt sebelum jam {j.jam_mulai})
+                              <span>Tombol mulai aktif <strong>{menit} menit lagi</strong> (15 mnt sebelum {j.jam_mulai})</span>
                             </div>
                           )
                         })()}
                         {today && j.status === 'BERJALAN' && (
-                          <div className="mt-3 flex items-center gap-2 text-xs text-amber-600 bg-amber-50 px-3 py-2 rounded-xl">
+                          <div className="mt-3 flex items-center gap-2 text-xs text-amber-700 bg-amber-50 px-3 py-2 rounded-xl">
                             <PlayCircle className="w-3.5 h-3.5 flex-shrink-0" />
-                            Sesi sedang berlangsung — pantau di tab <strong className="mx-1">Mode Pengawas</strong>.
+                            <span className="flex-1 min-w-0">Sesi berlangsung — pantau di <strong>Mode Pengawas</strong>.</span>
                             {onBukaMode && (
                               <button
                                 type="button"
                                 onClick={() => onBukaMode()}
-                                className="ml-auto flex-shrink-0 underline font-semibold"
+                                className="flex-shrink-0 underline font-semibold"
                               >
                                 Buka
                               </button>
@@ -590,13 +597,13 @@ export function JadwalTab({ onBukaMode }: { onBukaMode?: () => void }) {
                           </div>
                         )}
 
-                        {/* Tombol Ujian Susulan — muncul kapan saja selama status SELESAI */}
+                        {/* Ujian Susulan — muncul kapan saja selama status SELESAI */}
                         {isSelesai && (
-                          <div className="mt-3 flex items-center justify-between gap-3 flex-wrap">
-                            <p className="text-xs text-slate-400">Ada siswa yang tidak hadir?</p>
+                          <div className="mt-3 flex items-center justify-between gap-2">
+                            <p className="text-xs text-slate-400">Ada siswa tidak hadir?</p>
                             <button
                               onClick={() => setSusulanTarget(j)}
-                              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-purple-50 hover:bg-purple-100 border border-purple-200 text-purple-700 text-xs font-semibold transition-all"
+                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-50 hover:bg-purple-100 border border-purple-200 text-purple-700 text-xs font-semibold transition-all"
                             >
                               <ClipboardList className="w-3.5 h-3.5" />
                               Ujian Susulan
@@ -623,27 +630,6 @@ export function JadwalTab({ onBukaMode }: { onBukaMode?: () => void }) {
           }}
         />
       )}
-    </div>
-  )
-}
-
-function MiniStat({ bg, icon, label, value }: { bg: string; icon: React.ReactNode; label: string; value: number }) {
-  return (
-    <div className="bg-white border border-slate-100 rounded-2xl shadow-sm p-4 flex items-center gap-3">
-      <div className={`w-10 h-10 rounded-xl ${bg} flex items-center justify-center flex-shrink-0`}>{icon}</div>
-      <div>
-        <div className="text-xs text-slate-500">{label}</div>
-        <div className="text-xl font-bold text-slate-900">{value}</div>
-      </div>
-    </div>
-  )
-}
-
-function InfoItem({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
-  return (
-    <div className="flex flex-col gap-0.5">
-      <span className="text-xs text-slate-400 flex items-center gap-1">{icon}{label}</span>
-      <span className="text-xs font-semibold text-slate-700">{value}</span>
     </div>
   )
 }
