@@ -861,8 +861,9 @@ export default function AdminJadwalPage() {
   function infoJumlahSoalPDF(j: JadwalCetak): string {
     const pg = j.jumlah_soal_pg ?? 0
     const essay = j.jumlah_soal_essay ?? 0
-    let teks = `Pilihan Ganda: ${pg} soal, Essay: ${essay} soal`
+    let teks = `Pilihan Ganda: ${pg} soal`
     if (essay > 0) {
+      teks += `, Essay: ${essay} soal`
       teks += j.mode_jawaban_essay === 'KERTAS'
         ? ' (Jawaban di isi dikertas-Pastikan kertas jawaban telah di siapkan)'
         : ' (Jawaban langsung di input di Layar)'
@@ -976,6 +977,7 @@ export default function AdminJadwalPage() {
         my += rowH
       }
       my += 5
+      if (my + 10 > 280) { doc.addPage(); my = 20 }
       doc.setFontSize(10)
       doc.text('Jumlah peserta: ', lm, my)
       doc.setFont('helvetica', 'bold'); doc.text(`${j.siswa.length} siswa`, lm + 32, my)
@@ -1034,8 +1036,12 @@ export default function AdminJadwalPage() {
       my += lines.length * 6 + 8
     }
 
-    const ttdY = my + 12
+    // FIX: blok tanda tangan dulu digambar tanpa cek sisa halaman, sehingga di
+    // Daftar Hadir (baris 2 cm) ia jatuh di luar kertas dan tidak tercetak.
+    // Kalau sisa halaman kurang, pindah ke halaman baru.
     const signSpace = 30
+    if (my + 12 + signSpace + 10 > 285) { doc.addPage(); my = 20 }
+    const ttdY = my + 12
     doc.setFontSize(10)
     doc.setFont('helvetica', 'normal')
     // "Pengawas Ujian," sejajar dengan "Ketua Panitia Ujian," (baris ke-2);
