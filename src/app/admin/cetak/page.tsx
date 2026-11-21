@@ -62,8 +62,9 @@ interface JadwalCetak {
 function infoJumlahSoal(j: JadwalCetak): string {
   const pg = j.jumlah_soal_pg ?? 0
   const essay = j.jumlah_soal_essay ?? 0
-  let teks = `Pilihan Ganda: ${pg} soal, Essay: ${essay} soal`
+  let teks = `Pilihan Ganda: ${pg} soal`
   if (essay > 0) {
+    teks += `, Essay: ${essay} soal`
     teks += j.mode_jawaban_essay === 'KERTAS'
       ? ' (Jawaban di isi dikertas-Pastikan kertas jawaban telah di siapkan)'
       : ' (Jawaban langsung di input di Layar)'
@@ -296,12 +297,13 @@ function CetakContent() {
         .meta-table td { padding: 3px 6px; font-size: 10.5pt; }
         .meta-table td:nth-child(1), .meta-table td:nth-child(4) { width: 130px; }
         .meta-table td:nth-child(2), .meta-table td:nth-child(5) { width: 14px; }
+        .hadir-table tr { break-inside: avoid; page-break-inside: avoid; }
         .hadir-table { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
         .hadir-table th, .hadir-table td { border: 1px solid #000; padding: 5px 8px; font-size: 10.5pt; }
         .hadir-table th { background: #f0f0f0; font-weight: bold; text-align: left; }
         .hadir-table .tc { text-align: center; }
         .ttd-cell { height: 2cm; }
-        .ttd-area { display: flex; justify-content: space-between; margin-top: 28px; font-size: 11pt; }
+        .ttd-area { break-inside: avoid; page-break-inside: avoid; display: flex; justify-content: space-between; margin-top: 28px; font-size: 11pt; }
         .ttd-col { display: flex; flex-direction: column; min-width: 200px; }
         .ttd-space { height: 60px; }
         .ttd-nama { font-weight: bold; text-decoration: underline; }
