@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { tenantDb, yayasanIdDari } from '@/lib/tenant'
 import { requireRoleAktif } from '@/lib/status-akun'
+import { ambilSemuaBaris } from '@/lib/ambil-semua'
 
 interface Jadwal {
   id: string
@@ -79,27 +80,67 @@ export async function GET(req: NextRequest) {
   const modeEssayMap: Record<string, string> = {}
 
   if (mapelIds.length) {
-    const [{ data: soalPgList }, { data: soalEssayList }, { data: paketEssayList }] = await Promise.all([
-      db.from('soal').select('mapel_id, kelas_id').in('mapel_id', mapelIds).eq('status', 'DISETUJUI'),
-      db.from('soal_essay').select('mapel_id, kelas_id').in('mapel_id', mapelIds).eq('status', 'DISETUJUI'),
-      db.from('paket_essay').select('mapel_id, kelas_id, mode_jawaban, tanggal')
-        .in('mapel_id', mapelIds).eq('status', 'DISETUJUI').order('tanggal', { ascending: false }),
-    ])
+    // ── PG: ikuti PERSIS cara siswa mengerjakan ujian (siswa/ujian/validasi) ──
+    // Siswa memakai SATU paket_soal DISETUJUI (yang paling dulu dibuat) untuk
+    // mapel+kelas itu, lalu soal berstatus DISETUJUI di paket tsb. Sebelumnya
+    // soal dihitung per (mapel_id, kelas_id) dari tabel soal tanpa paging:
+    //  - PostgREST memotong diam-diam di 1000 baris -> banyak mapel tampil 0;
+    //  - kalau ada >1 paket DISETUJUI untuk kombinasi yang sama, jumlahnya
+    //    DIJUMLAHKAN sehingga nomor PG membengkak.
+    const { data: paketPgList } = await db
+      .from('paket_soal')
+      .select('id, mapel_id, kelas_id')
+      .in('mapel_id', mapelIds)
+      .eq('status', 'DISETUJUI')
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true })
 
-    for (const s of (soalPgList ?? []) as { mapel_id: string; kelas_id: string }[]) {
-      const key = buildKeySoal(s.mapel_id, idKeNamaKelas[s.kelas_id] ?? s.kelas_id)
-      jumlahPgMap[key] = (jumlahPgMap[key] ?? 0) + 1
+    const paketPgPilihan: Record<string, string> = {} // key -> paket_id terpilih
+    for (const pk of (paketPgList ?? []) as { id: string; mapel_id: string; kelas_id: string }[]) {
+      const key = buildKeySoal(pk.mapel_id, idKeNamaKelas[pk.kelas_id] ?? pk.kelas_id)
+      if (!paketPgPilihan[key]) paketPgPilihan[key] = pk.id
     }
-    for (const s of (soalEssayList ?? []) as { mapel_id: string; kelas_id: string }[]) {
-      const key = buildKeySoal(s.mapel_id, idKeNamaKelas[s.kelas_id] ?? s.kelas_id)
-      jumlahEssayMap[key] = (jumlahEssayMap[key] ?? 0) + 1
+    const paketPgIds = [...new Set(Object.values(paketPgPilihan))]
+    const jumlahPerPaketPg: Record<string, number> = {}
+    if (paketPgIds.length) {
+      const { data: soalPgRows } = await ambilSemuaBaris<{ id: string; paket_id: string }>((dari, sampai) =>
+        db.from('soal').select('id, paket_id').in('paket_id', paketPgIds).eq('status', 'DISETUJUI')
+          .order('id', { ascending: true }).range(dari, sampai)
+      )
+      for (const r of soalPgRows) jumlahPerPaketPg[r.paket_id] = (jumlahPerPaketPg[r.paket_id] ?? 0) + 1
     }
-    // Ambil mode_jawaban dari paket_essay DISETUJUI terbaru per mapel+kelas
-    // (jarang ada lebih dari satu paket disetujui untuk kombinasi yang sama,
-    // tapi kalau ada, prioritaskan yang paling baru dibuat).
-    for (const p of (paketEssayList ?? []) as { mapel_id: string; kelas_id: string; mode_jawaban: string }[]) {
-      const key = buildKeySoal(p.mapel_id, idKeNamaKelas[p.kelas_id] ?? p.kelas_id)
-      if (!modeEssayMap[key]) modeEssayMap[key] = p.mode_jawaban ?? 'DIGITAL'
+    for (const [key, paketId] of Object.entries(paketPgPilihan)) {
+      jumlahPgMap[key] = jumlahPerPaketPg[paketId] ?? 0
+    }
+
+    // ── Essay: hitung dengan paging; utamakan paket_essay DISETUJUI terbaru ──
+    const [{ data: paketEssayList }, { data: soalEssayRows }] = await Promise.all([
+      db.from('paket_essay').select('id, mapel_id, kelas_id, mode_jawaban, tanggal')
+        .in('mapel_id', mapelIds).eq('status', 'DISETUJUI').order('tanggal', { ascending: false }),
+      ambilSemuaBaris<{ id: string; mapel_id: string; kelas_id: string; paket_essay_id: string | null }>((dari, sampai) =>
+        db.from('soal_essay').select('id, mapel_id, kelas_id, paket_essay_id')
+          .in('mapel_id', mapelIds).eq('status', 'DISETUJUI')
+          .order('id', { ascending: true }).range(dari, sampai)
+      ),
+    ])
+    const paketEssayPilihan: Record<string, string> = {}
+    for (const pk of (paketEssayList ?? []) as { id: string; mapel_id: string; kelas_id: string; mode_jawaban: string }[]) {
+      const key = buildKeySoal(pk.mapel_id, idKeNamaKelas[pk.kelas_id] ?? pk.kelas_id)
+      if (!paketEssayPilihan[key]) {
+        paketEssayPilihan[key] = pk.id
+        modeEssayMap[key] = pk.mode_jawaban ?? 'DIGITAL'
+      }
+    }
+    const perPaketEssay: Record<string, number> = {}
+    const perKeyEssay: Record<string, number> = {}
+    for (const r of soalEssayRows) {
+      if (r.paket_essay_id) perPaketEssay[r.paket_essay_id] = (perPaketEssay[r.paket_essay_id] ?? 0) + 1
+      const key = buildKeySoal(r.mapel_id, idKeNamaKelas[r.kelas_id] ?? r.kelas_id)
+      perKeyEssay[key] = (perKeyEssay[key] ?? 0) + 1
+    }
+    for (const key of Object.keys(perKeyEssay)) {
+      const pid = paketEssayPilihan[key]
+      jumlahEssayMap[key] = (pid && perPaketEssay[pid]) ? perPaketEssay[pid] : perKeyEssay[key]
     }
   }
 
