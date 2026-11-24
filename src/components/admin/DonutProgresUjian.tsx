@@ -15,7 +15,7 @@ import Link from 'next/link'
 import type { LucideIcon } from 'lucide-react'
 import {
   Activity, ArrowUpRight, RefreshCw, MousePointerClick, X, Award,
-  Users, UserX, ShieldAlert, CalendarCheck, TrendingDown, Calendar,
+  Users, UserX, ShieldAlert, CalendarCheck, TrendingDown, Calendar, Hourglass,
 } from 'lucide-react'
 import { apiRequest, cn } from '@/lib/utils'
 import type { ProgresUjianResponse } from '@/app/api/admin/progres-ujian/route'
@@ -91,6 +91,37 @@ function PesanUjianSelesai() {
           sudah dikoreksi, dirilis, dan dikirim ke wali murid.
         </p>
       </div>
+    </div>
+  )
+}
+
+// Pesan singkat sisa hari ujian, mis. "4 Hari lagi ujian selesai (Rabu, Kamis, Sabtu, Senin)".
+function BannerHariTersisa({ info }: { info: ProgresUjianResponse['hariTersisa'] }) {
+  if (!info.adaJadwal) return null
+  let teks: string
+  let rincian = ''
+  if (info.jumlah === 0) {
+    teks = 'Seluruh jadwal ujian sudah terlaksana'
+  } else if (info.jumlah === 1 && info.hariIniTermasuk) {
+    teks = 'Hari ini hari terakhir ujian'
+    rincian = info.hari[0]
+  } else {
+    teks = `${info.jumlah} Hari lagi ujian selesai`
+    rincian = info.hari.join(', ')
+  }
+  return (
+    <div
+      role="status"
+      className="relative mb-3 flex items-center gap-3 overflow-hidden rounded-xl bg-gradient-to-r from-indigo-700 via-brand-700 to-violet-700 px-4 py-3 shadow-md shadow-indigo-900/20 ring-1 ring-white/10"
+    >
+      <span aria-hidden className="pointer-events-none absolute -right-8 -top-10 h-28 w-28 rounded-full bg-white/10 blur-2xl" />
+      <span className="relative flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-white/15 text-amber-300 ring-1 ring-white/20">
+        <Hourglass aria-hidden className="h-4.5 w-4.5" />
+      </span>
+      <p className="relative min-w-0 flex-1 text-sm font-extrabold leading-snug text-amber-300 sm:text-base">
+        {teks}
+        {rincian && <span className="ml-1.5 font-bold text-cyan-200">({rincian})</span>}
+      </p>
     </div>
   )
 }
@@ -237,6 +268,8 @@ export function DonutProgresUjian({ refreshKey, className }: { refreshKey: numbe
         </div>
       </div>
 
+      {data !== null && <BannerHariTersisa info={data.hariTersisa} />}
+
       {data !== null && (
         <div className="relative mb-3 rounded-xl border border-slate-100 bg-white/70 px-3 py-2">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-slate-600">
@@ -333,7 +366,7 @@ export function DonutProgresUjian({ refreshKey, className }: { refreshKey: numbe
                         filter={dipilih === s.key ? 'url(#dpu-glow)' : undefined}
                         onClick={() => pilih(s.key)}
                       >
-                        <title>{`${s.label}: ${s.jumlah} dari ${total} mapel+kelas`}</title>
+                        <title>{`${s.label}: ${s.jumlah} dari ${total} mapel`}</title>
                       </circle>
                     ))}
                   </g>
@@ -354,6 +387,7 @@ export function DonutProgresUjian({ refreshKey, className }: { refreshKey: numbe
                 {infoDipilih && r ? (
                   <>
                     <span className="text-3xl font-extrabold leading-none tabular-nums text-slate-800">{r[infoDipilih.field]}</span>
+                    <span className="text-[10px] font-medium text-slate-400">Mapel</span>
                     <span className="mt-1 px-2 text-center text-[10px] font-semibold uppercase leading-tight tracking-wide text-slate-500">
                       {infoDipilih.label}
                     </span>
@@ -365,7 +399,7 @@ export function DonutProgresUjian({ refreshKey, className }: { refreshKey: numbe
                       {persenTampil}<span className="text-xl text-slate-400">%</span>
                     </span>
                     <span className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">Selesai</span>
-                    <span className="text-[10px] tabular-nums text-slate-400">{r?.selesai}/{total} mapel+kelas</span>
+                    <span className="text-[10px] tabular-nums text-slate-400">{r?.selesai}/{total} Mapel</span>
                   </>
                 )}
               </button>
@@ -402,7 +436,9 @@ export function DonutProgresUjian({ refreshKey, className }: { refreshKey: numbe
                       >
                         <span className={cn('h-2.5 w-2.5 flex-shrink-0 rounded-full', s.titik)} />
                         <span className="min-w-0 flex-1 truncate font-medium text-slate-700">{s.label}</span>
-                        <span className="font-bold tabular-nums text-slate-800">{s.jumlah}</span>
+                        <span className="flex-shrink-0 font-bold tabular-nums text-slate-800">
+                          {s.jumlah} <span className="text-[11px] font-medium text-slate-400">Mapel</span>
+                        </span>
                       </button>
                     ))}
                   </div>
@@ -412,7 +448,7 @@ export function DonutProgresUjian({ refreshKey, className }: { refreshKey: numbe
                       <div className="mb-2 flex items-start justify-between gap-2">
                         <div className="min-w-0">
                           <p className="text-sm font-semibold text-slate-800">
-                            {infoDipilih.label} · {detail.length} mapel+kelas
+                            {infoDipilih.label} · {detail.length} Mapel
                           </p>
                           <p className="text-[11px] text-slate-400">{infoDipilih.keterangan}</p>
                         </div>

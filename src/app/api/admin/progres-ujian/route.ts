@@ -322,6 +322,22 @@ async function fetchProgresUjian(yayasanId: string) {
     .sort((a, b) => a.persen - b.persen || b.belumTuntas - a.belumTuntas)
     .slice(0, 3)
 
+  // Hari ujian tersisa: tanggal berbeda (hari ini dan sesudahnya) yang masih punya jadwal belum selesai.
+  const NAMA_HARI = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu']
+  const tanggalSisa = [...new Set(
+    jadwalList
+      .filter(j => j.status !== 'SELESAI')
+      .map(j => (j.tanggal ? String(j.tanggal).slice(0, 10) : ''))
+      .filter(t => FORMAT_TANGGAL.test(t) && t >= hariIni)
+  )].sort()
+  const hariTersisa = {
+    jumlah: tanggalSisa.length,
+    hariIniTermasuk: tanggalSisa[0] === hariIni,
+    hari: tanggalSisa.map(t => NAMA_HARI[new Date(`${t}T00:00:00Z`).getUTCDay()]),
+    tanggal: tanggalSisa,
+    adaJadwal: jadwalList.length > 0,
+  }
+
   const sesiBerjalan = sesiHidup.filter(s => s.status === 'BERJALAN').length
 
   jadwalProgres.sort((a, b) => a.tanggal.localeCompare(b.tanggal) || a.mapel.localeCompare(b.mapel) || a.kelas.localeCompare(b.kelas))
@@ -367,6 +383,7 @@ async function fetchProgresUjian(yayasanId: string) {
     perluSusulan: { siswa: nisPerluSusulan.size, jadwal: jadwalPerluSusulan.size, total: total.tidakHadir },
     pelanggaranBelumDitindak,
     hariIni: hariIniInfo,
+    hariTersisa,
     kelasTertinggal,
   }
 }
