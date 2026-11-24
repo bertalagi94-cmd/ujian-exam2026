@@ -49,7 +49,7 @@ function statusEssay(b: BarisNilaiEkspor): string {
   return b.nilai_essay != null ? 'Sudah dinilai (belum dirilis)' : 'Belum dinilai'
 }
 
-function statusLulus(b: BarisNilaiEkspor): string {
+export function statusLulus(b: BarisNilaiEkspor): string {
   const n = nilaiEfektif(b)
   if (n == null || b.kkm == null) return '-'
   return n >= b.kkm ? 'Lulus' : 'Tidak Lulus'
@@ -89,7 +89,7 @@ export function bersihkanNama(teks: string, maks = 80): string {
   return (bersih || 'Tanpa nama').slice(0, maks).trim()
 }
 
-function namaUnik(dasar: string, terpakai: Set<string>, maks: number): string {
+export function namaUnik(dasar: string, terpakai: Set<string>, maks: number): string {
   let nama = dasar.slice(0, maks).trim()
   let i = 2
   while (terpakai.has(nama.toLowerCase())) {
@@ -205,7 +205,7 @@ function bukuSatuKombo(XLSX: ModulXLSX, h: HasilKombo) {
 
 // ── Unduh ────────────────────────────────────────────────────────────────────
 
-function picuUnduh(blob: Blob, namaFile: string) {
+export function picuUnduh(blob: Blob, namaFile: string) {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url

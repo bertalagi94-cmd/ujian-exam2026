@@ -1,11 +1,11 @@
 'use client'
 
 // Unduh Massal Hasil Ujian (admin): pilih kelas × mapel yang sudah diujikan, lalu
-// unduh sekaligus dalam satu file Excel (satu sheet per kelas–mapel) atau ZIP
-// (satu file Excel per kelas–mapel). Data diambil satu kombinasi per request
+// unduh sekaligus sebagai Excel atau PDF, dalam satu file atau ZIP (satu file per
+// kelas–mapel). Data diambil satu kombinasi per request
 // supaya ringan dan ada indikator progres.
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Download, FileSpreadsheet, Archive } from 'lucide-react'
+import { Download, FileSpreadsheet, FileText, Archive, File as FileSatu } from 'lucide-react'
 import { Modal, Spinner, EmptyState } from '@/components/ui'
 import { apiRequest } from '@/lib/utils'
 import {
@@ -13,7 +13,18 @@ import {
   unduhExcelGabungan, unduhZip,
 } from '@/lib/ekspor-nilai'
 
-type FormatUnduh = 'excel' | 'zip'
+type JenisFile = 'excel' | 'pdf'
+type Kemasan = 'satu' | 'zip'
+
+// Data kop (nama sekolah, logo, alamat) untuk PDF. Gagal dimuat → PDF tetap dibuat tanpa kop lengkap.
+async function siapkanKopPdf() {
+  const { muatKop } = await import('@/lib/ekspor-nilai-pdf')
+  let p: Record<string, string> = {}
+  try { p = (await apiRequest<{ data: Record<string, string> }>(`/api/public/pengaturan?_t=${Date.now()}`)).data ?? {} } catch { /* kop tetap dibuat */ }
+  let admin = ''
+  try { admin = (JSON.parse(localStorage.getItem('user') ?? 'null') as { nama?: string } | null)?.nama || '' } catch { /* abaikan */ }
+  return muatKop(p, admin)
+}
 
 const kunciKombo = (k: KomboNilai) => `${k.kelas}\u0000${k.mapel_nama}`
 const BATAS_PARALEL = 3
@@ -27,7 +38,8 @@ export default function UnduhNilaiMassal({ open, onClose }: { open: boolean; onC
   const [filterKelas, setFilterKelas] = useState('')
   const [filterMapel, setFilterMapel] = useState('')
   const [cari, setCari] = useState('')
-  const [format, setFormat] = useState<FormatUnduh>('excel')
+  const [jenis, setJenis] = useState<JenisFile>('excel')
+  const [kemasan, setKemasan] = useState<Kemasan>('satu')
 
   const [bekerja, setBekerja] = useState(false)
   const [progres, setProgres] = useState({ selesai: 0, total: 0 })
@@ -154,7 +166,14 @@ export default function UnduhNilaiMassal({ open, onClose }: { open: boolean; onC
         return
       }
 
-      const namaFile = format === 'zip' ? await unduhZip(lengkap) : await unduhExcelGabungan(lengkap)
+      let namaFile: string
+      if (jenis === 'pdf') {
+        const pdf = await import('@/lib/ekspor-nilai-pdf')
+        const kop = await siapkanKopPdf()
+        namaFile = kemasan === 'zip' ? await pdf.unduhZipPdf(lengkap, kop) : await pdf.unduhPdfGabungan(lengkap, kop)
+      } else {
+        namaFile = kemasan === 'zip' ? await unduhZip(lengkap) : await unduhExcelGabungan(lengkap)
+      }
       const baris = lengkap.reduce((a, h) => a + h.baris.length, 0)
       setPesan({ jenis: 'ok', teks: `${namaFile} diunduh: ${lengkap.length} kelas–mapel, ${baris} data nilai.` })
     } catch (e) {
@@ -267,26 +286,57 @@ export default function UnduhNilaiMassal({ open, onClose }: { open: boolean; onC
             })}
           </div>
 
-          <fieldset className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <legend className="sr-only">Format unduhan</legend>
-            {([
-              { id: 'excel', ikon: FileSpreadsheet, judul: 'Satu file Excel', ket: 'Satu sheet per kelas–mapel, plus sheet Ringkasan dan Semua Data.' },
-              { id: 'zip', ikon: Archive, judul: 'ZIP berisi banyak Excel', ket: 'Satu file Excel per kelas–mapel, dikelompokkan per folder kelas.' },
-            ] as const).map(o => (
-              <label
-                key={o.id}
-                className={`flex items-start gap-2 rounded-lg border px-3 py-2.5 cursor-pointer ${format === o.id ? 'border-cyan-500 bg-cyan-50' : 'border-slate-200 hover:bg-slate-50'}`}
-              >
-                <input type="radio" name="format-unduh" className="mt-1" checked={format === o.id} onChange={() => setFormat(o.id)} />
-                <span>
-                  <span className="flex items-center gap-1.5 text-sm font-medium text-slate-800">
-                    <o.ikon className="w-4 h-4 text-slate-500" /> {o.judul}
+          <div className="space-y-3">
+            <fieldset className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <legend className="mb-1 text-xs font-medium text-slate-500">Jenis file</legend>
+              {([
+                { id: 'excel', ikon: FileSpreadsheet, judul: 'Excel (.xlsx)', ket: 'Untuk diolah: bisa diurutkan, dihitung, dan digabung.' },
+                { id: 'pdf', ikon: FileText, judul: 'PDF', ket: 'Untuk dicetak atau dibagikan: ada kop sekolah dan nomor halaman.' },
+              ] as const).map(o => (
+                <label
+                  key={o.id}
+                  className={`flex items-start gap-2 rounded-lg border px-3 py-2.5 cursor-pointer ${jenis === o.id ? 'border-cyan-500 bg-cyan-50' : 'border-slate-200 hover:bg-slate-50'}`}
+                >
+                  <input type="radio" name="jenis-unduh" className="mt-1" checked={jenis === o.id} onChange={() => setJenis(o.id)} />
+                  <span>
+                    <span className="flex items-center gap-1.5 text-sm font-medium text-slate-800">
+                      <o.ikon className="w-4 h-4 text-slate-500" /> {o.judul}
+                    </span>
+                    <span className="block text-xs text-slate-500 mt-0.5">{o.ket}</span>
                   </span>
-                  <span className="block text-xs text-slate-500 mt-0.5">{o.ket}</span>
-                </span>
-              </label>
-            ))}
-          </fieldset>
+                </label>
+              ))}
+            </fieldset>
+
+            <fieldset className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <legend className="mb-1 text-xs font-medium text-slate-500">Dikemas sebagai</legend>
+              {([
+                {
+                  id: 'satu', ikon: FileSatu, judul: 'Satu file',
+                  ket: jenis === 'pdf'
+                    ? 'Satu PDF: halaman ringkasan, lalu tiap kelas–mapel di halaman baru.'
+                    : 'Satu Excel: satu sheet per kelas–mapel, plus sheet Ringkasan dan Semua Data.',
+                },
+                {
+                  id: 'zip', ikon: Archive, judul: 'ZIP, satu file per kelas–mapel',
+                  ket: `Setiap kelas–mapel jadi file ${jenis === 'pdf' ? 'PDF' : 'Excel'} sendiri, dikelompokkan per folder kelas.`,
+                },
+              ] as const).map(o => (
+                <label
+                  key={o.id}
+                  className={`flex items-start gap-2 rounded-lg border px-3 py-2.5 cursor-pointer ${kemasan === o.id ? 'border-cyan-500 bg-cyan-50' : 'border-slate-200 hover:bg-slate-50'}`}
+                >
+                  <input type="radio" name="kemasan-unduh" className="mt-1" checked={kemasan === o.id} onChange={() => setKemasan(o.id)} />
+                  <span>
+                    <span className="flex items-center gap-1.5 text-sm font-medium text-slate-800">
+                      <o.ikon className="w-4 h-4 text-slate-500" /> {o.judul}
+                    </span>
+                    <span className="block text-xs text-slate-500 mt-0.5">{o.ket}</span>
+                  </span>
+                </label>
+              ))}
+            </fieldset>
+          </div>
 
           {bekerja && (
             <div>
