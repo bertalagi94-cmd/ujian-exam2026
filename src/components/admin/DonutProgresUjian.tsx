@@ -15,7 +15,7 @@ import Link from 'next/link'
 import type { LucideIcon } from 'lucide-react'
 import {
   Activity, ArrowUpRight, RefreshCw, MousePointerClick, X, Award,
-  Users, UserX, ShieldAlert, CalendarCheck, TrendingDown,
+  Users, UserX, ShieldAlert, CalendarCheck, TrendingDown, Calendar,
 } from 'lucide-react'
 import { apiRequest, cn } from '@/lib/utils'
 import type { ProgresUjianResponse } from '@/app/api/admin/progres-ujian/route'
@@ -101,6 +101,9 @@ export function DonutProgresUjian({ refreshKey, className }: { refreshKey: numbe
   const [memuat, setMemuat] = useState(true)
   const [dipilih, setDipilih] = useState<StatusKey | null>(null)
   const [tergambar, setTergambar] = useState(false)
+  const [tanggalInput, setTanggalInput] = useState('')
+  const [menyimpan, setMenyimpan] = useState(false)
+  const [galatSimpan, setGalatSimpan] = useState<string | null>(null)
   const urutan = useRef(0)
 
   const muat = useCallback(async () => {
@@ -123,6 +126,27 @@ export function DonutProgresUjian({ refreshKey, className }: { refreshKey: numbe
 
   // Dimuat saat pertama muncul dan setiap `refreshKey` berubah (tab diklik).
   useEffect(() => { muat() }, [muat, refreshKey])
+
+  // Kolom tanggal mengikuti nilai tersimpan di server setiap data dimuat.
+  const periodeTersimpan = data?.periodeMulai ?? ''
+  useEffect(() => { setTanggalInput(periodeTersimpan) }, [periodeTersimpan])
+
+  // Simpan tanggal mulai periode ujian ('' = hapus batas), lalu muat ulang data.
+  const simpanPeriode = async (nilai: string) => {
+    setMenyimpan(true)
+    setGalatSimpan(null)
+    try {
+      await apiRequest('/api/admin/progres-ujian', {
+        method: 'PUT',
+        body: JSON.stringify({ mulai: nilai || null }),
+      })
+      await muat()
+    } catch (e) {
+      setGalatSimpan(e instanceof Error ? e.message : 'Gagal menyimpan tanggal.')
+    } finally {
+      setMenyimpan(false)
+    }
+  }
 
   const r = data?.ringkasan
   const total = r?.total ?? 0
@@ -213,6 +237,51 @@ export function DonutProgresUjian({ refreshKey, className }: { refreshKey: numbe
           </Link>
         </div>
       </div>
+
+      {data !== null && (
+        <div className="relative mb-3 rounded-xl border border-slate-100 bg-white/70 px-3 py-2">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-slate-600">
+            <label htmlFor="dpu-mulai" className="inline-flex items-center gap-1.5 font-medium">
+              <Calendar aria-hidden className="h-3.5 w-3.5 text-slate-400" />
+              Periode ujian dihitung mulai
+            </label>
+            <input
+              id="dpu-mulai"
+              type="date"
+              value={tanggalInput}
+              onChange={e => setTanggalInput(e.target.value)}
+              className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700"
+            />
+            <button
+              type="button"
+              onClick={() => simpanPeriode(tanggalInput)}
+              disabled={menyimpan || tanggalInput === periodeTersimpan}
+              className="rounded-lg bg-brand-600 px-2.5 py-1 font-medium text-white transition-colors hover:bg-brand-700 disabled:opacity-40"
+            >
+              {menyimpan ? 'Menyimpan…' : 'Terapkan'}
+            </button>
+            {periodeTersimpan && (
+              <button
+                type="button"
+                onClick={() => simpanPeriode('')}
+                disabled={menyimpan}
+                className="font-medium text-slate-500 underline-offset-2 hover:underline disabled:opacity-40"
+              >
+                Hapus batas
+              </button>
+            )}
+          </div>
+          <p className="mt-1.5 text-[11px] leading-snug text-slate-400">
+            {periodeTersimpan
+              ? 'Jadwal dan nilai sebelum tanggal ini tidak dihitung (mis. sisa simulasi).'
+              : 'Belum diatur: semua jadwal dan riwayat ikut dihitung, termasuk sisa simulasi. Isi tanggal hari pertama ujian sungguhan.'}
+            {data.riwayatSelesai > 0 && (
+              <> Termasuk <b className="text-slate-500">{data.riwayatSelesai}</b> ujian siswa dari jadwal yang sudah dihapus.</>
+            )}
+          </p>
+          {galatSimpan && <p className="mt-1 text-[11px] text-rose-600">{galatSimpan}</p>}
+        </div>
+      )}
 
       {data === null && !galat ? (
         <div className="flex h-72 items-center justify-center">
@@ -367,7 +436,7 @@ export function DonutProgresUjian({ refreshKey, className }: { refreshKey: numbe
                               <span className="font-medium text-slate-700">{j.mapel}</span>
                               <span className="text-slate-400"> · {j.kelas}</span>
                               <div className="truncate text-[11px] text-slate-400">
-                                {formatTanggalPendek(j.tanggal)}{j.sesi ? ` · sesi ${j.sesi}` : ''}
+                                {formatTanggalPendek(j.tanggal)}{j.sesi ? ` · sesi ${j.sesi}` : ''}{j.riwayat ? ' · jadwal sudah dihapus' : ''}
                               </div>
                             </div>
                             <span className="flex-shrink-0 rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold tabular-nums text-slate-500 ring-1 ring-slate-200">
