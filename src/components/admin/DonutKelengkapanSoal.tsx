@@ -34,7 +34,7 @@ const KELILING = 2 * Math.PI * R
 const CELAH = 3 // jarak antar segmen (satuan keliling)
 
 // Angka yang menghitung naik dengan easing.
-function useHitungNaik(target: number, durasi = 1400) {
+export function useHitungNaik(target: number, durasi = 1400) {
   const [nilai, setNilai] = useState(0)
   const awal = useRef(0)
   useEffect(() => {

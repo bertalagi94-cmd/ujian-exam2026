@@ -9,7 +9,7 @@ import {
 import { PageLoader, StatusBadge } from '@/components/ui'
 import { apiRequest, cn, nilaiColor, fetchPublik } from '@/lib/utils'
 import { SesiBelumDitutupAdmin } from '@/components/shared/SesiBelumDitutupAdmin'
-import { DonutKelengkapanSoal } from '@/components/admin/DonutKelengkapanSoal'
+import { PanelProgresBeranda } from '@/components/admin/PanelProgresBeranda'
 
 interface DashboardData {
   stats: {
@@ -169,7 +169,7 @@ export default function AdminDashboard() {
       {/* Sesi yang sudah lewat waktunya tapi belum ditutup pengawas (null jika tidak ada) */}
       <SesiBelumDitutupAdmin />
 
-      {/* Kartu informasi ramping di kiri + diagram kelengkapan soal di kanan */}
+      {/* Kartu informasi ramping di kiri + panel progres (tab Progres Soal / Progres Ujian) di kanan */}
       <div className="grid gap-4 lg:grid-cols-[230px_1fr] lg:items-start">
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-1">
         <DashCard label="Total Siswa" value={stats?.totalSiswa ?? 0} icon={GraduationCap} gradient="from-brand-500 to-brand-700" />
@@ -183,7 +183,7 @@ export default function AdminDashboard() {
         <DashCard label="Rata-rata Nilai" value={`${stats?.rataRataNilai ?? 0}`} icon={BarChart3} gradient="from-rose-500 to-pink-600" sub="Semua ujian" className="col-span-2 sm:col-span-1" />
       </div>
 
-      <DonutKelengkapanSoal />
+      <PanelProgresBeranda />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
