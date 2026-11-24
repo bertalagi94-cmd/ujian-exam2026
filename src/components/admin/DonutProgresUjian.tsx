@@ -1,9 +1,9 @@
 'use client'
 
 // ── Diagram donat "Progres Ujian" (tab kedua di beranda admin) ───────────────
-// Sumber data: /api/admin/progres-ujian. Satu "unit" = ujian seorang siswa pada
-// satu jadwal (siswa × jadwal). Persentase = unit SELESAI / seluruh unit, jadi
-// 100% hanya tercapai bila semua siswa sudah mengikuti semua ujian terjadwal.
+// Sumber data: /api/admin/progres-ujian. Satu "unit" = satu kombinasi mapel + kelas
+// (sama seperti donat Progres Soal). Persentase = mapel+kelas SELESAI / seluruh
+// mapel+kelas; satu mapel+kelas selesai bila semua pesertanya sudah ujian.
 //
 // Data TIDAK dimuat otomatis berulang: dimuat saat tab dibuka, setiap tab
 // diklik lagi (lewat `refreshKey`), atau lewat tombol "Muat ulang".
@@ -29,11 +29,11 @@ const SEGMEN: {
   key: StatusKey; field: FieldHitung; label: string
   warna: [string, string]; titik: string; keterangan: string
 }[] = [
-  { key: 'SELESAI',     field: 'selesai',     label: 'Selesai',            warna: ['#34d399', '#059669'], titik: 'bg-emerald-500', keterangan: 'Sudah menyelesaikan ujian' },
-  { key: 'MENGERJAKAN', field: 'mengerjakan', label: 'Sedang Mengerjakan', warna: ['#60a5fa', '#2563eb'], titik: 'bg-blue-500',    keterangan: 'Sedang mengerjakan pada sesi yang berjalan' },
-  { key: 'TIDAK_HADIR', field: 'tidakHadir',  label: 'Tidak Hadir',        warna: ['#fbbf24', '#d97706'], titik: 'bg-amber-500',   keterangan: 'Jadwal sudah selesai tetapi belum mengikuti — perlu susulan' },
-  { key: 'TERKUNCI',    field: 'terkunci',    label: 'Terkunci',           warna: ['#fb7185', '#e11d48'], titik: 'bg-rose-500',    keterangan: 'Terkunci karena pelanggaran, menunggu dibuka pengawas' },
-  { key: 'BELUM_MULAI', field: 'belumMulai',  label: 'Belum Mulai',        warna: ['#cbd5e1', '#94a3b8'], titik: 'bg-slate-400',   keterangan: 'Jadwalnya belum dilaksanakan atau siswa belum memulai' },
+  { key: 'SELESAI',     field: 'selesai',     label: 'Selesai',            warna: ['#34d399', '#059669'], titik: 'bg-emerald-500', keterangan: 'Semua siswa mapel + kelas ini sudah selesai ujian' },
+  { key: 'MENGERJAKAN', field: 'mengerjakan', label: 'Sedang Mengerjakan', warna: ['#60a5fa', '#2563eb'], titik: 'bg-blue-500',    keterangan: 'Ada siswa yang sedang mengerjakan pada sesi yang berjalan' },
+  { key: 'TIDAK_HADIR', field: 'tidakHadir',  label: 'Tidak Hadir',        warna: ['#fbbf24', '#d97706'], titik: 'bg-amber-500',   keterangan: 'Ada siswa yang tidak mengikuti ujian — perlu susulan' },
+  { key: 'TERKUNCI',    field: 'terkunci',    label: 'Terkunci',           warna: ['#fb7185', '#e11d48'], titik: 'bg-rose-500',    keterangan: 'Ada siswa terkunci karena pelanggaran, menunggu dibuka pengawas' },
+  { key: 'BELUM_MULAI', field: 'belumMulai',  label: 'Belum Mulai',        warna: ['#cbd5e1', '#94a3b8'], titik: 'bg-slate-400',   keterangan: 'Ujiannya belum dilaksanakan atau siswa belum memulai' },
 ]
 
 const R = 84
@@ -87,7 +87,7 @@ function PesanUjianSelesai() {
         </span>
         <h3 className="text-2xl font-extrabold leading-tight text-slate-800">Seluruh ujian telah selesai</h3>
         <p className="mx-auto mt-2 max-w-lg text-sm leading-relaxed text-slate-600">
-          Semua siswa sudah mengikuti seluruh ujian yang dijadwalkan. Langkah berikutnya: pastikan nilai
+          Semua mapel di seluruh kelas sudah selesai diujikan. Langkah berikutnya: pastikan nilai
           sudah dikoreksi, dirilis, dan dikirim ke wali murid.
         </p>
       </div>
@@ -170,10 +170,9 @@ export function DonutProgresUjian({ refreshKey, className }: { refreshKey: numbe
   const infoDipilih = SEGMEN.find(s => s.key === dipilih)
   const detail = useMemo(() => {
     if (!infoDipilih || !data) return []
-    return data.jadwal
-      .map(j => ({ ...j, jumlah: j[infoDipilih.field] }))
-      .filter(j => j.jumlah > 0)
-      .sort((a, b) => b.jumlah - a.jumlah || a.tanggal.localeCompare(b.tanggal))
+    return data.unit
+      .filter(u => u.status === infoDipilih.key)
+      .sort((a, b) => a.tanggal.localeCompare(b.tanggal) || a.mapel.localeCompare(b.mapel))
   }, [infoDipilih, data])
 
   const pilih = (k: StatusKey) => setDipilih(prev => (prev === k ? null : k))
@@ -216,7 +215,7 @@ export function DonutProgresUjian({ refreshKey, className }: { refreshKey: numbe
           <div className="min-w-0">
             <h2 className="font-semibold leading-tight text-slate-900">Progres Ujian</h2>
             <p className="text-xs text-slate-400">
-              Ujian siswa per jadwal · klik diagram untuk detail
+              Per mapel + kelas · klik diagram untuk detail
               {jamDiperbarui && <> · diperbarui {jamDiperbarui}</>}
             </p>
           </div>
@@ -271,14 +270,6 @@ export function DonutProgresUjian({ refreshKey, className }: { refreshKey: numbe
               </button>
             )}
           </div>
-          <p className="mt-1.5 text-[11px] leading-snug text-slate-400">
-            {periodeTersimpan
-              ? 'Jadwal dan nilai sebelum tanggal ini tidak dihitung (mis. sisa simulasi).'
-              : 'Belum diatur: semua jadwal dan riwayat ikut dihitung, termasuk sisa simulasi. Isi tanggal hari pertama ujian sungguhan.'}
-            {data.riwayatSelesai > 0 && (
-              <> Termasuk <b className="text-slate-500">{data.riwayatSelesai}</b> ujian siswa dari jadwal yang sudah dihapus.</>
-            )}
-          </p>
           {galatSimpan && <p className="mt-1 text-[11px] text-rose-600">{galatSimpan}</p>}
         </div>
       )}
@@ -342,7 +333,7 @@ export function DonutProgresUjian({ refreshKey, className }: { refreshKey: numbe
                         filter={dipilih === s.key ? 'url(#dpu-glow)' : undefined}
                         onClick={() => pilih(s.key)}
                       >
-                        <title>{`${s.label}: ${s.jumlah} dari ${total} ujian siswa`}</title>
+                        <title>{`${s.label}: ${s.jumlah} dari ${total} mapel+kelas`}</title>
                       </circle>
                     ))}
                   </g>
@@ -374,7 +365,7 @@ export function DonutProgresUjian({ refreshKey, className }: { refreshKey: numbe
                       {persenTampil}<span className="text-xl text-slate-400">%</span>
                     </span>
                     <span className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">Selesai</span>
-                    <span className="text-[10px] tabular-nums text-slate-400">{r?.selesai}/{total} ujian siswa</span>
+                    <span className="text-[10px] tabular-nums text-slate-400">{r?.selesai}/{total} mapel+kelas</span>
                   </>
                 )}
               </button>
@@ -421,7 +412,7 @@ export function DonutProgresUjian({ refreshKey, className }: { refreshKey: numbe
                       <div className="mb-2 flex items-start justify-between gap-2">
                         <div className="min-w-0">
                           <p className="text-sm font-semibold text-slate-800">
-                            {infoDipilih.label} · {detail.length} jadwal
+                            {infoDipilih.label} · {detail.length} mapel+kelas
                           </p>
                           <p className="text-[11px] text-slate-400">{infoDipilih.keterangan}</p>
                         </div>
@@ -436,11 +427,11 @@ export function DonutProgresUjian({ refreshKey, className }: { refreshKey: numbe
                               <span className="font-medium text-slate-700">{j.mapel}</span>
                               <span className="text-slate-400"> · {j.kelas}</span>
                               <div className="truncate text-[11px] text-slate-400">
-                                {formatTanggalPendek(j.tanggal)}{j.sesi ? ` · sesi ${j.sesi}` : ''}{j.riwayat ? ' · jadwal sudah dihapus' : ''}
+                                {formatTanggalPendek(j.tanggal)}{j.jumlahJadwal > 1 ? ` · ${j.jumlahJadwal} jadwal` : ''}
                               </div>
                             </div>
                             <span className="flex-shrink-0 rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold tabular-nums text-slate-500 ring-1 ring-slate-200">
-                              {j.jumlah} siswa
+                              {j.selesai}/{j.total} siswa
                             </span>
                           </div>
                         ))}

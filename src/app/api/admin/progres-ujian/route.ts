@@ -12,7 +12,15 @@ import { bangunPenyaringPeserta } from '@/lib/agama'
 //
 // GET hanya membaca. PUT hanya menulis satu kunci pengaturan (ujian_mulai_periode).
 //
-// SATUAN HITUNG = "ujian siswa": satu siswa pada satu jadwal ujian.
+// SATUAN HITUNG diagram donat = satu kombinasi MAPEL + KELAS (sama seperti donat
+// Progres Soal). Status satu mapel+kelas dirangkum dari ujian siswanya:
+//   SELESAI      semua peserta sudah selesai
+//   MENGERJAKAN  ada peserta yang sedang mengerjakan
+//   TERKUNCI     ada peserta terkunci (dan tidak ada yang mengerjakan)
+//   TIDAK_HADIR  ada peserta tidak hadir (perlu susulan)
+//   BELUM_MULAI  selebihnya
+// Angka per siswa (sedang ujian, perlu susulan, kelas tertinggal) tetap dihitung
+// per "ujian siswa" = satu siswa pada satu jadwal, seperti di bawah ini.
 //
 // A) JADWAL YANG MASIH ADA (status AKTIF / BERJALAN / SELESAI)
 //   penyebut  = untuk setiap jadwal, semua siswa AKTIF non-tester di kelas jadwal
@@ -242,6 +250,7 @@ async function fetchProgresUjian(yayasanId: string) {
     if (h.total > 0) {
       jadwalProgres.push({
         id: j.id,
+        mapelId: j.mapel_id,
         mapel: namaMapel.get(j.mapel_id) ?? j.mapel_id,
         kelas: j.kelas,
         tanggal,
@@ -275,11 +284,9 @@ async function fetchProgresUjian(yayasanId: string) {
     r.nis.add(nis)
   }
 
-  let riwayatSelesai = 0
   for (const [kombo, r] of riwayat) {
     const jumlah = r.nis.size
     if (jumlah === 0) continue
-    riwayatSelesai += jumlah
     total.total += jumlah
     total.selesai += jumlah
     if (!perKelasLewat.has(r.kelas)) perKelasLewat.set(r.kelas, kosong())
@@ -289,6 +296,7 @@ async function fetchProgresUjian(yayasanId: string) {
     if (r.tanggal === hariIni) { hariIniInfo.total++; hariIniInfo.selesai++ }
     jadwalProgres.push({
       id: `riwayat:${kombo}`,
+      mapelId: r.mapelId,
       mapel: namaMapel.get(r.mapelId) ?? r.mapelId,
       kelas: r.kelas,
       tanggal: r.tanggal,
@@ -318,17 +326,48 @@ async function fetchProgresUjian(yayasanId: string) {
 
   jadwalProgres.sort((a, b) => a.tanggal.localeCompare(b.tanggal) || a.mapel.localeCompare(b.mapel) || a.kelas.localeCompare(b.kelas))
 
+  // ── 7. Rangkum per MAPEL + KELAS (satuan donat) ────────────────────────────
+  const unitMap = new Map<string, UnitMapel>()
+  for (const j of jadwalProgres) {
+    const kunci = `${j.mapelId}|${j.kelas}`
+    let u = unitMap.get(kunci)
+    if (!u) {
+      u = { id: kunci, mapel: j.mapel, kelas: j.kelas, tanggal: j.tanggal, jumlahJadwal: 0, status: 'BELUM_MULAI', ...kosong() }
+      unitMap.set(kunci, u)
+    }
+    u.jumlahJadwal++
+    if (j.tanggal && (!u.tanggal || j.tanggal < u.tanggal)) u.tanggal = j.tanggal
+    u.total += j.total
+    u.selesai += j.selesai
+    u.mengerjakan += j.mengerjakan
+    u.belumMulai += j.belumMulai
+    u.terkunci += j.terkunci
+    u.tidakHadir += j.tidakHadir
+  }
+  const unit = [...unitMap.values()]
+  const ringkasanMapel = kosong()
+  for (const u of unit) {
+    u.status =
+      u.total > 0 && u.selesai === u.total ? 'SELESAI'
+      : u.mengerjakan > 0 ? 'MENGERJAKAN'
+      : u.terkunci > 0 ? 'TERKUNCI'
+      : u.tidakHadir > 0 ? 'TIDAK_HADIR'
+      : 'BELUM_MULAI'
+    tambah(ringkasanMapel, u.status)
+  }
+  unit.sort((a, b) => a.tanggal.localeCompare(b.tanggal) || a.mapel.localeCompare(b.mapel) || a.kelas.localeCompare(b.kelas))
+
   return {
     generatedAt: new Date().toISOString(),
     periodeMulai,
-    riwayatSelesai,
-    ringkasan: { ...total, persen: total.total ? Math.round((total.selesai / total.total) * 100) : 0 },
+    // Donat + legenda: dihitung per mapel+kelas.
+    ringkasan: { ...ringkasanMapel, persen: ringkasanMapel.total ? Math.round((ringkasanMapel.selesai / ringkasanMapel.total) * 100) : 0 },
+    unit,
     sedangUjian: { siswa: total.mengerjakan, sesi: sesiBerjalan },
     perluSusulan: { siswa: nisPerluSusulan.size, jadwal: jadwalPerluSusulan.size, total: total.tidakHadir },
     pelanggaranBelumDitindak,
     hariIni: hariIniInfo,
     kelasTertinggal,
-    jadwal: jadwalProgres,
   }
 }
 
@@ -336,6 +375,7 @@ export type ProgresUjianResponse = Awaited<ReturnType<typeof fetchProgresUjian>>
 
 export interface JadwalProgres extends Hitungan {
   id: string
+  mapelId: string
   mapel: string
   kelas: string
   tanggal: string
@@ -343,6 +383,16 @@ export interface JadwalProgres extends Hitungan {
   status: string
   /** true = ujian ini jadwalnya sudah dihapus; dihitung dari riwayat sesi + nilai. */
   riwayat: boolean
+}
+
+export interface UnitMapel extends Hitungan {
+  id: string
+  mapel: string
+  kelas: string
+  /** Tanggal jadwal paling awal untuk mapel+kelas ini. */
+  tanggal: string
+  jumlahJadwal: number
+  status: StatusUjianSiswa
 }
 
 export interface KelasTertinggal {
