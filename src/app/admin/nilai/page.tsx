@@ -1,10 +1,11 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { Download, BarChart3, RotateCcw } from 'lucide-react'
+import { Download, BarChart3, RotateCcw, Files } from 'lucide-react'
 import { PageLoader, EmptyState, Spinner, Pagination, SearchInput, Modal } from '@/components/ui'
 import { apiRequest, formatDateTime, nilaiColor } from '@/lib/utils'
 import { Nilai, Mapel, Kelas } from '@/types'
+import UnduhNilaiMassal from '@/components/admin/UnduhNilaiMassal'
 
 const PER_PAGE = 30
 
@@ -21,6 +22,7 @@ export default function AdminNilaiPage() {
   const [resetTarget, setResetTarget] = useState<Nilai | null>(null)
   const [resetting, setResetting] = useState(false)
   const [resetMsg, setResetMsg] = useState('')
+  const [unduhMassalOpen, setUnduhMassalOpen] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -151,9 +153,14 @@ export default function AdminNilaiPage() {
           <h1 className="page-title">Rekap Nilai</h1>
           <p className="page-subtitle">{total} data nilai ujian</p>
         </div>
-        <button onClick={exportCSV} className="btn-secondary btn-sm">
-          <Download className="w-4 h-4" /> Export CSV
-        </button>
+        <div className="flex gap-2 flex-wrap">
+          <button onClick={() => setUnduhMassalOpen(true)} className="btn-primary btn-sm">
+            <Files className="w-4 h-4" /> Unduh Massal
+          </button>
+          <button onClick={exportCSV} className="btn-secondary btn-sm" title="Hanya data yang tampil di halaman ini">
+            <Download className="w-4 h-4" /> Export CSV
+          </button>
+        </div>
       </div>
 
       {/* Summary row */}
@@ -270,6 +277,8 @@ export default function AdminNilaiPage() {
             onPage={setPage} total={total} perPage={PER_PAGE} />
         </div>
       </div>
+
+      <UnduhNilaiMassal open={unduhMassalOpen} onClose={() => setUnduhMassalOpen(false)} />
 
       <Modal
         open={!!resetTarget}
